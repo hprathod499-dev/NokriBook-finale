@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.nokribook.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.nokribook.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    // WebViewAssetLoader — serves the bundled HTML/JS/CSS over a proper
+    // https:// virtual origin (https://appassets.androidplatform.net/)
+    // instead of a raw file:// URL, which is what lets Firebase Auth,
+    // Firestore, and Google Identity Services all work correctly from
+    // inside the WebView (file:// origins are blocked or heavily
+    // restricted by exactly the kind of network/storage calls this app
+    // depends on).
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
