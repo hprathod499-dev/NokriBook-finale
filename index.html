@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Nokri Book</title>
+<title>Console</title>
 <link rel="manifest" href="./manifest.json" />
 <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
 <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16.png" />
@@ -13,7 +13,9 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Nokri Book" />
+<meta name="apple-mobile-web-app-title" content="Console" />
+<meta name="application-name" content="Console" />
+<meta name="description" content="Console" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=Noto+Sans+Gujarati:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
@@ -2141,6 +2143,19 @@ function DutyRoster() {
     if (!interactive) { reject(new Error("No cached Drive token — skipping silent renewal to avoid an unexpected sign-in popup")); return; }
     const client = getDriveTokenClient();
     if (!client) { reject(new Error("Google Drive isn't set up for this app yet")); return; }
+    // Reconnecting after the app was closed (or the tab's session token
+    // expired) doesn't mean access was actually revoked — Google still
+    // remembers this app was granted drive.file permission, it's only the
+    // short-lived access token that's gone. So even on a user-initiated
+    // (interactive) reconnect, try a silent, no-dialog renewal first: if
+    // the browser still has an active Google session, this reuses the
+    // existing grant and returns a token with no popup at all — that's
+    // what makes reconnecting feel instant instead of repeating full
+    // account-chooser + permission-review screens every reopen. Only if
+    // that silent attempt actually fails (session logged out, consent was
+    // revoked, third-party cookies blocked, etc.) do we fall back to the
+    // real consent prompt, since at that point Google does need the user.
+    let triedSilent = false;
     client.callback = (resp) => {
       if (resp && resp.access_token) {
         // expires_in is in seconds; keep a 5-minute safety margin.
@@ -2149,10 +2164,20 @@ function DutyRoster() {
         driveTokenCacheRef.current = cacheEntry;
         try { sessionStorage.setItem("nb_drive_token_cache", JSON.stringify(cacheEntry)); } catch (e) { /* private browsing / storage full — the in-memory cache still works for this tab's current lifetime */ }
         resolve(resp.access_token);
+      } else if (!triedSilent) {
+        triedSilent = true;
+        try { client.requestAccessToken({ prompt: "consent" }); }
+        catch (e) { reject(e); }
       } else reject(new Error("No access token returned"));
     };
-    client.error_callback = (err) => reject(err || new Error("Google sign-in failed"));
-    try { client.requestAccessToken({ prompt: interactive ? "consent" : "" }); }
+    client.error_callback = (err) => {
+      if (!triedSilent) {
+        triedSilent = true;
+        try { client.requestAccessToken({ prompt: "consent" }); }
+        catch (e) { reject(e); }
+      } else reject(err || new Error("Google sign-in failed"));
+    };
+    try { client.requestAccessToken({ prompt: "" }); }
     catch (e) { reject(e); }
   });
 
