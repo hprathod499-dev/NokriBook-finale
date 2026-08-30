@@ -4907,6 +4907,14 @@ function StaffView({
   // is otherwise the exact same form.
   const [modalMode, setModalMode] = useState("new");
   const [manageLeaveMenuFor, setManageLeaveMenuFor] = useState(null);
+  // Manage Staff's row actions default to just the ✎ edit icon — Call,
+  // WhatsApp, and the ✕ remove-entirely icon are all hidden until this is
+  // switched on, same pattern as the "Edit"/"Done editing" toggle a work
+  // type's own roster already uses for its own remove button. Keeps the
+  // row compact and harder to misclick a destructive action on, while the
+  // full set is still one tap away via this toggle whenever actually
+  // needed.
+  const [showFullActions, setShowFullActions] = useState(false);
   const [newLeaveLabel, setNewLeaveLabel] = useState("");
   const [newLeaveIndefinite, setNewLeaveIndefinite] = useState(false);
   const [newOutLabel, setNewOutLabel] = useState("");
@@ -5021,9 +5029,19 @@ function StaffView({
 
   return (
     <React.Fragment>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20 }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20, gap: 4 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
+        <button
+          onClick={() => setShowFullActions((v) => !v)}
+          title={t("Show Call, WhatsApp, and Remove entirely for each person in the table below", "નીચેના કોષ્ટકમાં દરેક વ્યક્તિ માટે કૉલ, WhatsApp અને સંપૂર્ણપણે કાઢી નાખો બતાવો")}
+          style={{
+            marginLeft: 6, fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
+            background: showFullActions ? "#D98E2B" : "var(--bg-surface)",
+            color: showFullActions ? "#fff" : "var(--text-secondary)",
+            border: "1px solid " + (showFullActions ? "#D98E2B" : "var(--border)"),
+          }} className="gu"
+        >{t("Edit staff", "સ્ટાફ સંપાદિત કરો")}</button>
       </div>
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
@@ -5092,7 +5110,7 @@ function StaffView({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Work types", "કામના પ્રકારો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
+              <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
             </tr>
           </thead>
           <tbody>
@@ -5120,13 +5138,6 @@ function StaffView({
                       style={{ color: DUTY_HEAT_COLOR[heat], fontWeight: heat === "green" ? 400 : 600, cursor: "pointer", borderBottom: "1px dashed currentColor" }}
                     >{s.name}</span>
                   </td>
-                  <td style={{ ...td, minWidth: 120 }} className="mono">
-                    {s.phone ? (
-                      <span onClick={() => setStaffPhone(s.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{s.phone}</span>
-                    ) : (
-                      <button onClick={() => setStaffPhone(s.number)} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "underline", padding: 0 }} className="gu">+ {t("Add number", "નંબર ઉમેરો")}</button>
-                    )}
-                  </td>
                   <td style={{ ...td, minWidth: 140 }}>
                     <select
                       value={s.designation || ""}
@@ -5140,7 +5151,13 @@ function StaffView({
                       ))}
                     </select>
                   </td>
-                  <td style={{ ...td, fontSize: 12, color: "var(--text-secondary)" }}>{s.cats.join(", ") || "—"}</td>
+                  <td style={{ ...td, minWidth: 120 }} className="mono">
+                    {s.phone ? (
+                      <span onClick={() => setStaffPhone(s.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{s.phone}</span>
+                    ) : (
+                      <button onClick={() => setStaffPhone(s.number)} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "underline", padding: 0 }} className="gu">+ {t("Add number", "નંબર ઉમેરો")}</button>
+                    )}
+                  </td>
                   <td style={td}>
                     <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{label}</span>
                     {s.unavailable && (
@@ -5212,19 +5229,21 @@ function StaffView({
                       <button onClick={() => setPresentEverywhere(s.number)} title={t("Clear Skip and set back to Present", "સ્કિપ સાફ કરો અને પાછું હાજર કરો")} style={{ ...iconBtnWide, marginLeft: 4, borderColor: "var(--status-success-border)", color: "var(--status-success-text)" }} className="gu">{t("Set Present", "હાજર કરો")}</button>
                     )}
                     <button onClick={() => renameStaff(s.number)} title={t("Edit name", "નામ સંપાદિત કરો")} aria-label={t("Edit name", "નામ સંપાદિત કરો")} style={{ ...iconBtn, marginLeft: 4 }}>✎</button>
-                    {s.phone && (
+                    {showFullActions && s.phone && (
                       <a href={`tel:${s.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ ...iconBtn, marginLeft: 4, textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>📞</a>
                     )}
-                    {s.phone && (
+                    {showFullActions && s.phone && (
                       <button onClick={() => shareDutyOnWhatsApp({ lang, name: s.name, number: s.number, catLabel: s.cats[0] || "", phone: s.phone, kind: "assigned" })} title={t("Message on WhatsApp", "WhatsApp પર સંદેશ મોકલો")} aria-label={t("Message on WhatsApp", "WhatsApp પર સંદેશ મોકલો")} style={{ ...iconBtn, marginLeft: 4 }}>📲</button>
                     )}
-                    <button onClick={() => deleteStaffGlobally(s.number)} title={t("Remove entirely", "સંપૂર્ણપણે કાઢી નાખો")} aria-label={t("Remove entirely", "સંપૂર્ણપણે કાઢી નાખો")} style={{ ...iconBtn, marginLeft: 4 }}>✕</button>
+                    {showFullActions && (
+                      <button onClick={() => deleteStaffGlobally(s.number)} title={t("Remove entirely", "સંપૂર્ણપણે કાઢી નાખો")} aria-label={t("Remove entirely", "સંપૂર્ણપણે કાઢી નાખો")} style={{ ...iconBtn, marginLeft: 4 }}>✕</button>
+                    )}
                   </td>
                 </tr>
               );
             })}
             {filteredStaffList.length === 0 && (
-              <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{staffList.length === 0 ? t("No staff yet.", "હજુ કોઈ સ્ટાફ નથી.") : t("No match for that search.", "તે શોધ માટે કોઈ મેળ મળ્યો નથી.")}</td></tr>
+              <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{staffList.length === 0 ? t("No staff yet.", "હજુ કોઈ સ્ટાફ નથી.") : t("No match for that search.", "તે શોધ માટે કોઈ મેળ મળ્યો નથી.")}</td></tr>
             )}
           </tbody>
         </table>
