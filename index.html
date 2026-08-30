@@ -3200,6 +3200,34 @@ function DutyRoster() {
     );
     persist({ ...dataRef.current, staff: { ...data.staff, [number]: { ...prevRec, unavailable: null, unavailableHistory: history } } });
   };
+  // "Change duration" — adjusts the dates of the CURRENTLY ACTIVE leave/
+  // outstation period specifically (not a new, separate period). This is
+  // deliberately a different function from setUnavailable rather than
+  // just calling it again with new dates: setUnavailable always APPENDS
+  // a fresh entry to unavailableHistory, which is correct when logging a
+  // genuinely new period, but would leave the old (pre-edit) entry still
+  // sitting in history if used to edit an existing one — showing the
+  // same leave twice on the calendar with two different date ranges.
+  // This instead finds the specific history entry matching the current
+  // active period and replaces it in place.
+  const changeUnavailableDuration = (number, kind, typeId, from, to) => {
+    const list = kind === "Leave" ? data.leaveTypes : data.outstationTypes;
+    const found = (list || []).find((t) => t.id === typeId);
+    const isIndefinite = !!(found && found.indefinite);
+    if (!from) { showToast(t("Pick a start date", "શરૂઆતની તારીખ પસંદ કરો")); return; }
+    if (!isIndefinite && (!to || to < from)) { showToast(t("Pick a valid date range", "માન્ય તારીખ શ્રેણી પસંદ કરો")); return; }
+    const finalTo = isIndefinite ? null : to;
+    const prevRec = data.staff[number];
+    const cur = prevRec.unavailable;
+    const newPeriod = { kind, typeId, from, to: finalTo };
+    const history = (prevRec.unavailableHistory || []).map((p) =>
+      cur && p.kind === cur.kind && p.typeId === cur.typeId && p.from === cur.from && p.to === cur.to
+        ? newPeriod
+        : p
+    );
+    persist({ ...dataRef.current, staff: { ...data.staff, [number]: { ...prevRec, unavailable: newPeriod, unavailableHistory: history } } });
+    showToast(t(`Updated ${prevRec.name}'s dates`, `${prevRec.name} ની તારીખો અપડેટ થઈ`));
+  };
   const renameLeaveType = (id) => {
     const cur = (data.leaveTypes || []).find((t) => t.id === id);
     const next = window.prompt(t("Rename leave type:", "રજાનો પ્રકાર નામ બદલો:"), cur ? cur.label : "");
@@ -3508,6 +3536,7 @@ function DutyRoster() {
               key={view.presetSearch || ""}
               data={data} createStaff={createStaff} renameStaff={renameStaff} setStaffPhone={setStaffPhone}
               deleteStaffGlobally={deleteStaffGlobally} setUnavailable={setUnavailable} clearUnavailable={clearUnavailable}
+              changeUnavailableDuration={changeUnavailableDuration}
               setPresentEverywhere={setPresentEverywhere}
               renameLeaveType={renameLeaveType} renameOutstationType={renameOutstationType}
               addLeaveType={addLeaveType} deleteLeaveType={deleteLeaveType} toggleLeaveTypeIndefinite={toggleLeaveTypeIndefinite}
@@ -4852,6 +4881,7 @@ function StaffView({
   addLeaveType, deleteLeaveType, toggleLeaveTypeIndefinite,
   addOutstationType, deleteOutstationType, toggleOutstationTypeIndefinite,
   addDesignation, renameDesignation, deleteDesignation, setStaffDesignation,
+  changeUnavailableDuration,
   reorderList,
   initialSearch,
 }) {
@@ -4869,6 +4899,14 @@ function StaffView({
   const [modalTypeId, setModalTypeId] = useState("");
   const [modalFrom, setModalFrom] = useState(todayStr());
   const [modalTo, setModalTo] = useState(todayStr());
+  // "new" (the usual case — start a fresh Leave/Outstation period, or log
+  // a past one via the same form) vs "edit" (adjust the dates of the
+  // period that's already active right now, via "Manage leave" below) —
+  // controls which function the Save button calls and what the modal's
+  // heading says, without needing two separate modal components for what
+  // is otherwise the exact same form.
+  const [modalMode, setModalMode] = useState("new");
+  const [manageLeaveMenuFor, setManageLeaveMenuFor] = useState(null);
   const [newLeaveLabel, setNewLeaveLabel] = useState("");
   const [newLeaveIndefinite, setNewLeaveIndefinite] = useState(false);
   const [newOutLabel, setNewOutLabel] = useState("");
@@ -4957,7 +4995,24 @@ function StaffView({
     });
   }, [staffList, t]);
 
-  const openModal = (s) => { setModalFor(s.number); setModalKind("Leave"); setModalTypeId(leaveTypes[0] ? leaveTypes[0].id : ""); setModalFrom(todayStr()); setModalTo(todayStr()); };
+  const openModal = (s) => { setModalFor(s.number); setModalMode("new"); setModalKind("Leave"); setModalTypeId(leaveTypes[0] ? leaveTypes[0].id : ""); setModalFrom(todayStr()); setModalTo(todayStr()); setManageLeaveMenuFor(null); };
+  // "Change duration" from the Manage leave menu — same modal as above,
+  // but pre-filled with the CURRENTLY ACTIVE period's own kind/type/dates
+  // instead of blank defaults, and modalMode "edit" so the Save button
+  // below calls changeUnavailableDuration (replaces that period in
+  // place) instead of setUnavailable (which would log an entirely new,
+  // separate one).
+  const openChangeDurationModal = (s) => {
+    const cur = s.unavailable;
+    if (!cur) return;
+    setModalFor(s.number);
+    setModalMode("edit");
+    setModalKind(cur.kind || "Leave");
+    setModalTypeId(cur.typeId || "");
+    setModalFrom(cur.from || todayStr());
+    setModalTo(cur.to || todayStr());
+    setManageLeaveMenuFor(null);
+  };
   useEscToClose(useCallback(() => setModalFor(null), []));
 
   const modalTypeList = modalKind === "Leave" ? leaveTypes : outstationTypes;
@@ -5110,10 +5165,42 @@ function StaffView({
                       </div>
                     </div>
                   </td>
-                  <td style={{ ...td, textAlign: "left", whiteSpace: "nowrap" }}>
-                    {s.unavailable
-                      ? <button onClick={() => clearUnavailable(s.number)} style={{ ...iconBtnWide, minWidth: 150 }} className="gu">{t("End now", "હમણાં સમાપ્ત કરો")}</button>
-                      : <button onClick={() => openModal(s)} style={{ ...iconBtnWide, minWidth: 150 }} className="gu">{t("Set leave/outstation", "રજા/બહારગામ સેટ કરો")}</button>}
+                  <td style={{ ...td, textAlign: "left", whiteSpace: "nowrap", position: "relative" }}>
+                    {s.unavailable ? (
+                      <React.Fragment>
+                        <button onClick={() => setManageLeaveMenuFor(manageLeaveMenuFor === s.number ? null : s.number)} style={{ ...iconBtnWide, minWidth: 150 }} className="gu">
+                          {t("Manage leave", "રજા સંચાલિત કરો")} ▾
+                        </button>
+                        {manageLeaveMenuFor === s.number && (
+                          <React.Fragment>
+                            <div onClick={() => setManageLeaveMenuFor(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
+                            <div style={{
+                              position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 201,
+                              background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
+                              boxShadow: "0 8px 20px rgba(0,0,0,0.15)", minWidth: 190, overflow: "hidden",
+                            }}>
+                              <button
+                                onClick={() => { clearUnavailable(s.number); setManageLeaveMenuFor(null); }}
+                                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }}
+                                className="gu"
+                              >{t("End leave now", "હમણાં રજા સમાપ્ત કરો")}</button>
+                              <button
+                                onClick={() => openChangeDurationModal(s)}
+                                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }}
+                                className="gu"
+                              >{t("Change duration", "સમયગાળો બદલો")}</button>
+                              <button
+                                onClick={() => openModal(s)}
+                                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }}
+                                className="gu"
+                              >{t("Log past leave", "ભૂતકાળની રજા નોંધો")}</button>
+                            </div>
+                          </React.Fragment>
+                        )}
+                      </React.Fragment>
+                    ) : (
+                      <button onClick={() => openModal(s)} style={{ ...iconBtnWide, minWidth: 150 }} className="gu">{t("Set leave/outstation", "રજા/બહારગામ સેટ કરો")}</button>
+                    )}
                     {s.skip && (
                       // Skip is a separate flag from Leave/Outstation, set
                       // from a work type's roster (Skip needs a reason
@@ -5299,7 +5386,9 @@ function StaffView({
       {modalFor && (
         <div style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
           <div role="dialog" aria-modal="true" aria-label={t("Mark leave or outstation", "રજા અથવા બહારગામ માર્ક કરો")} style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 320 }}>
-            <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>{t("Mark", "માર્ક કરો")} {data.staff[modalFor].name}</div>
+            <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
+              {modalMode === "edit" ? t("Change duration for", "માટે સમયગાળો બદલો") : t("Mark", "માર્ક કરો")} {data.staff[modalFor].name}
+            </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
               <button onClick={() => { setModalKind("Leave"); setModalTypeId(leaveTypes[0] ? leaveTypes[0].id : ""); }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid var(--border)", background: modalKind === "Leave" ? "var(--status-info-bg)" : "var(--bg-surface)", fontWeight: 600, fontSize: 12 }} className="gu">{t("Leave", "રજા")}</button>
               <button onClick={() => { setModalKind("Outstation"); setModalTypeId(outstationTypes[0] ? outstationTypes[0].id : ""); }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid var(--border)", background: modalKind === "Outstation" ? "var(--status-purple-bg)" : "var(--bg-surface)", fontWeight: 600, fontSize: 12 }} className="gu">{t("Outstation", "બહારગામ")}</button>
@@ -5329,7 +5418,14 @@ function StaffView({
             )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setModalFor(null)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
-              <button onClick={() => { setUnavailable(modalFor, modalKind, modalTypeId, modalFrom, modalTo); setModalFor(null); }} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Save", "સાચવો")}</button>
+              <button
+                onClick={() => {
+                  if (modalMode === "edit") changeUnavailableDuration(modalFor, modalKind, modalTypeId, modalFrom, modalTo);
+                  else setUnavailable(modalFor, modalKind, modalTypeId, modalFrom, modalTo);
+                  setModalFor(null);
+                }}
+                style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu"
+              >{t("Save", "સાચવો")}</button>
             </div>
           </div>
         </div>
