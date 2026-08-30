@@ -7495,20 +7495,56 @@ function PublicStaffView({ data }) {
 // data is safe either way since every change is already saved live as it
 // happens, this only guards the CURRENT tab's rendering.
 class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { error: null }; }
+  constructor(props) { super(props); this.state = { error: null, info: null }; }
   static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error, info) { console.error("Nokri Book crashed:", error, info); }
+  componentDidCatch(error, info) {
+    console.error("Nokri Book crashed:", error, info);
+    this.setState({ info });
+    // The actual fix here: this used to ONLY go to console.error, which is
+    // gone forever the instant the tab closes or reloads — meaning the
+    // *only* way to ever find out what broke was to have DevTools open and
+    // watching at the exact moment it happened. Almost never true in
+    // practice. Persisting the real error to localStorage (survives
+    // reload/close) and showing it directly on the crash screen itself
+    // means the actual cause is right there to read or copy, every time,
+    // with no DevTools needed at all.
+    try {
+      localStorage.setItem("nb_last_crash", JSON.stringify({
+        message: error && error.message,
+        stack: error && error.stack,
+        componentStack: info && info.componentStack,
+        at: new Date().toISOString(),
+        url: window.location.href,
+      }));
+    } catch (e) { /* storage full/unavailable — the on-screen display below still works for this session */ }
+  }
   render() {
     if (this.state.error) {
+      const details = `${this.state.error && this.state.error.message}\n\n${(this.state.error && this.state.error.stack) || ""}`.trim();
       return (
-        <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#F4EBDC", padding: 24 }}>
-          <div style={{ maxWidth: 420, textAlign: "center" }}>
+        <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#F4EBDC", padding: 24, overflowY: "auto" }}>
+          <div style={{ maxWidth: 560, textAlign: "center" }}>
             <div style={{ fontSize: 34, marginBottom: 10 }}>⚠️</div>
             <div style={{ fontSize: 17, fontWeight: 700, color: "#2B2116", marginBottom: 8 }}>Something went wrong</div>
             <div style={{ fontSize: 13.5, color: "#6E5D49", marginBottom: 18 }}>
               This screen hit an unexpected error. Your data is safe — every change is saved as it happens. Reloading usually fixes it.
             </div>
-            <button onClick={() => window.location.reload()} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Reload</button>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18 }}>
+              <button onClick={() => window.location.reload()} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Reload</button>
+              <button
+                onClick={(e) => {
+                  navigator.clipboard.writeText(details).then(() => {
+                    e.target.textContent = "Copied!";
+                    setTimeout(() => { e.target.textContent = "Copy error details"; }, 1500);
+                  }).catch(() => {});
+                }}
+                style={{ background: "#fff", color: "#2B2116", border: "1px solid #D9CBB0", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+              >Copy error details</button>
+            </div>
+            <pre style={{
+              textAlign: "left", fontSize: 11.5, color: "#6E5D49", background: "#FFFDF8", border: "1px solid #E8DCC4",
+              borderRadius: 8, padding: 12, maxHeight: 220, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>{details || "(no error details captured)"}</pre>
           </div>
         </div>
       );
