@@ -5034,7 +5034,7 @@ function StaffView({
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
         <button
           onClick={() => setShowFullActions((v) => !v)}
-          title={t("Show Call, WhatsApp, and Remove entirely for each person in the table below", "નીચેના કોષ્ટકમાં દરેક વ્યક્તિ માટે કૉલ, WhatsApp અને સંપૂર્ણપણે કાઢી નાખો બતાવો")}
+          title={t("Show Edit name and Remove entirely for each person in the table below", "નીચેના કોષ્ટકમાં દરેક વ્યક્તિ માટે નામ સંપાદિત કરો અને સંપૂર્ણપણે કાઢી નાખો બતાવો")}
           style={{
             marginLeft: 6, fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
             background: showFullActions ? "#D98E2B" : "var(--bg-surface)",
@@ -5228,12 +5228,8 @@ function StaffView({
                       // whichever work type they were skipped under.
                       <button onClick={() => setPresentEverywhere(s.number)} title={t("Clear Skip and set back to Present", "સ્કિપ સાફ કરો અને પાછું હાજર કરો")} style={{ ...iconBtnWide, marginLeft: 4, borderColor: "var(--status-success-border)", color: "var(--status-success-text)" }} className="gu">{t("Set Present", "હાજર કરો")}</button>
                     )}
-                    <button onClick={() => renameStaff(s.number)} title={t("Edit name", "નામ સંપાદિત કરો")} aria-label={t("Edit name", "નામ સંપાદિત કરો")} style={{ ...iconBtn, marginLeft: 4 }}>✎</button>
-                    {showFullActions && s.phone && (
-                      <a href={`tel:${s.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ ...iconBtn, marginLeft: 4, textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>📞</a>
-                    )}
-                    {showFullActions && s.phone && (
-                      <button onClick={() => shareDutyOnWhatsApp({ lang, name: s.name, number: s.number, catLabel: s.cats[0] || "", phone: s.phone, kind: "assigned" })} title={t("Message on WhatsApp", "WhatsApp પર સંદેશ મોકલો")} aria-label={t("Message on WhatsApp", "WhatsApp પર સંદેશ મોકલો")} style={{ ...iconBtn, marginLeft: 4 }}>📲</button>
+                    {showFullActions && (
+                      <button onClick={() => renameStaff(s.number)} title={t("Edit name", "નામ સંપાદિત કરો")} aria-label={t("Edit name", "નામ સંપાદિત કરો")} style={{ ...iconBtn, marginLeft: 4 }}>✎</button>
                     )}
                     {showFullActions && (
                       <button onClick={() => deleteStaffGlobally(s.number)} title={t("Remove entirely", "સંપૂર્ણપણે કાઢી નાખો")} aria-label={t("Remove entirely", "સંપૂર્ણપણે કાઢી નાખો")} style={{ ...iconBtn, marginLeft: 4 }}>✕</button>
