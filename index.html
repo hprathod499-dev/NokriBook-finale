@@ -1871,12 +1871,12 @@ function DutyRoster() {
       // any change a concurrent duty assignment just made to it, passes
       // through completely untouched instead of being silently reverted
       // to how it looked when this effect began.
-      const freshStaff = dataRef.current.staff;
+      const freshStaff = (dataRef.current && dataRef.current.staff) || data.staff;
       const nextStaff = { ...freshStaff };
       expiredNumbers.forEach((num) => {
         if (nextStaff[num]) nextStaff[num] = { ...nextStaff[num], unavailable: null };
       });
-      writeToFirestore({ ...dataRef.current, staff: nextStaff });
+      writeToFirestore({ ...(dataRef.current || data), staff: nextStaff });
     }
   }, [data]);
 
@@ -1895,7 +1895,22 @@ function DutyRoster() {
   // whatever the most recent one actually wrote, never an outdated
   // snapshot from before this render cycle even started.
   const dataRef = useRef(data);
-  useEffect(() => { dataRef.current = data; }, [data]);
+  // Updated directly here in the render body — NOT inside a useEffect.
+  // This one line is the actual fix for "Cannot read properties of null
+  // (reading 'staff')": React guarantees the render body finishes
+  // completely before ANY effect fires for that render, but effects
+  // among themselves only run in the order they're declared in the
+  // component. dataRef used to only get updated inside its own
+  // useEffect below — declared AFTER some other effects (like the
+  // auto-expire one) that also read dataRef.current. On the very first
+  // render where `data` goes from null to real data (right after
+  // signing in), those earlier-declared effects could fire before this
+  // one had a chance to run, meaning they'd read dataRef.current still
+  // holding its stale initial null — despite `data` itself already
+  // being the real object. Assigning it plainly during render instead
+  // means it's correct before any effect anywhere in this component can
+  // possibly run, regardless of declaration order.
+  dataRef.current = data;
 
   // "idle" (nothing pending — either nothing's been changed yet, or the
   // last change is confirmed saved), "saving" (a write is in flight),
