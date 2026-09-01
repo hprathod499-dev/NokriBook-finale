@@ -577,6 +577,92 @@ function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
 }
 
+// ---------- Per-work-type ("duty type") PDF export ----------
+// Every work type (category) — WAPC, UHC, ULRD, "112", etc. — gets its own
+// "Roster + History" PDF, built with exactly the same Gujarati-safe
+// pipeline as the Monthly Report above: native jsPDF text for headers,
+// numbers, and dates; canvas-rendered images (via renderTextToImage /
+// drawTextImageInCell) for any cell containing real Gujarati text; a
+// reserved minCellWidth on every Gujarati-capable column so autoTable
+// doesn't size that column from the (deliberately blanked) native text.
+// This one function is shared by both CategoryHistoryTable (the manager's
+// editable view) and PublicCategoryView (the read-only view reached via a
+// share link) — a shared-link recipient gets the exact same PDF an admin
+// would, with no write access needed to generate it.
+async function downloadCategoryPdf(catLabel, roster, historyRows) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const FONT_PT = 9;
+
+  const base64 = await loadGujaratiFont();
+  doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
+  doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
+  await ensureGujaratiCanvasFont();
+
+  doc.setFontSize(14);
+  doc.text(`Nokri Book — ${catLabel}`, 14, 16);
+  doc.setFontSize(8.5);
+  doc.text("Generated " + new Date().toLocaleString(), 14, 22);
+
+  doc.setFontSize(11);
+  doc.text("Roster", 14, 30);
+  doc.autoTable({
+    startY: 34,
+    head: [["Rank", "Number", "Name", "Last duty", "Waiting", "Duties", "Status"]],
+    // p.history comes straight off the membership row computeRoster
+    // spreads in — same source both CategoryView and PublicCategoryView
+    // already use for their own roster tables, so this always matches
+    // what's on screen without needing a separately pre-computed count.
+    body: roster.map((p) => [
+      p.rank || "—", p.number, p.name, p.lastDuty ? formatDMY(p.lastDuty) : "—",
+      p.waiting != null ? `${p.waiting}d` : "—", (p.history || []).length, p.statusLabel || p.status || "—",
+    ]),
+    styles: { fontSize: FONT_PT },
+    headStyles: { fillColor: [14, 22, 32] },
+    columnStyles: { 2: { minCellWidth: 45 }, 6: { minCellWidth: 26 } },
+    didParseCell: (hookData) => {
+      if (hookData.section === "body" && [2, 6].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+        hookData.cell.text = [];
+      }
+    },
+    didDrawCell: (hookData) => {
+      if (hookData.section === "body" && [2, 6].includes(hookData.column.index)) {
+        const raw = hookData.cell.raw;
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      }
+    },
+  });
+
+  doc.setFontSize(11);
+  doc.text("History", 14, doc.lastAutoTable.finalY + 10);
+  doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 14,
+    head: [["#", "Number", "Name", "Dates", "Days", "Note"]],
+    body: historyRows.map((r, i) => [
+      i + 1, r.number, r.name,
+      r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to),
+      r.days, r.note || "",
+    ]),
+    styles: { fontSize: FONT_PT },
+    headStyles: { fillColor: [14, 22, 32] },
+    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 30 } },
+    didParseCell: (hookData) => {
+      if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+        hookData.cell.text = [];
+      }
+    },
+    didDrawCell: (hookData) => {
+      if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
+        const raw = hookData.cell.raw;
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      }
+    },
+  });
+
+  const slug = String(catLabel).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
+  doc.save(`nokri-book-${slug || "duty-type"}-report.pdf`);
+}
+
 function buildInitialData() {
   const staff = {};
   seed112.forEach((p) => { staff[p.number] = { number: p.number, name: p.name, phone: null, unavailable: null, designation: null }; });
@@ -4529,6 +4615,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   const debouncedRosterSearch = useDebouncedValue(rosterSearch);
   const [hiddenDesignations, setHiddenDesignations] = useState([]); // designation ids to hide from the roster list below
   const [showInfo, setShowInfo] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const cat = data.categories.find((c) => c.id === catId);
   const membership = data.membership[catId] || [];
@@ -4601,6 +4688,17 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   const presentCount = roster.filter((p) => p.status === "Present").length;
   const lookupPreview = newNumber.trim() && data.staff[newNumber.trim()] ? data.staff[newNumber.trim()].name : null;
 
+  const handleDownloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows);
+    } catch (e) {
+      window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <React.Fragment>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
@@ -4623,6 +4721,11 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
           <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}{historyRows.length ? ` (${historyRows.length})` : ""}</button>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={handleDownloadPdf} disabled={pdfBusy}
+            title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
+            style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+          >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
           <button onClick={undo} disabled={!canUndo} title={t("Undo last change (Ctrl+Z)", "છેલ્લો ફેરફાર પૂર્વવત્ કરો (Ctrl+Z)")} aria-label={t("Undo last change (Ctrl+Z)", "છેલ્લો ફેરફાર પૂર્વવત્ કરો (Ctrl+Z)")} style={undoRedoBtn(canUndo)} className="gu">↶ {t("Undo", "પૂર્વવત્")}</button>
           <button onClick={redo} disabled={!canRedo} title={t("Redo (Ctrl+Shift+Z)", "ફરીથી કરો (Ctrl+Shift+Z)")} aria-label={t("Redo (Ctrl+Shift+Z)", "ફરીથી કરો (Ctrl+Shift+Z)")} style={undoRedoBtn(canRedo)} className="gu">↷ {t("Redo", "ફરીથી કરો")}</button>
         </div>
@@ -6207,6 +6310,12 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT },
         headStyles: { fillColor: [14, 22, 32] },
+        // Same reasoning as the Monthly Report and per-work-type PDFs:
+        // didParseCell blanks these cells' native text so the image can
+        // be drawn instead, which would otherwise make autoTable size
+        // the column from nothing rather than from the name/type that
+        // actually gets drawn into it.
+        columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 } },
         // Name (1) and Type (3) CAN contain Gujarati text — but not
         // always (an English work-type/leave-type label has none), so
         // needsImageRender checks the actual value each time rather than
@@ -7761,6 +7870,7 @@ function PublicHomeView({ data, goToCategory }) {
 function PublicCategoryView({ data, catId }) {
   const { t } = useLang();
   const [tab, setTab] = useState("roster");
+  const [pdfBusy, setPdfBusy] = useState(false);
   const cat = (data.categories || []).find((c) => c.id === catId);
   const membership = (data.membership && data.membership[catId]) || [];
   const roster = useMemo(() => computeRoster(data, catId), [data, catId]);
@@ -7778,6 +7888,20 @@ function PublicCategoryView({ data, catId }) {
   useEffect(() => { setTab("roster"); }, [catId]);
   const presentCount = roster.filter((p) => p.status === "Present").length;
 
+  // Same PDF export the manager's CategoryView offers — a viewer reached
+  // via a share link has no write access to the data, but generating this
+  // PDF only reads it, so there's no reason to withhold it here.
+  const handleDownloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows);
+    } catch (e) {
+      window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <React.Fragment>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
@@ -7785,10 +7909,17 @@ function PublicCategoryView({ data, catId }) {
         <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{presentCount} {t("available", "ઉપલબ્ધ")}</div>
       </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-        <button onClick={() => setTab("roster")} style={catTabBtn(tab === "roster")} className="gu">{t("Roster", "રોસ્ટર")}</button>
-        <button onClick={() => setTab("fairness")} style={catTabBtn(tab === "fairness")} className="gu">{t("Fairness", "ન્યાયીપણું")}</button>
-        <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}{historyRows.length ? ` (${historyRows.length})` : ""}</button>
+      <div style={{ display: "flex", gap: 6, marginBottom: 20, justifyContent: "space-between", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => setTab("roster")} style={catTabBtn(tab === "roster")} className="gu">{t("Roster", "રોસ્ટર")}</button>
+          <button onClick={() => setTab("fairness")} style={catTabBtn(tab === "fairness")} className="gu">{t("Fairness", "ન્યાયીપણું")}</button>
+          <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}{historyRows.length ? ` (${historyRows.length})` : ""}</button>
+        </div>
+        <button
+          onClick={handleDownloadPdf} disabled={pdfBusy}
+          title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
+          style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+        >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
       </div>
 
       {tab === "fairness" ? (
