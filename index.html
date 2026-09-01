@@ -2544,6 +2544,18 @@ function DutyRoster() {
           return snap ? { ...m, history: snap.history } : m;
         }),
       };
+    } else if (item.type === "unavailable") {
+      const prevRec = next.staff[item.payload.number];
+      if (prevRec) {
+        next.staff = {
+          ...next.staff,
+          [item.payload.number]: {
+            ...prevRec,
+            unavailable: item.payload.wasCurrent ? item.payload.entry : prevRec.unavailable,
+            unavailableHistory: [...(prevRec.unavailableHistory || []), item.payload.entry],
+          },
+        };
+      }
     }
     persist(next);
     showToast(t(`Restored "${item.label}"`, `"${item.label}" પુનઃસ્થાપિત થયું`));
@@ -3230,6 +3242,34 @@ function DutyRoster() {
     persist({ ...dataRef.current, staff: { ...data.staff, [number]: { ...prevRec, unavailable: newPeriod, unavailableHistory: history } } });
     showToast(t(`Updated ${prevRec.name}'s dates`, `${prevRec.name} ની તારીખો અપડેટ થઈ`));
   };
+  // For fixing an accidental leave/outstation entry on the Duty calendar —
+  // Undo can't help once the app's been refreshed, so this is the durable
+  // fix: find and remove that one specific period from the person's
+  // history (matched by its exact from/to dates), clearing it from their
+  // CURRENT status too if it happened to be the active one. Goes through
+  // the same Recycle bin safety net as every other delete in the app,
+  // rather than being gone for good the instant it's clicked.
+  const deleteUnavailableHistoryEntry = (number, from, to) => {
+    const prevRec = data.staff[number];
+    if (!prevRec) return;
+    const history = prevRec.unavailableHistory || [];
+    const idx = history.findIndex((p) => p.from === from && (p.to || null) === (to || null));
+    if (idx === -1) return;
+    const removed = history[idx];
+    const cur = prevRec.unavailable;
+    const wasCurrent = !!(cur && cur.kind === removed.kind && cur.typeId === removed.typeId && cur.from === removed.from && (cur.to || null) === (removed.to || null));
+    const nextHistory = history.filter((_, i) => i !== idx);
+    const recycled = withRecycled({
+      ...dataRef.current,
+      staff: { ...data.staff, [number]: { ...prevRec, unavailable: wasCurrent ? null : cur, unavailableHistory: nextHistory } },
+    }, {
+      type: "unavailable",
+      label: `${prevRec.name}'s ${(removed.kind || "").toLowerCase()} record (${formatDMY(from)}${to && to !== from ? " – " + formatDMY(to) : ""})`,
+      payload: { number, entry: removed, wasCurrent },
+    });
+    persist(recycled);
+    showToast(t("Record deleted — moved to Recycle bin", "રેકોર્ડ ડિલીટ થયો — રિસાયકલ બિનમાં ખસેડાયો"));
+  };
   const renameLeaveType = (id) => {
     const cur = (data.leaveTypes || []).find((t) => t.id === id);
     const next = window.prompt(t("Rename leave type:", "રજાનો પ્રકાર નામ બદલો:"), cur ? cur.label : "");
@@ -3548,7 +3588,7 @@ function DutyRoster() {
               initialSearch={view.presetSearch}
             />
           )}
-          {view.mode === "calendar" && <CalendarView data={data} />}
+          {view.mode === "calendar" && <CalendarView data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
           {view.mode === "report" && <ReportView data={data} />}
           {view.mode === "events" && (
             <EventsView
@@ -5361,7 +5401,7 @@ function StaffView({
                                 onClick={() => openModal(s)}
                                 style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }}
                                 className="gu"
-                              >{t("Log past leave", "ભૂતકાળની રજા નોંધો")}</button>
+                              >{t("Log another leave", "બીજી રજા નોંધો")}</button>
                             </div>
                           </React.Fragment>
                         )}
@@ -5906,7 +5946,7 @@ const calNavBtn = {
   background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, width: 26, height: 26,
   fontSize: 14, color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "center",
 };
-function CalendarView({ data }) {
+function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntry }) {
   const { t, lang } = useLang();
   const [month, setMonth] = useState(todayStr().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -5928,13 +5968,13 @@ function CalendarView({ data }) {
       (data.membership[c.id] || []).forEach((m) => {
         const staffRec = data.staff[m.number];
         const name = staffRec ? staffRec.name : m.number;
-        (m.history || []).forEach((entry) => {
+        (m.history || []).forEach((entry, idx) => {
           const date = historyDate(entry);
           if (!map[date]) map[date] = [];
           map[date].push({
             catId: c.id, catLabel: c.label, number: m.number, name,
             designation: staffRec ? desgLabelOf(staffRec.designation) : "",
-            note: historyNote(entry),
+            note: historyNote(entry), idx,
           });
         });
       });
@@ -5994,7 +6034,7 @@ function CalendarView({ data }) {
     const map = {};
     (data.events || []).forEach((ev) => {
       if (ev.start && ev.end && date >= ev.start && date <= ev.end) {
-        map[ev.number || ev.name] = { number: ev.number, name: ev.name, type: ev.type, label: eventTypeLabel(ev.type, lang), from: ev.start, to: ev.end };
+        map[ev.number || ev.name] = { number: ev.number, name: ev.name, type: ev.type, label: eventTypeLabel(ev.type, lang), from: ev.start, to: ev.end, source: "event" };
       }
     });
     Object.values(data.staff || {}).forEach((s) => {
@@ -6003,7 +6043,7 @@ function CalendarView({ data }) {
       if (!u) return;
       const kind = unavailKind(u);
       if (kind === "Outstation" || kind === "Leave") {
-        map[s.number] = { number: s.number, name: s.name, type: kind, label: unavailLabel(data, u) || kind, from: u.from, to: u.to || null };
+        map[s.number] = { number: s.number, name: s.name, type: kind, label: unavailLabel(data, u) || kind, from: u.from, to: u.to || null, source: "unavailable" };
       }
     });
     return Object.values(map);
@@ -6236,6 +6276,17 @@ function CalendarView({ data }) {
                             </span>
                           )}
                           {r.note && <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} title={r.note}>📝</span>}
+                          {deleteHistoryEntries && (
+                            <button
+                              onClick={() => {
+                                if (!window.confirm(t(`Delete this duty entry for ${r.name}? It moves to the Recycle bin, so it can still be restored.`, `${r.name} માટે આ ડ્યુટી એન્ટ્રી ડિલીટ કરવી છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`))) return;
+                                deleteHistoryEntries(r.catId, new Set([`${r.number}#${r.idx}`]));
+                              }}
+                              title={t("Delete this entry", "આ એન્ટ્રી ડિલીટ કરો")}
+                              aria-label={t("Delete this entry", "આ એન્ટ્રી ડિલીટ કરો")}
+                              style={{ ...iconBtn, padding: "3px 6px", fontSize: 11 }}
+                            >✕</button>
+                          )}
                         </span>
                       </div>
                     );
@@ -6260,6 +6311,17 @@ function CalendarView({ data }) {
                           </span>
                         )}
                         <span style={{ fontSize: 10.5, fontWeight: 700, background: style.bg, color: style.fg, border: "1px solid " + style.border, borderRadius: 10, padding: "2px 8px" }}>{a.label}</span>
+                        {deleteUnavailableHistoryEntry && a.source === "unavailable" && (
+                          <button
+                            onClick={() => {
+                              if (!window.confirm(t(`Delete this ${a.type.toLowerCase()} record for ${a.name}? It moves to the Recycle bin, so it can still be restored.`, `${a.name} માટે આ ${a.label} રેકોર્ડ ડિલીટ કરવો છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`))) return;
+                              deleteUnavailableHistoryEntry(a.number, a.from, a.to);
+                            }}
+                            title={t("Delete this record", "આ રેકોર્ડ ડિલીટ કરો")}
+                            aria-label={t("Delete this record", "આ રેકોર્ડ ડિલીટ કરો")}
+                            style={{ ...iconBtn, padding: "3px 6px", fontSize: 11 }}
+                          >✕</button>
+                        )}
                       </span>
                     </div>
                   );
