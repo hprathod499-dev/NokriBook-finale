@@ -557,17 +557,21 @@ function renderTextToImage(text, fontSizePt) {
 // the cell's actual height in PDF points.
 function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   if (!rendered) return;
-  // This height cap — not the font-pixel size used when rasterizing in
-  // renderTextToImage — is what actually determines how big the Gujarati
-  // text looks in the final PDF: the image is always scaled to fit
-  // targetH, so raising the rasterization resolution alone (crispness)
-  // does nothing for visible size. 1.35x nominal font size was reading
-  // visibly smaller than jsPDF's native Latin text in the same row at the
-  // same declared fontSizePt; 1.8x brings it in line, while the
-  // `cell.height - 1.5` half of the min() still protects against
-  // overflowing a short row.
-  const targetH = Math.min(cell.height - 1.5, fontSizePt * 1.8);
-  const targetW = Math.min(cell.width - 2, targetH * (rendered.width / rendered.height));
+  // Both the max height (based on font size, matching native text) and
+  // max width (the cell's actual available width) are real constraints —
+  // but the image must be scaled by the SAME factor in both directions,
+  // or a name too wide for a narrow column (e.g. the 7-column "Full
+  // detail" table, which gives Name far less room than the 4-column
+  // summary table) gets its height kept at the full target while only
+  // its width is clamped down — squishing/compressing the glyphs
+  // horizontally instead of shrinking them proportionally. Computing one
+  // uniform scale factor from both limits keeps the text legible (just
+  // smaller) instead of visually cluttered.
+  const maxH = Math.min(cell.height - 1.5, fontSizePt * 1.8);
+  const maxW = cell.width - 2;
+  const scale = Math.min(maxH / rendered.height, maxW / rendered.width);
+  const targetH = rendered.height * scale;
+  const targetW = rendered.width * scale;
   const x = cell.x + 1;
   const y = cell.y + (cell.height - targetH) / 2;
   doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
@@ -6559,6 +6563,15 @@ function ReportView({ data }) {
       body: summaryNames.map((name, i) => [i + 1, name, grouped[name][0].designation, grouped[name].length]),
       styles: { fontSize: FONT_PT },
       headStyles: { fillColor: [14, 22, 32] },
+      // autoTable sizes "auto" columns from each cell's text width — but
+      // didParseCell (below) blanks the Name/Designation cell text for
+      // any Gujarati content so the image can be drawn instead, which
+      // means autoTable would otherwise measure those cells as EMPTY and
+      // size the column far too narrow for the name that's actually
+      // drawn into it, forcing drawTextImageInCell to squeeze the image
+      // down to fit. minCellWidth reserves enough room up front so a
+      // typical full name fits without being visually cluttered.
+      columnStyles: { 1: { minCellWidth: 55 }, 2: { minCellWidth: 30 } },
       didParseCell: (hookData) => {
         if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 2) && needsImageRender(hookData.cell.raw)) {
           hookData.cell.text = [];
@@ -6585,6 +6598,13 @@ function ReportView({ data }) {
       ]),
       styles: { fontSize: FONT_PT },
       headStyles: { fillColor: [14, 22, 32] },
+      // Same reasoning as the summary table above: didParseCell blanks
+      // these cells' text for the image-render path, so without an
+      // explicit minCellWidth autoTable would size the column from
+      // (nothing), not from the name/word that actually gets drawn —
+      // this table has 7 columns competing for the same page width, so
+      // it needs this even more than the 4-column summary table does.
+      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 26 } },
       // Name (1), Designation (2), Work type (3), and Note (6) can
       // contain Gujarati text, but each cell is only imaged if it
       // actually does (needsImageRender) — # (0), Dates (4), and Days
