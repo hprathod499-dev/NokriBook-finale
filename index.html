@@ -3233,7 +3233,18 @@ function DutyRoster() {
     if (!isIndefinite && (!to || to < from)) { if (!silent) showToast(t("Pick a valid date range", "માન્ય તારીખ શ્રેણી પસંદ કરો")); return; }
     const finalTo = isIndefinite ? null : to;
     const isPastOnly = finalTo && finalTo < todayStr();
-    const prevRec = data.staff[number];
+    // Reads from dataRef.current, not the closure `data` — critical when
+    // this is called several times in a row for the SAME person (e.g.
+    // Record Leave's batch queue: two different leaves for one person in
+    // one sitting). `data` only reflects whatever it was when THIS
+    // render started and doesn't change again until React re-renders —
+    // which doesn't happen between synchronous calls in the same click
+    // handler — so a second call for the same person would have read
+    // prevRec from BEFORE the first call's write, silently discarding it
+    // the moment the second one saved. dataRef.current is updated
+    // synchronously on every persist(), so each call in a batch always
+    // builds on the one immediately before it.
+    const prevRec = dataRef.current.staff[number];
     if (!prevRec) { if (!silent) showToast(t("No staff found with that workplace number", "તે કાર્યસ્થળ નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી"), "error"); return; }
     persist({
       ...dataRef.current,
@@ -3249,7 +3260,7 @@ function DutyRoster() {
     showToast(t(`${prevRec.name} marked ${label.toLowerCase()}${dateRangeText}`, `${prevRec.name} ને ${label.toLowerCase()} તરીકે માર્ક કર્યું${dateRangeText}`));
   };
   const clearUnavailable = (number) => {
-    const prevRec = data.staff[number];
+    const prevRec = dataRef.current.staff[number];
     const cur = prevRec.unavailable;
     // "End now": the person is back on duty starting today. Cap the
     // matching entry in history at yesterday (instead of just discarding
@@ -3261,7 +3272,7 @@ function DutyRoster() {
         ? { ...p, to: yesterday }
         : p
     );
-    persist({ ...dataRef.current, staff: { ...data.staff, [number]: { ...prevRec, unavailable: null, unavailableHistory: history } } });
+    persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: null, unavailableHistory: history } } });
   };
   // "Change duration" — adjusts the dates of the CURRENTLY ACTIVE leave/
   // outstation period specifically (not a new, separate period). This is
@@ -3280,7 +3291,7 @@ function DutyRoster() {
     if (!from) { showToast(t("Pick a start date", "શરૂઆતની તારીખ પસંદ કરો")); return; }
     if (!isIndefinite && (!to || to < from)) { showToast(t("Pick a valid date range", "માન્ય તારીખ શ્રેણી પસંદ કરો")); return; }
     const finalTo = isIndefinite ? null : to;
-    const prevRec = data.staff[number];
+    const prevRec = dataRef.current.staff[number];
     const cur = prevRec.unavailable;
     const newPeriod = { kind, typeId, from, to: finalTo };
     const history = (prevRec.unavailableHistory || []).map((p) =>
@@ -3288,7 +3299,7 @@ function DutyRoster() {
         ? newPeriod
         : p
     );
-    persist({ ...dataRef.current, staff: { ...data.staff, [number]: { ...prevRec, unavailable: newPeriod, unavailableHistory: history } } });
+    persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: newPeriod, unavailableHistory: history } } });
     showToast(t(`Updated ${prevRec.name}'s dates`, `${prevRec.name} ની તારીખો અપડેટ થઈ`));
   };
   // For fixing an accidental leave/outstation entry on the Duty calendar —
@@ -3299,7 +3310,7 @@ function DutyRoster() {
   // the same Recycle bin safety net as every other delete in the app,
   // rather than being gone for good the instant it's clicked.
   const deleteUnavailableHistoryEntry = (number, from, to) => {
-    const prevRec = data.staff[number];
+    const prevRec = dataRef.current.staff[number];
     if (!prevRec) return;
     const history = prevRec.unavailableHistory || [];
     const idx = history.findIndex((p) => p.from === from && (p.to || null) === (to || null));
@@ -3310,7 +3321,7 @@ function DutyRoster() {
     const nextHistory = history.filter((_, i) => i !== idx);
     const recycled = withRecycled({
       ...dataRef.current,
-      staff: { ...data.staff, [number]: { ...prevRec, unavailable: wasCurrent ? null : cur, unavailableHistory: nextHistory } },
+      staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: wasCurrent ? null : cur, unavailableHistory: nextHistory } },
     }, {
       type: "unavailable",
       label: `${prevRec.name}'s ${(removed.kind || "").toLowerCase()} record (${formatDMY(from)}${to && to !== from ? " – " + formatDMY(to) : ""})`,
