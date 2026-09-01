@@ -1613,7 +1613,7 @@ function DutyRoster() {
   const docRef = user ? accountDocRef(user.uid) : null;
 
   const [data, setData] = useState(null);
-  const [view, setView] = useState({ mode: "home" }); // home | category | staff | report
+  const [view, setView] = useState({ mode: "assignDuty" }); // home | category | staff | report | assignDuty
   const [toast, setToast] = useState(null);
   const [connError, setConnError] = useState(false);
   // Bumping this forces the data-loading effect below to re-run and
@@ -3163,23 +3163,25 @@ function DutyRoster() {
     persist(recycled);
     showToast(t(`Moved ${cur ? cur.name : number} to Recycle bin`, `${cur ? cur.name : number} રિસાયકલ બિનમાં ખસેડાયું`));
   };
-  const setUnavailable = (number, kind, typeId, from, to) => {
+  const setUnavailable = (number, kind, typeId, from, to, silent) => {
     const list = kind === "Leave" ? data.leaveTypes : data.outstationTypes;
     const found = (list || []).find((t) => t.id === typeId);
     const label = found ? found.label : kind;
     const isIndefinite = !!(found && found.indefinite);
-    if (!from) { showToast(t("Pick a start date", "શરૂઆતની તારીખ પસંદ કરો")); return; }
-    if (!isIndefinite && (!to || to < from)) { showToast(t("Pick a valid date range", "માન્ય તારીખ શ્રેણી પસંદ કરો")); return; }
+    if (!from) { if (!silent) showToast(t("Pick a start date", "શરૂઆતની તારીખ પસંદ કરો")); return; }
+    if (!isIndefinite && (!to || to < from)) { if (!silent) showToast(t("Pick a valid date range", "માન્ય તારીખ શ્રેણી પસંદ કરો")); return; }
     const finalTo = isIndefinite ? null : to;
     const isPastOnly = finalTo && finalTo < todayStr();
     const prevRec = data.staff[number];
+    if (!prevRec) { if (!silent) showToast(t("No staff found with that workplace number", "તે કાર્યસ્થળ નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી"), "error"); return; }
     persist({
       ...dataRef.current,
       staff: {
-        ...data.staff,
+        ...dataRef.current.staff,
         [number]: { ...prevRec, ...unavailablePeriodUpdate(prevRec, kind, typeId, from, finalTo) },
       },
     });
+    if (silent) return;
     const dateRangeText = isPastOnly
       ? t(` — recorded for ${formatDMY(from)}${finalTo && finalTo !== from ? " to " + formatDMY(finalTo) : ""} on the calendar; today's status is unchanged`, ` — કૅલેન્ડર પર ${formatDMY(from)}${finalTo && finalTo !== from ? " થી " + formatDMY(finalTo) : ""} માટે નોંધાયું; આજની સ્થિતિ યથાવત છે`)
       : (finalTo ? t(" until " + formatDMY(finalTo), " " + formatDMY(finalTo) + " સુધી") : t(" — no end date", " — કોઈ અંતિમ તારીખ નથી"));
@@ -3518,7 +3520,7 @@ function DutyRoster() {
             <HomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
           {view.mode === "assignDuty" && (
-            <AssignDutyView data={data} assignDuty={assignDuty} assignGroupDuty={assignGroupDuty} assignMiscDuty={assignMiscDuty} goToCategory={(catId) => setView({ mode: "category", catId })} />
+            <AssignDutyView data={data} assignDuty={assignDuty} assignGroupDuty={assignGroupDuty} assignMiscDuty={assignMiscDuty} setUnavailable={setUnavailable} showToast={showToast} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
           {view.mode === "category" && view.catId && (
             <CategoryView
@@ -3845,7 +3847,7 @@ function HomeView({ data, goToCategory }) {
 // "Assign duty" — the working tab: per-work-type next-up + Assign button,
 // with Group duty and Miscellaneous duty tucked in as extra sub-tabs so
 // every assignment flow lives in one place.
-function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, goToCategory }) {
+function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, setUnavailable, showToast, goToCategory }) {
   const { t, lang } = useLang();
   const [subTab, setSubTab] = useState("individual"); // individual | group | misc
   const today = todayStr();
@@ -3874,12 +3876,15 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, goT
         <button onClick={() => setSubTab("individual")} style={catTabBtn(subTab === "individual")} className="gu">{t("By work type", "કામના પ્રકાર પ્રમાણે")}</button>
         <button onClick={() => setSubTab("group")} style={catTabBtn(subTab === "group")} className="gu">👥 {t("Group duty", "જૂથ ડ્યુટી")}</button>
         <button onClick={() => setSubTab("misc")} style={catTabBtn(subTab === "misc")} className="gu">🗂️ {t("Miscellaneous", "વિવિધ")}</button>
+        <button onClick={() => setSubTab("leave")} style={catTabBtn(subTab === "leave")} className="gu">🌴 {t("Record Leave", "રજા નોંધો")}</button>
       </div>
 
       {subTab === "group" ? (
         <GroupDutyView data={data} assignGroupDuty={assignGroupDuty} />
       ) : subTab === "misc" ? (
         <MiscDutyView data={data} assignMiscDuty={assignMiscDuty} />
+      ) : subTab === "leave" ? (
+        <RecordLeaveView data={data} setUnavailable={setUnavailable} showToast={showToast} />
       ) : (
         <React.Fragment>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
@@ -4025,6 +4030,152 @@ function MiscDutyView({ data, assignMiscDuty }) {
           }} className="gu"
         >{t("Assign miscellaneous duty", "વિવિધ ડ્યુટી સોંપો")}</button>
       </div>
+    </React.Fragment>
+  );
+}
+
+// Record Leave — batch entry: pick a leave type and date(s) once, then add
+// as many people to that batch as needed (same person again for a
+// different stretch, or a different person entirely) before actually
+// saving anything. Each entry gets added to a visible queue below the
+// form; nothing is written until "Record N leave(s)" is pressed, so a
+// whole day's worth of leave notices — several different people, several
+// different reasons — can be sorted out in one sitting instead of
+// re-opening this form from scratch for every single person.
+function RecordLeaveView({ data, setUnavailable, showToast }) {
+  const { t } = useLang();
+  const leaveTypes = data.leaveTypes || [];
+  const [typeId, setTypeId] = useState(leaveTypes[0] ? leaveTypes[0].id : "");
+  const [oneDayOnly, setOneDayOnly] = useState(true);
+  const [from, setFrom] = useState(todayStr());
+  const [to, setTo] = useState(todayStr());
+  const [numberInput, setNumberInput] = useState("");
+  const [queue, setQueue] = useState([]); // [{ number, name, typeId, typeLabel, from, to }]
+
+  const selectedType = leaveTypes.find((lt) => lt.id === typeId);
+  const isIndefinite = !!(selectedType && selectedType.indefinite);
+
+  const lookupName = useMemo(() => {
+    const num = numberInput.trim();
+    if (!num) return null;
+    const s = data.staff[num];
+    return s ? s.name : undefined; // undefined = not found, null = nothing typed yet
+  }, [numberInput, data.staff]);
+
+  const effectiveTo = isIndefinite ? null : (oneDayOnly ? from : to);
+  const canAdd = numberInput.trim() && lookupName && typeId && from && (isIndefinite || (effectiveTo && effectiveTo >= from));
+
+  const addToQueue = () => {
+    if (!canAdd) return;
+    const num = numberInput.trim();
+    setQueue((q) => [...q, { number: num, name: lookupName, typeId, typeLabel: selectedType ? selectedType.label : "", from, to: effectiveTo }]);
+    setNumberInput("");
+  };
+
+  const removeFromQueue = (idx) => setQueue((q) => q.filter((_, i) => i !== idx));
+
+  const recordAll = () => {
+    if (queue.length === 0) return;
+    // Every entry writes silently (no per-entry toast) — a single summary
+    // toast at the end instead of one popping up for every person in a
+    // batch of, say, ten.
+    queue.forEach((entry) => setUnavailable(entry.number, "Leave", entry.typeId, entry.from, entry.to, true));
+    showToast(t(`Recorded ${queue.length} leave ${queue.length === 1 ? "entry" : "entries"}`, `${queue.length} રજા નોંધાઈ`));
+    setQueue([]);
+  };
+
+  return (
+    <React.Fragment>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 520 }} className="gu">
+        {t(
+          "Pick a leave type and date once, then add as many people to the list below as needed — different people, or the same person again for a separate stretch — before saving all of it together.",
+          "એક વખત રજાનો પ્રકાર અને તારીખ પસંદ કરો, પછી નીચેની યાદીમાં જરૂર મુજબ ઘણા લોકો ઉમેરો — અલગ લોકો, અથવા એ જ વ્યક્તિ ફરીથી અલગ સમયગાળા માટે — બધું એકસાથે સાચવતાં પહેલાં."
+        )}
+      </p>
+
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480, marginBottom: queue.length ? 18 : 0 }}>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Leave type", "રજાનો પ્રકાર")}</label>
+          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} className="gu">
+            {leaveTypes.length === 0 && <option value="">{t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી")}</option>}
+            {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
+          </select>
+        </div>
+
+        {!isIndefinite && (
+          <React.Fragment>
+            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 7 }}>
+              <input type="checkbox" id="oneDayOnlyCk" checked={oneDayOnly} onChange={(e) => setOneDayOnly(e.target.checked)} />
+              <label htmlFor="oneDayOnlyCk" style={{ fontSize: 12.5, color: "var(--text-primary)", cursor: "pointer" }} className="gu">{t("One day only", "ફક્ત એક દિવસ")}</label>
+            </div>
+            <div style={{ marginBottom: 14, display: "flex", gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{oneDayOnly ? t("Date", "તારીખ") : t("From", "થી")}</label>
+                <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); if (oneDayOnly) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
+              </div>
+              {!oneDayOnly && (
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To", "સુધી")}</label>
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+                </div>
+              )}
+            </div>
+          </React.Fragment>
+        )}
+        {isIndefinite && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Starts", "શરૂ થાય છે")}</label>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">{t("This type has no fixed end date.", "આ પ્રકારની કોઈ નિશ્ચિત અંતિમ તારીખ નથી.")}</div>
+          </div>
+        )}
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Workplace number", "કાર્યસ્થળ નંબર")}</label>
+          <input
+            type="text" value={numberInput} onChange={(e) => setNumberInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addToQueue(); } }}
+            className="mono" style={{ width: "100%", boxSizing: "border-box" }}
+          />
+          {numberInput.trim() && (
+            <div style={{ fontSize: 11.5, marginTop: 4 }} className="gu">
+              {lookupName
+                ? <span style={{ color: "var(--status-success-text)" }}>{lookupName}</span>
+                : <span style={{ color: "var(--status-error-text)" }}>{t("No staff found with that number — add them in Manage staff first", "તે નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી — પહેલા સ્ટાફ સંચાલિત કરોમાં ઉમેરો")}</span>}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={addToQueue}
+          disabled={!canAdd}
+          style={{
+            background: canAdd ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none", borderRadius: 7,
+            padding: "8px 16px", fontSize: 13, fontWeight: 600, width: "100%", cursor: canAdd ? "pointer" : "default",
+          }} className="gu"
+        >+ {t("Add to list", "યાદીમાં ઉમેરો")}</button>
+      </div>
+
+      {queue.length > 0 && (
+        <div style={{ maxWidth: 480 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 }} className="gu">
+            {t(`${queue.length} to record`, `${queue.length} નોંધવાના`)}
+          </div>
+          {queue.map((entry, idx) => (
+            <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
+              <div style={{ fontSize: 12.5 }} className="gu">
+                <span style={{ fontWeight: 600 }}>{entry.name}</span>
+                <span style={{ color: "var(--text-tertiary)" }}> #{entry.number} · {entry.typeLabel} · {formatDMY(entry.from)}{entry.to && entry.to !== entry.from ? ` – ${formatDMY(entry.to)}` : ""}{!entry.to ? ` ${t("onward", "થી આગળ")}` : ""}</span>
+              </div>
+              <button onClick={() => removeFromQueue(idx)} title={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} aria-label={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} style={{ ...iconBtn, flexShrink: 0 }}>✕</button>
+            </div>
+          ))}
+          <button
+            onClick={recordAll}
+            style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600, width: "100%", marginTop: 8 }} className="gu"
+          >{t(`Record ${queue.length} leave${queue.length === 1 ? "" : "s"}`, `${queue.length} રજા નોંધો`)}</button>
+        </div>
+      )}
     </React.Fragment>
   );
 }
