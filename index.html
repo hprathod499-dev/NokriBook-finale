@@ -514,14 +514,27 @@ function ensureGujaratiCanvasFont() {
 // "sans-serif" for any character NOT in the Gujarati font (e.g. plain
 // English text, digits) via normal CSS font-fallback — exactly how the
 // browser already renders mixed Gujarati/English text in the app itself.
+// Whether a PDF cell's raw value actually needs the canvas-image
+// treatment at all — only text containing real Gujarati (or any
+// non-ASCII) characters does. Routing pure-ASCII content (an English
+// work-type name, a number) through the same image pipeline was making
+// it look visibly different from the Gujarati text right next to it in
+// the same row — jsPDF's own native vector text render is crisper AND
+// correctly sized for plain ASCII, so there's no reason to route it
+// through a rasterized image at all; only the genuinely Gujarati cells
+// need that treatment.
+function needsImageRender(text) {
+  return /[^\x00-\x7F]/.test(String(text == null ? "" : text));
+}
 function renderTextToImage(text, fontSizePt) {
   const scale = 4;
-  // Same 1.08x compensation as the .gu CSS class in the app itself —
-  // NotoSansGujarati renders visibly smaller than the PDF's default Latin
-  // font at the same declared size, which is exactly what made the PDF
-  // text look small/inconsistent against the plain-number columns (#,
-  // dates) that don't go through this function at all.
-  const fontPx = Math.round(fontSizePt * 1.08 * scale * (96 / 72));
+  // Noto Sans Gujarati renders noticeably smaller than the PDF's default
+  // Latin font at the same declared size — a real difference in font
+  // metrics between scripts. 1.08x wasn't enough correction in practice
+  // (confirmed by direct comparison against the English text in the same
+  // row); 1.22x brings Gujarati visually in line with the surrounding
+  // English/numeric text at the same nominal font size.
+  const fontPx = Math.round(fontSizePt * 1.22 * scale * (96 / 72));
   const measureCanvas = document.createElement("canvas");
   const mctx = measureCanvas.getContext("2d");
   mctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
@@ -6170,19 +6183,20 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT },
         headStyles: { fillColor: [14, 22, 32] },
-        // Name (1) and Type (3) can contain Gujarati text — rendered the
-        // same way as the Monthly report PDF (real browser text shaping
-        // baked into an image) so a name here always matches the app,
-        // instead of jsPDF drawing the raw string itself.
+        // Name (1) and Type (3) CAN contain Gujarati text — but not
+        // always (an English work-type/leave-type label has none), so
+        // needsImageRender checks the actual value each time rather than
+        // blanket-imaging every cell in these columns regardless of
+        // script.
         didParseCell: (hookData) => {
-          if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 3)) {
+          if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 3) && needsImageRender(hookData.cell.raw)) {
             hookData.cell.text = [];
           }
         },
         didDrawCell: (hookData) => {
           if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 3)) {
             const raw = hookData.cell.raw;
-            if (raw != null && raw !== "") drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, CAL_FONT_PT), CAL_FONT_PT);
+            if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, CAL_FONT_PT), CAL_FONT_PT);
           }
         },
       });
@@ -6240,13 +6254,25 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</h1>
           <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <select value={exportKind} onChange={(e) => setExportKind(e.target.value)} style={{ fontSize: 12.5, padding: "7px 8px" }} className="gu">
+        <div style={{ display: "flex", alignItems: "stretch", borderRadius: 7, overflow: "hidden" }}>
+          <select
+            value={exportKind} onChange={(e) => setExportKind(e.target.value)}
+            style={{
+              fontSize: 12.5, padding: "8px 6px 8px 10px", border: "none", borderRight: "1px solid rgba(255,255,255,0.4)",
+              background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", fontWeight: 600, cursor: "pointer",
+            }} className="gu"
+          >
             <option value="both">{t("Leave + Outstation", "રજા + બહારગામ")}</option>
             <option value="leave">{t("Leave only", "ફક્ત રજા")}</option>
             <option value="outstation">{t("Outstation only", "ફક્ત બહારગામ")}</option>
           </select>
-          <button onClick={downloadCalendarPdf} disabled={exportRows.length === 0 || pdfBusy} style={{ background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 12.5, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Export leave/outstation PDF", "રજા/બહારગામ PDF એક્સપોર્ટ કરો")}</button>
+          <button
+            onClick={downloadCalendarPdf} disabled={exportRows.length === 0 || pdfBusy}
+            style={{
+              background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none",
+              padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: exportRows.length && !pdfBusy ? "pointer" : "default",
+            }} className="gu"
+          >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Export PDF", "PDF એક્સપોર્ટ કરો")}</button>
         </div>
       </div>
       {showInfo && (
@@ -6497,14 +6523,16 @@ function ReportView({ data }) {
     const summaryNames = Object.keys(grouped).sort((a, b) => grouped[b].length - grouped[a].length || a.localeCompare(b));
     // Every cell that might contain Gujarati text (Name, Designation, Work
     // type, Note — basically anything that isn't a plain number or a
-    // machine-formatted date) is rendered to an image up front via
-    // renderTextToImage, using the browser's own text shaping, rather than
-    // letting jsPDF draw the raw string itself — see the long comment on
-    // renderTextToImage for why that's the part that was actually causing
-    // names to come out wrong in the PDF. didParseCell blanks the cell's
-    // native text (so jsPDF never draws its own, incorrect version) while
-    // still leaving `cell.raw` and normal auto-sizing untouched;
-    // didDrawCell then places the correct pre-rendered image on top.
+    // machine-formatted date) checks needsImageRender and only goes
+    // through the canvas-image path if it actually contains non-ASCII
+    // characters — an English work-type label right next to a Gujarati
+    // name in the same row renders through jsPDF's own crisp native text
+    // instead of being needlessly rasterized too, which is what was
+    // making it look visually inconsistent (different weight/size) next
+    // to the Gujarati cells. didParseCell blanks the cell's native text
+    // only when it needs the image treatment, leaving `cell.raw` and
+    // normal auto-sizing untouched either way; didDrawCell then places
+    // the pre-rendered image on top only for those same cells.
     doc.autoTable({
       startY: 33,
       head: [["#", "Name", "Designation", "Total duties"]],
@@ -6512,14 +6540,14 @@ function ReportView({ data }) {
       styles: { fontSize: FONT_PT },
       headStyles: { fillColor: [14, 22, 32] },
       didParseCell: (hookData) => {
-        if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 2)) {
+        if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 2) && needsImageRender(hookData.cell.raw)) {
           hookData.cell.text = [];
         }
       },
       didDrawCell: (hookData) => {
         if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 2)) {
           const raw = hookData.cell.raw;
-          if (raw != null && raw !== "") drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+          if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
         }
       },
     });
@@ -6537,18 +6565,19 @@ function ReportView({ data }) {
       ]),
       styles: { fontSize: FONT_PT },
       headStyles: { fillColor: [14, 22, 32] },
-      // Name (1), Designation (2), Work type (3), and Note (6) can all
-      // contain Gujarati text — # (0), Dates (4), and Days (5) are always
-      // plain numbers/ASCII, so those stay on jsPDF's normal text rendering.
+      // Name (1), Designation (2), Work type (3), and Note (6) can
+      // contain Gujarati text, but each cell is only imaged if it
+      // actually does (needsImageRender) — # (0), Dates (4), and Days
+      // (5) are always plain numbers/ASCII so those never get imaged.
       didParseCell: (hookData) => {
-        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index)) {
+        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
           hookData.cell.text = [];
         }
       },
       didDrawCell: (hookData) => {
         if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index)) {
           const raw = hookData.cell.raw;
-          if (raw != null && raw !== "") drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+          if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
         }
       },
     });
