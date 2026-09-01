@@ -21,7 +21,15 @@
 <style>
   html { scroll-behavior: smooth; }
   body { margin: 0; font-family: 'Inter', sans-serif; background: var(--bg-page); color: var(--text-primary); -webkit-tap-highlight-color: transparent; }
-  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; }
+  /* Noto Sans Gujarati renders noticeably smaller than Inter at the exact
+     same declared font-size — a normal difference in font metrics between
+     scripts, not a bug in either font, but it means Gujarati text looked
+     smaller than the English throughout the app even though every element
+     technically specified the same size. 1.08em scales proportionally
+     off of whatever size was already set on that element (a button, a
+     table cell, a heading — all wildly different base sizes), rather
+     than a fixed px bump that would only be correct for one of them. */
+  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.08em; }
   .mono { font-family: 'IBM Plex Mono', monospace; }
   .disp { font-family: 'Space Grotesk', sans-serif; }
   button {
@@ -508,7 +516,12 @@ function ensureGujaratiCanvasFont() {
 // browser already renders mixed Gujarati/English text in the app itself.
 function renderTextToImage(text, fontSizePt) {
   const scale = 4;
-  const fontPx = Math.round(fontSizePt * scale * (96 / 72));
+  // Same 1.08x compensation as the .gu CSS class in the app itself —
+  // NotoSansGujarati renders visibly smaller than the PDF's default Latin
+  // font at the same declared size, which is exactly what made the PDF
+  // text look small/inconsistent against the plain-number columns (#,
+  // dates) that don't go through this function at all.
+  const fontPx = Math.round(fontSizePt * 1.08 * scale * (96 / 72));
   const measureCanvas = document.createElement("canvas");
   const mctx = measureCanvas.getContext("2d");
   mctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
@@ -666,6 +679,29 @@ function addDaysStr(dateStr, delta) {
   const d = new Date(dateStr + "T00:00:00");
   d.setDate(d.getDate() + delta);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Collapses consecutive same-person/same-category/same-note daily rows
+// into one row spanning a date range, e.g. eleven separate "Parade"
+// entries for eleven consecutive days becomes one "05/08/2026 –
+// 15/08/2026 (11 days)" row instead — used specifically for PDF exports,
+// where eleven near-identical lines read as cluttered/repetitive in a
+// way that's much less noticeable scrolling through the app itself.
+function collapseConsecutiveDutyRows(rows) {
+  const sorted = [...rows].sort((a, b) =>
+    a.name.localeCompare(b.name) || a.category.localeCompare(b.category) ||
+    (a.note || "").localeCompare(b.note || "") || a.date.localeCompare(b.date)
+  );
+  const out = [];
+  sorted.forEach((r) => {
+    const last = out[out.length - 1];
+    if (last && last.name === r.name && last.category === r.category && (last.note || "") === (r.note || "") && addDaysStr(last.to, 1) === r.date) {
+      last.to = r.date;
+      last.days += 1;
+    } else {
+      out.push({ name: r.name, designation: r.designation, category: r.category, note: r.note, from: r.date, to: r.date, days: 1 });
+    }
+  });
+  return out.sort((a, b) => a.name.localeCompare(b.name) || a.from.localeCompare(b.from));
 }
 // Every calendar date from `from` through `to`, inclusive, as an array of
 // "YYYY-MM-DD" strings. Used by multi-day group duty so one assignment
@@ -3553,7 +3589,16 @@ function DutyRoster() {
             }}>{langCtxValue.t("Share", "શેર")}{data.shareEnabled ? " ✓" : ""}</button>
             <button onClick={() => setShowAboutPanel(true)} title={langCtxValue.t("About this app", "આ એપ વિશે")} aria-label={langCtxValue.t("About this app", "આ એપ વિશે")} style={{
               ...undoRedoBtn(true),
-              width: 34, padding: 0, fontSize: 17, lineHeight: 1, fontWeight: 700, letterSpacing: 1,
+              // Deliberately keeps the same 6px top/bottom padding as
+              // every sibling button in this row (only the horizontal
+              // padding is tightened, for a squarer icon-only look) — the
+              // previous padding: 0 dropped that shared vertical padding
+              // without an explicit height to compensate, making this one
+              // button a different overall height than its neighbors even
+              // though every button here is centered in the same flex
+              // row. That mismatched height, not the centering itself,
+              // was what made it look misaligned.
+              padding: "6px 9px", fontSize: 17, lineHeight: 1, fontWeight: 700, letterSpacing: 1,
             }}>⋮</button>
           </div>
           {view.mode === "home" && (
@@ -5952,6 +5997,13 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [pdfBusy, setPdfBusy] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  // Per-entry ✕ buttons stay hidden by default — a day with several
+  // people on it otherwise ends up with a delete icon next to every
+  // single row, which reads as cluttered/risky to tap near by accident.
+  // One "Delete entry" toggle next to the date reveals them all together
+  // when actually needed, same pattern as Manage Staff's own Edit toggle.
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [exportKind, setExportKind] = useState("both"); // both | leave | outstation
 
   const desgLabelOf = useMemo(() => {
     const map = {};
@@ -6067,7 +6119,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       if (!ev.start) return;
       const end = ev.end || ev.start;
       if (ev.start <= monthEnd && end >= monthStart) {
-        rows.push({ name: ev.name, number: ev.number || "", type: eventTypeLabel(ev.type, lang), start: ev.start, end });
+        rows.push({ name: ev.name, number: ev.number || "", type: eventTypeLabel(ev.type, lang), kind: "Event", start: ev.start, end });
         seen.add((ev.number || ev.name) + "|" + ev.start);
       }
     });
@@ -6081,7 +6133,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         if (u.from <= monthEnd && end >= monthStart && !seen.has(key)) {
           const kind = unavailKind(u);
           if (kind === "Leave" || kind === "Outstation") {
-            rows.push({ name: s.name, number: s.number, type: unavailLabel(data, u) || kind, start: u.from, end: u.to || "" });
+            rows.push({ name: s.name, number: s.number, type: unavailLabel(data, u) || kind, kind, start: u.from, end: u.to || "" });
             seen.add(key);
           }
         }
@@ -6089,6 +6141,15 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
     });
     return rows.sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name));
   }, [data, monthStart, monthEnd, lang]);
+
+  // The dropdown next to "Export leave/outstation PDF" — "Both" (default,
+  // unchanged from before), or narrow the export down to just one kind.
+  // Events (Training etc., from Events & reminders) only show up under
+  // "Both", since they're not really a Leave/Outstation choice at all.
+  const exportRows = useMemo(() => {
+    if (exportKind === "both") return monthAwayRows;
+    return monthAwayRows.filter((r) => r.kind === (exportKind === "leave" ? "Leave" : "Outstation"));
+  }, [monthAwayRows, exportKind]);
 
   const downloadCalendarPdf = async () => {
     setPdfBusy(true);
@@ -6106,7 +6167,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       doc.autoTable({
         startY: 33,
         head: [["#", "Name", "Number", "Type", "From", "To"]],
-        body: monthAwayRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
+        body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT },
         headStyles: { fillColor: [14, 22, 32] },
         // Name (1) and Type (3) can contain Gujarati text — rendered the
@@ -6179,7 +6240,14 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</h1>
           <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
         </div>
-        <button onClick={downloadCalendarPdf} disabled={monthAwayRows.length === 0 || pdfBusy} style={{ background: monthAwayRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 12.5, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Export leave/outstation PDF", "રજા/બહારગામ PDF એક્સપોર્ટ કરો")}</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <select value={exportKind} onChange={(e) => setExportKind(e.target.value)} style={{ fontSize: 12.5, padding: "7px 8px" }} className="gu">
+            <option value="both">{t("Leave + Outstation", "રજા + બહારગામ")}</option>
+            <option value="leave">{t("Leave only", "ફક્ત રજા")}</option>
+            <option value="outstation">{t("Outstation only", "ફક્ત બહારગામ")}</option>
+          </select>
+          <button onClick={downloadCalendarPdf} disabled={exportRows.length === 0 || pdfBusy} style={{ background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 12.5, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Export leave/outstation PDF", "રજા/બહારગામ PDF એક્સપોર્ટ કરો")}</button>
+        </div>
       </div>
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
@@ -6241,7 +6309,19 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         <div style={{ flex: "1 1 380px", minWidth: 300 }}>
           <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-              <div className="disp" style={{ fontWeight: 700, fontSize: 15 }}>{formatDMY(selectedDate)}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="disp" style={{ fontWeight: 700, fontSize: 15 }}>{formatDMY(selectedDate)}</div>
+                <button
+                  onClick={() => setDeleteMode((v) => !v)}
+                  title={t("Show a delete button next to each entry below, to remove one you logged by mistake", "નીચેની દરેક એન્ટ્રીની બાજુમાં ડિલીટ બટન બતાવો, જેથી ભૂલથી નોંધેલી કોઈ એન્ટ્રી કાઢી શકાય")}
+                  style={{
+                    fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+                    background: deleteMode ? "var(--status-error-text)" : "var(--bg-surface)",
+                    color: deleteMode ? "#fff" : "var(--text-secondary)",
+                    border: "1px solid " + (deleteMode ? "var(--status-error-text)" : "var(--border)"),
+                  }} className="gu"
+                >{t("Delete entry", "નોંધ ડીલીટ કરો")}</button>
+              </div>
               <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setMonth(e.target.value.slice(0, 7)); }} style={{ fontSize: 12 }} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10, fontSize: 11, color: "var(--text-tertiary)" }} className="gu">
@@ -6276,7 +6356,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                             </span>
                           )}
                           {r.note && <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} title={r.note}>📝</span>}
-                          {deleteHistoryEntries && (
+                          {deleteMode && deleteHistoryEntries && (
                             <button
                               onClick={() => {
                                 if (!window.confirm(t(`Delete this duty entry for ${r.name}? It moves to the Recycle bin, so it can still be restored.`, `${r.name} માટે આ ડ્યુટી એન્ટ્રી ડિલીટ કરવી છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`))) return;
@@ -6311,7 +6391,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                           </span>
                         )}
                         <span style={{ fontSize: 10.5, fontWeight: 700, background: style.bg, color: style.fg, border: "1px solid " + style.border, borderRadius: 10, padding: "2px 8px" }}>{a.label}</span>
-                        {deleteUnavailableHistoryEntry && a.source === "unavailable" && (
+                        {deleteMode && deleteUnavailableHistoryEntry && a.source === "unavailable" && (
                           <button
                             onClick={() => {
                               if (!window.confirm(t(`Delete this ${a.type.toLowerCase()} record for ${a.name}? It moves to the Recycle bin, so it can still be restored.`, `${a.name} માટે આ ${a.label} રેકોર્ડ ડિલીટ કરવો છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`))) return;
@@ -6446,22 +6526,27 @@ function ReportView({ data }) {
 
     doc.setFontSize(11);
     doc.text("Full detail", 14, doc.lastAutoTable.finalY + 10);
+    const collapsedRows = collapseConsecutiveDutyRows(rows);
     doc.autoTable({
       startY: doc.lastAutoTable.finalY + 14,
-      head: [["#", "Name", "Designation", "Work type", "Date", "Note"]],
-      body: rows.map((r, i) => [i + 1, r.name, r.designation, r.category, formatDMY(r.date), r.note || ""]),
+      head: [["#", "Name", "Designation", "Work type", "Dates", "Days", "Note"]],
+      body: collapsedRows.map((r, i) => [
+        i + 1, r.name, r.designation, r.category,
+        r.from === r.to ? formatDMY(r.from) : `${formatDMY(r.from)} – ${formatDMY(r.to)}`,
+        r.days, r.note || "",
+      ]),
       styles: { fontSize: FONT_PT },
       headStyles: { fillColor: [14, 22, 32] },
-      // Name (1), Designation (2), Work type (3), and Note (5) can all
-      // contain Gujarati text — Date (4) and # (0) are always plain
-      // numbers/ASCII, so those stay on jsPDF's normal text rendering.
+      // Name (1), Designation (2), Work type (3), and Note (6) can all
+      // contain Gujarati text — # (0), Dates (4), and Days (5) are always
+      // plain numbers/ASCII, so those stay on jsPDF's normal text rendering.
       didParseCell: (hookData) => {
-        if (hookData.section === "body" && [1, 2, 3, 5].includes(hookData.column.index)) {
+        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index)) {
           hookData.cell.text = [];
         }
       },
       didDrawCell: (hookData) => {
-        if (hookData.section === "body" && [1, 2, 3, 5].includes(hookData.column.index)) {
+        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index)) {
           const raw = hookData.cell.raw;
           if (raw != null && raw !== "") drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
         }
