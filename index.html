@@ -557,7 +557,16 @@ function renderTextToImage(text, fontSizePt) {
 // the cell's actual height in PDF points.
 function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   if (!rendered) return;
-  const targetH = Math.min(cell.height - 1.5, fontSizePt * 1.35);
+  // This height cap — not the font-pixel size used when rasterizing in
+  // renderTextToImage — is what actually determines how big the Gujarati
+  // text looks in the final PDF: the image is always scaled to fit
+  // targetH, so raising the rasterization resolution alone (crispness)
+  // does nothing for visible size. 1.35x nominal font size was reading
+  // visibly smaller than jsPDF's native Latin text in the same row at the
+  // same declared fontSizePt; 1.8x brings it in line, while the
+  // `cell.height - 1.5` half of the min() still protects against
+  // overflowing a short row.
+  const targetH = Math.min(cell.height - 1.5, fontSizePt * 1.8);
   const targetW = Math.min(cell.width - 2, targetH * (rendered.width / rendered.height));
   const x = cell.x + 1;
   const y = cell.y + (cell.height - targetH) / 2;
