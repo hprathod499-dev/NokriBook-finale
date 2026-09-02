@@ -4748,6 +4748,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   const [showInfo, setShowInfo] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
+  const cat = data.categories.find((c) => c.id === catId);
   const membership = data.membership[catId] || [];
 
   const roster = useMemo(() => computeRoster(data, catId), [data, catId]);
