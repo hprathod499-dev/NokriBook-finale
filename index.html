@@ -589,7 +589,15 @@ function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
 // editable view) and PublicCategoryView (the read-only view reached via a
 // share link) — a shared-link recipient gets the exact same PDF an admin
 // would, with no write access needed to generate it.
-async function downloadCategoryPdf(catLabel, roster, historyRows) {
+// Plain-English period label for PDF headers, which (like every other PDF
+// in this app) always render in English regardless of the app's current
+// language — periodLabel() above returns a bilingual phrase meant for
+// on-screen UI text, not this.
+function periodLabelEn(period) {
+  if (period.key === "custom") return `${formatDMY(period.customFrom || todayStr())} – ${formatDMY(period.customTo || todayStr())}`;
+  return { month: "This month", "2m": "Last 2 months", "3m": "Last 3 months", "6m": "Last 6 months" }[period.key] || "This month";
+}
+async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
@@ -599,23 +607,29 @@ async function downloadCategoryPdf(catLabel, roster, historyRows) {
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
+  const [periodFrom, periodTo] = periodRangeOf(period);
+
   doc.setFontSize(14);
   doc.text(`Nokri Book — ${catLabel}`, 14, 16);
+  doc.setFontSize(10);
+  doc.text(periodLabelEn(period), 14, 23);
   doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, 22);
+  doc.text("Generated " + new Date().toLocaleString(), 14, 28);
 
   doc.setFontSize(11);
-  doc.text("Roster", 14, 30);
+  doc.text("Roster", 14, 36);
   doc.autoTable({
-    startY: 34,
+    startY: 40,
     head: [["Rank", "Number", "Name", "Last duty", "Waiting", "Duties", "Status"]],
     // p.history comes straight off the membership row computeRoster
     // spreads in — same source both CategoryView and PublicCategoryView
-    // already use for their own roster tables, so this always matches
-    // what's on screen without needing a separately pre-computed count.
+    // already use for their own roster tables. The Duties column is
+    // filtered to the selected period (same groupedDutyCountInRange logic
+    // used by every other period-aware duty count in the app) rather than
+    // an unconditional all-time count.
     body: roster.map((p) => [
       p.rank || "—", p.number, p.name, p.lastDuty ? formatDMY(p.lastDuty) : "—",
-      p.waiting != null ? `${p.waiting}d` : "—", (p.history || []).length, p.statusLabel || p.status || "—",
+      p.waiting != null ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
@@ -635,10 +649,14 @@ async function downloadCategoryPdf(catLabel, roster, historyRows) {
 
   doc.setFontSize(11);
   doc.text("History", 14, doc.lastAutoTable.finalY + 10);
+  // Same overlap test used by every other period filter in the app (a
+  // multi-day span counts if ANY part of it falls in the window, not only
+  // if it starts inside it).
+  const filteredHistoryRows = historyRows.filter((r) => r.from <= periodTo && r.to >= periodFrom);
   doc.autoTable({
     startY: doc.lastAutoTable.finalY + 14,
     head: [["#", "Number", "Name", "Dates", "Days", "Note"]],
-    body: historyRows.map((r, i) => [
+    body: filteredHistoryRows.map((r, i) => [
       i + 1, r.number, r.name,
       r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to),
       r.days, r.note || "",
@@ -4729,8 +4747,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   const [hiddenDesignations, setHiddenDesignations] = useState([]); // designation ids to hide from the roster list below
   const [showInfo, setShowInfo] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
-
-  const cat = data.categories.find((c) => c.id === catId);
+  const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const membership = data.membership[catId] || [];
 
   const roster = useMemo(() => computeRoster(data, catId), [data, catId]);
@@ -4804,7 +4821,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows);
+      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
     } finally {
@@ -4833,7 +4850,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
           <button onClick={() => setTab("fairness")} style={catTabBtn(tab === "fairness")} className="gu">{t("Fairness", "ન્યાયીપણું")}</button>
           <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}{historyRows.length ? ` (${historyRows.length})` : ""}</button>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <PeriodFilterSelect period={pdfPeriod} setPeriod={setPdfPeriod} />
           <button
             onClick={handleDownloadPdf} disabled={pdfBusy}
             title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
@@ -8091,6 +8109,7 @@ function PublicCategoryView({ data, catId }) {
   const { t } = useLang();
   const [tab, setTab] = useState("roster");
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const cat = (data.categories || []).find((c) => c.id === catId);
   const membership = (data.membership && data.membership[catId]) || [];
   const roster = useMemo(() => computeRoster(data, catId), [data, catId]);
@@ -8114,7 +8133,7 @@ function PublicCategoryView({ data, catId }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows);
+      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
     } finally {
@@ -8135,11 +8154,14 @@ function PublicCategoryView({ data, catId }) {
           <button onClick={() => setTab("fairness")} style={catTabBtn(tab === "fairness")} className="gu">{t("Fairness", "ન્યાયીપણું")}</button>
           <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}{historyRows.length ? ` (${historyRows.length})` : ""}</button>
         </div>
-        <button
-          onClick={handleDownloadPdf} disabled={pdfBusy}
-          title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
-          style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
-        >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <PeriodFilterSelect period={pdfPeriod} setPeriod={setPdfPeriod} />
+          <button
+            onClick={handleDownloadPdf} disabled={pdfBusy}
+            title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
+            style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+          >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+        </div>
       </div>
 
       {tab === "fairness" ? (
