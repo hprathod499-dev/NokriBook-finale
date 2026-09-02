@@ -872,6 +872,13 @@ function groupHistoryRows(rows) {
   });
   return groups;
 }
+// "YYYY-MM" + a whole-month delta (positive or negative) -> the new
+// "YYYY-MM" string — used by the Monthly Report's prev/next month arrows.
+function shiftMonthStr(monthStr, delta) {
+  const [y, m] = monthStr.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 // First/last date of a "YYYY-MM" month, as ISO strings.
 function monthBounds(monthStr) {
   const [y, m] = monthStr.split("-").map(Number);
@@ -880,19 +887,85 @@ function monthBounds(monthStr) {
   const end = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return [start, end];
 }
+// "Duties in a date range" for one person's history in one work type —
+// counts distinct duty SPANS overlapping [fromDate, toDate] (via
+// groupHistoryRows), not raw days, same reasoning as monthlyGroupedDutyCount
+// below (which is now just this with a calendar month's own bounds).
+function groupedDutyCountInRange(history, fromDate, toDate) {
+  if (!history || !history.length) return 0;
+  const rows = history
+    .map((entry, idx) => ({ number: "x", idx, date: historyDate(entry), ts: historyTs(entry), note: historyNote(entry), batch: historyBatch(entry) }))
+    .sort((a, b) => (b.date === a.date ? b.ts - a.ts : b.date.localeCompare(a.date)));
+  const groups = groupHistoryRows(rows);
+  return groups.filter((g) => g.from <= toDate && g.to >= fromDate).length;
+}
 // "Duties this month" for one person's history in one work type — counts
 // distinct duty SPANS overlapping the month (via groupHistoryRows), not
 // raw days. This is what keeps an 11-day Group Duty assignment from
 // inflating someone's monthly count to 11 — it counts as the 1 assignment
 // it actually is, same as the History tab now displays it.
 function monthlyGroupedDutyCount(history, monthStr) {
-  if (!history || !history.length) return 0;
   const [monthStart, monthEnd] = monthBounds(monthStr);
-  const rows = history
-    .map((entry, idx) => ({ number: "x", idx, date: historyDate(entry), ts: historyTs(entry), note: historyNote(entry), batch: historyBatch(entry) }))
-    .sort((a, b) => (b.date === a.date ? b.ts - a.ts : b.date.localeCompare(a.date)));
-  const groups = groupHistoryRows(rows);
-  return groups.filter((g) => g.from <= monthEnd && g.to >= monthStart).length;
+  return groupedDutyCountInRange(history, monthStart, monthEnd);
+}
+// The one "how far back" period picker shared by every duty-count/fairness
+// view in the app — a person's full duty history modal, the global Duty
+// fairness panel, and every work type's own Fairness tab. Same five
+// options, same meaning, everywhere: "This month" (the current calendar
+// month only), a rolling window of the last 2/3/6 whole calendar months
+// (ending with the current one), or a fully custom date range.
+function periodBounds(key) {
+  const monthsBack = { month: 1, "2m": 2, "3m": 3, "6m": 6 }[key] || 1;
+  const now = new Date();
+  const [, end] = monthBounds(todayStr().slice(0, 7));
+  const startDate = new Date(now.getFullYear(), now.getMonth() - (monthsBack - 1), 1);
+  const start = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}-01`;
+  return [start, end];
+}
+// { key: "month"|"2m"|"3m"|"6m"|"custom", customFrom, customTo } -> [from, to]
+function periodRangeOf(period) {
+  if (period.key === "custom") return [period.customFrom || "0001-01-01", period.customTo || "9999-12-31"];
+  return periodBounds(period.key);
+}
+function periodLabel(t, period) {
+  const labels = {
+    month: t("this month", "આ મહિને"),
+    "2m": t("the last 2 months", "છેલ્લા 2 મહિનામાં"),
+    "3m": t("the last 3 months", "છેલ્લા 3 મહિનામાં"),
+    "6m": t("the last 6 months", "છેલ્લા 6 મહિનામાં"),
+    custom: t("the selected date range", "પસંદ કરેલી તારીખ શ્રેણીમાં"),
+  };
+  return labels[period.key] || labels.month;
+}
+// The dropdown itself (plus, for "custom", two date inputs) — a plain
+// controlled component so every screen using it just owns its own
+// { key, customFrom, customTo } state and passes setPeriod straight to
+// useState's setter.
+function PeriodFilterSelect({ period, setPeriod }) {
+  const { t } = useLang();
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <select
+        value={period.key}
+        onChange={(e) => setPeriod((p) => ({ ...p, key: e.target.value }))}
+        style={{ fontSize: 12, padding: "5px 8px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-surface)", color: "var(--text-primary)" }}
+        className="gu"
+      >
+        <option value="month">{t("This month", "આ મહિને")}</option>
+        <option value="2m">{t("Last 2 months", "છેલ્લા 2 મહિના")}</option>
+        <option value="3m">{t("Last 3 months", "છેલ્લા 3 મહિના")}</option>
+        <option value="6m">{t("Last 6 months", "છેલ્લા 6 મહિના")}</option>
+        <option value="custom">{t("Custom date range", "કસ્ટમ તારીખ શ્રેણી")}</option>
+      </select>
+      {period.key === "custom" && (
+        <React.Fragment>
+          <input type="date" value={period.customFrom || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customFrom: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>–</span>
+          <input type="date" value={period.customTo || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customTo: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
+        </React.Fragment>
+      )}
+    </div>
+  );
 }
 // "05/08/2026" style — the display format used everywhere in the app.
 // Storage/comparison still use ISO "YYYY-MM-DD" internally; this is only
@@ -4200,6 +4273,7 @@ function MiscDutyView({ data, assignMiscDuty }) {
   }, [numberInput, data.staff]);
 
   const canAssign = numberInput.trim() && (lookupPreview || nameInput.trim()) && dutyType.trim();
+  const [showInfo, setShowInfo] = useState(false);
 
   const handleAssign = () => {
     if (!canAssign) return;
@@ -4213,12 +4287,18 @@ function MiscDutyView({ data, assignMiscDuty }) {
 
   return (
     <React.Fragment>
-      <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 520 }} className="gu">
-        {t(
-          "For a one-off task that doesn't need its own permanent work type — describe what the duty actually is, and that description is what gets saved and shown later, not just \"Miscellaneous\".",
-          "એક વખતના કામ માટે જેને પોતાનો કાયમી કામનો પ્રકાર જરૂરી નથી — ડ્યુટી ખરેખર શું છે તે વર્ણવો, અને એ વર્ણન જ સાચવવામાં આવે છે અને પછીથી બતાવવામાં આવે છે, ફક્ત \"વિવિધ\" નહીં."
-        )}
-      </p>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20 }}>
+        <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Miscellaneous", "વિવિધ")}</h1>
+        <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
+      </div>
+      {showInfo && (
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 520 }} className="gu">
+          {t(
+            "For a one-off task that doesn't need its own permanent work type — describe what the duty actually is, and that description is what gets saved and shown later, not just \"Miscellaneous\".",
+            "એક વખતના કામ માટે જેને પોતાનો કાયમી કામનો પ્રકાર જરૂરી નથી — ડ્યુટી ખરેખર શું છે તે વર્ણવો, અને એ વર્ણન જ સાચવવામાં આવે છે અને પછીથી બતાવવામાં આવે છે, ફક્ત \"વિવિધ\" નહીં."
+          )}
+        </p>
+      )}
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480 }}>
         <div style={{ marginBottom: 14 }}>
@@ -4285,6 +4365,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
   const [to, setTo] = useState(todayStr());
   const [numberInput, setNumberInput] = useState("");
   const [queue, setQueue] = useState([]); // [{ number, name, typeId, typeLabel, from, to }]
+  const [showInfo, setShowInfo] = useState(false);
 
   const selectedType = leaveTypes.find((lt) => lt.id === typeId);
   const isIndefinite = !!(selectedType && selectedType.indefinite);
@@ -4320,12 +4401,18 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
 
   return (
     <React.Fragment>
-      <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 520 }} className="gu">
-        {t(
-          "Pick a leave type and date once, then add as many people to the list below as needed — different people, or the same person again for a separate stretch — before saving all of it together.",
-          "એક વખત રજાનો પ્રકાર અને તારીખ પસંદ કરો, પછી નીચેની યાદીમાં જરૂર મુજબ ઘણા લોકો ઉમેરો — અલગ લોકો, અથવા એ જ વ્યક્તિ ફરીથી અલગ સમયગાળા માટે — બધું એકસાથે સાચવતાં પહેલાં."
-        )}
-      </p>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20 }}>
+        <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Record Leave", "રજા નોંધો")}</h1>
+        <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
+      </div>
+      {showInfo && (
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 520 }} className="gu">
+          {t(
+            "Pick a leave type and date once, then add as many people to the list below as needed — different people, or the same person again for a separate stretch — before saving all of it together.",
+            "એક વખત રજાનો પ્રકાર અને તારીખ પસંદ કરો, પછી નીચેની યાદીમાં જરૂર મુજબ ઘણા લોકો ઉમેરો — અલગ લોકો, અથવા એ જ વ્યક્તિ ફરીથી અલગ સમયગાળા માટે — બધું એકસાથે સાચવતાં પહેલાં."
+          )}
+        </p>
+      )}
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480, marginBottom: queue.length ? 18 : 0 }}>
         <div style={{ marginBottom: 14 }}>
@@ -5089,21 +5176,26 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
 // the authenticated and public read-only views, same as the history table.
 function CategoryFairnessTable({ roster, catLabel }) {
   const { t } = useLang();
+  const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
+  const [periodFrom, periodTo] = periodRangeOf(period);
   const rows = useMemo(() => {
-    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, count: (p.history || []).length }));
+    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, count: groupedDutyCountInRange(p.history, periodFrom, periodTo) }));
     const total = withCounts.reduce((sum, p) => sum + p.count, 0);
     return withCounts
       .map((p) => ({ ...p, pct: total > 0 ? (p.count / total) * 100 : 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [roster]);
+  }, [roster, periodFrom, periodTo]);
   const totalDuties = rows.reduce((sum, r) => sum + r.count, 0);
 
   return (
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-soft)", fontSize: 12, color: "var(--text-secondary)" }} className="gu">
-        {totalDuties > 0
-          ? t(`${totalDuties} total ${totalDuties === 1 ? "duty" : "duties"} logged for ${catLabel} — each person's share of that.`, `${catLabel} માટે કુલ ${totalDuties} ડ્યુટી નોંધાયેલ — દરેક વ્યક્તિનો હિસ્સો.`)
-          : t("No duties logged for this work type yet.", "આ કામના પ્રકાર માટે હજુ કોઈ ડ્યુટી નોંધાયેલ નથી.")}
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">
+          {totalDuties > 0
+            ? t(`${totalDuties} total ${totalDuties === 1 ? "duty" : "duties"} logged for ${catLabel} in ${periodLabel(t, period)} — each person's share of that.`, `${catLabel} માટે ${periodLabel(t, period)} કુલ ${totalDuties} ડ્યુટી નોંધાયેલ — દરેક વ્યક્તિનો હિસ્સો.`)
+            : t(`No duties logged for this work type in ${periodLabel(t, period)}.`, `આ કામના પ્રકાર માટે ${periodLabel(t, period)} કોઈ ડ્યુટી નોંધાયેલ નથી.`)}
+        </div>
+        <PeriodFilterSelect period={period} setPeriod={setPeriod} />
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -5510,10 +5602,10 @@ function StaffView({
         <button
           onClick={() => downloadCsv(
             "nokri-book-staff-directory.csv",
-            [["Number", "Name", "Mobile", "Designation", "Work types", "Status", "Duties this month"], ...filteredStaffList.map((s) => {
+            [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...filteredStaffList.map((s) => {
               const active = s.unavailable && (!s.unavailable.to || s.unavailable.to >= todayStr());
               const label = active ? unavailLabel(data, s.unavailable) : (s.skip ? "Skip" : "Present");
-              return [s.number, s.name, s.phone || "", s.desgLabel || "", s.cats.join("; "), label, s.dutiesThisMonth];
+              return [s.number, s.name, s.phone || "", s.desgLabel || "", label, s.dutiesThisMonth];
             })]
           )}
           disabled={filteredStaffList.length === 0}
@@ -5908,6 +6000,8 @@ function PersonHistoryModal({ data, number, onClose }) {
   useEscToClose(onClose);
   const staffRec = data.staff[number];
   const currentMonth = todayStr().slice(0, 7);
+  const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
+  const [periodFrom, periodTo] = periodRangeOf(period);
 
   const { groups, byCategory, totalAllTime, totalThisMonth } = useMemo(() => {
     const allRows = [];
@@ -5933,13 +6027,26 @@ function PersonHistoryModal({ data, number, onClose }) {
     return { groups: grouped, byCategory: byCat, totalAllTime: grouped.length, totalThisMonth: thisMonth };
   }, [data, number, staffRec, currentMonth]);
 
+  // The full "all-time" list above is what actually gets cluttered on
+  // anyone with a long history — this is the filtered view the table
+  // below actually renders, driven by the period picker next to the
+  // name. The two summary numbers above (This month / All-time) stay
+  // fixed reference points regardless of what's selected here.
+  const filteredGroups = useMemo(
+    () => groups.filter((g) => g.from <= periodTo && g.to >= periodFrom),
+    [groups, periodFrom, periodTo]
+  );
+
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Full duty history", "સંપૂર્ણ ડ્યુટી ઇતિહાસ")} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{staffRec.name}</div>
-            <div className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>#{number}</div>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{staffRec.name}</div>
+              <div className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>#{number}</div>
+            </div>
+            <PeriodFilterSelect period={period} setPeriod={setPeriod} />
           </div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
@@ -5965,8 +6072,12 @@ function PersonHistoryModal({ data, number, onClose }) {
         </div>
 
         <div style={{ overflowY: "auto", flex: 1 }}>
-          {groups.length === 0 ? (
-            <div style={{ padding: "30px 20px", textAlign: "center", color: "var(--text-tertiary)" }} className="gu">{t("No duty history recorded yet.", "હજુ સુધી કોઈ ડ્યુટી ઇતિહાસ નોંધાયો નથી.")}</div>
+          {filteredGroups.length === 0 ? (
+            <div style={{ padding: "30px 20px", textAlign: "center", color: "var(--text-tertiary)" }} className="gu">
+              {groups.length === 0
+                ? t("No duty history recorded yet.", "હજુ સુધી કોઈ ડ્યુટી ઇતિહાસ નોંધાયો નથી.")
+                : t(`No duty history in ${periodLabel(t, period)}.`, `${periodLabel(t, period)} કોઈ ડ્યુટી ઇતિહાસ નથી.`)}
+            </div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
@@ -5975,7 +6086,7 @@ function PersonHistoryModal({ data, number, onClose }) {
                 </tr>
               </thead>
               <tbody>
-                {groups.map((g) => (
+                {filteredGroups.map((g) => (
                   <tr key={`${g.catLabel}#${g.idxs.join(",")}`} style={{ borderTop: "1px solid var(--border-soft)" }}>
                     <td style={td} className="mono">
                       {g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to)}
@@ -6001,36 +6112,56 @@ function PersonHistoryModal({ data, number, onClose }) {
 // / work type) on this month's Duty meter counts, all shown as % bars
 // relative to whoever/whatever is busiest in that lens, plus a two-person
 // side-by-side compare tool with a per-work-type breakdown for each.
-function DutyFairnessCompare({ data, staffList, currentMonth }) {
+function DutyFairnessCompare({ data, staffList }) {
   const { t } = useLang();
   const [view, setView] = useState("person"); // person | designation | worktype
   const [compareInput, setCompareInput] = useState("");
+  const [showInfo, setShowInfo] = useState(false);
+  const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
+  const [periodFrom, periodTo] = periodRangeOf(period);
 
-  const personRows = useMemo(() => [...staffList].sort((a, b) => b.dutiesThisMonth - a.dutiesThisMonth), [staffList]);
-  const maxPerson = useMemo(() => staffList.reduce((m, s) => Math.max(m, s.dutiesThisMonth), 0), [staffList]);
+  // Per-person duty count for the selected period — recomputed directly
+  // from the raw category/membership data rather than the incoming
+  // staffList's dutiesThisMonth (which is always calendar-month-only), so
+  // every lens below (person / designation / work type / compare) responds
+  // to the period picker instead of being stuck on "this month" the way
+  // this panel used to be.
+  const countByNumber = useMemo(() => {
+    const counts = {};
+    (data.categories || []).forEach((c) => (data.membership[c.id] || []).forEach((m) => {
+      counts[m.number] = (counts[m.number] || 0) + groupedDutyCountInRange(m.history, periodFrom, periodTo);
+    }));
+    return counts;
+  }, [data, periodFrom, periodTo]);
+
+  const personRows = useMemo(
+    () => staffList.map((s) => ({ ...s, periodCount: countByNumber[s.number] || 0 })).sort((a, b) => b.periodCount - a.periodCount),
+    [staffList, countByNumber]
+  );
+  const maxPerson = useMemo(() => personRows.reduce((m, s) => Math.max(m, s.periodCount), 0), [personRows]);
 
   const desgRows = useMemo(() => {
     const map = {};
-    staffList.forEach((s) => {
+    personRows.forEach((s) => {
       const key = s.desgLabel || t("No designation", "કોઈ હોદ્દો નથી");
-      map[key] = (map[key] || 0) + s.dutiesThisMonth;
+      map[key] = (map[key] || 0) + s.periodCount;
     });
     return Object.entries(map).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
-  }, [staffList, t]);
+  }, [personRows, t]);
   const maxDesg = useMemo(() => desgRows.reduce((m, r) => Math.max(m, r.count), 0), [desgRows]);
 
   const catRows = useMemo(() => {
     return (data.categories || []).map((c) => ({
       label: c.label,
-      count: (data.membership[c.id] || []).reduce((sum, m) => sum + monthlyGroupedDutyCount(m.history, currentMonth), 0),
+      count: (data.membership[c.id] || []).reduce((sum, m) => sum + groupedDutyCountInRange(m.history, periodFrom, periodTo), 0),
     })).sort((a, b) => b.count - a.count);
-  }, [data, currentMonth]);
+  }, [data, periodFrom, periodTo]);
   const maxCat = useMemo(() => catRows.reduce((m, r) => Math.max(m, r.count), 0), [catRows]);
 
   const personCatBreakdown = (number) => (data.categories || [])
     .map((c) => {
       const m = (data.membership[c.id] || []).find((x) => x.number === number);
-      return { label: c.label, count: m ? monthlyGroupedDutyCount(m.history, currentMonth) : 0 };
+      return { label: c.label, count: m ? groupedDutyCountInRange(m.history, periodFrom, periodTo) : 0 };
     })
     .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count);
@@ -6040,12 +6171,12 @@ function DutyFairnessCompare({ data, staffList, currentMonth }) {
     [compareInput]
   );
   const compareMatches = useMemo(
-    () => compareNumbers.map((num) => ({ num, person: staffList.find((s) => s.number === num) })),
-    [compareNumbers, staffList]
+    () => compareNumbers.map((num) => ({ num, person: personRows.find((s) => s.number === num) })),
+    [compareNumbers, personRows]
   );
   const compareFound = compareMatches.filter((m) => m.person).map((m) => m.person);
   const compareNotFound = compareMatches.filter((m) => !m.person).map((m) => m.num);
-  const maxCompare = Math.max(1, ...compareFound.map((p) => p.dutiesThisMonth));
+  const maxCompare = Math.max(1, ...compareFound.map((p) => p.periodCount));
 
   const Bar = ({ pct, color }) => (
     <div style={{ flex: 1, height: 7, borderRadius: 4, background: "var(--border-soft)", overflow: "hidden" }}>
@@ -6063,21 +6194,27 @@ function DutyFairnessCompare({ data, staffList, currentMonth }) {
   return (
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginBottom: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-        <div className="disp gu" style={{ fontWeight: 700, fontSize: 14 }}>⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div className="disp gu" style={{ fontWeight: 700, fontSize: 14 }}>⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</div>
+          <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this panel", "આ પેનલ વિશે")} />
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <PeriodFilterSelect period={period} setPeriod={setPeriod} />
           <button onClick={() => setView("person")} style={catTabBtn(view === "person")} className="gu">{t("By person", "વ્યક્તિ પ્રમાણે")}</button>
           <button onClick={() => setView("designation")} style={catTabBtn(view === "designation")} className="gu">{t("By designation", "હોદ્દા પ્રમાણે")}</button>
           <button onClick={() => setView("worktype")} style={catTabBtn(view === "worktype")} className="gu">{t("By work type", "કામના પ્રકાર પ્રમાણે")}</button>
         </div>
       </div>
-      <p style={{ fontSize: 11.5, color: "var(--text-tertiary)", margin: "4px 0 14px" }} className="gu">
-        {t("Based on the Duty meter (duty assignments this month, not raw days). Bars are relative to whoever/whatever is busiest in this view — 100% is the busiest, not a hard cap.", "ડ્યુટી મીટર (આ મહિનાની ડ્યુટી સોંપણીઓ, રો ડેઝ નહીં) ના આધારે. બાર આ દૃશ્યમાં સૌથી વ્યસ્તની સાપેક્ષે છે — 100% એટલે સૌથી વ્યસ્ત, કોઈ નિશ્ચિત મર્યાદા નહીં.")}
-      </p>
+      {showInfo && (
+        <p style={{ fontSize: 11.5, color: "var(--text-tertiary)", margin: "4px 0 14px" }} className="gu">
+          {t(`Based on the Duty meter (duty assignments in ${periodLabel(t, period)}, not raw days). Bars are relative to whoever/whatever is busiest in this view — 100% is the busiest, not a hard cap.`, `ડ્યુટી મીટર (${periodLabel(t, period)} ડ્યુટી સોંપણીઓ, રો ડેઝ નહીં) ના આધારે. બાર આ દૃશ્યમાં સૌથી વ્યસ્તની સાપેક્ષે છે — 100% એટલે સૌથી વ્યસ્ત, કોઈ નિશ્ચિત મર્યાદા નહીં.`)}
+        </p>
+      )}
 
       {view === "person" && (
         <React.Fragment>
           <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 18 }}>
-            {personRows.map((s) => barRow(s.number, s.name, s.dutiesThisMonth, maxPerson > 0 ? Math.round((s.dutiesThisMonth / maxPerson) * 100) : 0))}
+            {personRows.map((s) => barRow(s.number, s.name, s.periodCount, maxPerson > 0 ? Math.round((s.periodCount / maxPerson) * 100) : 0))}
             {personRows.length === 0 && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }} className="gu">{t("No staff yet.", "હજુ કોઈ સ્ટાફ નથી.")}</div>}
           </div>
 
@@ -6102,19 +6239,19 @@ function DutyFairnessCompare({ data, staffList, currentMonth }) {
             {compareFound.length > 0 && (
               <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {compareFound.map((p) => {
-                  const pct = maxCompare > 0 ? Math.round((p.dutiesThisMonth / maxCompare) * 100) : 0;
+                  const pct = maxCompare > 0 ? Math.round((p.periodCount / maxCompare) * 100) : 0;
                   const breakdown = personCatBreakdown(p.number);
                   return (
                     <div key={p.number} style={{ flex: "1 1 220px", background: "var(--bg-surface-2)", borderRadius: 8, padding: 12 }}>
                       <div className="gu" style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{p.name} <span className="mono" style={{ fontWeight: 400, fontSize: 11, color: "var(--text-tertiary)" }}>#{p.number}</span></div>
-                      <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "#D98E2B" }}>{p.dutiesThisMonth}</div>
-                      <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 8 }}>{t("duties this month", "આ મહિનાની ડ્યુટીઓ")} · {pct}% {t("of the busiest in this comparison", "આ સરખામણીમાં સૌથી વ્યસ્તની સાપેક્ષે")}</div>
+                      <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "#D98E2B" }}>{p.periodCount}</div>
+                      <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 8 }}>{t(`duties in ${periodLabel(t, period)}`, `${periodLabel(t, period)} ડ્યુટીઓ`)} · {pct}% {t("of the busiest in this comparison", "આ સરખામણીમાં સૌથી વ્યસ્તની સાપેક્ષે")}</div>
                       {breakdown.length > 0 ? breakdown.map((b) => (
                         <div key={b.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginBottom: 3 }} className="gu">
                           <span style={{ color: "var(--text-secondary)" }}>{b.label}</span>
                           <span className="mono" style={{ fontWeight: 600 }}>{b.count}</span>
                         </div>
-                      )) : <div style={{ fontSize: 11, color: "var(--text-tertiary)" }} className="gu">{t("No duties this month", "આ મહિને કોઈ ડ્યુટી નથી")}</div>}
+                      )) : <div style={{ fontSize: 11, color: "var(--text-tertiary)" }} className="gu">{t(`No duties in ${periodLabel(t, period)}`, `${periodLabel(t, period)} કોઈ ડ્યુટી નથી`)}</div>}
                     </div>
                   );
                 })}
@@ -6462,7 +6599,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           <select
             value={exportKind} onChange={(e) => setExportKind(e.target.value)}
             style={{
-              fontSize: 12.5, padding: "8px 6px 8px 10px", border: "none", borderRight: "1px solid rgba(255,255,255,0.4)",
+              fontSize: 12.5, padding: "8px 6px 8px 10px", border: "none", borderRadius: 0, borderRight: "1px solid rgba(255,255,255,0.4)",
               background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", fontWeight: 600, cursor: "pointer",
             }} className="gu"
           >
@@ -6473,7 +6610,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           <button
             onClick={downloadCalendarPdf} disabled={exportRows.length === 0 || pdfBusy}
             style={{
-              background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none",
+              background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 0,
               padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: exportRows.length && !pdfBusy ? "pointer" : "default",
             }} className="gu"
           >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Export PDF", "PDF એક્સપોર્ટ કરો")}</button>
@@ -6817,7 +6954,19 @@ function ReportView({ data }) {
       )}
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
-        <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button
+            onClick={() => setMonth((m) => shiftMonthStr(m, -1))}
+            title={t("Previous month", "પાછલો મહિનો")} aria-label={t("Previous month", "પાછલો મહિનો")}
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, width: 30, height: 30, fontSize: 14, color: "var(--text-primary)", cursor: "pointer" }}
+          >◀</button>
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          <button
+            onClick={() => setMonth((m) => shiftMonthStr(m, 1))}
+            title={t("Next month", "આગલો મહિનો")} aria-label={t("Next month", "આગલો મહિનો")}
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, width: 30, height: 30, fontSize: 14, color: "var(--text-primary)", cursor: "pointer" }}
+          >▶</button>
+        </div>
         <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF (Gujarati)", "PDF ડાઉનલોડ કરો (ગુજરાતી)")}</button>
         <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t(`${rows.length} duty record${rows.length === 1 ? "" : "s"} in ${monthLabel}`, `${monthLabel} માં ${rows.length} ડ્યુટી રેકોર્ડ`)}</div>
       </div>
