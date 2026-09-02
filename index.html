@@ -6370,6 +6370,10 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
   // when actually needed, same pattern as Manage Staff's own Edit toggle.
   const [deleteMode, setDeleteMode] = useState(false);
   const [exportKind, setExportKind] = useState("both"); // both | leave | outstation
+  // Which duty entry's note is currently shown in the popup — null when
+  // closed. Only ever set from a click on a name that HAS a note (see
+  // the onClick below), so there's never a popup with nothing to show.
+  const [noteFor, setNoteFor] = useState(null);
 
   const desgLabelOf = useMemo(() => {
     const map = {};
@@ -6729,7 +6733,13 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                     return (
                       <div key={i} className="gu" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 0", borderTop: i ? "1px solid var(--border-soft)" : "none", gap: 8 }}>
                         <span>
-                          {r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
+                          {r.note ? (
+                            <span
+                              onClick={() => setNoteFor(r)}
+                              style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
+                              title={t("Tap to see the note for this duty", "આ ડ્યુટીની નોંધ જોવા ટેપ કરો")}
+                            >{r.name}</span>
+                          ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
                           {range && (
                             <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
                           )}
@@ -6740,7 +6750,13 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                               {remaining === 0 ? t("last day", "છેલ્લો દિવસ") : t(`${remaining} day${remaining === 1 ? "" : "s"} left`, `${remaining} દિવસ બાકી`)}
                             </span>
                           )}
-                          {r.note && <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} title={r.note}>📝</span>}
+                          {r.note && (
+                            <span
+                              onClick={() => setNoteFor(r)}
+                              style={{ fontSize: 11.5, color: "var(--text-tertiary)", cursor: "pointer" }}
+                              title={t("Tap to see the note for this duty", "આ ડ્યુટીની નોંધ જોવા ટેપ કરો")}
+                            >📝</span>
+                          )}
                           {deleteMode && deleteHistoryEntries && (
                             <button
                               onClick={() => {
@@ -6802,7 +6818,35 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           </div>
         </div>
       </div>
+      {noteFor && <DutyNoteModal record={noteFor} onClose={() => setNoteFor(null)} />}
     </React.Fragment>
+  );
+}
+
+// Small popup for a single duty entry's note — reached by tapping a name
+// on the Duty calendar (only when that entry actually has one; see the
+// noteFor state above, which is only ever set from such a click). Kept
+// deliberately tiny rather than reusing the bigger PersonHistoryModal
+// layout, since this is about ONE specific entry's note, not a person's
+// whole history.
+function DutyNoteModal({ record, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Duty note", "ડ્યુટી નોંધ")} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+          <div>
+            <div className="disp gu" style={{ fontSize: 15, fontWeight: 700 }}>{record.name}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="gu mono">
+              #{record.number} · <span className="gu">{record.catLabel}</span>
+            </div>
+          </div>
+          <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+        </div>
+        <div style={{ fontSize: 13.5, color: "var(--text-primary)", whiteSpace: "pre-wrap" }} className="gu">{record.note}</div>
+      </div>
+    </div>
   );
 }
 
@@ -8026,9 +8070,38 @@ function PublicRosterView({ uid }) {
 // (no "+" add category, no rename/delete, no reminders/recycle bin).
 function PublicSidebar({ data, view, setView }) {
   const { t } = useLang();
+  // Same collapsible-rail behavior as the manager's Sidebar — width
+  // shrinks to a narrow strip and the content area (already flex:1 in
+  // the same row) automatically expands to fill the freed space.
+  // Remembered per device, in its own storage key so it doesn't fight
+  // over the same value with a manager session on the same browser.
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("nb_public_sidebar_collapsed") === "1"; } catch (e) { return false; } });
+  useEffect(() => { try { localStorage.setItem("nb_public_sidebar_collapsed", collapsed ? "1" : "0"); } catch (e) {} }, [collapsed]);
+
+  if (collapsed) {
+    return (
+      <div className="sidebar" style={{ width: 44, background: "var(--sidebar-bg)", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", paddingTop: 14 }}>
+        <button
+          onClick={() => setCollapsed(false)}
+          title={t("Show sidebar", "સાઇડબાર બતાવો")}
+          aria-label={t("Show sidebar", "સાઇડબાર બતાવો")}
+          style={{ background: "transparent", border: "1px solid #2E3742", borderRadius: 6, color: "#B7C2CA", width: 26, height: 26, fontSize: 13, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >▸</button>
+      </div>
+    );
+  }
+
   return (
     <div className="sidebar" style={{ width: 220, background: "var(--sidebar-bg)", color: "#fff", flexShrink: 0, paddingTop: 18, position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
-      <div className="disp" style={{ padding: "0 16px 16px", fontSize: 16, fontWeight: 700 }}>Nokri Book</div>
+      <div style={{ padding: "0 16px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="disp" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700 }}>Nokri Book</div>
+        <button
+          onClick={() => setCollapsed(true)}
+          title={t("Hide sidebar", "સાઇડબાર છુપાવો")}
+          aria-label={t("Hide sidebar", "સાઇડબાર છુપાવો")}
+          style={{ background: "transparent", border: "1px solid #2E3742", borderRadius: 6, color: "#B7C2CA", width: 26, height: 26, flexShrink: 0, fontSize: 13, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >◂</button>
+      </div>
       <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
       <div style={{ padding: "14px 16px 6px", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "#7C8891" }} className="gu">{t("Work types", "કામના પ્રકારો")}</div>
       {(data.categories || []).map((cat) => (
