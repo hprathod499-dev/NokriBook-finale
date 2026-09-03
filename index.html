@@ -1874,7 +1874,7 @@ function SignInScreen() {
 // the dark sidebar toggle isn't on screen yet at that point.
 function LangInlineToggle({ dark }) {
   const { lang, setLang } = useLang();
-  const base = { border: "1px solid " + (dark ? "rgba(255,255,255,0.5)" : "var(--border)"), borderRadius: 6, padding: "4px 10px", fontSize: 11.5, fontWeight: 600 };
+  const base = { display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", border: "1px solid " + (dark ? "rgba(255,255,255,0.5)" : "var(--border)"), borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 };
   const offColor = dark ? { background: "rgba(255,255,255,0.14)", color: "#fff" } : { background: "var(--bg-page)", color: "var(--text-secondary)" };
   const onColor = dark ? { background: "var(--bg-surface)", color: "var(--text-primary)" } : { background: "var(--btn-dark-bg)", color: "#fff" };
   return (
@@ -8297,11 +8297,11 @@ function PublicRosterView({ uid }) {
             <PublicSidebar data={data} view={view} setView={setView} />
             <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
-                <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "4px 10px", fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
+                <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
                 <LangInlineToggle />
                 <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
-                  width: 30, height: 30, padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
+                  width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
                 }}>⋮</button>
                 <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSignIn={goToLogin} />
               </div>
