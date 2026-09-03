@@ -576,6 +576,65 @@ function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   const y = cell.y + (cell.height - targetH) / 2;
   doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
 }
+// Same rasterization approach as renderTextToImage (browser-shaped
+// Gujarati glyphs baked into a PNG jsPDF can embed) — but for a duty
+// Note, which can be anywhere from empty to a full sentence. Drawing it
+// as ONE line and then shrinking that whole image to fit the column (the
+// old approach, shared with Name/Designation) meant a long note's text
+// came out tiny while a short note's came out comparatively huge, even
+// though both were nominally "the same font size" — the shrink factor
+// was doing the opposite of what a reader expects. This wraps the text
+// across as many lines as it needs at a FIXED, never-shrunk font size:
+// length changes how TALL the note is, never how big the letters are.
+function renderWrappedTextToImage(text, fontSizePt, maxWidthPt) {
+  const scale = 4;
+  const fontPx = Math.round(fontSizePt * 1.22 * scale * (96 / 72));
+  const maxWidthPx = Math.max(20, Math.round(maxWidthPt * scale * (96 / 72)));
+  const measureCanvas = document.createElement("canvas");
+  const mctx = measureCanvas.getContext("2d");
+  mctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
+  const raw = text == null ? "" : String(text);
+  const words = raw.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = "";
+  words.forEach((w) => {
+    const test = current ? current + " " + w : w;
+    if (current && mctx.measureText(test).width > maxWidthPx) {
+      lines.push(current);
+      current = w;
+    } else {
+      current = test;
+    }
+  });
+  if (current) lines.push(current);
+  if (lines.length === 0) lines.push("");
+  const lineHeightPx = Math.round(fontPx * 1.35);
+  const width = Math.min(maxWidthPx, Math.max(1, ...lines.map((l) => Math.ceil(mctx.measureText(l).width)))) + Math.round(scale * 2);
+  const height = lineHeightPx * lines.length;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#1a1a1a";
+  lines.forEach((line, i) => ctx.fillText(line, Math.round(scale), i * lineHeightPx + lineHeightPx / 2));
+  return { dataUrl: canvas.toDataURL("image/png"), width, height, lineCount: lines.length };
+}
+// Places a renderWrappedTextToImage() result into a cell whose row
+// height was ALREADY reserved to fit it exactly (via
+// cell.styles.minCellHeight, set in didParseCell before autoTable lays
+// out the row) — so unlike drawTextImageInCell this never needs to
+// shrink the image; it converts the same canvas pixel dimensions
+// straight back into PDF points and places it near the cell's top-left,
+// the same corner normal wrapped autoTable text would start from.
+function drawWrappedTextImageInCell(doc, cell, rendered) {
+  if (!rendered) return;
+  const ptPerPx = 72 / (96 * 4);
+  const targetW = Math.min(cell.width - 2, rendered.width * ptPerPx);
+  const targetH = rendered.height * ptPerPx;
+  doc.addImage(rendered.dataUrl, "PNG", cell.x + 1, cell.y + 1.5, targetW, targetH);
+}
 
 // ---------- Per-work-type ("duty type") PDF export ----------
 // Every work type (category) — WAPC, UHC, ULRD, "112", etc. — gets its own
@@ -663,16 +722,29 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
     ]),
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 30 } },
+    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 55 } },
+    // Note (5) gets the wrapped multi-line treatment instead of the
+    // single-line shrink-to-fit used for Name (2) — see
+    // renderWrappedTextToImage above for why.
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section !== "body") return;
+      if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
+        hookData.cell.text = [];
+        const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 51);
+        hookData.cell._wrappedImg = rendered;
+        hookData.cell.styles.minCellHeight = (rendered.height * 72) / (96 * 4) + 3;
+      } else if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
-        const raw = hookData.cell.raw;
-        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      if (hookData.section !== "body") return;
+      const raw = hookData.cell.raw;
+      if (raw == null || raw === "" || !needsImageRender(raw)) return;
+      if (hookData.column.index === 5) {
+        drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 51));
+      } else if (hookData.column.index === 2) {
+        drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
     },
   });
@@ -4435,7 +4507,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480, marginBottom: queue.length ? 18 : 0 }}>
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Leave type", "રજાનો પ્રકાર")}</label>
-          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} className="gu">
+          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }} className="gu">
             {leaveTypes.length === 0 && <option value="">{t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી")}</option>}
             {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
           </select>
@@ -4588,7 +4660,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, marginBottom: 20, maxWidth: 560 }}>
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Work type", "કામનો પ્રકાર")}</label>
-          <select value={catId} onChange={(e) => setCatId(e.target.value)} className="gu" style={{ width: "100%" }}>
+          <select value={catId} onChange={(e) => setCatId(e.target.value)} className="gu" style={{ width: "100%", fontSize: 13 }}>
             <option value="">{t("Select a work type…", "કામનો પ્રકાર પસંદ કરો…")}</option>
             {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
@@ -5433,6 +5505,21 @@ function StaffView({
   // completely escapes the scrolling table's clipping) fixes this
   // regardless of scroll position or screen size.
   const [manageLeaveMenuPos, setManageLeaveMenuPos] = useState(null); // { top, left }
+  // manageLeaveMenuPos is captured ONCE, at the moment the button is
+  // clicked — correct at that instant, but if the page (or the table's
+  // own horizontal/vertical scroll) then scrolls while the menu stays
+  // open, those fixed coordinates go stale: the menu visibly stays put
+  // while the button it belongs to moves away underneath it, looking
+  // "detached." Closing on any scroll (capture:true so this also catches
+  // scrolling inside the table's own overflow container, not just the
+  // page) is simpler and safer than trying to keep recalculating the
+  // position on every scroll tick.
+  useEffect(() => {
+    if (!manageLeaveMenuFor) return;
+    const closeOnScroll = () => { setManageLeaveMenuFor(null); setManageLeaveMenuPos(null); };
+    window.addEventListener("scroll", closeOnScroll, true);
+    return () => window.removeEventListener("scroll", closeOnScroll, true);
+  }, [manageLeaveMenuFor]);
   // Manage Staff's row actions default to just the ✎ edit icon — Call,
   // WhatsApp, and the ✕ remove-entirely icon are all hidden until this is
   // switched on, same pattern as the "Edit"/"Done editing" toggle a work
@@ -5574,7 +5661,7 @@ function StaffView({
           onClick={() => setShowFullActions((v) => !v)}
           title={t("Show Edit name and Remove entirely for each person in the table below", "નીચેના કોષ્ટકમાં દરેક વ્યક્તિ માટે નામ સંપાદિત કરો અને સંપૂર્ણપણે કાઢી નાખો બતાવો")}
           style={{
-            marginLeft: 6, fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 20,
+            marginLeft: 8, fontSize: 13.5, fontWeight: 600, padding: "9px 18px", borderRadius: 8,
             background: showFullActions ? "#D98E2B" : "var(--bg-surface)",
             color: showFullActions ? "#fff" : "var(--text-secondary)",
             border: "1px solid " + (showFullActions ? "#D98E2B" : "var(--border)"),
@@ -6022,7 +6109,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const [periodFrom, periodTo] = periodRangeOf(period);
 
-  const { groups, byCategory, totalAllTime, totalThisMonth } = useMemo(() => {
+  const { groups, byCategory, totalLast3Months, totalThisMonth } = useMemo(() => {
     const allRows = [];
     (data.categories || []).forEach((c) => {
       const m = (data.membership[c.id] || []).find((x) => x.number === number);
@@ -6035,15 +6122,18 @@ function PersonHistoryModal({ data, number, onClose }) {
     const grouped = groupHistoryRows(sorted);
     const byCat = {};
     let thisMonth = 0;
+    let last3Months = 0;
+    const [monthStart, monthEnd] = monthBounds(currentMonth);
+    const [last3Start, last3End] = periodBounds("3m");
     grouped.forEach((g) => {
       const cat = byCat[g.catLabel] || { assignments: 0, days: 0 };
       cat.assignments += 1;
       cat.days += g.days;
       byCat[g.catLabel] = cat;
-      const [monthStart, monthEnd] = monthBounds(currentMonth);
       if (g.from <= monthEnd && g.to >= monthStart) thisMonth += 1;
+      if (g.from <= last3End && g.to >= last3Start) last3Months += 1;
     });
-    return { groups: grouped, byCategory: byCat, totalAllTime: grouped.length, totalThisMonth: thisMonth };
+    return { groups: grouped, byCategory: byCat, totalLast3Months: last3Months, totalThisMonth: thisMonth };
   }, [data, number, staffRec, currentMonth]);
 
   // The full "all-time" list above is what actually gets cluttered on
@@ -6076,8 +6166,8 @@ function PersonHistoryModal({ data, number, onClose }) {
             <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{t("This month", "આ મહિને")}</div>
           </div>
           <div style={{ background: "var(--bg-surface-2)", borderRadius: 8, padding: "8px 14px" }}>
-            <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{totalAllTime}</div>
-            <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{t("All-time assignments", "કુલ સોંપણીઓ")}</div>
+            <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{totalLast3Months}</div>
+            <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{t("Last 3 months", "છેલ્લા 3 મહિના")}</div>
           </div>
           {Object.keys(byCategory).length > 0 && (
             <div style={{ flex: 1, minWidth: 200, display: "flex", flexWrap: "wrap", gap: 6, alignContent: "flex-start" }}>
@@ -6984,20 +7074,34 @@ function ReportView({ data }) {
       // (nothing), not from the name/word that actually gets drawn —
       // this table has 7 columns competing for the same page width, so
       // it needs this even more than the 4-column summary table does.
-      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 26 } },
+      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 55 } },
       // Name (1), Designation (2), Work type (3), and Note (6) can
       // contain Gujarati text, but each cell is only imaged if it
       // actually does (needsImageRender) — # (0), Dates (4), and Days
       // (5) are always plain numbers/ASCII so those never get imaged.
+      // Note (6) gets the wrapped multi-line treatment (see
+      // renderWrappedTextToImage above) instead of the single-line
+      // shrink-to-fit used for the other three, since notes are free text
+      // that can run much longer than a name or work-type label.
       didParseCell: (hookData) => {
-        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+        if (hookData.section !== "body") return;
+        if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
+          hookData.cell.text = [];
+          const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 51);
+          hookData.cell._wrappedImg = rendered;
+          hookData.cell.styles.minCellHeight = (rendered.height * 72) / (96 * 4) + 3;
+        } else if ([1, 2, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
           hookData.cell.text = [];
         }
       },
       didDrawCell: (hookData) => {
-        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index)) {
-          const raw = hookData.cell.raw;
-          if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+        if (hookData.section !== "body") return;
+        const raw = hookData.cell.raw;
+        if (raw == null || raw === "" || !needsImageRender(raw)) return;
+        if (hookData.column.index === 6) {
+          drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 51));
+        } else if ([1, 2, 3].includes(hookData.column.index)) {
+          drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
         }
       },
     });
@@ -7030,7 +7134,7 @@ function ReportView({ data }) {
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, width: 30, height: 30, fontSize: 14, color: "var(--text-primary)", cursor: "pointer" }}
           >▶</button>
         </div>
-        <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF (Gujarati)", "PDF ડાઉનલોડ કરો (ગુજરાતી)")}</button>
+        <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
         <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t(`${rows.length} duty record${rows.length === 1 ? "" : "s"} in ${monthLabel}`, `${monthLabel} માં ${rows.length} ડ્યુટી રેકોર્ડ`)}</div>
       </div>
 
@@ -7614,7 +7718,7 @@ function AboutPanel({ onClose }) {
 
         <div className="disp gu" style={{ fontSize: 14.5, fontWeight: 700, lineHeight: 1.5, color: "var(--text-primary)", letterSpacing: 0.2 }}>
           {t("TESTED AND DEVELOPED BY", "પરીક્ષણ અને વિકાસ કરનાર")}<br />
-          <span style={{ color: "#D98E2B", fontSize: 16 }}>HARSHVARDHAN RATHOD P.</span>
+          <span style={{ color: "#D98E2B", fontSize: 16 }} className="gu">{t("HARSHVARDHAN RATHOD P.", "હર્ષવર્ધન રાઠોડ પી.")}</span>
         </div>
         <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, fontWeight: 600 }}>
           {t("(CLASS-10 STUDENT)", "(ધોરણ-૧૦ નો વિદ્યાર્થી)")}
