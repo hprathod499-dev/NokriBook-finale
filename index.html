@@ -621,13 +621,35 @@ function renderWrappedTextToImage(text, fontSizePt, maxWidthPt) {
   lines.forEach((line, i) => ctx.fillText(line, Math.round(scale), i * lineHeightPx + lineHeightPx / 2));
   return { dataUrl: canvas.toDataURL("image/png"), width, height, lineCount: lines.length };
 }
+// Reserves enough row height for a wrapped note image by giving the cell
+// a placeholder cell.text array — autoTable's row-height algorithm
+// genuinely measures cell.text.length against the cell's own font size to
+// size the row (that's core, load-bearing behavior it already relies on
+// for ordinary wrapped text), unlike a styles.minCellHeight mutation
+// applied at this same point in the pipeline, which does NOT reliably
+// feed back into that calculation — confirmed by the tall note image
+// spilling straight over the rows below it instead of the row actually
+// growing. autoTable's own default line-height reservation per text line
+// is roughly fontSizePt * 1.15; dividing our image's real height by that
+// (rounded up, plus one line of headroom) gives a placeholder count that
+// reserves AT LEAST enough space, safely erring toward reserving slightly
+// more rather than risking overflow again.
+function reserveWrappedNoteHeight(cell, rendered, fontSizePt) {
+  const ptPerPx = 72 / (96 * 4);
+  const neededPt = rendered.height * ptPerPx + 3;
+  const perLinePt = fontSizePt * 1.15;
+  const lines = Math.max(1, Math.ceil(neededPt / perLinePt) + 1);
+  cell.text = Array(lines).fill(" ");
+}
 // Places a renderWrappedTextToImage() result into a cell whose row
-// height was ALREADY reserved to fit it exactly (via
-// cell.styles.minCellHeight, set in didParseCell before autoTable lays
-// out the row) — so unlike drawTextImageInCell this never needs to
-// shrink the image; it converts the same canvas pixel dimensions
-// straight back into PDF points and places it near the cell's top-left,
-// the same corner normal wrapped autoTable text would start from.
+// height was ALREADY reserved to fit it — via a placeholder cell.text
+// array set in didParseCell (see below), which autoTable's own native
+// row-height calculation genuinely respects, unlike a cell.styles
+// mutation applied at that same point in the pipeline (which measurably
+// did NOT reserve real height — the tall note image just overflowed
+// straight into the rows below it). This function itself just converts
+// the image's canvas pixel dimensions straight back into PDF points and
+// places it near the cell's top-left corner.
 function drawWrappedTextImageInCell(doc, cell, rendered) {
   if (!rendered) return;
   const ptPerPx = 72 / (96 * 4);
@@ -722,17 +744,19 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
     ]),
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 55 } },
+    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 160 } },
     // Note (5) gets the wrapped multi-line treatment instead of the
     // single-line shrink-to-fit used for Name (2) — see
-    // renderWrappedTextToImage above for why.
+    // renderWrappedTextToImage above for why. 150pt of wrap width (this
+    // table has only 5 other columns, all narrow) fits several Gujarati
+    // words per line comfortably — the previous 51pt was so narrow that
+    // most notes wrapped to one word per line, absurdly tall.
     didParseCell: (hookData) => {
       if (hookData.section !== "body") return;
       if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
-        hookData.cell.text = [];
-        const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 51);
+        const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 150);
         hookData.cell._wrappedImg = rendered;
-        hookData.cell.styles.minCellHeight = (rendered.height * 72) / (96 * 4) + 3;
+        reserveWrappedNoteHeight(hookData.cell, rendered, FONT_PT);
       } else if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
@@ -742,7 +766,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
       const raw = hookData.cell.raw;
       if (raw == null || raw === "" || !needsImageRender(raw)) return;
       if (hookData.column.index === 5) {
-        drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 51));
+        drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 150));
       } else if (hookData.column.index === 2) {
         drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -7073,7 +7097,7 @@ function ReportView({ data }) {
       // (nothing), not from the name/word that actually gets drawn —
       // this table has 7 columns competing for the same page width, so
       // it needs this even more than the 4-column summary table does.
-      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 55 } },
+      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 140 } },
       // Name (1), Designation (2), Work type (3), and Note (6) can
       // contain Gujarati text, but each cell is only imaged if it
       // actually does (needsImageRender) — # (0), Dates (4), and Days
@@ -7081,14 +7105,15 @@ function ReportView({ data }) {
       // Note (6) gets the wrapped multi-line treatment (see
       // renderWrappedTextToImage above) instead of the single-line
       // shrink-to-fit used for the other three, since notes are free text
-      // that can run much longer than a name or work-type label.
+      // that can run much longer than a name or work-type label. 130pt of
+      // wrap width fits several Gujarati words per line — the previous
+      // 51pt was so narrow that most notes wrapped to one word per line.
       didParseCell: (hookData) => {
         if (hookData.section !== "body") return;
         if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
-          hookData.cell.text = [];
-          const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 51);
+          const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 130);
           hookData.cell._wrappedImg = rendered;
-          hookData.cell.styles.minCellHeight = (rendered.height * 72) / (96 * 4) + 3;
+          reserveWrappedNoteHeight(hookData.cell, rendered, FONT_PT);
         } else if ([1, 2, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
           hookData.cell.text = [];
         }
@@ -7098,7 +7123,7 @@ function ReportView({ data }) {
         const raw = hookData.cell.raw;
         if (raw == null || raw === "" || !needsImageRender(raw)) return;
         if (hookData.column.index === 6) {
-          drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 51));
+          drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 130));
         } else if ([1, 2, 3].includes(hookData.column.index)) {
           drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
         }
