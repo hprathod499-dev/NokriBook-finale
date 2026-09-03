@@ -744,31 +744,40 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
     ]),
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 160 } },
-    // Note (5) gets the wrapped multi-line treatment instead of the
-    // single-line shrink-to-fit used for Name (2) — see
-    // renderWrappedTextToImage above for why. 150pt of wrap width (this
-    // table has only 5 other columns, all narrow) fits several Gujarati
-    // words per line comfortably — the previous 51pt was so narrow that
-    // most notes wrapped to one word per line, absurdly tall.
+    // Every column now has an explicit floor, including Number/Dates/Days
+    // — leaving any column "auto" risked it being squeezed to almost
+    // nothing (wrapping its own header one character per line) once the
+    // other columns' minimums, summed together, got close to the page
+    // width. Note's minimum in particular is now a safer, more moderate
+    // value than an earlier attempt that gave it far more room than the
+    // table could actually spare.
+    columnStyles: { 1: { minCellWidth: 24 }, 2: { minCellWidth: 52 }, 3: { minCellWidth: 42 }, 4: { minCellWidth: 14 }, 5: { minCellWidth: 100 } },
+    // Name (2) and Note (5) get the wrapped multi-line treatment: a
+    // FIXED font size that never shrinks, wrapping onto a second line if
+    // the text doesn't fit on one — instead of squeezing everything onto
+    // one line and shrinking the font to fit, which made a long name or
+    // note look visibly smaller than a short one even at "the same"
+    // declared size.
     didParseCell: (hookData) => {
       if (hookData.section !== "body") return;
-      if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
-        const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 150);
+      if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) {
+        const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 48);
         hookData.cell._wrappedImg = rendered;
         reserveWrappedNoteHeight(hookData.cell, rendered, FONT_PT);
-      } else if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) {
-        hookData.cell.text = [];
+      } else if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
+        const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 96);
+        hookData.cell._wrappedImg = rendered;
+        reserveWrappedNoteHeight(hookData.cell, rendered, FONT_PT);
       }
     },
     didDrawCell: (hookData) => {
       if (hookData.section !== "body") return;
       const raw = hookData.cell.raw;
       if (raw == null || raw === "" || !needsImageRender(raw)) return;
-      if (hookData.column.index === 5) {
-        drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 150));
-      } else if (hookData.column.index === 2) {
-        drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      if (hookData.column.index === 2) {
+        drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 48));
+      } else if (hookData.column.index === 5) {
+        drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 96));
       }
     },
   });
@@ -7096,24 +7105,36 @@ function ReportView({ data }) {
       // (nothing), not from the name/word that actually gets drawn —
       // this table has 7 columns competing for the same page width, so
       // it needs this even more than the 4-column summary table does.
-      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 140 } },
-      // Name (1), Designation (2), Work type (3), and Note (6) can
-      // contain Gujarati text, but each cell is only imaged if it
-      // actually does (needsImageRender) — # (0), Dates (4), and Days
-      // (5) are always plain numbers/ASCII so those never get imaged.
-      // Note (6) gets the wrapped multi-line treatment (see
-      // renderWrappedTextToImage above) instead of the single-line
-      // shrink-to-fit used for the other three, since notes are free text
-      // that can run much longer than a name or work-type label. 130pt of
-      // wrap width fits several Gujarati words per line — the previous
-      // 51pt was so narrow that most notes wrapped to one word per line.
+      // Dates and Days ALSO need one now: an earlier version left them
+      // "auto", which was fine while every other column had a modest
+      // minCellWidth — but once Note's minimum grew large enough that
+      // the columns' minimums together approached the page width,
+      // autoTable squeezed the unprotected "auto" columns down to
+      // almost nothing, wrapping "Dates"/"Days" one character per line.
+      // Giving every column an explicit floor is what actually prevents
+      // that, regardless of how the others end up sized.
+      columnStyles: { 1: { minCellWidth: 55 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 4: { minCellWidth: 42 }, 5: { minCellWidth: 14 }, 6: { minCellWidth: 70 } },
+      // Name (1) and Note (6) get the wrapped multi-line treatment: a
+      // FIXED font size that never shrinks, wrapping onto a second (or
+      // third...) line if the text is too long for one — instead of
+      // squeezing the whole thing onto one line and shrinking the font
+      // to fit, which is what made a long name or note look visibly
+      // smaller than a short one even at "the same" declared size.
+      // Designation (2) and Work type (3) stay single-line shrink-to-fit
+      // — short standardized codes/labels that essentially never need
+      // wrapping. # (0), Dates (4), and Days (5) are always plain
+      // numbers/ASCII so none of this applies to them at all.
       didParseCell: (hookData) => {
         if (hookData.section !== "body") return;
-        if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
-          const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 130);
+        if (hookData.column.index === 1 && needsImageRender(hookData.cell.raw)) {
+          const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 52);
           hookData.cell._wrappedImg = rendered;
           reserveWrappedNoteHeight(hookData.cell, rendered, FONT_PT);
-        } else if ([1, 2, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+        } else if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
+          const rendered = renderWrappedTextToImage(hookData.cell.raw, FONT_PT, 66);
+          hookData.cell._wrappedImg = rendered;
+          reserveWrappedNoteHeight(hookData.cell, rendered, FONT_PT);
+        } else if ([2, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
           hookData.cell.text = [];
         }
       },
@@ -7121,9 +7142,11 @@ function ReportView({ data }) {
         if (hookData.section !== "body") return;
         const raw = hookData.cell.raw;
         if (raw == null || raw === "" || !needsImageRender(raw)) return;
-        if (hookData.column.index === 6) {
-          drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 130));
-        } else if ([1, 2, 3].includes(hookData.column.index)) {
+        if (hookData.column.index === 1) {
+          drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 52));
+        } else if (hookData.column.index === 6) {
+          drawWrappedTextImageInCell(doc, hookData.cell, hookData.cell._wrappedImg || renderWrappedTextToImage(raw, FONT_PT, 66));
+        } else if ([2, 3].includes(hookData.column.index)) {
           drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
         }
       },
