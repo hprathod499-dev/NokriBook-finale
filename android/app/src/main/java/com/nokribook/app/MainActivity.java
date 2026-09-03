@@ -32,8 +32,20 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // The path handler prefix must be "/assets/" (matching Google's
+        // own documented WebViewAssetLoader usage), not "/" — AssetsPathHandler
+        // resolves whatever comes AFTER the matched prefix directly
+        // against the assets/ folder (via context.getAssets().open(...)),
+        // so it expects to receive "index.html", not "assets/index.html".
+        // With the prefix previously registered at "/", loadUrl's
+        // ".../assets/index.html" request left "assets/index.html" as the
+        // remainder, which AssetsPathHandler then looked for as
+        // assets/assets/index.html — a path that doesn't exist, since
+        // assets are flat (app/src/main/assets/index.html). That failure
+        // to open the asset is what surfaced as net::ERR_INVALID_RESPONSE
+        // in the WebView instead of actually showing the app.
         WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
-                .addPathHandler("/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
 
         webView = new WebView(this);
