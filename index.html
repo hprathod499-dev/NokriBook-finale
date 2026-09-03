@@ -3862,7 +3862,6 @@ function DutyRoster() {
                 {saveStatus === "saving" ? "☁️ " + langCtxValue.t("Saving…", "સાચવાઈ રહ્યું છે…") : "⚠️ " + langCtxValue.t("Not saved — retrying…", "સચવાયું નથી — ફરી પ્રયાસ...")}
               </span>
             )}
-            <button onClick={() => setDarkMode((d) => !d)} title={langCtxValue.t("Toggle dark mode", "ડાર્ક મોડ ટોગલ કરો")} style={undoRedoBtn(true)} className="gu">{darkMode ? "☀" : "🌙"}</button>
             <button onClick={() => setShowCommandPalette(true)} title={langCtxValue.t("Search everything (Ctrl+K)", "બધું શોધો (Ctrl+K)")} style={undoRedoBtn(true)} className="gu">{langCtxValue.t("Search", "શોધો")}</button>
             <button onClick={() => setShowReminderPanel(true)} title={langCtxValue.t("Show pending reminders", "બાકી રિમાઇન્ડર બતાવો")} style={{
               ...undoRedoBtn(true),
@@ -8140,10 +8139,6 @@ function PublicRosterView({ uid }) {
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
                 <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "4px 10px", fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
                 <LangInlineToggle />
-                <button onClick={() => setDarkMode((d) => !d)} title={t("Toggle dark mode", "ડાર્ક મોડ ટોગલ કરો")} aria-label={t("Toggle dark mode", "ડાર્ક મોડ ટોગલ કરો")} style={{
-                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
-                  width: 30, height: 30, padding: 0, fontSize: 13,
-                }}>{darkMode ? "☀" : "🌙"}</button>
                 <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
                   width: 30, height: 30, padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
