@@ -6110,6 +6110,55 @@ function StaffView({
 // One click from Manage Staff → a person's complete duty record, across
 // every work type, in one place — a per-category breakdown plus the full
 // chronological list (spans, same as the per-work-type History tab).
+// Single-person duty history PDF — reached from PersonHistoryModal's
+// Download PDF button, next to its period dropdown. Filtered to
+// whichever period is currently selected there, same as the on-screen
+// table. Uses the same Gujarati-safe canvas-image pipeline as every
+// other PDF in the app (native jsPDF text for headers/dates, rendered
+// images only for cells that actually contain Gujarati).
+async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const FONT_PT = 9;
+
+  const base64 = await loadGujaratiFont();
+  doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
+  doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
+  await ensureGujaratiCanvasFont();
+
+  doc.setFontSize(14);
+  doc.text(`Nokri Book — ${staffRec.name}  #${number}`, 14, 16);
+  doc.setFontSize(10);
+  doc.text(periodLabelEn(period), 14, 23);
+  doc.setFontSize(8.5);
+  doc.text("Generated " + new Date().toLocaleString(), 14, 28);
+
+  doc.autoTable({
+    startY: 36,
+    head: [["Date", "Work type", "Days", "Note"]],
+    body: filteredGroups.map((g) => [
+      g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
+      g.catLabel, g.days, g.note || "",
+    ]),
+    styles: { fontSize: FONT_PT },
+    headStyles: { fillColor: [14, 22, 32] },
+    columnStyles: { 1: { minCellWidth: 30 }, 3: { minCellWidth: 30 } },
+    didParseCell: (hookData) => {
+      if (hookData.section === "body" && [1, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+        hookData.cell.text = [];
+      }
+    },
+    didDrawCell: (hookData) => {
+      if (hookData.section === "body" && [1, 3].includes(hookData.column.index)) {
+        const raw = hookData.cell.raw;
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      }
+    },
+  });
+
+  const slug = String(staffRec.name).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
+  doc.save(`nokri-book-${slug || number}-history.pdf`);
+}
 function PersonHistoryModal({ data, number, onClose }) {
   const { t } = useLang();
   useEscToClose(onClose);
@@ -6117,6 +6166,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   const currentMonth = todayStr().slice(0, 7);
   const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const [periodFrom, periodTo] = periodRangeOf(period);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const { groups, byCategory, totalLast3Months, totalThisMonth } = useMemo(() => {
     const allRows = [];
@@ -6155,6 +6205,17 @@ function PersonHistoryModal({ data, number, onClose }) {
     [groups, periodFrom, periodTo]
   );
 
+  const handleDownloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period);
+    } catch (e) {
+      window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Full duty history", "સંપૂર્ણ ડ્યુટી ઇતિહાસ")} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
@@ -6165,6 +6226,11 @@ function PersonHistoryModal({ data, number, onClose }) {
               <div className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>#{number}</div>
             </div>
             <PeriodFilterSelect period={period} setPeriod={setPeriod} />
+            <button
+              onClick={handleDownloadPdf} disabled={pdfBusy}
+              title={t("Download this duty history as a PDF for the selected period", "પસંદ કરેલ સમયગાળા માટે આ ડ્યુટી ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
+              style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+            >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
           </div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
