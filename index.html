@@ -8691,6 +8691,15 @@ function PublicStaffView({ data }) {
                     <td style={td} className="gu">{s.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                     <td style={td}>
                       <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{s.statusLabel}</span>
+                      {s.unavailable && (
+                        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }} className="gu">
+                          {s.unavailable.from > todayStr()
+                            ? `${t("starts", "શરૂ થાય છે")} ${formatDMY(s.unavailable.from)}${s.unavailable.to ? ` – ${formatDMY(s.unavailable.to)}` : ""}`
+                            : s.unavailable.to
+                              ? `${formatDMY(s.unavailable.from)} – ${formatDMY(s.unavailable.to)}`
+                              : `${t("from", "થી")} ${formatDMY(s.unavailable.from)} · ${t("no end date", "કોઈ અંતિમ તારીખ નથી")}`}
+                        </div>
+                      )}
                     </td>
                     <td style={{ ...td, textAlign: "center", fontSize: 12, color: "var(--text-secondary)" }} className="mono">{s.dutiesThisMonth}</td>
                   </tr>
