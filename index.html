@@ -2437,6 +2437,19 @@ function DutyRoster() {
   const [driveBusy, setDriveBusy] = useState(false);
   const [driveNeedsReconnect, setDriveNeedsReconnect] = useState(false);
   const [showDrivePanel, setShowDrivePanel] = useState(false);
+  // Compact toolbar dropdowns: Undo/Redo grouped under one button, and
+  // Backup/Restore/Drive under another — position is captured fresh on
+  // each open (like the Manage leave/outstation menu elsewhere in the
+  // app) and the menu closes on any scroll, so it can never end up
+  // visually detached from the button that opened it.
+  const [undoRedoMenuPos, setUndoRedoMenuPos] = useState(null);
+  const [dataMenuPos, setDataMenuPos] = useState(null);
+  useEffect(() => {
+    if (!undoRedoMenuPos && !dataMenuPos) return;
+    const closeOnScroll = () => { setUndoRedoMenuPos(null); setDataMenuPos(null); };
+    window.addEventListener("scroll", closeOnScroll, true);
+    return () => window.removeEventListener("scroll", closeOnScroll, true);
+  }, [undoRedoMenuPos, dataMenuPos]);
   const driveTokenClientRef = useRef(null);
   const driveFolderIdRef = useRef(localStorage.getItem("nb_drive_folder_id") || null);
   const driveAutoTriedRef = useRef(false);
@@ -3880,27 +3893,69 @@ function DutyRoster() {
               borderColor: pendingReminders.length ? "var(--status-warning-border)" : "var(--border)",
               color: pendingReminders.length ? "var(--status-warning-text)" : "var(--text-primary)",
             }} className="gu">{langCtxValue.t("Reminders", "રિમાઇન્ડર")}{pendingReminders.length ? ` (${pendingReminders.length})` : ""}</button>
-            <button onClick={undo} disabled={undoStack.length === 0} title={langCtxValue.t("Undo last change (Ctrl+Z)", "છેલ્લો ફેરફાર પૂર્વવત્ કરો (Ctrl+Z)")}
-              style={undoRedoBtn(undoStack.length > 0)} className="gu">↶ {langCtxValue.t("Undo", "પૂર્વવત્")}{undoStack.length ? ` (${undoStack.length})` : ""}</button>
-            <button onClick={redo} disabled={redoStack.length === 0} title={langCtxValue.t("Redo (Ctrl+Shift+Z)", "ફરીથી કરો (Ctrl+Shift+Z)")}
-              style={undoRedoBtn(redoStack.length > 0)} className="gu">↷ {langCtxValue.t("Redo", "ફરીથી કરો")}{redoStack.length ? ` (${redoStack.length})` : ""}</button>
-            <button onClick={exportBackup} title={langCtxValue.t("Download a full backup of all data as a JSON file", "તમામ ડેટાનો સંપૂર્ણ બેકઅપ JSON ફાઇલ તરીકે ડાઉનલોડ કરો")} style={undoRedoBtn(true)} className="gu">⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+            <button
+              onClick={(e) => {
+                if (undoRedoMenuPos) { setUndoRedoMenuPos(null); return; }
+                const rect = e.currentTarget.getBoundingClientRect();
+                setUndoRedoMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 170 - 8)) });
+              }}
+              title={langCtxValue.t("Undo / Redo", "પૂર્વવત્ / ફરીથી કરો")} style={undoRedoBtn(true)} className="gu"
+            >↶↷ {langCtxValue.t("History", "ઇતિહાસ")}</button>
+            <button
+              onClick={(e) => {
+                if (dataMenuPos) { setDataMenuPos(null); return; }
+                const rect = e.currentTarget.getBoundingClientRect();
+                setDataMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 190 - 8)) });
+              }}
+              title={langCtxValue.t("Backup, Restore, and Google Drive", "બેકઅપ, પુનઃસ્થાપિત કરો અને Google Drive")} style={{
+                ...undoRedoBtn(true),
+                background: driveConnected && !driveNeedsReconnect ? "var(--status-success-bg)" : "var(--bg-surface)",
+                borderColor: driveConnected && !driveNeedsReconnect ? "var(--status-success-border)" : "var(--border)",
+                color: driveConnected && !driveNeedsReconnect ? "var(--status-success-text)" : "var(--text-primary)",
+              }} className="gu"
+            >⬇⬆ {langCtxValue.t("Data", "ડેટા")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
+            {undoRedoMenuPos && (
+              <React.Fragment>
+                <div onClick={() => setUndoRedoMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
+                <div style={{
+                  position: "fixed", top: undoRedoMenuPos.top, left: undoRedoMenuPos.left, zIndex: 201, minWidth: 170,
+                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
+                  boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
+                }}>
+                  <button onClick={() => { undo(); setUndoRedoMenuPos(null); }} disabled={undoStack.length === 0}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, color: undoStack.length ? "var(--text-primary)" : "var(--text-tertiary)", cursor: undoStack.length ? "pointer" : "default" }} className="gu"
+                  >↶ {langCtxValue.t("Undo", "પૂર્વવત્")}{undoStack.length ? ` (${undoStack.length})` : ""}</button>
+                  <button onClick={() => { redo(); setUndoRedoMenuPos(null); }} disabled={redoStack.length === 0}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, color: redoStack.length ? "var(--text-primary)" : "var(--text-tertiary)", cursor: redoStack.length ? "pointer" : "default" }} className="gu"
+                  >↷ {langCtxValue.t("Redo", "ફરીથી કરો")}{redoStack.length ? ` (${redoStack.length})` : ""}</button>
+                </div>
+              </React.Fragment>
+            )}
+            {dataMenuPos && (
+              <React.Fragment>
+                <div onClick={() => setDataMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
+                <div style={{
+                  position: "fixed", top: dataMenuPos.top, left: dataMenuPos.left, zIndex: 201, minWidth: 190,
+                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
+                  boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
+                }}>
+                  <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+                  <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
+                  <button onClick={() => { setShowDrivePanel(true); setDataMenuPos(null); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >☁ {langCtxValue.t("Google Drive", "Google Drive")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
+                </div>
+              </React.Fragment>
+            )}
             <input
               ref={importBackupRef} type="file" accept="application/json,.json"
               style={{ display: "none" }}
               onChange={(e) => { importBackup(e.target.files[0]); e.target.value = ""; }}
             />
-            <button onClick={() => importBackupRef.current && importBackupRef.current.click()} title={langCtxValue.t("Restore all data from a backup JSON file", "બેકઅપ JSON ફાઇલમાંથી તમામ ડેટા પુનઃસ્થાપિત કરો")} style={undoRedoBtn(true)} className="gu">⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
-            <button onClick={() => setShowDrivePanel(true)} title={
-              driveConnected && !driveNeedsReconnect && driveLastBackup
-                ? `${langCtxValue.t("Last Drive backup", "છેલ્લો ડ્રાઇવ બેકઅપ")}: ${new Date(driveLastBackup).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
-                : langCtxValue.t("Google Drive daily auto-backup", "Google Drive દૈનિક ઓટો-બેકઅપ")
-            } style={{
-              ...undoRedoBtn(true),
-              background: driveConnected && !driveNeedsReconnect ? "var(--status-success-bg)" : "var(--bg-surface)",
-              borderColor: driveConnected && !driveNeedsReconnect ? "var(--status-success-border)" : "var(--border)",
-              color: driveConnected && !driveNeedsReconnect ? "var(--status-success-text)" : "var(--text-primary)",
-            }}>Drive{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
             <button onClick={() => setShowSharePanel(true)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} style={{
               ...undoRedoBtn(true),
               background: data.shareEnabled ? "var(--status-success-bg)" : "var(--bg-surface)",
