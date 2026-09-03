@@ -14,7 +14,30 @@ android {
         versionName "1.0.0"
     }
 
+    // Without this, Gradle falls back to auto-generating a debug key at
+    // ~/.android/debug.keystore if one doesn't already exist there — fine
+    // on a real developer machine where that file persists across
+    // builds, but on GitHub Actions' fresh, empty runners it means a
+    // BRAND NEW random key every single build. Each APK ends up signed
+    // differently from the last one, so installing a newer build over an
+    // older one silently fails (Android refuses on signature mismatch)
+    // and the app on your phone never actually changes. Pointing this at
+    // the debug.keystore checked into the repo (see its own file for
+    // details) makes every build use the identical signature, so
+    // reinstalling over an existing install works as a normal update.
+    signingConfigs {
+        debug {
+            storeFile file("../debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
