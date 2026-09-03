@@ -8572,6 +8572,7 @@ function PublicStaffView({ data }) {
   const { t } = useLang();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
+  const [desgFilter, setDesgFilter] = useState("");
   const [sortBy, setSortBy] = useState("name");
   const [showFairnessCompare, setShowFairnessCompare] = useState(false);
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
@@ -8591,18 +8592,31 @@ function PublicStaffView({ data }) {
       const status = effectiveStatus(s, null);
       const statusLabel = (status === "Leave" || status === "Outstation") ? unavailLabel(data, s.unavailable) : status;
       const desg = (data.designations || []).find((d) => d.id === s.designation);
-      return { ...s, status, statusLabel, desgLabel: desg ? desg.label : "", dutiesThisMonth: dutyCountByNumber[s.number] || 0 };
+      // Same "currently active" check the sort/filter logic below relies
+      // on — matches the manager's StaffView exactly.
+      const activeUnavailable = !!(s.unavailable && (!s.unavailable.to || s.unavailable.to >= todayStr()));
+      return { ...s, status, statusLabel, desgLabel: desg ? desg.label : "", dutiesThisMonth: dutyCountByNumber[s.number] || 0, activeUnavailable };
     });
     const q = debouncedSearch.trim().toLowerCase();
     if (q) list = list.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
+    if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
     list = [...list];
-    if (sortBy === "heat" || sortBy === "duties") {
+    // Same five sort/filter modes as the manager's StaffView — "present"
+    // and "unavailable" filter down to just that group (sorted by name)
+    // rather than merely re-ordering everyone, same reasoning as there.
+    if (sortBy === "present") {
+      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    } else if (sortBy === "unavailable") {
+      list = list.filter((s) => s.activeUnavailable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    } else if (sortBy === "designation") {
+      list.sort((a, b) => (a.desgLabel || "").localeCompare(b.desgLabel || "") || (a.name || "").localeCompare(b.name || ""));
+    } else if (sortBy === "heat") {
       list.sort((a, b) => b.dutiesThisMonth - a.dutiesThisMonth || (a.name || "").localeCompare(b.name || ""));
     } else {
       list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     }
     return list;
-  }, [data, debouncedSearch, sortBy, dutyCountByNumber]);
+  }, [data, debouncedSearch, desgFilter, sortBy, dutyCountByNumber]);
 
   const maxDuties = useMemo(() => rows.reduce((m, s) => Math.max(m, s.dutiesThisMonth), 0), [rows]);
   const minDuties = useMemo(() => rows.length ? rows.reduce((m, s) => Math.min(m, s.dutiesThisMonth), Infinity) : 0, [rows]);
@@ -8616,9 +8630,19 @@ function PublicStaffView({ data }) {
           placeholder={t("Search by name or number…", "નામ અથવા નંબર દ્વારા શોધો…")} className="gu"
           style={{ width: "100%", maxWidth: 320, boxSizing: "border-box" }}
         />
+        <select value={desgFilter} onChange={(e) => setDesgFilter(e.target.value)} style={{ fontSize: 13, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-surface)", color: "var(--text-primary)" }} className="gu">
+          <option value="">{t("All designations", "બધા હોદ્દા")}</option>
+          <option value="__none__">{t("No designation", "કોઈ હોદ્દો નથી")}</option>
+          {(data.designations || []).map((d) => (
+            <option key={d.id} value={d.id}>{d.label}</option>
+          ))}
+        </select>
         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ fontSize: 13, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-surface)", color: "var(--text-primary)" }} className="gu">
           <option value="name">{t("Sort: Name", "ક્રમ: નામ")}</option>
+          <option value="designation">{t("Sort: Designation", "ક્રમ: હોદ્દો")}</option>
           <option value="heat">{t("Sort: Duty meter (busiest first)", "ક્રમ: ડ્યુટી મીટર (સૌથી વ્યસ્ત પ્રથમ)")}</option>
+          <option value="present">{t("Show: Present only", "બતાવો: ફક્ત હાજર")}</option>
+          <option value="unavailable">{t("Show: Leave/Outstation only", "બતાવો: ફક્ત રજા/બહારગામ")}</option>
         </select>
         <button
           onClick={() => setShowFairnessCompare((v) => !v)}
