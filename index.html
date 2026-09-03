@@ -3907,15 +3907,13 @@ function DutyRoster() {
             <button onClick={() => setShowDrivePanel(true)} title={
               driveConnected && !driveNeedsReconnect && driveLastBackup
                 ? `${langCtxValue.t("Last Drive backup", "છેલ્લો ડ્રાઇવ બેકઅપ")}: ${new Date(driveLastBackup).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
-                : driveEnabledForAccount && !driveConnected
-                  ? langCtxValue.t("Drive backup is on for this account — connect this device too", "આ ખાતા માટે ડ્રાઇવ બેકઅપ ચાલુ છે — આ ડિવાઇસ પણ જોડો")
-                  : langCtxValue.t("Google Drive daily auto-backup", "Google Drive દૈનિક ઓટો-બેકઅપ")
+                : langCtxValue.t("Google Drive daily auto-backup", "Google Drive દૈનિક ઓટો-બેકઅપ")
             } style={{
               ...undoRedoBtn(true),
-              background: driveConnected ? (driveNeedsReconnect ? "var(--status-warning-bg)" : "var(--status-success-bg)") : (driveEnabledForAccount ? "var(--status-info-bg)" : "var(--bg-surface)"),
-              borderColor: driveConnected ? (driveNeedsReconnect ? "var(--status-warning-border)" : "var(--status-success-border)") : (driveEnabledForAccount ? "var(--status-info-border)" : "var(--border)"),
-              color: driveConnected && !driveNeedsReconnect ? "var(--status-success-text)" : (driveEnabledForAccount && !driveConnected ? "var(--status-info-text)" : "var(--text-primary)"),
-            }}>Drive{driveConnected ? (driveNeedsReconnect ? " ⚠" : " ✓") : (driveEnabledForAccount ? " •" : "")}</button>
+              background: driveConnected && !driveNeedsReconnect ? "var(--status-success-bg)" : "var(--bg-surface)",
+              borderColor: driveConnected && !driveNeedsReconnect ? "var(--status-success-border)" : "var(--border)",
+              color: driveConnected && !driveNeedsReconnect ? "var(--status-success-text)" : "var(--text-primary)",
+            }}>Drive{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
             <button onClick={() => setShowSharePanel(true)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} style={{
               ...undoRedoBtn(true),
               background: data.shareEnabled ? "var(--status-success-bg)" : "var(--bg-surface)",
@@ -7614,17 +7612,13 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
   const lastBackupText = lastBackup
     ? new Date(lastBackup).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
     : t("never", "ક્યારેય નહીં");
-  // Three real states, not two — this device already connected and
-  // working; Drive turned on for the account but THIS device hasn't
-  // individually connected yet (e.g. backup was set up on a different
-  // phone/computer); or never turned on anywhere at all. The middle one
-  // used to look identical to "never set up" — which read as Drive
-  // having silently disconnected itself, when really it just needed one
-  // quick sign-in on this particular device (an unavoidable one-time
-  // step per device/browser — this app has no backend server to keep a
-  // permanent connection alive on its own, so each browser has to prove
-  // access at least once for itself).
-  const thisDeviceNeedsConnecting = enabledForAccount && !connected;
+  // Simplified to one flow: connected-and-working, or not. Whether "not"
+  // means a fresh connection, a different device having set it up
+  // already, or a silent daily renewal that needs a fresh sign-in all
+  // used to show a different banner (one of them in alarming red) for
+  // what is, from the person's point of view, the exact same one action:
+  // press Connect, sign in, done.
+  const needsConnect = !connected || needsReconnect;
   return (
     <div role="dialog" aria-label={t("Google Drive backup", "ગૂગલ ડ્રાઇવ બેકઅપ")} style={{
       position: "fixed", top: 18, right: 18, width: 320, maxWidth: "calc(100vw - 36px)",
@@ -7643,32 +7637,20 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
           </div>
         ) : (
           <React.Fragment>
-            {thisDeviceNeedsConnecting ? (
-              <div style={{ fontSize: 12.5, color: "var(--status-info-text)", lineHeight: 1.5, marginBottom: 10, background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 8, padding: "8px 10px" }} className="gu">
-                {t("Drive backup is already on for this account (set up on another device) — this device just needs its own one-time Google sign-in to start backing up from here too.", "આ ખાતા માટે ડ્રાઇવ બેકઅપ પહેલેથી ચાલુ છે (બીજા ડિવાઇસ પર સેટ કરેલું) — અહીંથી પણ બેકઅપ શરૂ કરવા આ ડિવાઇસને ફક્ત તેનું પોતાનું એક-વખતનું ગૂગલ સાઇન-ઇન જરૂરી છે.")}
-              </div>
-            ) : (
-              <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 10 }} className="gu">
-                {connected
-                  ? t("Every day, the first time this app is opened, a full backup is quietly saved to a \"Nokri Book Backups\" folder in Google Drive.", "દરરોજ, આ એપ પહેલીવાર ખોલવામાં આવે ત્યારે, ગૂગલ ડ્રાઇવમાં \"Nokri Book Backups\" ફોલ્ડરમાં સંપૂર્ણ બેકઅપ આપમેળે સાચવવામાં આવે છે.")
-                  : t("Connect a Google account to automatically save a daily backup to Drive — no need to remember to click Backup.", "ડ્રાઇવમાં દૈનિક બેકઅપ આપમેળે સાચવવા માટે ગૂગલ ખાતું જોડો — બેકઅપ પર ક્લિક કરવાનું યાદ રાખવાની જરૂર નથી.")}
-              </div>
-            )}
-            {connected && (
-              <div style={{ fontSize: 12, color: needsReconnect ? "var(--status-error-text)" : "var(--text-primary)", marginBottom: 12 }} className="gu">
-                {needsReconnect
-                  ? t("Couldn't reach Google silently — reconnect below to resume daily backups.", "ગૂગલનો ચૂપચાપ સંપર્ક થઈ શક્યો નથી — દૈનિક બેકઅપ ફરી શરૂ કરવા નીચે ફરી જોડો.")
-                  : `${t("Last backup", "છેલ્લો બેકઅપ")}: ${lastBackupText}`}
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 10 }} className="gu">
+              {connected && !needsReconnect
+                ? t("Every day, the first time this app is opened, a full backup is quietly saved to a \"Nokri Book Backups\" folder in Google Drive.", "દરરોજ, આ એપ પહેલીવાર ખોલવામાં આવે ત્યારે, ગૂગલ ડ્રાઇવમાં \"Nokri Book Backups\" ફોલ્ડરમાં સંપૂર્ણ બેકઅપ આપમેળે સાચવવામાં આવે છે.")
+                : t("Connect a Google account to automatically save a daily backup to Drive — no need to remember to click Backup.", "ડ્રાઇવમાં દૈનિક બેકઅપ આપમેળે સાચવવા માટે ગૂગલ ખાતું જોડો — બેકઅપ પર ક્લિક કરવાનું યાદ રાખવાની જરૂર નથી.")}
+            </div>
+            {connected && !needsReconnect && (
+              <div style={{ fontSize: 12, color: "var(--text-primary)", marginBottom: 12 }} className="gu">
+                {t("Last backup", "છેલ્લો બેકઅપ")}: {lastBackupText}
               </div>
             )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {!connected || needsReconnect ? (
+              {needsConnect ? (
                 <button onClick={onConnect} disabled={busy} style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12.5, fontWeight: 600 }} className="gu">
-                  {busy
-                    ? t("Connecting…", "જોડાઈ રહ્યું છે…")
-                    : thisDeviceNeedsConnecting
-                      ? t("Connect this device", "આ ડિવાઇસ જોડો")
-                      : connected ? t("Reconnect", "ફરી જોડો") : t("Connect Google Drive", "ગૂગલ ડ્રાઇવ જોડો")}
+                  {busy ? t("Connecting…", "જોડાઈ રહ્યું છે…") : t("Connect Google Drive", "ગૂગલ ડ્રાઇવ જોડો")}
                 </button>
               ) : (
                 <React.Fragment>
