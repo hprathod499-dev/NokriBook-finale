@@ -4225,12 +4225,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
         </button>
         <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
         <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
-        <button onClick={() => setView({ mode: "recycle" })} style={{ ...navBtn(view.mode === "recycle"), display: "flex", justifyContent: "space-between", alignItems: "center" }} className="gu">
-          <span>🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</span>
-          {(data.recycleBin || []).length > 0 && (
-            <span className="mono" style={{ fontSize: 10.5, background: "#1B2733", color: "#D98E2B", borderRadius: 10, padding: "1px 7px" }}>{(data.recycleBin || []).length}</span>
-          )}
-        </button>
+        <button onClick={() => setView({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
       </div>
     </div>
   );
@@ -4985,7 +4980,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={() => setTab("roster")} style={catTabBtn(tab === "roster")} className="gu">{t("Roster", "રોસ્ટર")}</button>
           <button onClick={() => setTab("fairness")} style={catTabBtn(tab === "fairness")} className="gu">{t("Fairness", "ન્યાયીપણું")}</button>
-          <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}{historyRows.length ? ` (${historyRows.length})` : ""}</button>
+          <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}</button>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <PeriodFilterSelect period={pdfPeriod} setPeriod={setPdfPeriod} />
@@ -4994,8 +4989,6 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
             title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
             style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
           >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
-          <button onClick={undo} disabled={!canUndo} title={t("Undo last change (Ctrl+Z)", "છેલ્લો ફેરફાર પૂર્વવત્ કરો (Ctrl+Z)")} aria-label={t("Undo last change (Ctrl+Z)", "છેલ્લો ફેરફાર પૂર્વવત્ કરો (Ctrl+Z)")} style={undoRedoBtn(canUndo)} className="gu">↶ {t("Undo", "પૂર્વવત્")}</button>
-          <button onClick={redo} disabled={!canRedo} title={t("Redo (Ctrl+Shift+Z)", "ફરીથી કરો (Ctrl+Shift+Z)")} aria-label={t("Redo (Ctrl+Shift+Z)", "ફરીથી કરો (Ctrl+Shift+Z)")} style={undoRedoBtn(canRedo)} className="gu">↷ {t("Redo", "ફરીથી કરો")}</button>
         </div>
       </div>
 
@@ -8447,7 +8440,7 @@ function PublicCategoryView({ data, catId }) {
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={() => setTab("roster")} style={catTabBtn(tab === "roster")} className="gu">{t("Roster", "રોસ્ટર")}</button>
           <button onClick={() => setTab("fairness")} style={catTabBtn(tab === "fairness")} className="gu">{t("Fairness", "ન્યાયીપણું")}</button>
-          <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}{historyRows.length ? ` (${historyRows.length})` : ""}</button>
+          <button onClick={() => setTab("history")} style={catTabBtn(tab === "history")} className="gu">{t("History", "ઇતિહાસ")}</button>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <PeriodFilterSelect period={pdfPeriod} setPeriod={setPdfPeriod} />
