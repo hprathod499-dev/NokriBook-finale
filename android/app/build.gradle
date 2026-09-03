@@ -38,3 +38,22 @@ dependencies {
     // depends on).
     implementation 'androidx.webkit:webkit:1.11.0'
 }
+
+// androidx.appcompat pulls in a transitive dependency chain that still
+// references the OLD, pre-1.8 Kotlin stdlib split (separate
+// kotlin-stdlib-jdk7 / kotlin-stdlib-jdk8 artifacts) at version 1.6.21,
+// while something else in the graph resolves to the modern merged
+// kotlin-stdlib 1.8.22 (which, since Kotlin 1.8, already contains
+// everything jdk7/jdk8 used to provide separately). Both versions
+// landing in the same build produces duplicate classes
+// (kotlin.internal.jdk7.JDK7PlatformImplementations, etc.) and fails
+// :app:checkDebugDuplicateClasses. This is Kotlin's own documented fix
+// for exactly this situation: force one consistent stdlib version and
+// drop the now-redundant jdk7/jdk8 artifacts entirely.
+configurations.all {
+    resolutionStrategy {
+        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+    }
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+}
