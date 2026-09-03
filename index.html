@@ -4875,7 +4875,15 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   const [sortMode, setSortMode] = useState("rank");
   const [rosterSearch, setRosterSearch] = useState("");
   const debouncedRosterSearch = useDebouncedValue(rosterSearch);
-  const [hiddenDesignations, setHiddenDesignations] = useState([]); // designation ids to hide from the roster list below
+  // Tapping a designation pill now ISOLATES that one designation (shows
+  // only them) rather than hiding it — a single value, not a list, since
+  // only one designation can be isolated at a time; tapping the same one
+  // again (or "Show everyone") clears it back to the full roster.
+  const [onlyDesignation, setOnlyDesignation] = useState(null);
+  // The whole filter row starts collapsed behind an arrow (matching the
+  // sidebar's own collapse arrow) so it doesn't take up space until
+  // someone actually wants it.
+  const [showDesignationFilter, setShowDesignationFilter] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
@@ -4897,8 +4905,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
     let list = rosterWithCounts;
     const q = debouncedRosterSearch.trim().toLowerCase();
     if (q) list = list.filter((p) => p.name.toLowerCase().includes(q) || String(p.number).toLowerCase().includes(q));
-    if (hiddenDesignations.length > 0) {
-      list = list.filter((p) => !p.staffRec || !p.staffRec.designation || !hiddenDesignations.includes(p.staffRec.designation));
+    if (onlyDesignation) {
+      list = list.filter((p) => p.staffRec && p.staffRec.designation === onlyDesignation);
     }
     if (sortMode === "duties") {
       // Fewest-duties-first is meant to answer "who should get the next
@@ -4914,7 +4922,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
       });
     }
     return list;
-  }, [rosterWithCounts, sortMode, debouncedRosterSearch, hiddenDesignations]);
+  }, [rosterWithCounts, sortMode, debouncedRosterSearch, onlyDesignation]);
 
   // Every completed duty for THIS work type only, newest first, with
   // consecutive-day spans (an 11-day Group Duty) collapsed into a single
@@ -5040,29 +5048,38 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
 
       {(data.designations || []).length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }} className="gu">
-            {t("Hide designations from this list (optional) — tap to toggle", "આ યાદીમાંથી હોદ્દા છુપાવો (વૈકલ્પિક) — ટોગલ કરવા ટેપ કરો")}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-            {data.designations.map((d) => {
-              const hidden = hiddenDesignations.includes(d.id);
-              return (
-                <button
-                  key={d.id}
-                  onClick={() => setHiddenDesignations((cur) => cur.includes(d.id) ? cur.filter((x) => x !== d.id) : [...cur, d.id])}
-                  style={{
-                    fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
-                    border: "1px solid " + (hidden ? "var(--status-error-border)" : "var(--border)"),
-                    background: hidden ? "var(--status-error-bg)" : "var(--bg-surface)", color: hidden ? "var(--status-error-text)" : "var(--text-secondary)",
-                  }}
-                  className="gu"
-                >{hidden ? "✕ " : ""}{d.label}</button>
-              );
-            })}
-            {hiddenDesignations.length > 0 && (
-              <button onClick={() => setHiddenDesignations([])} style={{ fontSize: 11, color: "var(--text-tertiary)", background: "transparent", border: "none", textDecoration: "underline", padding: 0 }} className="gu">{t("Clear (show everyone)", "સાફ કરો (બધા બતાવો)")}</button>
-            )}
-          </div>
+          <button
+            onClick={() => setShowDesignationFilter((v) => !v)}
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", background: "transparent", border: "none", padding: 0, marginBottom: showDesignationFilter ? 6 : 0, cursor: "pointer" }}
+            className="gu"
+          >
+            <span style={{ display: "inline-block", transform: showDesignationFilter ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+            {onlyDesignation
+              ? t(`Filtered to ${data.designations.find((d) => d.id === onlyDesignation) ? data.designations.find((d) => d.id === onlyDesignation).label : ""}`, `${data.designations.find((d) => d.id === onlyDesignation) ? data.designations.find((d) => d.id === onlyDesignation).label : ""} પર ફિલ્ટર થયેલ`)
+              : t("Filter by designation (optional)", "હોદ્દા પ્રમાણે ફિલ્ટર કરો (વૈકલ્પિક)")}
+          </button>
+          {showDesignationFilter && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+              {data.designations.map((d) => {
+                const active = onlyDesignation === d.id;
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => setOnlyDesignation((cur) => cur === d.id ? null : d.id)}
+                    style={{
+                      fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
+                      border: "1px solid " + (active ? "#D98E2B" : "var(--border)"),
+                      background: active ? "#D98E2B" : "var(--bg-surface)", color: active ? "#fff" : "var(--text-secondary)",
+                    }}
+                    className="gu"
+                  >{d.label}</button>
+                );
+              })}
+              {onlyDesignation && (
+                <button onClick={() => setOnlyDesignation(null)} style={{ fontSize: 11, color: "var(--text-tertiary)", background: "transparent", border: "none", textDecoration: "underline", padding: 0 }} className="gu">{t("Show everyone", "બધા બતાવો")}</button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -5585,6 +5602,13 @@ function StaffView({
   // full set is still one tap away via this toggle whenever actually
   // needed.
   const [showFullActions, setShowFullActions] = useState(false);
+  // Each of the three lists (Leave types / Outstation types /
+  // Designations) below starts collapsed behind its own arrow — matching
+  // the sidebar's own collapse arrow — so this panel doesn't default to
+  // showing all three full lists at once.
+  const [showLeaveTypesList, setShowLeaveTypesList] = useState(false);
+  const [showOutstationTypesList, setShowOutstationTypesList] = useState(false);
+  const [showDesignationsList, setShowDesignationsList] = useState(false);
   const [newLeaveLabel, setNewLeaveLabel] = useState("");
   const [newLeaveIndefinite, setNewLeaveIndefinite] = useState(false);
   const [newOutLabel, setNewOutLabel] = useState("");
@@ -5979,7 +6003,12 @@ function StaffView({
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
         <div>
-          <div className="disp gu" style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{t("Leave types", "રજાના પ્રકારો")}</div>
+          <button onClick={() => setShowLeaveTypesList((v) => !v)} className="disp gu" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13, marginBottom: 8, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)" }}>
+            <span style={{ display: "inline-block", transform: showLeaveTypesList ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+            {t("Leave types", "રજાના પ્રકારો")}
+          </button>
+          {showLeaveTypesList && (
+          <React.Fragment>
           {leaveTypes.map((lt, i) => (
             <div key={lt.id} {...leaveDrag.dragProps(lt.id)} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", margin: "1px 0",
@@ -6021,9 +6050,16 @@ function StaffView({
             </label>
             <button onClick={() => { addLeaveType(newLeaveLabel, newLeaveIndefinite); setNewLeaveLabel(""); setNewLeaveIndefinite(false); }} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
           </div>
+          </React.Fragment>
+          )}
         </div>
         <div>
-          <div className="disp gu" style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{t("Outstation types", "બહારગામના પ્રકારો")}</div>
+          <button onClick={() => setShowOutstationTypesList((v) => !v)} className="disp gu" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13, marginBottom: 8, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)" }}>
+            <span style={{ display: "inline-block", transform: showOutstationTypesList ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+            {t("Outstation types", "બહારગામના પ્રકારો")}
+          </button>
+          {showOutstationTypesList && (
+          <React.Fragment>
           {outstationTypes.map((ot, i) => (
             <div key={ot.id} {...outDrag.dragProps(ot.id)} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", margin: "1px 0",
@@ -6065,9 +6101,16 @@ function StaffView({
             </label>
             <button onClick={() => { addOutstationType(newOutLabel, newOutIndefinite); setNewOutLabel(""); setNewOutIndefinite(false); }} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
           </div>
+          </React.Fragment>
+          )}
         </div>
         <div>
-          <div className="disp gu" style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{t("Designations", "હોદ્દાઓ")}</div>
+          <button onClick={() => setShowDesignationsList((v) => !v)} className="disp gu" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13, marginBottom: 8, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)" }}>
+            <span style={{ display: "inline-block", transform: showDesignationsList ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+            {t("Designations", "હોદ્દાઓ")}
+          </button>
+          {showDesignationsList && (
+          <React.Fragment>
           {designations.map((d, i) => (
             <div key={d.id} {...desgDrag.dragProps(d.id)} style={{
               display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", margin: "1px 0",
@@ -6097,6 +6140,8 @@ function StaffView({
               style={{ flex: 1, minWidth: 120, fontSize: 12 }} className="gu" />
             <button onClick={() => { addDesignation(newDesgLabel); setNewDesgLabel(""); }} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
           </div>
+          </React.Fragment>
+          )}
         </div>
       </div>
 
