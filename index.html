@@ -4169,9 +4169,9 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
             <input type="text" autoFocus value={newLabel} placeholder={t("New work type", "નવો કામનો પ્રકાર")} className="gu"
               onChange={(e) => setNewLabel(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { addCategory(newLabel); setNewLabel(""); setAdding(false); } if (e.key === "Escape") { setNewLabel(""); setAdding(false); } }}
-              style={{ width: "100%", fontSize: 12 }} />
-            <button onClick={() => { addCategory(newLabel); setNewLabel(""); setAdding(false); }} title={t("Add", "ઉમેરો")} aria-label={t("Add", "ઉમેરો")} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>+</button>
-            <button onClick={() => { setNewLabel(""); setAdding(false); }} title={t("Cancel", "રદ કરો")} aria-label={t("Cancel", "રદ કરો")} style={{ background: "transparent", color: "#8FA0AC", border: "1px solid #2E3742", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>✕</button>
+              style={{ flex: 1, minWidth: 0, fontSize: 12 }} />
+            <button onClick={() => { addCategory(newLabel); setNewLabel(""); setAdding(false); }} title={t("Add", "ઉમેરો")} aria-label={t("Add", "ઉમેરો")} style={{ flexShrink: 0, background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>+</button>
+            <button onClick={() => { setNewLabel(""); setAdding(false); }} title={t("Cancel", "રદ કરો")} aria-label={t("Cancel", "રદ કરો")} style={{ flexShrink: 0, background: "transparent", color: "#8FA0AC", border: "1px solid #2E3742", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>✕</button>
           </div>
         ) : (
           <button onClick={() => setAdding(true)} style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#8FA0AC", padding: "9px 16px", fontSize: 12.5 }} className="gu">+ {t("Add work type", "કામનો પ્રકાર ઉમેરો")}</button>
