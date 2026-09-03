@@ -2061,11 +2061,21 @@ function DutyRoster() {
               || JSON.stringify(normalized.staff) !== JSON.stringify(d.staff);
             setData(normalized);
             if (needsWrite) ref.set(normalized).catch(() => {});
+            // Self-heals publicRosters/{uid} on every load/remote update,
+            // not just local edits — otherwise an account that already
+            // had sharing turned on BEFORE this publicRosters mechanism
+            // shipped would have shareEnabled: true forever with no
+            // publicRosters document ever created, since syncPublicRoster
+            // previously only ran from local writeToFirestore calls. This
+            // also keeps it correct if a second device changes something
+            // while this one is just sitting open.
+            syncPublicRoster(normalized);
           } else if (d.roster && !migratedRef.current) {
             migratedRef.current = true;
             const migrated = normalizeData(migrateOldRoster(d.roster));
             ref.set(migrated).catch(() => {});
             setData(migrated);
+            syncPublicRoster(migrated);
           }
         } else {
           // Brand new account — start blank. If they have older shared
