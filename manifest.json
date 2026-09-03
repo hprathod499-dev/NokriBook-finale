@@ -1,7 +1,7 @@
 {
-  "name": "Console",
-  "short_name": "Console",
-  "description": "Console",
+  "name": "Nokri Book",
+  "short_name": "Nokri Book",
+  "description": "Nokri Book — fair rotation duty roster for staff scheduling, leave, and outstation tracking.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
