@@ -6127,14 +6127,27 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   await ensureGujaratiCanvasFont();
 
   doc.setFontSize(14);
-  doc.text(`Nokri Book — ${staffRec.name}  #${number}`, 14, 16);
+  doc.text("Nokri Book — Duty History", 14, 16);
+  // The name needs the same canvas-image treatment as every Gujarati
+  // cell in the table below — jsPDF's own font (used by plain doc.text)
+  // has no Gujarati glyphs at all, which is exactly what garbled the
+  // title while the table itself rendered correctly.
+  if (needsImageRender(staffRec.name)) {
+    const rendered = renderTextToImage(staffRec.name, 13);
+    drawTextImageInCell(doc, { x: 14, y: 19, width: 300, height: 9 }, rendered, 13);
+    doc.setFontSize(10);
+    doc.text(`#${number}`, 14, 32);
+  } else {
+    doc.setFontSize(13);
+    doc.text(`${staffRec.name}  #${number}`, 14, 25);
+  }
   doc.setFontSize(10);
-  doc.text(periodLabelEn(period), 14, 23);
+  doc.text(periodLabelEn(period), 14, 39);
   doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, 28);
+  doc.text("Generated " + new Date().toLocaleString(), 14, 44);
 
   doc.autoTable({
-    startY: 36,
+    startY: 52,
     head: [["Date", "Work type", "Days", "Note"]],
     body: filteredGroups.map((g) => [
       g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
