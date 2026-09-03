@@ -4950,9 +4950,9 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
 
   // Reset back to "roster" when switching work types, so History from the
   // previous work type never appears to carry over. Same for the
-  // hide-designations filter — a filter set up for one work type shouldn't
-  // silently keep hiding people on a completely different one.
-  useEffect(() => { setTab("roster"); setHiddenDesignations([]); }, [catId]);
+  // designation filter — a filter set up for one work type shouldn't
+  // silently keep isolating people on a completely different one.
+  useEffect(() => { setTab("roster"); setOnlyDesignation(null); }, [catId]);
 
   const nextUp = roster.find((p) => p.rank === 1);
   const presentCount = roster.filter((p) => p.status === "Present").length;
