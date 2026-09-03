@@ -748,6 +748,40 @@ function migrateOldRoster(oldRoster) {
 // Skip with no way back to Present. Now the row's flag is always written
 // back in normalized form (see the `needsWrite` check where this is
 // called), so it only ever gets processed once.
+// The exact subset of the account document ever actually read by any
+// public/shared-view component — PublicHomeView, PublicCategoryView,
+// PublicStaffView, CalendarView, ReportView, SkipHistoryView, and the
+// shared PersonHistoryModal / DutyFairnessCompare / CategoryFairnessTable
+// they all use in turn — verified by reading each of those components'
+// code, not assumed. This is what gets written to publicRosters/{uid}
+// (a separate, deliberately public document) instead of exposing the
+// real accounts/{uid} document to unauthenticated readers.
+//
+// Left out on purpose, because no public component reads any of them:
+// - staff[num].phone — no public component has a call/WhatsApp button
+//   or shows a phone number anywhere; confirmed by reading
+//   PublicStaffView and PublicCategoryView directly.
+// - recycleBin — can contain full staff records, phone numbers
+//   included, for anyone recently deleted.
+// - events, reminderAcks — the public sidebar has no Events/Reminders
+//   entry at all; nothing in the public view ever reads these.
+function derivePublicData(data) {
+  const staff = {};
+  Object.entries(data.staff || {}).forEach(([num, s]) => {
+    const { phone, ...rest } = s;
+    staff[num] = rest;
+  });
+  return {
+    v: data.v,
+    categories: data.categories || [],
+    membership: data.membership || {},
+    staff,
+    leaveTypes: data.leaveTypes || DEFAULT_LEAVE_TYPES,
+    outstationTypes: data.outstationTypes || DEFAULT_OUTSTATION_TYPES,
+    designations: data.designations || DEFAULT_DESIGNATIONS,
+    skipLog: data.skipLog || [],
+  };
+}
 function normalizeData(d) {
   if (!d) return d;
   const withDefaults = {
@@ -1875,6 +1909,16 @@ function DutyRoster() {
   // Stable per signed-in session — recomputed each render but points at the
   // same Firestore doc the whole time someone's signed in.
   const docRef = user ? accountDocRef(user.uid) : null;
+  // The public-safe mirror of this account, kept in a SEPARATE Firestore
+  // document/collection specifically so that Firestore Security Rules can
+  // grant it public read access without also exposing the real
+  // accounts/{uid} document (which the public view used to read directly
+  // — meaning anyone with a share link, or anyone who obtained the UID
+  // any other way, could read the ENTIRE account document via the
+  // Firestore SDK directly, including staff phone numbers, regardless of
+  // what the share view's UI chose to display). See syncPublicRoster
+  // below for what actually gets written here and when.
+  const publicRosterDocRef = user ? db.collection("publicRosters").doc(user.uid) : null;
 
   const [data, setData] = useState(null);
   const [view, setView] = useState({ mode: "assignDuty" }); // home | category | staff | report | assignDuty
@@ -2199,9 +2243,35 @@ function DutyRoster() {
   // exactly that (a raw docRef.set() using its own closure's `data`,
   // completely bypassing this), which was a second, independent way the
   // same class of bug could happen — fixed by routing it through here.
+  // Keeps publicRosters/{uid} — the document Security Rules actually grant
+  // public read access to — in sync with the real account. Fire-and-forget
+  // relative to the private save above: a transient failure here doesn't
+  // block or retry-loop the primary save, and the very next edit (or
+  // toggling Share off and back on) naturally retries it. One deliberate
+  // retry after a short delay covers the more common transient case
+  // without adding real complexity. Deleting the doc when sharing is off
+  // — rather than merely not writing to it — is what makes turning Share
+  // off actually revoke access immediately, instead of leaving stale
+  // (but still real) data sitting in a document Rules still allow anyone
+  // to read.
+  const syncPublicRoster = (next) => {
+    if (!publicRosterDocRef) return;
+    const trySync = (isRetry) => {
+      const op = next.shareEnabled
+        ? publicRosterDocRef.set(deepStripUndefined(derivePublicData(next)))
+        : publicRosterDocRef.delete();
+      op.catch((e) => {
+        console.error("Public roster sync failed:", e);
+        if (!isRetry) setTimeout(() => trySync(true), 4000);
+      });
+    };
+    trySync(false);
+  };
+
   const writeToFirestore = (next) => {
     dataRef.current = next;
     setData(next);
+    syncPublicRoster(next);
     if (!docRef) return;
 
     pendingWritesRef.current += 1;
@@ -2290,9 +2360,13 @@ function DutyRoster() {
   // ---------- Public view-only sharing ----------
   // A single toggle per account: when on, anyone with the link (containing
   // this account's uid) can open a read-only, unauthenticated view of the
-  // roster — no sign-in, no edit access. Enforced by the Firestore rule
-  // "allow read: if resource.data.shareEnabled == true" on accounts/{uid},
-  // so turning this off immediately revokes the link, no token to manage.
+  // roster — no sign-in, no edit access. Turning this off immediately
+  // revokes the link, no token to manage: syncPublicRoster (called from
+  // every persist/writeToFirestore) deletes the public-safe
+  // publicRosters/{uid} document the moment shareEnabled goes false, and
+  // that document — not the real accounts/{uid} — is genuinely all a
+  // public reader's Firestore access can ever reach; see
+  // derivePublicData for exactly what it contains.
   const [showSharePanel, setShowSharePanel] = useState(false);
   // ---------- About / credits ----------
   const [showAboutPanel, setShowAboutPanel] = useState(false);
@@ -7997,9 +8071,17 @@ function PublicRosterView({ uid }) {
   }, [darkMode]);
 
   useEffect(() => {
-    const unsub = accountDocRef(uid).onSnapshot(
+    // Reads publicRosters/{uid} — a separate, deliberately public-safe
+    // document (see derivePublicData / syncPublicRoster) — instead of the
+    // real accounts/{uid} document. The doc's mere existence now implies
+    // sharing is on: syncPublicRoster deletes it the instant Share is
+    // toggled off, so there's no stale shareEnabled flag to check here
+    // the way the old code checked snap.data().shareEnabled — checking a
+    // flag INSIDE a document the rules already had to allow reading
+    // would've protected nothing extra anyway.
+    const unsub = db.collection("publicRosters").doc(uid).onSnapshot(
       (snap) => {
-        if (snap.exists && snap.data().shareEnabled && snap.data().v === 2) {
+        if (snap.exists && snap.data().v === 2) {
           setData(normalizeData(snap.data()));
         } else {
           setData(null);
