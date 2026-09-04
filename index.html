@@ -352,6 +352,79 @@ const NOISE_DATA_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACA
 // type" in the sidebar.
 const DEFAULT_CATEGORIES = [];
 
+// One short, dismiss-once popup per major sidebar section — shown the
+// FIRST time that section is opened (after the welcome tour itself is
+// done), never again once dismissed. Deliberately scoped to the
+// sidebar-level sections only, not every work-type's own Roster/History
+// page — those already have their own (i) info toggle for the same
+// purpose, and duplicating both mechanisms on the same screen would be
+// redundant rather than helpful. Keys here are exactly the view.mode
+// values used throughout the sidebar's setView calls.
+const SECTION_TIPS = {
+  home: {
+    titleEn: "Today's duty", titleGu: "આજની ડ્યુટી",
+    bodyEn: "A quick at-a-glance view of who's on duty right now, across every work type — nothing to set up, just a summary of what Assign Duty has already decided.",
+    bodyGu: "દરેક કામના પ્રકારમાં અત્યારે કોની ડ્યુટી છે તેનું ઝડપી દૃશ્ય — કંઈ સેટ કરવાની જરૂર નથી, ડ્યુટી સોંપોએ પહેલેથી નક્કી કરેલાનો ફક્ત સારાંશ.",
+  },
+  assignDuty: {
+    titleEn: "Assign Duty", titleGu: "ડ્યુટી સોંપો",
+    bodyEn: "\"By work type\" always shows whoever's next in the rotation — one tap assigns it. Use \"Group duty\" for several people at once, \"Miscellaneous\" for a one-off task, and \"Record Leave\" to log leave without assigning any duty.",
+    bodyGu: "\"કામના પ્રકાર પ્રમાણે\" હંમેશા રોટેશનમાં આગળ કોણ છે તે બતાવે છે — એક ટેપથી સોંપાય છે. એકસાથે ઘણા લોકો માટે \"ગ્રુપ ડ્યુટી\", એક વખતના કામ માટે \"વિવિધ\", અને કોઈ ડ્યુટી સોંપ્યા વગર રજા નોંધવા \"રજા નોંધો\" વાપરો.",
+  },
+  staff: {
+    titleEn: "Manage Staff", titleGu: "સ્ટાફ સંચાલિત કરો",
+    bodyEn: "Add each person once here, by their buckle/workplace number — they're then available to add to any work type. Leave, outstation, and designation are all set here too, and apply everywhere that person appears.",
+    bodyGu: "અહીં દરેક વ્યક્તિને એક વખત તેમના બકલ/કાર્યસ્થળ નંબરથી ઉમેરો — પછી તેમને કોઈપણ કામના પ્રકારમાં ઉમેરી શકાય છે. રજા, બહારગામ અને હોદ્દો પણ અહીંથી જ સેટ થાય છે, અને તે વ્યક્તિ જ્યાં પણ દેખાય ત્યાં લાગુ પડે છે.",
+  },
+  skipHistory: {
+    titleEn: "Skip history", titleGu: "સ્કિપ ઇતિહાસ",
+    bodyEn: "Every time someone is marked \"Skip\" on a work type, it's logged here — who, when, and the required note explaining why. A permanent record, separate from leave/outstation.",
+    bodyGu: "કોઈને કામના પ્રકાર પર \"સ્કિપ\" કરવામાં આવે ત્યારે તે અહીં નોંધાય છે — કોણ, ક્યારે, અને શા માટે તે સમજાવતી જરૂરી નોંધ. રજા/બહારગામથી અલગ, કાયમી રેકોર્ડ.",
+  },
+  events: {
+    titleEn: "Events & reminders", titleGu: "ઇવેન્ટ્સ અને રિમાઇન્ડર્સ",
+    bodyEn: "Set a one-time reminder tied to a person or date — like a training expiry or a document renewal — and get notified when it's due.",
+    bodyGu: "કોઈ વ્યક્તિ કે તારીખ સાથે જોડાયેલ એક વખતનું રિમાઇન્ડર સેટ કરો — જેમ કે તાલીમની સમાપ્તિ અથવા દસ્તાવેજ નવીકરણ — અને તે બાકી હોય ત્યારે સૂચિત થાઓ.",
+  },
+  calendar: {
+    titleEn: "Duty calendar", titleGu: "ડ્યુટી કૅલેન્ડર",
+    bodyEn: "See every day's duties across all work types at a glance, plus who's on leave or outstation that day. Tap any name with a note attached to read it.",
+    bodyGu: "બધા કામના પ્રકારોમાં દરેક દિવસની ડ્યુટીઓ એક નજરે જુઓ, ઉપરાંત તે દિવસે કોણ રજા કે બહારગામ છે. નોંધ જોડાયેલ કોઈપણ નામ પર ટેપ કરીને તે વાંચો.",
+  },
+  report: {
+    titleEn: "Monthly report", titleGu: "માસિક અહેવાલ",
+    bodyEn: "A full month's duty summary for everyone, downloadable as a Gujarati-safe PDF — pick the month, then download.",
+    bodyGu: "દરેક માટે આખા મહિનાનો ડ્યુટી સારાંશ, ગુજરાતી-સુરક્ષિત PDF તરીકે ડાઉનલોડ કરી શકાય તેવો — મહિનો પસંદ કરો, પછી ડાઉનલોડ કરો.",
+  },
+  recycle: {
+    titleEn: "Recycle bin", titleGu: "રિસાયકલ બિન",
+    bodyEn: "Anything deleted (staff, work types, history entries) lands here first instead of vanishing immediately — restore it, or it stays here until you clear it yourself.",
+    bodyGu: "કંઈપણ કાઢી નાખેલું (સ્ટાફ, કામના પ્રકારો, ઇતિહાસ) તરત જ અદૃશ્ય થવાને બદલે પહેલા અહીં આવે છે — તેને પુનઃસ્થાપિત કરો, અથવા તમે જાતે સાફ ન કરો ત્યાં સુધી તે અહીં જ રહે છે.",
+  },
+};
+const SECTION_TIP_IDS = Object.keys(SECTION_TIPS);
+// Small, non-blocking popup — anchored near the top of the content area
+// rather than a full centered modal, so it reads as a contextual hint
+// for the section you just opened, not an interruption you have to deal
+// with before doing anything else.
+function SectionTip({ tipKey, onDismiss }) {
+  const { t } = useLang();
+  const tip = SECTION_TIPS[tipKey];
+  if (!tip) return null;
+  return (
+    <div role="note" style={{
+      background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 10,
+      padding: "12px 14px", marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-start",
+    }}>
+      <span style={{ fontSize: 16, flexShrink: 0 }}>💡</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="gu" style={{ fontSize: 13, fontWeight: 700, color: "var(--status-info-text)", marginBottom: 3 }}>{t(tip.titleEn, tip.titleGu)}</div>
+        <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.55 }}>{t(tip.bodyEn, tip.bodyGu)}</div>
+      </div>
+      <button onClick={onDismiss} title={t("Got it", "સમજાઈ ગયું")} aria-label={t("Dismiss", "કાઢી નાખો")} style={{ background: "transparent", border: "none", color: "var(--status-info-text)", fontSize: 15, flexShrink: 0, padding: 0, cursor: "pointer" }}>✕</button>
+    </div>
+  );
+}
 const DEFAULT_LEAVE_TYPES = [
   { id: "leave1", label: "Casual Leave", indefinite: false },
   { id: "leave2", label: "Sick Leave", indefinite: false },
@@ -689,7 +762,7 @@ function buildInitialData() {
       ? seed112.map((p) => ({ number: p.number, lastDuty: p.lastDuty, history: [], skip: false }))
       : [];
   });
-  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false };
+  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {} };
 }
 
 // Converts the old per-category schema (name/status stored directly on each
@@ -803,6 +876,15 @@ function normalizeData(d) {
     // fresh signup — so it defaults to true (already seen) rather than
     // surprising an existing user with a "welcome" banner out of nowhere.
     hasSeenWelcome: d.hasSeenWelcome !== undefined ? d.hasSeenWelcome : true,
+    // Same reasoning as hasSeenWelcome just above: only a genuinely new
+    // account (via buildInitialData, which always sets this to an
+    // explicit {}) starts with no sections marked seen. An account
+    // loaded here with this field entirely absent predates the
+    // section-tips feature — mark every currently-known section as
+    // already seen so an established user isn't suddenly hit with eight
+    // popups in a row the first time they open the app after this
+    // shipped.
+    seenSections: d.seenSections !== undefined ? d.seenSections : Object.fromEntries(SECTION_TIP_IDS.map((id) => [id, true])),
   };
   const staff = {};
   Object.keys(withDefaults.staff || {}).forEach((num) => {
@@ -3982,6 +4064,12 @@ function DutyRoster() {
               padding: "6px 9px", fontSize: 17, lineHeight: 1, fontWeight: 700, letterSpacing: 1,
             }}>⋮</button>
           </div>
+          {data.hasSeenWelcome && SECTION_TIPS[view.mode] && !(data.seenSections && data.seenSections[view.mode]) && (
+            <SectionTip
+              tipKey={view.mode}
+              onDismiss={() => persist({ ...dataRef.current, seenSections: { ...(dataRef.current.seenSections || {}), [view.mode]: true } })}
+            />
+          )}
           {view.mode === "home" && (
             <HomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
