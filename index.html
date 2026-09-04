@@ -29,14 +29,7 @@
      off of whatever size was already set on that element (a button, a
      table cell, a heading — all wildly different base sizes), rather
      than a fixed px bump that would only be correct for one of them. */
-  /* !important is deliberate here: most Gujarati text throughout the app
-     sets its own inline pixel font-size alongside className="gu", and an
-     inline style always wins over a class rule for the same property
-     without !important -- meaning this multiplier would otherwise only
-     ever reach the few elements with no inline size of their own (mostly
-     headings). Kept modest (1.13x, not a bigger jump) specifically
-     because a larger increase tried previously read as too big. */
-  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.13em !important; }
+  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.08em; }
   .mono { font-family: 'IBM Plex Mono', monospace; }
   .disp { font-family: 'Space Grotesk', sans-serif; }
   button {
