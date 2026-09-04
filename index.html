@@ -689,7 +689,7 @@ function buildInitialData() {
       ? seed112.map((p) => ({ number: p.number, lastDuty: p.lastDuty, history: [], skip: false }))
       : [];
   });
-  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [] };
+  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false };
 }
 
 // Converts the old per-category schema (name/status stored directly on each
@@ -797,6 +797,12 @@ function normalizeData(d) {
     // happened — kept as its own log so it survives across work types and
     // is never silently lost the way a plain status flag would be.
     skipLog: d.skipLog || [],
+    // Only buildInitialData() (the brand-new-account path) ever sets this
+    // to false explicitly. Any account loaded here without it at all
+    // predates this field entirely — real, already-in-use data, not a
+    // fresh signup — so it defaults to true (already seen) rather than
+    // surprising an existing user with a "welcome" banner out of nowhere.
+    hasSeenWelcome: d.hasSeenWelcome !== undefined ? d.hasSeenWelcome : true,
   };
   const staff = {};
   Object.keys(withDefaults.staff || {}).forEach((num) => {
@@ -4083,6 +4089,13 @@ function DutyRoster() {
           data={data}
           onNavigate={(v) => setView(v)}
           onClose={() => setShowCommandPalette(false)}
+        />
+      )}
+
+      {data.hasSeenWelcome === false && (
+        <WelcomeModal
+          onGetStarted={() => { persist({ ...dataRef.current, hasSeenWelcome: true }); setView({ mode: "assignDuty" }); }}
+          onClose={() => persist({ ...dataRef.current, hasSeenWelcome: true })}
         />
       )}
 
@@ -7751,6 +7764,39 @@ function CommandPalette({ data, onNavigate, onClose }) {
   );
 }
 
+// Shown exactly once — the very first time a brand-new account signs in
+// (see hasSeenWelcome in buildInitialData/normalizeData above) — then
+// never again, even after signing out and back in, since dismissing it
+// either way (✕ or the CTA) immediately persists hasSeenWelcome:true.
+// Existing accounts from before this feature existed never see it at
+// all (normalizeData defaults them to already-seen).
+function WelcomeModal({ onGetStarted, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Welcome to Nokri Book", "નોકરી બુકમાં આપનું સ્વાગત છે")} style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+      <div style={{ background: "var(--bg-surface)", borderRadius: 14, width: 440, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", position: "relative" }}>
+        <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ position: "absolute", top: 14, right: 14, background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+        <div className="disp gu" style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{t("Welcome to Nokri Book 👋", "નોકરી બુકમાં આપનું સ્વાગત છે 👋")}</div>
+        <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 18px" }} className="gu">
+          {t(
+            "This app picks who's next for duty automatically — whoever has waited the longest always goes next, so there's never a manual pick to argue over.",
+            "આ એપ આપમેળે નક્કી કરે છે કે આગળ કોની ડ્યુટી છે — જે સૌથી લાંબા સમયથી રાહ જોઈ રહ્યા છે તેમનો જ વારો આવે છે, એટલે મેન્યુઅલ પસંદગી અંગે ક્યારેય ચર્ચા થતી નથી."
+          )}
+        </p>
+        <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 22px" }} className="gu">
+          {t(
+            "A starter work type and a few sample staff are already set up so you can try it right away — assign a duty and see how it works.",
+            "તરત જ અજમાવી શકાય તે માટે એક શરૂઆતનો કામનો પ્રકાર અને થોડાં નમૂનાના સ્ટાફ પહેલેથી સેટ કરેલા છે — ડ્યુટી સોંપો અને જુઓ કે તે કેવી રીતે કામ કરે છે."
+          )}
+        </p>
+        <button onClick={onGetStarted} style={{ width: "100%", background: "#D98E2B", color: "#fff", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700 }} className="gu">
+          {t("Assign my first duty →", "મારી પહેલી ડ્યુટી સોંપો →")}
+        </button>
+      </div>
+    </div>
+  );
+}
 function DriveBackupPanel({ configured, connected, enabledForAccount, busy, needsReconnect, lastBackup, onConnect, onBackupNow, onDisconnect, onClose }) {
   const { t } = useLang();
   useEscToClose(onClose);
