@@ -29,7 +29,14 @@
      off of whatever size was already set on that element (a button, a
      table cell, a heading — all wildly different base sizes), rather
      than a fixed px bump that would only be correct for one of them. */
-  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.08em; }
+  /* !important is deliberate here: most Gujarati text throughout the app
+     sets its own inline pixel font-size alongside className="gu", and an
+     inline style always wins over a class rule for the same property
+     without !important -- meaning this multiplier would otherwise only
+     ever reach the few elements with no inline size of their own (mostly
+     headings). Kept modest (1.13x, not a bigger jump) specifically
+     because a larger increase tried previously read as too big. */
+  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.13em !important; }
   .mono { font-family: 'IBM Plex Mono', monospace; }
   .disp { font-family: 'Space Grotesk', sans-serif; }
   button {
@@ -363,8 +370,8 @@ const DEFAULT_CATEGORIES = [];
 const SECTION_TIPS = {
   category: {
     titleEn: "A work type's page", titleGu: "કામના પ્રકારનું પાનું",
-    bodyEn: "Roster shows everyone in rotation order. To add someone here, use \"Workplace number\" and \"Staff name\" at the bottom of the Roster tab — an existing person is matched by number, or a brand-new number adds them fresh. Fairness and History are the other two tabs above.",
-    bodyGu: "રોસ્ટર બધાને રોટેશન ક્રમમાં બતાવે છે. અહીં કોઈને ઉમેરવા, રોસ્ટર ટેબની નીચે \"કાર્યસ્થળ નંબર\" અને \"સ્ટાફ નામ\" વાપરો — હાલની વ્યક્તિ નંબરથી મેચ થાય છે, અથવા નવો નંબર તેમને નવેસરથી ઉમેરે છે. ન્યાયીપણું અને ઇતિહાસ ઉપરના બીજા બે ટેબ છે.",
+    bodyEn: "Roster shows everyone in rotation order. To add someone here, use \"Buckle number\" and \"Staff name\" at the bottom of the Roster tab — an existing person is matched by number, or a brand-new number adds them fresh. Fairness and History are the other two tabs above.",
+    bodyGu: "રોસ્ટર બધાને રોટેશન ક્રમમાં બતાવે છે. અહીં કોઈને ઉમેરવા, રોસ્ટર ટેબની નીચે \"બકલ નંબર\" અને \"સ્ટાફ નામ\" વાપરો — હાલની વ્યક્તિ નંબરથી મેચ થાય છે, અથવા નવો નંબર તેમને નવેસરથી ઉમેરે છે. ન્યાયીપણું અને ઇતિહાસ ઉપરના બીજા બે ટેબ છે.",
   },
   home: {
     titleEn: "Today's duty", titleGu: "આજની ડ્યુટી",
@@ -378,8 +385,8 @@ const SECTION_TIPS = {
   },
   staff: {
     titleEn: "Manage Staff", titleGu: "સ્ટાફ સંચાલિત કરો",
-    bodyEn: "Add each person once here, by their buckle/workplace number — they're then available to add to any work type. Leave, outstation, and designation are all set here too, and apply everywhere that person appears.",
-    bodyGu: "અહીં દરેક વ્યક્તિને એક વખત તેમના બકલ/કાર્યસ્થળ નંબરથી ઉમેરો — પછી તેમને કોઈપણ કામના પ્રકારમાં ઉમેરી શકાય છે. રજા, બહારગામ અને હોદ્દો પણ અહીંથી જ સેટ થાય છે, અને તે વ્યક્તિ જ્યાં પણ દેખાય ત્યાં લાગુ પડે છે.",
+    bodyEn: "Add each person once here, by their buckle number — they're then available to add to any work type. Leave, outstation, and designation are all set here too, and apply everywhere that person appears.",
+    bodyGu: "અહીં દરેક વ્યક્તિને એક વખત તેમના બકલ નંબરથી ઉમેરો — પછી તેમને કોઈપણ કામના પ્રકારમાં ઉમેરી શકાય છે. રજા, બહારગામ અને હોદ્દો પણ અહીંથી જ સેટ થાય છે, અને તે વ્યક્તિ જ્યાં પણ દેખાય ત્યાં લાગુ પડે છે.",
   },
   skipHistory: {
     titleEn: "Skip history", titleGu: "સ્કિપ ઇતિહાસ",
@@ -772,7 +779,7 @@ function buildInitialData() {
 
 // Converts the old per-category schema (name/status stored directly on each
 // row, no shared identity) into the new schema (one global staff record per
-// person, referenced by workplace number, shared across every work type).
+// person, referenced by buckle number, shared across every work type).
 function migrateOldRoster(oldRoster) {
   const staff = {};
   const membership = {};
@@ -3088,7 +3095,7 @@ function DutyRoster() {
   const addToCategory = (catId, number, name, date) => {
     const num = (number || "").trim();
     const cleanName = (name || "").trim();
-    if (!num) { showToast(t("Enter a workplace number", "કાર્યસ્થળ નંબર દાખલ કરો")); return; }
+    if (!num) { showToast(t("Enter a buckle number", "બકલ નંબર દાખલ કરો")); return; }
     const existing = data.staff[num];
     if (!existing && !cleanName) { showToast(t("New number — enter the staff name too", "નવો નંબર — સ્ટાફનું નામ પણ દાખલ કરો")); return; }
     const already = (data.membership[catId] || []).some((m) => m.number === num);
@@ -3417,7 +3424,7 @@ function DutyRoster() {
     if (!cleanType) { showToast(t("Describe the duty before assigning it", "સોંપતા પહેલા ડ્યુટીનું વર્ણન કરો"), "error"); return; }
     const num = (number || "").trim();
     const cleanName = (name || "").trim();
-    if (!num) { showToast(t("Enter a workplace number", "કાર્યસ્થળ નંબર દાખલ કરો"), "error"); return; }
+    if (!num) { showToast(t("Enter a buckle number", "બકલ નંબર દાખલ કરો"), "error"); return; }
     const existingStaff = data.staff[num];
     if (!existingStaff && !cleanName) { showToast(t("New number — enter the staff name too", "નવો નંબર — સ્ટાફનું નામ પણ દાખલ કરો"), "error"); return; }
     const dutyDate = date || todayStr();
@@ -3650,7 +3657,7 @@ function DutyRoster() {
     // synchronously on every persist(), so each call in a batch always
     // builds on the one immediately before it.
     const prevRec = dataRef.current.staff[number];
-    if (!prevRec) { if (!silent) showToast(t("No staff found with that workplace number", "તે કાર્યસ્થળ નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી"), "error"); return; }
+    if (!prevRec) { if (!silent) showToast(t("No staff found with that buckle number", "તે બકલ નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી"), "error"); return; }
     persist({
       ...dataRef.current,
       staff: {
@@ -4558,7 +4565,7 @@ function MiscDutyView({ data, assignMiscDuty }) {
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480 }}>
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Workplace number", "કાર્યસ્થળ નંબર")}</label>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Buckle number", "બકલ નંબર")}</label>
           <input type="text" value={numberInput} onChange={(e) => setNumberInput(e.target.value)} className="mono" style={{ width: "100%", boxSizing: "border-box" }} />
           {numberInput.trim() && (
             <div style={{ fontSize: 11.5, marginTop: 4 }} className="gu">
@@ -4708,7 +4715,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
         )}
 
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Workplace number", "કાર્યસ્થળ નંબર")}</label>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Buckle number", "બકલ નંબર")}</label>
           <input
             type="text" value={numberInput} onChange={(e) => setNumberInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addToQueue(); } }}
@@ -5258,7 +5265,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
         style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap", alignItems: "flex-start" }}
       >
         <div>
-          <input type="text" placeholder={t("Workplace number", "કાર્યસ્થળ નંબર")} value={newNumber} onChange={(e) => setNewNumber(e.target.value)} style={{ width: 130 }} className="gu" />
+          <input type="text" placeholder={t("Buckle number", "બકલ નંબર")} value={newNumber} onChange={(e) => setNewNumber(e.target.value)} style={{ width: 130 }} className="gu" />
           {lookupPreview && <div className="gu" style={{ fontSize: 11, color: "var(--status-success-text)", marginTop: 3 }}>→ {lookupPreview}</div>}
           {!lookupPreview && newNumber.trim() && <div style={{ fontSize: 11, color: "var(--status-warning-text)", marginTop: 3 }} className="gu">{t("New number — enter name →", "નવો નંબર — નામ દાખલ કરો →")}</div>}
         </div>
@@ -5858,7 +5865,7 @@ function StaffView({
       </div>
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
-          {t("Each person has one workplace number shared across every work type. Leave and outstation set here apply everywhere automatically. Assign a designation per person from the dropdown in the table. Add, edit (✎), or delete (✕) leave/outstation types and designations below — changes apply instantly to anyone currently marked with them.", "દરેક વ્યક્તિનો એક કાર્યસ્થળ નંબર છે જે દરેક કામના પ્રકારમાં શેર થાય છે. અહીં સેટ કરેલી રજા અને બહારગામ આપમેળે બધે લાગુ પડે છે. કોષ્ટકમાંના ડ્રોપડાઉનમાંથી દરેક વ્યક્તિને હોદ્દો સોંપો. નીચે રજા/બહારગામના પ્રકારો અને હોદ્દાઓ ઉમેરો, સંપાદિત કરો (✎), અથવા ડિલીટ કરો (✕) — ફેરફારો હાલમાં તેની સાથે માર્ક થયેલા કોઈપણને તરત જ લાગુ પડે છે.")}
+          {t("Each person has one buckle number shared across every work type. Leave and outstation set here apply everywhere automatically. Assign a designation per person from the dropdown in the table. Add, edit (✎), or delete (✕) leave/outstation types and designations below — changes apply instantly to anyone currently marked with them.", "દરેક વ્યક્તિનો એક બકલ નંબર છે જે દરેક કામના પ્રકારમાં શેર થાય છે. અહીં સેટ કરેલી રજા અને બહારગામ આપમેળે બધે લાગુ પડે છે. કોષ્ટકમાંના ડ્રોપડાઉનમાંથી દરેક વ્યક્તિને હોદ્દો સોંપો. નીચે રજા/બહારગામના પ્રકારો અને હોદ્દાઓ ઉમેરો, સંપાદિત કરો (✎), અથવા ડિલીટ કરો (✕) — ફેરફારો હાલમાં તેની સાથે માર્ક થયેલા કોઈપણને તરત જ લાગુ પડે છે.")}
         </p>
       )}
 
@@ -5866,7 +5873,7 @@ function StaffView({
         <input
           type="text"
           id="app-search-input"
-          placeholder={t("Search by બકલ નંબર (workplace number) or name…", "બકલ નંબર અથવા નામથી શોધો…")}
+          placeholder={t("Search by બકલ નંબર (buckle number) or name…", "બકલ નંબર અથવા નામથી શોધો…")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="gu"
@@ -6072,7 +6079,7 @@ function StaffView({
               );
             })}
             {filteredStaffList.length === 0 && (
-              <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{staffList.length === 0 ? t("No staff yet — add someone below with their buckle/workplace number.", "હજુ કોઈ સ્ટાફ નથી — નીચે તેમના બકલ/કાર્યસ્થળ નંબર સાથે કોઈને ઉમેરો.") : t("No match for that search.", "તે શોધ માટે કોઈ મેળ મળ્યો નથી.")}</td></tr>
+              <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{staffList.length === 0 ? t("No staff yet — add someone below with their buckle number.", "હજુ કોઈ સ્ટાફ નથી — નીચે તેમના બકલ નંબર સાથે કોઈને ઉમેરો.") : t("No match for that search.", "તે શોધ માટે કોઈ મેળ મળ્યો નથી.")}</td></tr>
             )}
           </tbody>
         </table>
@@ -6102,7 +6109,7 @@ function StaffView({
         onSubmit={(e) => { e.preventDefault(); createStaff(num, name, phone); setNum(""); setName(""); setPhone(""); }}
         style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 20 }}
       >
-        <input type="text" placeholder={t("Workplace number", "કાર્યસ્થળ નંબર")} value={num} onChange={(e) => setNum(e.target.value)} style={{ width: 150 }} className="gu" />
+        <input type="text" placeholder={t("Buckle number", "બકલ નંબર")} value={num} onChange={(e) => setNum(e.target.value)} style={{ width: 150 }} className="gu" />
         <input type="text" placeholder={t("Full name", "પૂરું નામ")} value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} className="gu" />
         <input type="text" placeholder={t("Mobile number (optional)", "મોબાઇલ નંબર (વૈકલ્પિક)")} value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: 160 }} className="mono" />
         <button type="submit" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">+ {t("Add to staff directory", "સ્ટાફ ડિરેક્ટરીમાં ઉમેરો")}</button>
@@ -7390,7 +7397,7 @@ function ReportView({ data }) {
       </div>
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
-          {t("Shows every duty completed in the selected month, by name and work type. Workplace numbers are never included in the report.", "પસંદ કરેલા મહિનામાં પૂર્ણ થયેલી દરેક ડ્યુટી, નામ અને કામના પ્રકાર પ્રમાણે બતાવે છે. કાર્યસ્થળ નંબરો ક્યારેય અહેવાલમાં સામેલ થતા નથી.")}
+          {t("Shows every duty completed in the selected month, by name and work type. Buckle numbers are never included in the report.", "પસંદ કરેલા મહિનામાં પૂર્ણ થયેલી દરેક ડ્યુટી, નામ અને કામના પ્રકાર પ્રમાણે બતાવે છે. બકલ નંબરો ક્યારેય અહેવાલમાં સામેલ થતા નથી.")}
         </p>
       )}
 
@@ -8017,8 +8024,8 @@ const HELP_SECTIONS = [
   },
   {
     titleEn: "Manage Staff", titleGu: "સ્ટાફ સંચાલિત કરો",
-    bodyEn: "Add a person once here, by their buckle/workplace number — they're then available to add to any work type. Leave, outstation, and designation are all set here too, and apply everywhere that person is on a roster.",
-    bodyGu: "અહીં એક વખત વ્યક્તિને તેમના બકલ/કાર્યસ્થળ નંબરથી ઉમેરો — પછી તેમને કોઈપણ કામના પ્રકારમાં ઉમેરી શકાય છે. રજા, બહારગામ અને હોદ્દો પણ અહીંથી જ સેટ થાય છે, અને તે વ્યક્તિ જ્યાં પણ રોસ્ટરમાં હોય ત્યાં લાગુ પડે છે.",
+    bodyEn: "Add a person once here, by their buckle number — they're then available to add to any work type. Leave, outstation, and designation are all set here too, and apply everywhere that person is on a roster.",
+    bodyGu: "અહીં એક વખત વ્યક્તિને તેમના બકલ નંબરથી ઉમેરો — પછી તેમને કોઈપણ કામના પ્રકારમાં ઉમેરી શકાય છે. રજા, બહારગામ અને હોદ્દો પણ અહીંથી જ સેટ થાય છે, અને તે વ્યક્તિ જ્યાં પણ રોસ્ટરમાં હોય ત્યાં લાગુ પડે છે.",
   },
   {
     titleEn: "Leave vs Outstation", titleGu: "રજા વિરુદ્ધ બહારગામ",
