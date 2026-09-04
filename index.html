@@ -3557,13 +3557,13 @@ function DutyRoster() {
   };
 
   // ---------- staff directory mutations ----------
-  const createStaff = (number, name, phone) => {
+  const createStaff = (number, name, phone, designation) => {
     const num = (number || "").trim();
     const cleanName = (name || "").trim();
     const cleanPhone = (phone || "").trim();
     if (!num || !cleanName) { showToast(t("Enter both number and name", "નંબર અને નામ બંને દાખલ કરો")); return; }
     if (data.staff[num]) { showToast(t("That number is already in use", "તે નંબર પહેલેથી જ ઉપયોગમાં છે")); return; }
-    persist({ ...dataRef.current, staff: { ...data.staff, [num]: { number: num, name: cleanName, phone: cleanPhone || null, unavailable: null, designation: null } } });
+    persist({ ...dataRef.current, staff: { ...data.staff, [num]: { number: num, name: cleanName, phone: cleanPhone || null, unavailable: null, designation: designation || null } } });
     showToast(t(`${cleanName} added to staff directory`, `${cleanName} સ્ટાફ ડિરેક્ટરીમાં ઉમેરાયું`));
   };
   // Bulk import from CSV — entries: [{ number, name, designation, phone }]
@@ -5662,6 +5662,7 @@ function StaffView({
   const [num, setNum] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [newStaffDesg, setNewStaffDesg] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [search, setSearch] = useState(initialSearch || "");
   const debouncedSearch = useDebouncedValue(search);
@@ -6106,12 +6107,18 @@ function StaffView({
       )}
 
       <form
-        onSubmit={(e) => { e.preventDefault(); createStaff(num, name, phone); setNum(""); setName(""); setPhone(""); }}
+        onSubmit={(e) => { e.preventDefault(); createStaff(num, name, phone, newStaffDesg); setNum(""); setName(""); setPhone(""); setNewStaffDesg(""); }}
         style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 20 }}
       >
         <input type="text" placeholder={t("Buckle number", "બકલ નંબર")} value={num} onChange={(e) => setNum(e.target.value)} style={{ width: 150 }} className="gu" />
         <input type="text" placeholder={t("Full name", "પૂરું નામ")} value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} className="gu" />
         <input type="text" placeholder={t("Mobile number (optional)", "મોબાઇલ નંબર (વૈકલ્પિક)")} value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: 160 }} className="mono" />
+        <select value={newStaffDesg} onChange={(e) => setNewStaffDesg(e.target.value)} style={{ width: 160, fontSize: 13 }} className="gu">
+          <option value="">{t("Designation (optional)", "હોદ્દો (વૈકલ્પિક)")}</option>
+          {(data.designations || []).map((d) => (
+            <option key={d.id} value={d.id}>{d.label}</option>
+          ))}
+        </select>
         <button type="submit" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">+ {t("Add to staff directory", "સ્ટાફ ડિરેક્ટરીમાં ઉમેરો")}</button>
       </form>
 
