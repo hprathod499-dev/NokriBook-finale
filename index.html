@@ -29,24 +29,7 @@
      off of whatever size was already set on that element (a button, a
      table cell, a heading — all wildly different base sizes), rather
      than a fixed px bump that would only be correct for one of them. */
-  /* !important is deliberate and load-bearing here, not a lazy override:
-     almost every Gujarati-text element in this app sets its OWN inline
-     pixel font-size (style={{ fontSize: 12 }}) alongside className="gu" —
-     and an inline style always wins over a class rule for the same CSS
-     property, at any specificity, without !important. That meant this
-     rule's em-based multiplier was only ever actually reaching elements
-     that happen to have no inline font-size of their own (mostly just
-     headings) — everywhere else it silently did nothing. !important is
-     the only way to make "Gujarati text is X% larger" true everywhere at
-     once, not just in the few spots that weren't already pinned to a
-     fixed pixel size. Trade-off worth knowing: two different-sized
-     Gujarati elements sharing the same parent will now compute to the
-     same em-relative size instead of keeping their originally distinct
-     inline pixel sizes — an accepted, deliberate loss of that
-     fine-grained hierarchy in exchange for the multiplier actually
-     applying app-wide. This never touches plain English text, which
-     never carries the .gu class at all. */
-  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.22em !important; }
+  .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.08em; }
   .mono { font-family: 'IBM Plex Mono', monospace; }
   .disp { font-family: 'Space Grotesk', sans-serif; }
   button {
