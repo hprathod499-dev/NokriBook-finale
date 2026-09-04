@@ -1418,7 +1418,7 @@ function LangToggle() {
 // dropdown that extended past the sidebar's own width. Rendering as
 // `fixed` and computing its coordinates from getBoundingClientRect keeps
 // it immune to that regardless of where the button sits.
-function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onSignIn }) {
+function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onSignIn, onHelp }) {
   const { t, lang, setLang } = useLang();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null); // { top, left }
@@ -1511,6 +1511,9 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
           )}
           {formatAllData && (
             <button onClick={() => { setOpen(false); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...pillBtn, color: "#F0C674", fontWeight: 600, borderBottom: "1px solid #2E241A" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
+          )}
+          {onHelp && (
+            <button onClick={() => { setOpen(false); onHelp(); }} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>❓ {t("Help", "મદદ")}</button>
           )}
           <div style={{ padding: "10px 14px", borderBottom: "1px solid #2E241A" }}>
             <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "#8FA0AC", marginBottom: 4 }} className="gu">{t("Support", "સપોર્ટ")}</div>
@@ -3969,7 +3972,6 @@ function DutyRoster() {
               borderColor: data.shareEnabled ? "var(--status-success-border)" : "var(--border)",
               color: data.shareEnabled ? "var(--status-success-text)" : "var(--text-primary)",
             }}>{langCtxValue.t("Share", "શેર")}{data.shareEnabled ? " ✓" : ""}</button>
-            <button onClick={() => setShowHelpPanel(true)} title={langCtxValue.t("Help", "મદદ")} aria-label={langCtxValue.t("Help", "મદદ")} style={{ ...undoRedoBtn(true), width: 30, padding: 0 }}>?</button>
             <button onClick={() => setShowAboutPanel(true)} title={langCtxValue.t("About this app", "આ એપ વિશે")} aria-label={langCtxValue.t("About this app", "આ એપ વિશે")} style={{
               ...undoRedoBtn(true),
               // Deliberately keeps the same 6px top/bottom padding as
@@ -4156,7 +4158,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
   return (
     <div className="sidebar" style={{ width: 230, background: "var(--sidebar-bg)", color: "#EAEDEB", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1B2733", display: "flex", alignItems: "center", gap: 10 }}>
-        {user && <ProfileMenu user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} />}
+        {user && <ProfileMenu user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} />}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="disp" style={{ fontSize: 15, fontWeight: 700 }}>Nokri Book</div>
           <div style={{ fontSize: 11, color: "#8FA0AC", marginTop: 2 }} className="gu">{t("Fair rotation console", "ન્યાયી રોટેશન કન્સોલ")}</div>
@@ -8460,15 +8462,11 @@ function PublicRosterView({ uid }) {
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
                 <LangInlineToggle />
-                <button onClick={() => setShowHelpPanel(true)} title={t("Help", "મદદ")} aria-label={t("Help", "મદદ")} style={{
-                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
-                  width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 13, fontWeight: 700, color: "var(--text-primary)",
-                }}>?</button>
                 <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
                   width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
                 }}>⋮</button>
-                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSignIn={goToLogin} />
+                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSignIn={goToLogin} onHelp={() => setShowHelpPanel(true)} />
               </div>
 
               {view.mode === "home" && (
