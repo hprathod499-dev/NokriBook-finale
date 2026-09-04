@@ -3876,7 +3876,7 @@ function DutyRoster() {
       )}
 
       <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }}>
-        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} />
+        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} />
 
         <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
           <div className="no-print top-toolbar" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16, alignItems: "center" }}>
@@ -4127,7 +4127,7 @@ function DutyRoster() {
   );
 }
 
-function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView }) {
+function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onHelp }) {
   const { t } = useLang();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -4158,7 +4158,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
   return (
     <div className="sidebar" style={{ width: 230, background: "var(--sidebar-bg)", color: "#EAEDEB", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1B2733", display: "flex", alignItems: "center", gap: 10 }}>
-        {user && <ProfileMenu user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} />}
+        {user && <ProfileMenu user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={onHelp} />}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="disp" style={{ fontSize: 15, fontWeight: 700 }}>Nokri Book</div>
           <div style={{ fontSize: 11, color: "#8FA0AC", marginTop: 2 }} className="gu">{t("Fair rotation console", "ન્યાયી રોટેશન કન્સોલ")}</div>
