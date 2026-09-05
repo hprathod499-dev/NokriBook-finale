@@ -2231,6 +2231,29 @@ function DutyRoster() {
             const needsWrite = !d.leaveTypes || !d.outstationTypes || !d.designations || !d.recycleBin || !d.events || !d.reminderAcks
               || JSON.stringify(normalized.staff) !== JSON.stringify(d.staff);
             setData(normalized);
+            // Independent second safety net, deliberately separate from
+            // the fromCache fix above: that fix closes the ONE specific
+            // path that caused real data loss, but this is a general
+            // backstop against ANY future bug (known or not yet found)
+            // that might ever overwrite the real server document —
+            // completely outside Firestore, so a bug that corrupts the
+            // server copy can't touch this too. Only ever taken from a
+            // load the server has actually confirmed (never fromCache,
+            // for the same reason as everywhere else in this handler),
+            // and only overwrites the PREVIOUS local snapshot when the
+            // new one looks at least as substantial — so a moment where
+            // the real account is legitimately empty (a fresh account)
+            // never has the chance to stomp over a local backup that
+            // still remembers real data from before. Recoverable via
+            // Data → Recover local backup.
+            try {
+              const prevBackupRaw = localStorage.getItem("nb_auto_backup");
+              const prevStaffCount = prevBackupRaw ? Object.keys(JSON.parse(prevBackupRaw).data.staff || {}).length : -1;
+              const newStaffCount = Object.keys(normalized.staff || {}).length;
+              if (!snap.metadata.fromCache && newStaffCount >= prevStaffCount) {
+                localStorage.setItem("nb_auto_backup", JSON.stringify({ savedAt: Date.now(), data: normalized }));
+              }
+            } catch (e) { /* localStorage full or unavailable — not worth surfacing, the Firestore data itself is unaffected either way */ }
             // Same fromCache guard as the "brand new account" branch
             // below, for the same reason: only ever write back a
             // "patched" version of data the SERVER has actually
@@ -4048,6 +4071,27 @@ function DutyRoster() {
     recordBackupNow();
     showToast(t("Backup downloaded", "બેકઅપ ડાઉનલોડ થયું"));
   };
+  // Recovers the automatic local snapshot saved on every genuine
+  // successful load (see the onSnapshot handler above) — a safety net
+  // that lives entirely outside Firestore, for exactly the situation
+  // where the server copy itself was the thing that got overwritten.
+  // Reuses the same confirm-then-normalize-then-persist path as
+  // restoring an actual backup file, since it's the identical kind of
+  // action (replace everything with a known-good snapshot from earlier).
+  const recoverLocalBackup = () => {
+    let raw;
+    try { raw = localStorage.getItem("nb_auto_backup"); } catch (e) { raw = null; }
+    if (!raw) { showToast(t("No local backup found on this device yet", "આ ડિવાઇસ પર હજુ કોઈ સ્થાનિક બેકઅપ મળ્યો નથી"), "error"); return; }
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { showToast(t("The local backup on this device is corrupted", "આ ડિવાઇસ પરનો સ્થાનિક બેકઅપ ખરાબ થયેલો છે"), "error"); return; }
+    const when = new Date(parsed.savedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    if (!window.confirm(t(
+      `Restore the local backup from ${when}? It will replace ALL current data (staff, work types, history, designations, everything). You can still Ctrl+Z once right after, but do this carefully.`,
+      `${when} નો સ્થાનિક બેકઅપ પુનઃસ્થાપિત કરવો છે? તે તમામ હાલનો ડેટા (સ્ટાફ, કામના પ્રકારો, ઇતિહાસ, હોદ્દાઓ, બધું) બદલી નાખશે. તમે તરત જ પછી એકવાર Ctrl+Z કરી શકો છો, પણ કાળજીપૂર્વક કરો.`
+    ))) return;
+    persist(normalizeData(parsed.data));
+    showToast(t("Local backup restored", "સ્થાનિક બેકઅપ પુનઃસ્થાપિત થયો"));
+  };
   const importBackup = (file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -4219,6 +4263,10 @@ function DutyRoster() {
                   <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
+                  <button onClick={() => { recoverLocalBackup(); setDataMenuPos(null); }}
+                    title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >🛟 {langCtxValue.t("Recover local backup", "સ્થાનિક બેકઅપ પુનઃપ્રાપ્ત કરો")}</button>
                   <button onClick={() => { setShowDrivePanel(true); setDataMenuPos(null); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >☁ {langCtxValue.t("Google Drive", "Google Drive")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
