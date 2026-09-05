@@ -2579,7 +2579,17 @@ function DutyRoster() {
   const syncNow = () => {
     if (!user || syncing) return;
     setSyncing(true);
-    accountDocRef(user.uid).get({ source: "server" })
+    // A flaky connection (WiFi connected, but packets aren't actually
+    // reaching the server) can leave Firestore's own .get() pending
+    // indefinitely — there's no built-in ceiling on how long it'll keep
+    // retrying underneath. Racing it against a plain 10s timer is what
+    // actually guarantees this button always resolves one way or the
+    // other, instead of "sometimes seconds, sometimes forever" depending
+    // on how bad the connection happens to be. If the real request
+    // eventually finishes after the timeout's already fired, it's simply
+    // ignored — nothing here waits on it any further.
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error(t("Timed out after 10s", "10 સેકન્ડ પછી સમય સમાપ્ત"))), 10000));
+    Promise.race([accountDocRef(user.uid).get({ source: "server" }), timeout])
       .then(() => showToast(t("Synced ✓", "સિંક થયું ✓")))
       .catch((err) => {
         console.error("Manual sync failed:", err);
