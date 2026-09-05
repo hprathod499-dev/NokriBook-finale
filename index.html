@@ -1661,7 +1661,7 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
             <button onClick={() => { setOpen(false); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...pillBtn, color: "#F0C674", fontWeight: 600, borderBottom: "1px solid #2E241A" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
           )}
           {onHelp && (
-            <button onClick={() => { setOpen(false); onHelp(); }} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>❓ {t("Top Questions", "ટોચના પ્રશ્નો")}</button>
+            <button onClick={() => { setOpen(false); onHelp(); }} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
           )}
           <div style={{ padding: "10px 14px", borderBottom: "1px solid #2E241A" }}>
             <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "#8FA0AC", marginBottom: 4 }} className="gu">{t("Support", "સપોર્ટ")}</div>
