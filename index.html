@@ -2225,7 +2225,13 @@ function DutyRoster() {
             const needsWrite = !d.leaveTypes || !d.outstationTypes || !d.designations || !d.recycleBin || !d.events || !d.reminderAcks
               || JSON.stringify(normalized.staff) !== JSON.stringify(d.staff);
             setData(normalized);
-            if (needsWrite) ref.set(normalized).catch(() => {});
+            // Same fromCache guard as the "brand new account" branch
+            // below, for the same reason: only ever write back a
+            // "patched" version of data the SERVER has actually
+            // confirmed, never a snapshot that's merely this device's
+            // local cache (which could be older than the real current
+            // document on a device that hasn't fully synced yet).
+            if (needsWrite && !snap.metadata.fromCache) ref.set(normalized).catch(() => {});
             // Self-heals publicRosters/{uid} on every load/remote update,
             // not just local edits — otherwise an account that already
             // had sharing turned on BEFORE this publicRosters mechanism
@@ -2242,13 +2248,36 @@ function DutyRoster() {
             setData(migrated);
             syncPublicRoster(migrated);
           }
-        } else {
-          // Brand new account — start blank. If they have older shared
-          // data, they can pull it in via "Import my existing roster".
+        } else if (!snap.metadata.fromCache) {
+          // Brand new account, GENUINELY confirmed by the server (not
+          // just absent from this device's local cache) — start blank.
+          // If they have older shared data, they can pull it in via
+          // "Import my existing roster".
+          //
+          // This fromCache check is critical, not defensive extra
+          // caution: on the very FIRST login from a device that has
+          // never cached this account's document before, Firestore
+          // fires an initial snapshot from the (empty) LOCAL cache —
+          // snap.exists is false and fromCache is true — before the
+          // real server snapshot has had a chance to arrive at all.
+          // Treating that transient "don't know yet" state as "this
+          // account doesn't exist" and immediately calling
+          // ref.set(initial) overwrites the real account on the server
+          // with a blank one, moments before the actual data would have
+          // loaded — this is exactly what made switching to a new
+          // device look like the previous device's changes had
+          // "disappeared": they didn't disappear, they were overwritten
+          // by this code within the first second of loading, before the
+          // real snapshot could even render once.
           const initial = buildInitialData();
           ref.set(initial).catch(() => {});
           setData(initial);
         }
+        // else: fromCache && !exists — genuinely don't know yet whether
+        // this account exists on the server. Deliberately do nothing
+        // here (data stays null, showing "Loading roster…") rather than
+        // guess — the real, server-confirmed snapshot always follows
+        // within moments once connected.
       },
       (err) => {
         // CRITICAL: this used to also call setData(buildInitialData()) —
