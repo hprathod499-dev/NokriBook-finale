@@ -1507,6 +1507,32 @@ function useLang() { return React.useContext(LangContext); }
 // Returns `value`, but only after it has stopped changing for `delay` ms.
 // Used on search boxes so filtering runs once after typing pauses instead
 // of re-filtering the full list on every keystroke.
+// Lets the mobile sidebar drawer respond to a real edge-swipe, not just
+// the hamburger button — swipe right starting near the left edge to open
+// it, swipe left anywhere to close it (matching how the reference app's
+// drawer, and most native app drawers, actually behave). A vertical
+// scroll is deliberately NOT treated as a swipe (checked via
+// |deltaX| > |deltaY|), so this never fights normal scrolling anywhere
+// in the app — only a clearly horizontal gesture counts.
+function useSidebarSwipe(open, setOpen) {
+  const startRef = useRef(null);
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    startRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const onTouchEnd = (e) => {
+    if (!startRef.current) return;
+    const t = e.changedTouches[0];
+    const deltaX = t.clientX - startRef.current.x;
+    const deltaY = t.clientY - startRef.current.y;
+    const startX = startRef.current.x;
+    startRef.current = null;
+    if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+    if (!open && deltaX > 0 && startX < 40) setOpen(true);
+    else if (open && deltaX < 0) setOpen(false);
+  };
+  return { onTouchStart, onTouchEnd };
+}
 function useDebouncedValue(value, delay = 250) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -1635,7 +1661,7 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
             <button onClick={() => { setOpen(false); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...pillBtn, color: "#F0C674", fontWeight: 600, borderBottom: "1px solid #2E241A" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
           )}
           {onHelp && (
-            <button onClick={() => { setOpen(false); onHelp(); }} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>❓ {t("Help", "મદદ")}</button>
+            <button onClick={() => { setOpen(false); onHelp(); }} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>❓ {t("Top Questions", "ટોચના પ્રશ્નો")}</button>
           )}
           <div style={{ padding: "10px 14px", borderBottom: "1px solid #2E241A" }}>
             <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "#8FA0AC", marginBottom: 4 }} className="gu">{t("Support", "સપોર્ટ")}</div>
@@ -2100,6 +2126,7 @@ function DutyRoster() {
   // without needing to touch every individual nav button's onClick.
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
+  const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
   // data-theme also has to live on <html> itself, not just the app's own
   // wrapper div below — CSS custom properties only cascade DOWN to
   // descendants, and <body> sits OUTSIDE that wrapper (as its parent), so
@@ -4004,7 +4031,7 @@ function DutyRoster() {
         </div>
       )}
 
-      <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }}>
+      <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
         <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
         {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
 
@@ -8071,42 +8098,42 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
 // they're looking at.
 const HELP_SECTIONS = [
   {
-    titleEn: "How rotation works", titleGu: "રોટેશન કેવી રીતે કામ કરે છે",
+    titleEn: "How does rotation work?", titleGu: "રોટેશન કેવી રીતે કામ કરે છે?",
     bodyEn: "Every work type has its own ranked list. Whoever has waited the longest since their last duty in that work type is always next — never a manual pick. Assigning a duty immediately moves that person to the back of the line.",
     bodyGu: "દરેક કામના પ્રકારની પોતાની ક્રમાંકિત યાદી હોય છે. તે કામના પ્રકારમાં છેલ્લી ડ્યુટી પછી સૌથી લાંબા સમયથી રાહ જોનાર વ્યક્તિનો જ વારો હંમેશા આગળ હોય છે — ક્યારેય મેન્યુઅલ પસંદગી નહીં. ડ્યુટી સોંપતાં જ તે વ્યક્તિ યાદીના છેલ્લે જતી રહે છે.",
   },
   {
-    titleEn: "Assign Duty", titleGu: "ડ્યુટી સોંપો",
+    titleEn: "What are the different ways to assign a duty?", titleGu: "ડ્યુટી સોંપવાની અલગ-અલગ રીતો કઈ છે?",
     bodyEn: "\"By work type\" assigns to whoever's next automatically. \"Group duty\" assigns the same duty to several people at once (e.g. a whole team for an event). \"Miscellaneous\" is for a one-off task that doesn't need its own permanent work type — you describe what it actually is. \"Record Leave\" logs leave for one or more people without assigning any duty.",
     bodyGu: "\"કામના પ્રકાર પ્રમાણે\" આપમેળે વારા પ્રમાણેની વ્યક્તિને સોંપે છે. \"ગ્રુપ ડ્યુટી\" એક જ ડ્યુટી એકસાથે ઘણા લોકોને સોંપે છે (દા.ત. કોઈ પ્રસંગ માટે આખી ટીમ). \"વિવિધ\" એક વખતના કામ માટે છે જેને કાયમી કામનો પ્રકાર જરૂરી નથી — તમે એ ખરેખર શું છે તે વર્ણવો છો. \"રજા નોંધો\" કોઈ ડ્યુટી સોંપ્યા વગર એક કે વધુ લોકોની રજા નોંધે છે.",
   },
   {
-    titleEn: "Manage Staff", titleGu: "સ્ટાફ સંચાલિત કરો",
+    titleEn: "How do I add or manage staff?", titleGu: "હું સ્ટાફ કેવી રીતે ઉમેરું અથવા સંચાલિત કરું?",
     bodyEn: "Add a person once here, by their buckle number — they're then available to add to any work type. Leave, outstation, and designation are all set here too, and apply everywhere that person is on a roster.",
     bodyGu: "અહીં એક વખત વ્યક્તિને તેમના બકલ નંબરથી ઉમેરો — પછી તેમને કોઈપણ કામના પ્રકારમાં ઉમેરી શકાય છે. રજા, બહારગામ અને હોદ્દો પણ અહીંથી જ સેટ થાય છે, અને તે વ્યક્તિ જ્યાં પણ રોસ્ટરમાં હોય ત્યાં લાગુ પડે છે.",
   },
   {
-    titleEn: "Leave vs Outstation", titleGu: "રજા વિરુદ્ધ બહારગામ",
+    titleEn: "What's the difference between Leave and Outstation?", titleGu: "રજા અને બહારગામ વચ્ચે શું તફાવત છે?",
     bodyEn: "Both make someone unavailable for duty during their dates, but are tracked and labeled separately (e.g. Casual Leave vs Training) so History and reports show the real reason, not just \"unavailable.\"",
     bodyGu: "બંને તેમની તારીખો દરમિયાન વ્યક્તિને ડ્યુટી માટે અનુપલબ્ધ બનાવે છે, પરંતુ અલગ-અલગ ટ્રેક અને લેબલ થાય છે (દા.ત. કેઝ્યુઅલ લીવ વિરુદ્ધ તાલીમ) જેથી ઇતિહાસ અને અહેવાલોમાં ફક્ત \"અનુપલબ્ધ\" નહીં, વાસ્તવિક કારણ દેખાય.",
   },
   {
-    titleEn: "Skip", titleGu: "સ્કિપ",
+    titleEn: "What does \"Skip\" actually do?", titleGu: "\"સ્કિપ\" ખરેખર શું કરે છે?",
     bodyEn: "Marking someone \"Skip\" takes them out of the rotation for that work type without touching their waiting time — use it for someone temporarily unfit for THIS work type specifically, not full leave. A note is required, and it's logged in Skip history.",
     bodyGu: "કોઈને \"સ્કિપ\" કરવાથી તેમનો રાહ જોવાનો સમય બદલાયા વગર તેઓ તે કામના પ્રકારના રોટેશનમાંથી બહાર થાય છે — ખાસ કરીને આ કામના પ્રકાર માટે અસ્થાયી રૂપે અયોગ્ય વ્યક્તિ માટે વાપરો, પૂરી રજા માટે નહીં. નોંધ જરૂરી છે, અને તે સ્કિપ ઇતિહાસમાં નોંધાય છે.",
   },
   {
-    titleEn: "Sharing", titleGu: "શેરિંગ",
+    titleEn: "How does sharing the roster work?", titleGu: "રોસ્ટર શેર કરવાનું કેવી રીતે કામ કરે છે?",
     bodyEn: "Turning Share on (top toolbar) gives you a link anyone can open without signing in — read-only, no edit access, and it only ever shows a safe subset of your data (no phone numbers). Turning it off revokes the link immediately.",
     bodyGu: "શેર ચાલુ કરવાથી (ટોચનું ટૂલબાર) તમને એક લિંક મળે છે જે કોઈપણ સાઇન-ઇન વગર ખોલી શકે છે — ફક્ત-જોવા માટે, સંપાદન પ્રવેશ નહીં, અને તે હંમેશા તમારા ડેટાનો ફક્ત સુરક્ષિત ભાગ જ બતાવે છે (ફોન નંબર નહીં). બંધ કરવાથી લિંક તરત જ રદ થાય છે.",
   },
   {
-    titleEn: "PDF reports", titleGu: "PDF અહેવાલો",
+    titleEn: "Can I download a PDF report?", titleGu: "શું હું PDF અહેવાલ ડાઉનલોડ કરી શકું?",
     bodyEn: "Every work type, the Monthly report, and each person's own history can be downloaded as a PDF — pick a time period first (This month, Last 3 months, etc.) so the export matches what you actually need.",
     bodyGu: "દરેક કામનો પ્રકાર, માસિક અહેવાલ, અને દરેક વ્યક્તિનો પોતાનો ઇતિહાસ PDF તરીકે ડાઉનલોડ કરી શકાય છે — પહેલાં સમયગાળો પસંદ કરો (આ મહિને, છેલ્લા 3 મહિના, વગેરે) જેથી એક્સપોર્ટ તમને ખરેખર જોઈએ છે તે સાથે મેળ ખાય.",
   },
   {
-    titleEn: "Backup", titleGu: "બેકઅપ",
+    titleEn: "How is my data backed up?", titleGu: "મારો ડેટા કેવી રીતે બેકઅપ થાય છે?",
     bodyEn: "Your data saves automatically as you work. \"Data\" (top toolbar) also lets you download a local backup file, restore from one, or connect Google Drive for an automatic daily backup.",
     bodyGu: "તમે કામ કરો છો ત્યારે તમારો ડેટા આપમેળે સચવાય છે. ટોચના ટૂલબારમાં \"ડેટા\" તમને સ્થાનિક બેકઅપ ફાઇલ ડાઉનલોડ કરવા, તેમાંથી પુનઃસ્થાપિત કરવા, અથવા દૈનિક ઓટો-બેકઅપ માટે Google Drive જોડવા દે છે.",
   },
@@ -8114,20 +8141,43 @@ const HELP_SECTIONS = [
 function HelpPanel({ onClose }) {
   const { t } = useLang();
   useEscToClose(onClose);
+  const [openIndex, setOpenIndex] = useState(null);
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("Help", "મદદ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }} onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label={t("Top Questions", "ટોચના પ્રશ્નો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 560, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Help", "મદદ")}</div>
+          <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
         <div style={{ overflowY: "auto", padding: "8px 20px 20px" }}>
-          {HELP_SECTIONS.map((s, i) => (
-            <div key={i} style={{ padding: "14px 0", borderBottom: i < HELP_SECTIONS.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
-              <div className="gu" style={{ fontSize: 14, fontWeight: 700, marginBottom: 5 }}>{t(s.titleEn, s.titleGu)}</div>
-              <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>{t(s.bodyEn, s.bodyGu)}</div>
-            </div>
-          ))}
+          {HELP_SECTIONS.map((s, i) => {
+            const isOpen = openIndex === i;
+            return (
+              <div key={i} style={{ borderBottom: i < HELP_SECTIONS.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+                <button
+                  onClick={() => setOpenIndex(isOpen ? null : i)}
+                  aria-expanded={isOpen}
+                  className="gu"
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                    background: "transparent", border: "none", padding: "14px 0", fontSize: 14, fontWeight: 700, color: "var(--text-primary)", textAlign: "left",
+                  }}
+                >
+                  <span>{t(s.titleEn, s.titleGu)}</span>
+                  <span aria-hidden="true" style={{ flexShrink: 0, fontSize: 13, color: "var(--text-tertiary)", transition: "transform 0.2s ease", transform: isOpen ? "rotate(180deg)" : "none" }}>▾</span>
+                </button>
+                {/* grid-template-rows 0fr->1fr is the standard trick for
+                    animating to an unknown content height in plain CSS —
+                    height:auto can't be transitioned directly, but a 1fr
+                    track inside a grid can. */}
+                <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}>
+                  <div style={{ overflow: "hidden" }}>
+                    <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6, paddingBottom: 16 }}>{t(s.bodyEn, s.bodyGu)}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -8561,6 +8611,7 @@ function PublicRosterView({ uid }) {
   // never persisted, closes itself whenever the current screen changes.
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
+  const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
   // Used both when the link stops working and from "Sign in" inside the
   // profile menu — drops the pinned share link (if any) and sends the
   // visitor to the normal sign-in screen at the app's base URL.
@@ -8616,7 +8667,7 @@ function PublicRosterView({ uid }) {
         )}
 
         {data && (
-          <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }}>
+          <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
             <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
             {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
             <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
