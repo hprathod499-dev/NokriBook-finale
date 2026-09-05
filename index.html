@@ -2270,7 +2270,18 @@ function DutyRoster() {
             // also keeps it correct if a second device changes something
             // while this one is just sitting open.
             syncPublicRoster(normalized);
-          } else if (d.roster && !migratedRef.current) {
+          } else if (d.roster && !migratedRef.current && !snap.metadata.fromCache) {
+            // Same fromCache reasoning as the "brand new account" branch
+            // below: a device whose local cache still holds this
+            // account's PRE-migration document (e.g. it hasn't
+            // reconnected since before another device migrated the
+            // account to v:2) would otherwise re-run this migration
+            // against that stale snapshot and write it back, overwriting
+            // whatever the real, already-migrated, possibly since-edited
+            // v:2 document currently holds. Only ever migrate — and only
+            // ever set migratedRef so this can't accidentally fire twice
+            // later — once the server itself has actually confirmed
+            // there's old-schema data here to migrate.
             migratedRef.current = true;
             const migrated = normalizeData(migrateOldRoster(d.roster));
             ref.set(migrated).catch(() => {});
