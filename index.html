@@ -5125,17 +5125,15 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const [rosterSearch, setRosterSearch] = useState("");
   // "Import Staff" picker: lets someone add several existing directory
   // staff to this work type's roster at once, instead of one at a time.
-  // Position captured fresh on open (same pattern as every other
-  // click-anchored menu in the app) and closes on outside click/scroll.
-  const [importMenuPos, setImportMenuPos] = useState(null);
+  // A plain centered modal (same pattern as HelpPanel/WelcomeModal, both
+  // confirmed reliable) rather than a button-relative popup — the
+  // previous version computed its position from the button's own
+  // bounding rect, which turned out to not show up reliably at all;
+  // removing that calculation entirely removes the whole class of bug
+  // it could have been, instead of trying to debug coordinates blind.
+  const [showImportMenu, setShowImportMenu] = useState(false);
   const [importSelected, setImportSelected] = useState(() => new Set());
   const [importSearch, setImportSearch] = useState("");
-  useEffect(() => {
-    if (!importMenuPos) return;
-    const close = () => setImportMenuPos(null);
-    window.addEventListener("scroll", close, true);
-    return () => window.removeEventListener("scroll", close, true);
-  }, [importMenuPos]);
   const debouncedRosterSearch = useDebouncedValue(rosterSearch);
   // Tapping a designation pill now ISOLATES that one designation (shows
   // only them) rather than hiding it — a single value, not a list, since
@@ -5321,13 +5319,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         />
         <div style={{ display: "flex", gap: 6 }}>
           <button
-            onClick={(e) => {
-              if (importMenuPos) { setImportMenuPos(null); return; }
-              const rect = e.currentTarget.getBoundingClientRect();
-              setImportSelected(new Set());
-              setImportSearch("");
-              setImportMenuPos({ top: rect.bottom + 6, left: Math.max(8, Math.min(rect.left, window.innerWidth - 320 - 8)) });
-            }}
+            onClick={() => { setShowImportMenu(true); setImportSelected(new Set()); setImportSearch(""); }}
             style={catTabBtn(false)} className="gu"
           >⬇ {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
           <button onClick={() => setSortMode("rank")} style={catTabBtn(sortMode === "rank")} className="gu">{t("Rotation order", "રોટેશન ક્રમ")}</button>
@@ -5335,15 +5327,18 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         </div>
       </div>
 
-      {importMenuPos && (
-        <React.Fragment>
-          <div onClick={() => setImportMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
-          <div className="modal-card" style={{
-            position: "fixed", top: importMenuPos.top, left: importMenuPos.left, zIndex: 201, width: 320, maxHeight: "70vh",
-            display: "flex", flexDirection: "column", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10,
-            boxShadow: "0 12px 30px rgba(0,0,0,0.18)", overflow: "hidden",
+      {showImportMenu && (
+        <div role="dialog" aria-modal="true" aria-label={t("Import Staff", "સ્ટાફ આયાત કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500, padding: 16 }} onClick={() => setShowImportMenu(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{
+            width: 360, maxWidth: "100%", maxHeight: "80vh",
+            display: "flex", flexDirection: "column", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden",
           }}>
-            <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border-soft)" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Import Staff", "સ્ટાફ આયાત કરો")}</div>
+              <button onClick={() => setShowImportMenu(false)} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ padding: "12px 20px 0" }}>
               <input
                 type="text" autoFocus value={importSearch} onChange={(e) => setImportSearch(e.target.value)}
                 placeholder={t("Search staff…", "સ્ટાફ શોધો…")} className="gu"
@@ -5351,14 +5346,14 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
               />
             </div>
             {filteredImportCandidates.length === 0 ? (
-              <div className="gu" style={{ padding: "16px 12px", fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>
+              <div className="gu" style={{ padding: "24px 20px", fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>
                 {importCandidates.length === 0
                   ? t("Everyone in the directory is already in this roster", "ડિરેક્ટરીમાંના બધા પહેલેથી આ રોસ્ટરમાં છે")
                   : t("No match", "કોઈ મેળ નથી")}
               </div>
             ) : (
               <React.Fragment>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} className="gu">
+                <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 20px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} className="gu">
                   <input
                     type="checkbox"
                     checked={filteredImportCandidates.length > 0 && filteredImportCandidates.every((s) => importSelected.has(s.number))}
@@ -5372,9 +5367,9 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                   />
                   {t("Select all", "બધા પસંદ કરો")}
                 </label>
-                <div style={{ overflowY: "auto", flex: 1 }}>
+                <div style={{ overflowY: "auto", flex: 1, borderTop: "1px solid var(--border-soft)" }}>
                   {filteredImportCandidates.map((s) => (
-                    <label key={s.number} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12.5, cursor: "pointer" }} className="gu">
+                    <label key={s.number} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", fontSize: 12.5, cursor: "pointer", borderBottom: "1px solid var(--border-soft)" }} className="gu">
                       <input
                         type="checkbox" checked={importSelected.has(s.number)}
                         onChange={(e) => setImportSelected((cur) => {
@@ -5390,15 +5385,15 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                 </div>
               </React.Fragment>
             )}
-            <div style={{ padding: "10px 12px", borderTop: "1px solid var(--border-soft)" }}>
+            <div style={{ padding: "14px 20px", borderTop: "1px solid var(--border-soft)" }}>
               <button
-                onClick={() => { importStaffToCategory(catId, [...importSelected]); setImportMenuPos(null); }}
+                onClick={() => { importStaffToCategory(catId, [...importSelected]); setShowImportMenu(false); }}
                 disabled={importSelected.size === 0}
-                style={{ width: "100%", background: importSelected.size ? "#D98E2B" : "var(--border-soft)", color: importSelected.size ? "#fff" : "var(--text-tertiary)", border: "none", borderRadius: 7, padding: "8px 12px", fontSize: 12.5, fontWeight: 700 }} className="gu"
+                style={{ width: "100%", background: importSelected.size ? "#D98E2B" : "var(--border-soft)", color: importSelected.size ? "#fff" : "var(--text-tertiary)", border: "none", borderRadius: 7, padding: "10px 12px", fontSize: 13, fontWeight: 700 }} className="gu"
               >{t(`Import${importSelected.size ? ` (${importSelected.size})` : ""}`, `આયાત કરો${importSelected.size ? ` (${importSelected.size})` : ""}`)}</button>
             </div>
           </div>
-        </React.Fragment>
+        </div>
       )}
 
       {(data.designations || []).length > 0 && (
