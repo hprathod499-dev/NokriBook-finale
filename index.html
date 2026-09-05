@@ -1525,10 +1525,16 @@ function useSidebarSwipe(open, setOpen) {
     const t = e.changedTouches[0];
     const deltaX = t.clientX - startRef.current.x;
     const deltaY = t.clientY - startRef.current.y;
-    const startX = startRef.current.x;
     startRef.current = null;
     if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY)) return;
-    if (!open && deltaX > 0 && startX < 40) setOpen(true);
+    // Swipe right opens, swipe left closes — from anywhere on the
+    // screen, not just a narrow strip near the left edge. The tradeoff
+    // worth knowing: this can occasionally fire on a rightward swipe
+    // inside a horizontally-scrollable table (tables scroll
+    // horizontally on mobile) rather than actually scrolling it — a
+    // deliberate choice favoring "open from anywhere" over avoiding
+    // that rare overlap.
+    if (!open && deltaX > 0) setOpen(true);
     else if (open && deltaX < 0) setOpen(false);
   };
   return { onTouchStart, onTouchEnd };
