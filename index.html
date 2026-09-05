@@ -2532,6 +2532,33 @@ function DutyRoster() {
   };
   const showToastRaw = (msg, type) => { setToast({ msg, type: type || "info" }); setTimeout(() => setToast(null), type === "error" ? 6000 : 2200); };
 
+  // Manual "Sync now": the app already syncs live and continuously via
+  // the onSnapshot listener above — there's no separate "pull" step this
+  // button is secretly missing. What it actually does, and the reason it
+  // exists at all, is force a genuine round-trip to Firestore's SERVER
+  // (source: "server" explicitly bypasses the local cache, unlike a
+  // plain .get() which can silently answer from cache while offline) and
+  // report plainly whether that succeeded — the same kind of explicit
+  // confirmation the "couldn't connect" screen already gives when a
+  // connection is lost, just available on demand instead of only when
+  // something's already visibly wrong. Genuinely useful after exactly
+  // the kind of situation that prompted this: unsure whether a change
+  // from a few minutes ago actually made it to the server, or account
+  // for flaky wifi where the browser still thinks it's "online" while
+  // Firestore itself can't actually be reached.
+  const [syncing, setSyncing] = useState(false);
+  const syncNow = () => {
+    if (!user || syncing) return;
+    setSyncing(true);
+    accountDocRef(user.uid).get({ source: "server" })
+      .then(() => showToast(t("Synced ✓", "સિંક થયું ✓")))
+      .catch((err) => {
+        console.error("Manual sync failed:", err);
+        showToast(t(`Sync failed — ${err.message || "check your connection"}`, `સિંક નિષ્ફળ — ${err.message || "તમારું જોડાણ તપાસો"}`), "error");
+      })
+      .finally(() => setSyncing(false));
+  };
+
   // ---------- Public view-only sharing ----------
   // A single toggle per account: when on, anyone with the link (containing
   // this account's uid) can open a read-only, unauthenticated view of the
@@ -3156,6 +3183,33 @@ function DutyRoster() {
     if (!data) return;
     const list = data.membership[catId] || [];
     persist({ ...dataRef.current, membership: { ...data.membership, [catId]: updater(list) } });
+  };
+
+  // Bulk version of addToCategory, for the "Import Staff" picker: adds
+  // several existing directory staff to this work type's roster in one
+  // write instead of one confirm-dialog-per-person. Deliberately doesn't
+  // assign anyone a duty or a lastDuty date — they just join the
+  // rotation with none recorded yet, so they naturally rank as having
+  // waited the longest (fair for someone newly added, not last in line
+  // for having "just" been imported). Anyone already in this roster is
+  // silently left completely untouched — filtered out here as a
+  // guaranteed safety net even though the picker UI itself shouldn't
+  // offer them in the first place, in case two tabs/devices import into
+  // the same work type at nearly the same time.
+  const importStaffToCategory = (catId, numbers) => {
+    const existingNums = new Set((data.membership[catId] || []).map((m) => m.number));
+    const toAdd = numbers.filter((num) => !existingNums.has(num));
+    if (toAdd.length === 0) { showToast(t("Everyone selected is already in this roster", "પસંદ કરેલા બધા પહેલેથી આ રોસ્ટરમાં છે")); return; }
+    const nextMembership = {
+      ...data.membership,
+      [catId]: [...(data.membership[catId] || []), ...toAdd.map((num) => ({ number: num, lastDuty: null, history: [], skip: false }))],
+    };
+    persist({ ...dataRef.current, membership: nextMembership });
+    const skipped = numbers.length - toAdd.length;
+    showToast(t(
+      `${toAdd.length} added to roster${skipped ? ` (${skipped} already there)` : ""}`,
+      `${toAdd.length} રોસ્ટરમાં ઉમેરાયા${skipped ? ` (${skipped} પહેલેથી હતા)` : ""}`
+    ));
   };
 
   const addToCategory = (catId, number, name, date) => {
@@ -4065,6 +4119,9 @@ function DutyRoster() {
               borderColor: pendingReminders.length ? "var(--status-warning-border)" : "var(--border)",
               color: pendingReminders.length ? "var(--status-warning-text)" : "var(--text-primary)",
             }} className="gu">{langCtxValue.t("Reminders", "રિમાઇન્ડર")}{pendingReminders.length ? ` (${pendingReminders.length})` : ""}</button>
+            <button onClick={syncNow} disabled={syncing} title={langCtxValue.t("Force a check that everything has actually reached the server", "બધું ખરેખર સર્વર સુધી પહોંચ્યું છે તે ફરજિયાત તપાસો")} style={undoRedoBtn(!syncing)} className="gu">
+              {syncing ? langCtxValue.t("Syncing…", "સિંક થઈ રહ્યું છે…") : "🔄 " + langCtxValue.t("Sync", "સિંક")}
+            </button>
             <button
               onClick={(e) => {
                 if (undoRedoMenuPos) { setUndoRedoMenuPos(null); return; }
@@ -4164,6 +4221,7 @@ function DutyRoster() {
             <CategoryView
               data={data} catId={view.catId}
               addToCategory={addToCategory} removeFromCategory={removeFromCategory}
+              importStaffToCategory={importStaffToCategory}
               setSkipInCategory={setSkipInCategory} skipInCategoryWithLog={skipInCategoryWithLog} setPresentInCategory={setPresentInCategory}
               setLastDuty={setLastDuty} assignDuty={assignDuty}
               clearCategoryHistory={clearCategoryHistory}
@@ -5045,7 +5103,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   );
 }
 
-function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, undo, redo, canUndo, canRedo }) {
+function CategoryView({ data, catId, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, undo, redo, canUndo, canRedo }) {
   const { t, lang } = useLang();
   const [newNumber, setNewNumber] = useState("");
   const [newName, setNewName] = useState("");
@@ -5065,6 +5123,19 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   // spot at a glance who's carrying the load in this specific work type.
   const [sortMode, setSortMode] = useState("rank");
   const [rosterSearch, setRosterSearch] = useState("");
+  // "Import Staff" picker: lets someone add several existing directory
+  // staff to this work type's roster at once, instead of one at a time.
+  // Position captured fresh on open (same pattern as every other
+  // click-anchored menu in the app) and closes on outside click/scroll.
+  const [importMenuPos, setImportMenuPos] = useState(null);
+  const [importSelected, setImportSelected] = useState(() => new Set());
+  const [importSearch, setImportSearch] = useState("");
+  useEffect(() => {
+    if (!importMenuPos) return;
+    const close = () => setImportMenuPos(null);
+    window.addEventListener("scroll", close, true);
+    return () => window.removeEventListener("scroll", close, true);
+  }, [importMenuPos]);
   const debouncedRosterSearch = useDebouncedValue(rosterSearch);
   // Tapping a designation pill now ISOLATES that one designation (shows
   // only them) rather than hiding it — a single value, not a list, since
@@ -5082,6 +5153,23 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
   const membership = data.membership[catId] || [];
 
   const roster = useMemo(() => computeRoster(data, catId), [data, catId]);
+
+  // Everyone in the staff directory who ISN'T already in this specific
+  // work type's roster — the only people the Import Staff picker offers,
+  // so "Select all" can never re-select someone already there in the
+  // first place (importStaffToCategory's own filtering is a second,
+  // independent safety net, not the only thing preventing duplicates).
+  const importCandidates = useMemo(() => {
+    const already = new Set(membership.map((m) => m.number));
+    return Object.values(data.staff || {})
+      .filter((s) => !already.has(s.number))
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [data.staff, membership]);
+  const filteredImportCandidates = useMemo(() => {
+    const q = importSearch.trim().toLowerCase();
+    if (!q) return importCandidates;
+    return importCandidates.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
+  }, [importCandidates, importSearch]);
 
   // Total completed-duty count for this work type only, per person — used
   // to sort "fewest duties first" so whoever's been under-rostered for
@@ -5232,10 +5320,86 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, setSkipI
           id="app-search-input" style={{ width: 220 }}
         />
         <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={(e) => {
+              if (importMenuPos) { setImportMenuPos(null); return; }
+              const rect = e.currentTarget.getBoundingClientRect();
+              setImportSelected(new Set());
+              setImportSearch("");
+              setImportMenuPos({ top: rect.bottom + 6, left: Math.max(8, Math.min(rect.left, window.innerWidth - 320 - 8)) });
+            }}
+            style={catTabBtn(false)} className="gu"
+          >⬇ {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
           <button onClick={() => setSortMode("rank")} style={catTabBtn(sortMode === "rank")} className="gu">{t("Rotation order", "રોટેશન ક્રમ")}</button>
           <button onClick={() => setSortMode("duties")} style={catTabBtn(sortMode === "duties")} className="gu">{t("Fewest duties first", "સૌથી ઓછી ડ્યુટી પ્રથમ")}</button>
         </div>
       </div>
+
+      {importMenuPos && (
+        <React.Fragment>
+          <div onClick={() => setImportMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
+          <div className="modal-card" style={{
+            position: "fixed", top: importMenuPos.top, left: importMenuPos.left, zIndex: 201, width: 320, maxHeight: "70vh",
+            display: "flex", flexDirection: "column", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10,
+            boxShadow: "0 12px 30px rgba(0,0,0,0.18)", overflow: "hidden",
+          }}>
+            <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border-soft)" }}>
+              <input
+                type="text" autoFocus value={importSearch} onChange={(e) => setImportSearch(e.target.value)}
+                placeholder={t("Search staff…", "સ્ટાફ શોધો…")} className="gu"
+                style={{ width: "100%", fontSize: 12.5 }}
+              />
+            </div>
+            {filteredImportCandidates.length === 0 ? (
+              <div className="gu" style={{ padding: "16px 12px", fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>
+                {importCandidates.length === 0
+                  ? t("Everyone in the directory is already in this roster", "ડિરેક્ટરીમાંના બધા પહેલેથી આ રોસ્ટરમાં છે")
+                  : t("No match", "કોઈ મેળ નથી")}
+              </div>
+            ) : (
+              <React.Fragment>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} className="gu">
+                  <input
+                    type="checkbox"
+                    checked={filteredImportCandidates.length > 0 && filteredImportCandidates.every((s) => importSelected.has(s.number))}
+                    onChange={(e) => {
+                      setImportSelected((cur) => {
+                        const next = new Set(cur);
+                        filteredImportCandidates.forEach((s) => e.target.checked ? next.add(s.number) : next.delete(s.number));
+                        return next;
+                      });
+                    }}
+                  />
+                  {t("Select all", "બધા પસંદ કરો")}
+                </label>
+                <div style={{ overflowY: "auto", flex: 1 }}>
+                  {filteredImportCandidates.map((s) => (
+                    <label key={s.number} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12.5, cursor: "pointer" }} className="gu">
+                      <input
+                        type="checkbox" checked={importSelected.has(s.number)}
+                        onChange={(e) => setImportSelected((cur) => {
+                          const next = new Set(cur);
+                          e.target.checked ? next.add(s.number) : next.delete(s.number);
+                          return next;
+                        })}
+                      />
+                      <span style={{ flex: 1, minWidth: 0 }}>{s.name}</span>
+                      <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{s.number}</span>
+                    </label>
+                  ))}
+                </div>
+              </React.Fragment>
+            )}
+            <div style={{ padding: "10px 12px", borderTop: "1px solid var(--border-soft)" }}>
+              <button
+                onClick={() => { importStaffToCategory(catId, [...importSelected]); setImportMenuPos(null); }}
+                disabled={importSelected.size === 0}
+                style={{ width: "100%", background: importSelected.size ? "#D98E2B" : "var(--border-soft)", color: importSelected.size ? "#fff" : "var(--text-tertiary)", border: "none", borderRadius: 7, padding: "8px 12px", fontSize: 12.5, fontWeight: 700 }} className="gu"
+              >{t(`Import${importSelected.size ? ` (${importSelected.size})` : ""}`, `આયાત કરો${importSelected.size ? ` (${importSelected.size})` : ""}`)}</button>
+            </div>
+          </div>
+        </React.Fragment>
+      )}
 
       {(data.designations || []).length > 0 && (
         <div style={{ marginBottom: 16 }}>
