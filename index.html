@@ -32,6 +32,24 @@
   .gu { font-family: 'Noto Sans Gujarati', 'Inter', sans-serif; font-size: 1.08em; }
   .mono { font-family: 'IBM Plex Mono', monospace; }
   .disp { font-family: 'Space Grotesk', sans-serif; }
+  /* Shared entrance animations for every modal (backdrop fade + card
+     scale-in) and the toast (slide up from the bottom) — plain CSS
+     keyframes, not a JS animation library, since this app has no build
+     step and adding a library dependency for a handful of short,
+     one-shot entrance effects would be real added risk for no real
+     benefit. Kept short (150-220ms) and subtle on purpose — this is a
+     work tool people use many times a day, not something that should
+     ever feel like it's making them wait. */
+  @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes modalScaleIn { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes toastSlideUp { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  .modal-backdrop { animation: modalFadeIn 0.15s ease-out; }
+  .modal-card { animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+  .toast-anim { animation: toastSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+  @media (prefers-reduced-motion: reduce) {
+    .modal-backdrop, .modal-card, .toast-anim { animation: none !important; }
+    button, button:not(:disabled):active { transition: none !important; transform: none !important; }
+  }
   button {
     cursor: pointer; font-family: inherit;
     transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.08s ease;
@@ -4194,7 +4212,7 @@ function DutyRoster() {
       )}
 
       {toast && (
-        <div className="gu" style={{
+        <div className="gu toast-anim" style={{
           position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
           // Fixed colors here on purpose, not the usual var(--text-primary)/
           // var(--status-error-text) — those are TEXT-color variables,
@@ -5346,8 +5364,8 @@ function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }
   const buckleStaff = buckle.trim() && data.staff[buckle.trim()] ? data.staff[buckle.trim()] : null;
   const labelStyle = { fontSize: 12, color: "var(--text-secondary)", display: "block", marginTop: 12, marginBottom: 5 };
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-      <div role="dialog" aria-modal="true" aria-label={t("Format all data", "બધો ડેટા ફોર્મેટ કરો")} style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 380, maxWidth: "92vw" }}>
+    <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+      <div role="dialog" aria-modal="true" aria-label={t("Format all data", "બધો ડેટા ફોર્મેટ કરો")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 380, maxWidth: "92vw" }}>
         <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, color: "var(--status-error-text)" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</div>
 
         {step === 1 && (
@@ -5412,8 +5430,8 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
     background: active ? "var(--status-warning-bg)" : "var(--bg-surface)", color: active ? "var(--status-warning-text)" : "var(--text-secondary)",
   });
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
-      <div role="dialog" aria-modal="true" aria-label={t("Assign duty", "ડ્યુટી સોંપો")} style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 340 }}>
+    <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
+      <div role="dialog" aria-modal="true" aria-label={t("Assign duty", "ડ્યુટી સોંપો")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 340 }}>
         <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t("Assign duty to", "ડ્યુટી સોંપો")} {name}</div>
 
         <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginTop: 10, marginBottom: 4 }} className="gu">{t("Duty date", "ડ્યુટીની તારીખ")}</label>
@@ -6260,8 +6278,8 @@ function StaffView({
       </div>
 
       {modalFor && (
-        <div style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
-          <div role="dialog" aria-modal="true" aria-label={t("Mark leave or outstation", "રજા અથવા બહારગામ માર્ક કરો")} style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 320 }}>
+        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
+          <div role="dialog" aria-modal="true" aria-label={t("Mark leave or outstation", "રજા અથવા બહારગામ માર્ક કરો")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 320 }}>
             <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
               {modalMode === "edit" ? t("Change duration for", "માટે સમયગાળો બદલો") : t("Mark", "માર્ક કરો")} {data.staff[modalFor].name}
             </div>
@@ -6437,8 +6455,8 @@ function PersonHistoryModal({ data, number, onClose }) {
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("Full duty history", "સંપૂર્ણ ડ્યુટી ઇતિહાસ")} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+    <div role="dialog" aria-modal="true" aria-label={t("Full duty history", "સંપૂર્ણ ડ્યુટી ઇતિહાસ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div>
@@ -7219,8 +7237,8 @@ function DutyNoteModal({ record, onClose }) {
   const { t } = useLang();
   useEscToClose(onClose);
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("Duty note", "ડ્યુટી નોંધ")} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+    <div role="dialog" aria-modal="true" aria-label={t("Duty note", "ડ્યુટી નોંધ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div>
             <div className="disp gu" style={{ fontSize: 15, fontWeight: 700 }}>{record.name}</div>
@@ -7685,7 +7703,7 @@ function ReminderPanel({ reminders, onAcknowledge, onClose, onOpenEvents, notifP
   const { t, lang } = useLang();
   useEscToClose(onClose);
   return (
-    <div role="dialog" aria-label={t("Reminders", "યાદ અપાવો")} style={{
+    <div role="dialog" aria-label={t("Reminders", "યાદ અપાવો")} className="modal-card" style={{
       position: "fixed", top: 18, right: 18, width: 340, maxWidth: "calc(100vw - 36px)",
       maxHeight: "calc(100vh - 36px)", overflowY: "auto", background: "var(--bg-surface)", border: "1px solid var(--border)",
       borderRadius: 12, boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000,
@@ -7729,7 +7747,7 @@ function SharePanel({ enabled, shareUrl, onToggle, onClose, showToast }) {
       .catch(() => showToast(t("Couldn't copy — select and copy the link manually", "કોપી થઈ શક્યું નથી — લિંક જાતે પસંદ કરીને કોપી કરો"), "error"));
   };
   return (
-    <div role="dialog" aria-label={t("Share roster (view only)", "રોસ્ટર શેર કરો (ફક્ત જોવા માટે)")} style={{
+    <div role="dialog" aria-label={t("Share roster (view only)", "રોસ્ટર શેર કરો (ફક્ત જોવા માટે)")} className="modal-card" style={{
       position: "fixed", top: 18, right: 18, width: 340, maxWidth: "calc(100vw - 36px)",
       background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12,
       boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000,
@@ -7828,12 +7846,13 @@ function CommandPalette({ data, onNavigate, onClose }) {
 
   return (
     <div
-      className="command-palette-overlay"
+      className="command-palette-overlay modal-backdrop"
       style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "10vh", zIndex: 50 }}
       onClick={onClose}
     >
       <div
         role="dialog" aria-modal="true" aria-label={t("Command palette", "કમાન્ડ પેલેટ")}
+        className="modal-card"
         style={{ background: "var(--bg-surface)", borderRadius: 12, width: 520, maxWidth: "calc(100vw - 40px)", maxHeight: "70vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -7906,8 +7925,8 @@ function WelcomeModal({ onGetStarted, onClose }) {
   const isLast = step === WELCOME_STEPS.length - 1;
   const cur = WELCOME_STEPS[step];
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("Welcome to Nokri Book", "નોકરી બુકમાં આપનું સ્વાગત છે")} style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
-      <div style={{ background: "var(--bg-surface)", borderRadius: 14, width: 440, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", position: "relative" }}>
+    <div role="dialog" aria-modal="true" aria-label={t("Welcome to Nokri Book", "નોકરી બુકમાં આપનું સ્વાગત છે")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+      <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 440, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", position: "relative" }}>
         <div style={{ position: "absolute", top: 14, right: 14, zIndex: 1, display: "flex", alignItems: "center", gap: 8 }}>
           <LangInlineToggle />
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
@@ -7953,7 +7972,7 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
   // press Connect, sign in, done.
   const needsConnect = !connected || needsReconnect;
   return (
-    <div role="dialog" aria-label={t("Google Drive backup", "ગૂગલ ડ્રાઇવ બેકઅપ")} style={{
+    <div role="dialog" aria-label={t("Google Drive backup", "ગૂગલ ડ્રાઇવ બેકઅપ")} className="modal-card" style={{
       position: "fixed", top: 18, right: 18, width: 320, maxWidth: "calc(100vw - 36px)",
       background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12,
       boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000,
@@ -8057,8 +8076,8 @@ function HelpPanel({ onClose }) {
   const { t } = useLang();
   useEscToClose(onClose);
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("Help", "મદદ")} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg-surface)", borderRadius: 12, width: 560, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+    <div role="dialog" aria-modal="true" aria-label={t("Help", "મદદ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 560, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Help", "મદદ")}</div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
@@ -8081,11 +8100,13 @@ function AboutPanel({ onClose }) {
   return (
     <div
       role="dialog" aria-modal="true" aria-label={t("About this app", "આ એપ વિશે")}
+      className="modal-backdrop"
       style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-card"
         style={{
           position: "relative", width: 340, maxWidth: "calc(100vw - 32px)",
           background: "linear-gradient(160deg, var(--bg-surface) 0%, var(--bg-surface-2) 100%)",
