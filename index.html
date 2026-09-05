@@ -66,13 +66,29 @@
   table { transition: opacity 0.15s ease; }
   tr { transition: background-color 0.12s ease; }
   @media (max-width: 860px) {
-    /* Stack the sidebar above the content instead of squeezing both side
-       by side, and let the sidebar scroll vertically within its own strip
-       (max-height) instead of being forced into a cramped horizontal row —
-       that horizontal-row squeeze was the main cause of things looking cut
-       off with no way to scroll sideways. */
-    .sidebar { width: 100% !important; max-height: 42vh; height: auto !important; overflow-y: auto !important; flex-shrink: 0 !important; position: static !important; }
-    .app-shell { flex-direction: column !important; }
+    /* Off-canvas sliding drawer instead of stacking the sidebar above the
+       content: the sidebar sits fixed and pushed off-screen to the left
+       by default, sliding into view only when the hamburger button opens
+       it (adds .mobile-sidebar-open), with a dimmed backdrop behind it
+       that closes it on tap — the same pattern most native apps and the
+       reference screenshot use, rather than permanently eating the top
+       ~40% of the screen the old stacked layout did.
+       :not(.force-desktop) is what keeps every rule in this block from
+       applying when "Desktop view" is on. */
+    .app-shell:not(.force-desktop) .sidebar {
+      position: fixed !important; top: 0 !important; left: 0 !important;
+      height: 100vh !important; max-height: none !important; width: 260px !important;
+      z-index: 400 !important; transform: translateX(-100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow-y: auto !important;
+    }
+    .app-shell:not(.force-desktop) .sidebar.mobile-sidebar-open { transform: translateX(0); }
+    .mobile-sidebar-backdrop { position: fixed; inset: 0; background: #00000066; z-index: 399; animation: modalFadeIn 0.2s ease-out; }
+    /* Hidden entirely on desktop (see the non-media-query .mobile-menu-btn
+       rule below) -- only exists as a concept once the layout is this
+       narrow. */
+    .app-shell:not(.force-desktop) .mobile-menu-btn { display: inline-flex !important; }
+    .app-shell { flex-direction: row !important; }
     .main-panel { padding: 16px 12px !important; max-width: 100% !important; }
     table { font-size: 12px !important; }
     /* The top toolbar (Search, Undo, Backup, Drive, Share, ⋮ — around 9
@@ -102,6 +118,11 @@
     .force-desktop .main-panel { padding: 28px 36px !important; max-width: 1040px !important; }
     .force-desktop table { font-size: 13px !important; }
   }
+  /* Hidden by default (desktop) — the mobile media query above turns this
+     back on with !important once the layout is actually narrow enough
+     for it to make sense, and "Desktop view" being on keeps it off even
+     at a narrow width via the :not(.force-desktop) scoping there. */
+  .mobile-menu-btn { display: none; }
   /* Printing a tab (Ctrl/Cmd+P) shows just that screen's data — no sidebar,
      no toolbar, no interactive buttons — full width on plain white paper. */
   @media print {
@@ -2072,6 +2093,13 @@ function DutyRoster() {
   // Persisted per device.
   const [desktopView, setDesktopView] = useState(() => localStorage.getItem("nb_force_desktop_view") === "1");
   useEffect(() => { localStorage.setItem("nb_force_desktop_view", desktopView ? "1" : "0"); }, [desktopView]);
+  // The mobile-only sliding drawer (hamburger button in the top toolbar).
+  // Never persisted — it always starts closed on load, the same way a
+  // native app's drawer would. Closed automatically whenever the current
+  // screen changes, so tapping a nav item inside it also closes it,
+  // without needing to touch every individual nav button's onClick.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
   // data-theme also has to live on <html> itself, not just the app's own
   // wrapper div below — CSS custom properties only cascade DOWN to
   // descendants, and <body> sits OUTSIDE that wrapper (as its parent), so
@@ -3977,9 +4005,15 @@ function DutyRoster() {
       )}
 
       <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }}>
-        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} />
+        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
+        {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
 
         <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
+          >☰</button>
           <div className="no-print top-toolbar" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16, alignItems: "center" }}>
             {saveStatus !== "idle" && (
               <span
@@ -4234,7 +4268,7 @@ function DutyRoster() {
   );
 }
 
-function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onHelp }) {
+function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onHelp, mobileOpen, onCloseMobile }) {
   const { t } = useLang();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -4249,7 +4283,12 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("nb_sidebar_collapsed") === "1");
   useEffect(() => { localStorage.setItem("nb_sidebar_collapsed", collapsed ? "1" : "0"); }, [collapsed]);
 
-  if (collapsed) {
+  // On mobile, the sidebar is an open/closed drawer, not a collapsible
+  // rail — the two concepts don't compose (a 44px rail sliding in as a
+  // "drawer" would show nothing usable). While actually open as a mobile
+  // drawer, the collapsed-rail state is ignored entirely and the full
+  // sidebar always renders; it only matters again once back on desktop.
+  if (collapsed && !mobileOpen) {
     return (
       <div className="sidebar" style={{ width: 44, background: "var(--sidebar-bg)", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", paddingTop: 14 }}>
         <button
@@ -4263,7 +4302,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
   }
 
   return (
-    <div className="sidebar" style={{ width: 230, background: "var(--sidebar-bg)", color: "#EAEDEB", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
+    <div className={"sidebar" + (mobileOpen ? " mobile-sidebar-open" : "")} style={{ width: 230, background: "var(--sidebar-bg)", color: "#EAEDEB", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1B2733", display: "flex", alignItems: "center", gap: 10 }}>
         {user && <ProfileMenu user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={onHelp} />}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -4271,11 +4310,11 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
           <div style={{ fontSize: 11, color: "#8FA0AC", marginTop: 2 }} className="gu">{t("Fair rotation console", "ન્યાયી રોટેશન કન્સોલ")}</div>
         </div>
         <button
-          onClick={() => setCollapsed(true)}
-          title={t("Hide sidebar", "સાઇડબાર છુપાવો")}
-          aria-label={t("Hide sidebar", "સાઇડબાર છુપાવો")}
+          onClick={() => (mobileOpen ? onCloseMobile() : setCollapsed(true))}
+          title={mobileOpen ? t("Close menu", "મેનૂ બંધ કરો") : t("Hide sidebar", "સાઇડબાર છુપાવો")}
+          aria-label={mobileOpen ? t("Close menu", "મેનૂ બંધ કરો") : t("Hide sidebar", "સાઇડબાર છુપાવો")}
           style={{ background: "transparent", border: "1px solid #2E3742", borderRadius: 6, color: "#B7C2CA", width: 26, height: 26, flexShrink: 0, fontSize: 13, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
-        >◂</button>
+        >{mobileOpen ? "✕" : "◂"}</button>
       </div>
 
       <div style={{ padding: "8px 0", borderBottom: "1px solid #1B2733" }}>
@@ -8518,6 +8557,10 @@ function PublicRosterView({ uid }) {
   // never gets mixed up with the admin's own preference on a shared device.
   const [desktopView, setDesktopView] = useState(() => { try { return localStorage.getItem("nb_public_force_desktop_view") === "1"; } catch (e) { return false; } });
   useEffect(() => { try { localStorage.setItem("nb_public_force_desktop_view", desktopView ? "1" : "0"); } catch (e) {} }, [desktopView]);
+  // Same mobile-only sliding drawer as the manager app — starts closed,
+  // never persisted, closes itself whenever the current screen changes.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
   // Used both when the link stops working and from "Sign in" inside the
   // profile menu — drops the pinned share link (if any) and sends the
   // visitor to the normal sign-in screen at the app's base URL.
@@ -8574,8 +8617,14 @@ function PublicRosterView({ uid }) {
 
         {data && (
           <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }}>
-            <PublicSidebar data={data} view={view} setView={setView} />
+            <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
+            {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
             <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
+              <button
+                onClick={() => setMobileSidebarOpen(true)}
+                className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
+                style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
+              >☰</button>
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
                 <LangInlineToggle />
@@ -8609,7 +8658,7 @@ function PublicRosterView({ uid }) {
 
 // Same nav items as the admin Sidebar, minus anything that edits
 // (no "+" add category, no rename/delete, no reminders/recycle bin).
-function PublicSidebar({ data, view, setView }) {
+function PublicSidebar({ data, view, setView, mobileOpen, onCloseMobile }) {
   const { t } = useLang();
   // Same collapsible-rail behavior as the manager's Sidebar — width
   // shrinks to a narrow strip and the content area (already flex:1 in
@@ -8619,7 +8668,7 @@ function PublicSidebar({ data, view, setView }) {
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("nb_public_sidebar_collapsed") === "1"; } catch (e) { return false; } });
   useEffect(() => { try { localStorage.setItem("nb_public_sidebar_collapsed", collapsed ? "1" : "0"); } catch (e) {} }, [collapsed]);
 
-  if (collapsed) {
+  if (collapsed && !mobileOpen) {
     return (
       <div className="sidebar" style={{ width: 44, background: "var(--sidebar-bg)", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", paddingTop: 14 }}>
         <button
@@ -8633,15 +8682,15 @@ function PublicSidebar({ data, view, setView }) {
   }
 
   return (
-    <div className="sidebar" style={{ width: 220, background: "var(--sidebar-bg)", color: "#fff", flexShrink: 0, paddingTop: 18, position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
+    <div className={"sidebar" + (mobileOpen ? " mobile-sidebar-open" : "")} style={{ width: 220, background: "var(--sidebar-bg)", color: "#fff", flexShrink: 0, paddingTop: 18, position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "0 16px 16px", display: "flex", alignItems: "center", gap: 10 }}>
         <div className="disp" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700 }}>Nokri Book</div>
         <button
-          onClick={() => setCollapsed(true)}
-          title={t("Hide sidebar", "સાઇડબાર છુપાવો")}
-          aria-label={t("Hide sidebar", "સાઇડબાર છુપાવો")}
+          onClick={() => (mobileOpen ? onCloseMobile() : setCollapsed(true))}
+          title={mobileOpen ? t("Close menu", "મેનૂ બંધ કરો") : t("Hide sidebar", "સાઇડબાર છુપાવો")}
+          aria-label={mobileOpen ? t("Close menu", "મેનૂ બંધ કરો") : t("Hide sidebar", "સાઇડબાર છુપાવો")}
           style={{ background: "transparent", border: "1px solid #2E3742", borderRadius: 6, color: "#B7C2CA", width: 26, height: 26, flexShrink: 0, fontSize: 13, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
-        >◂</button>
+        >{mobileOpen ? "✕" : "◂"}</button>
       </div>
       <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
       <div style={{ padding: "14px 16px 6px", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "#7C8891" }} className="gu">{t("Work types", "કામના પ્રકારો")}</div>
