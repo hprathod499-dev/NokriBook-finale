@@ -1618,7 +1618,7 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
         ref={btnRef}
         onClick={toggleOpen} title={(user && user.email) || t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-label={t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-expanded={open}
         style={{
-          width: 32, height: 32, borderRadius: "50%", background: "#0F1C4D", border: "none", padding: 0, overflow: "hidden",
+          width: 32, height: 32, borderRadius: "50%", background: "#000000", border: "none", padding: 0, overflow: "hidden",
           display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
         }}
       ><img src="./profile-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /></button>
@@ -8138,7 +8138,45 @@ const HELP_SECTIONS = [
     bodyGu: "તમે કામ કરો છો ત્યારે તમારો ડેટા આપમેળે સચવાય છે. ટોચના ટૂલબારમાં \"ડેટા\" તમને સ્થાનિક બેકઅપ ફાઇલ ડાઉનલોડ કરવા, તેમાંથી પુનઃસ્થાપિત કરવા, અથવા દૈનિક ઓટો-બેકઅપ માટે Google Drive જોડવા દે છે.",
   },
 ];
-function HelpPanel({ onClose }) {
+// Separate, shorter set for the read-only shared-link viewer — leaves
+// out anything that's a manager-only ACTION (adding staff, assigning a
+// duty, turning sharing on, backing up data), since a viewer can't do
+// any of those and a question about them would be actively misleading
+// here. Kept to what a viewer actually sees and might wonder about.
+const PUBLIC_HELP_SECTIONS = [
+  {
+    titleEn: "What does \"View only\" mean?", titleGu: "\"ફક્ત જોવા માટે\" નો અર્થ શું છે?",
+    bodyEn: "You're seeing a live, read-only copy of the roster — no sign-in needed, and nothing here can be edited, assigned, or changed from this view.",
+    bodyGu: "તમે રોસ્ટરની જીવંત, ફક્ત-જોવા માટેની નકલ જોઈ રહ્યા છો — સાઇન-ઇનની જરૂર નથી, અને આ દૃશ્યમાંથી કંઈપણ સંપાદિત, સોંપી કે બદલી શકાતું નથી.",
+  },
+  {
+    titleEn: "How does rotation work?", titleGu: "રોટેશન કેવી રીતે કામ કરે છે?",
+    bodyEn: "Every work type has its own ranked list. Whoever has waited the longest since their last duty in that work type is always next — never a manual pick.",
+    bodyGu: "દરેક કામના પ્રકારની પોતાની ક્રમાંકિત યાદી હોય છે. તે કામના પ્રકારમાં છેલ્લી ડ્યુટી પછી સૌથી લાંબા સમયથી રાહ જોનાર વ્યક્તિનો જ વારો હંમેશા આગળ હોય છે — ક્યારેય મેન્યુઅલ પસંદગી નહીં.",
+  },
+  {
+    titleEn: "What's the difference between Leave and Outstation?", titleGu: "રજા અને બહારગામ વચ્ચે શું તફાવત છે?",
+    bodyEn: "Both mean someone is unavailable for duty during those dates, but they're tracked and labeled separately (e.g. Casual Leave vs Training) so History shows the real reason, not just \"unavailable.\"",
+    bodyGu: "બંનેનો અર્થ એ છે કે વ્યક્તિ તે તારીખો દરમિયાન ડ્યુટી માટે અનુપલબ્ધ છે, પરંતુ તે અલગ-અલગ ટ્રેક અને લેબલ થાય છે (દા.ત. કેઝ્યુઅલ લીવ વિરુદ્ધ તાલીમ) જેથી ઇતિહાસમાં ફક્ત \"અનુપલબ્ધ\" નહીં, વાસ્તવિક કારણ દેખાય.",
+  },
+  {
+    titleEn: "What does it mean if someone shows \"Skip\"?", titleGu: "કોઈને \"સ્કિપ\" બતાવવાનો અર્થ શું છે?",
+    bodyEn: "It means they were temporarily left out of that specific work type's rotation for a reason, without it counting as their turn — different from leave or outstation. The reason is recorded in Skip history.",
+    bodyGu: "તેનો અર્થ એ છે કે તેમને કોઈ કારણસર તે ચોક્કસ કામના પ્રકારના રોટેશનમાંથી અસ્થાયી રૂપે બહાર રાખવામાં આવ્યા હતા, અને તે તેમનો વારો ગણાતો નથી — રજા કે બહારગામથી અલગ. કારણ સ્કિપ ઇતિહાસમાં નોંધાયેલું છે.",
+  },
+  {
+    titleEn: "What are Roster, Fairness, and History?", titleGu: "રોસ્ટર, ન્યાયીપણું અને ઇતિહાસ શું છે?",
+    bodyEn: "Roster shows everyone in rotation order for that work type. Fairness compares how evenly duties are spread across people. History lists every past duty, with dates and notes.",
+    bodyGu: "રોસ્ટર તે કામના પ્રકાર માટે બધાને રોટેશન ક્રમમાં બતાવે છે. ન્યાયીપણું લોકોમાં ડ્યુટી કેટલી સરખી રીતે વહેંચાયેલી છે તેની સરખામણી કરે છે. ઇતિહાસ દરેક ભૂતકાળની ડ્યુટી, તારીખો અને નોંધો સાથે યાદી આપે છે.",
+  },
+  {
+    titleEn: "Can I download a PDF report?", titleGu: "શું હું PDF અહેવાલ ડાઉનલોડ કરી શકું?",
+    bodyEn: "Yes — every work type, the Monthly report, and each person's own history has a Download PDF option, the same as the manager sees. Pick a time period first, then download.",
+    bodyGu: "હા — દરેક કામનો પ્રકાર, માસિક અહેવાલ, અને દરેક વ્યક્તિનો પોતાનો ઇતિહાસ, વ્યવસ્થાપક જુએ છે તે જ રીતે PDF ડાઉનલોડ વિકલ્પ ધરાવે છે. પહેલાં સમયગાળો પસંદ કરો, પછી ડાઉનલોડ કરો.",
+  },
+];
+function HelpPanel({ onClose, sections }) {
+  const list = sections || HELP_SECTIONS;
   const { t } = useLang();
   useEscToClose(onClose);
   const [openIndex, setOpenIndex] = useState(null);
@@ -8150,10 +8188,10 @@ function HelpPanel({ onClose }) {
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
         <div style={{ overflowY: "auto", padding: "8px 20px 20px" }}>
-          {HELP_SECTIONS.map((s, i) => {
+          {list.map((s, i) => {
             const isOpen = openIndex === i;
             return (
-              <div key={i} style={{ borderBottom: i < HELP_SECTIONS.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
+              <div key={i} style={{ borderBottom: i < list.length - 1 ? "1px solid var(--border-soft)" : "none" }}>
                 <button
                   onClick={() => setOpenIndex(isOpen ? null : i)}
                   aria-expanded={isOpen}
@@ -8701,7 +8739,7 @@ function PublicRosterView({ uid }) {
         )}
 
         {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
-        {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} />}
+        {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} sections={PUBLIC_HELP_SECTIONS} />}
       </div>
     </LangContext.Provider>
   );
