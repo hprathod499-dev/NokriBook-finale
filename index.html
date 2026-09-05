@@ -7913,7 +7913,7 @@ function WelcomeModal({ onGetStarted, onClose }) {
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
         {step === 0 && <img src="./welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
-        <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 6 }}>
+        <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 6, paddingRight: 152 }}>
           {WELCOME_STEPS.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "#D98E2B" : "var(--border-soft)" }} />
           ))}
