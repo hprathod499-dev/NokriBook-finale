@@ -1514,26 +1514,49 @@ function useLang() { return React.useContext(LangContext); }
 // scroll is deliberately NOT treated as a swipe (checked via
 // |deltaX| > |deltaY|), so this never fights normal scrolling anywhere
 // in the app — only a clearly horizontal gesture counts.
+// Walks up from the touched element looking for an ancestor that can
+// actually scroll horizontally right now (real overflow content, not
+// just an overflow-x:auto container with nothing to scroll) — used to
+// tell a genuine attempt to scroll a table sideways apart from an
+// open/close swipe on the sidebar, since both are the same raw gesture.
+// Stops climbing at the app shell itself so it never wrongly walks all
+// the way up to something unrelated.
+function findHorizontalScroller(el) {
+  let node = el;
+  while (node && node !== document.body) {
+    if (node.scrollWidth > node.clientWidth + 1) {
+      const overflowX = window.getComputedStyle(node).overflowX;
+      if (overflowX === "auto" || overflowX === "scroll") return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
 function useSidebarSwipe(open, setOpen) {
   const startRef = useRef(null);
   const onTouchStart = (e) => {
     const t = e.touches[0];
-    startRef.current = { x: t.clientX, y: t.clientY };
+    // If this touch starts inside something that can genuinely scroll
+    // sideways right now (a wide table, most commonly), the gesture is
+    // that element's own horizontal scroll, not a sidebar open/close —
+    // recorded here so onTouchEnd can just ignore the whole gesture,
+    // leaving the browser's native scroll completely unaffected instead
+    // of fighting it.
+    const scroller = findHorizontalScroller(e.target);
+    startRef.current = { x: t.clientX, y: t.clientY, insideScroller: !!scroller };
   };
   const onTouchEnd = (e) => {
     if (!startRef.current) return;
+    const { insideScroller } = startRef.current;
     const t = e.changedTouches[0];
     const deltaX = t.clientX - startRef.current.x;
     const deltaY = t.clientY - startRef.current.y;
     startRef.current = null;
+    if (insideScroller) return;
     if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY)) return;
     // Swipe right opens, swipe left closes — from anywhere on the
-    // screen, not just a narrow strip near the left edge. The tradeoff
-    // worth knowing: this can occasionally fire on a rightward swipe
-    // inside a horizontally-scrollable table (tables scroll
-    // horizontally on mobile) rather than actually scrolling it — a
-    // deliberate choice favoring "open from anywhere" over avoiding
-    // that rare overlap.
+    // screen EXCEPT inside a horizontally-scrollable table (handled
+    // above), not just a narrow strip near the left edge.
     if (!open && deltaX > 0) setOpen(true);
     else if (open && deltaX < 0) setOpen(false);
   };
