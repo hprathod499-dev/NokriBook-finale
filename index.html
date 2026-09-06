@@ -1431,6 +1431,38 @@ function unavailablePeriodUpdate(staffRec, kind, typeId, from, to) {
 // Either one alone is enough to make someone show as Skip *within this
 // work type*; clearing one never clears the other (see setSkip vs.
 // setSkipInCategory).
+// removeConflictingDutiesForLeave (below) reuses the existing
+// unavailableOnDate() helper already defined above, rather than
+// duplicating date-range-matching logic here.
+// When a leave/outstation period is set (or its dates changed) to cover
+// a date where this person already has a recorded duty in ANY work
+// type, that duty entry is now invalid — they can't have genuinely been
+// on duty and on leave the same day. Rather than just flagging the
+// conflict for a human to notice and clean up by hand (which is what
+// prompted this in the first place), this strips the conflicting
+// entries out of history entirely and recomputes lastDuty from whatever
+// remains, so the rotation's fairness math never gets skewed by a duty
+// that didn't actually happen. Returns the updated membership object
+// plus how many entries were removed, so the caller can mention it.
+function removeConflictingDutiesForLeave(membership, number, from, to) {
+  let removedCount = 0;
+  const nextMembership = {};
+  Object.keys(membership || {}).forEach((catId) => {
+    nextMembership[catId] = (membership[catId] || []).map((m) => {
+      if (m.number !== number) return m;
+      const history = m.history || [];
+      const kept = history.filter((h) => {
+        const conflicts = h.date >= from && (!to || h.date <= to);
+        if (conflicts) removedCount += 1;
+        return !conflicts;
+      });
+      if (kept.length === history.length) return m;
+      const newLastDuty = kept.length > 0 ? kept.reduce((max, h) => (h.date > max ? h.date : max), kept[0].date) : null;
+      return { ...m, history: kept, lastDuty: newLastDuty };
+    });
+  });
+  return { membership: nextMembership, removedCount };
+}
 function effectiveStatus(staffRec, membEntry) {
   const today = todayStr();
   if (staffRec && staffRec.unavailable) {
@@ -2318,7 +2350,17 @@ function DutyRoster() {
               // it's supposed to.
               const looksSuspicious = prevStaffCount >= 5 && newStaffCount < prevStaffCount / 2;
               if (!snap.metadata.fromCache && !looksSuspicious) {
-                localStorage.setItem("nb_auto_backup", JSON.stringify({ savedAt: Date.now(), data: normalized }));
+                // normalized.lastModifiedAt (stamped by writeToFirestore
+                // whenever a real change is made — see its own comment)
+                // reflects when the DATA actually last changed, which is
+                // what "Recover local backup" should tell someone,
+                // rather than Date.now() here — that would just be
+                // whenever this device happened to load or sync, which
+                // can be a much more recent, misleading time even when
+                // nothing had actually changed since a real edit made a
+                // while before that. Falls back to Date.now() only for
+                // data saved before this field existed at all.
+                localStorage.setItem("nb_auto_backup", JSON.stringify({ savedAt: normalized.lastModifiedAt || Date.now(), data: normalized }));
               }
             } catch (e) { /* localStorage full or unavailable — not worth surfacing, the Firestore data itself is unaffected either way */ }
             // Same fromCache guard as the "brand new account" branch
@@ -2601,9 +2643,17 @@ function DutyRoster() {
   };
 
   const writeToFirestore = (next) => {
-    dataRef.current = next;
-    setData(next);
-    syncPublicRoster(next);
+    // Stamped with the actual moment this change was made on THIS
+    // device, not whenever it eventually reaches the server — used so
+    // the local auto-backup (and its recovery confirmation) can
+    // correctly say "as of your last real edit" instead of "as of the
+    // last time this device happened to sync", which could be a much
+    // more recent, misleading timestamp if nothing had actually changed
+    // since a genuine edit made a while ago.
+    const stamped = { ...next, lastModifiedAt: Date.now() };
+    dataRef.current = stamped;
+    setData(stamped);
+    syncPublicRoster(stamped);
     if (!docRef) return;
 
     pendingWritesRef.current += 1;
@@ -3705,9 +3755,17 @@ function DutyRoster() {
   // as setPresentInCategory already does for the status dropdown.
   const assignDuty = (catId, number, name, note, date) => {
     const dutyDate = date || todayStr();
+    const staffRec = data.staff[number];
+    const conflict = unavailableOnDate(staffRec, dutyDate);
+    if (conflict) {
+      const label = unavailLabel(data, conflict);
+      if (!window.confirm(t(
+        `${name} is marked ${label} on ${formatDMY(dutyDate)}. Assign this duty anyway?`,
+        `${name} ${formatDMY(dutyDate)} ના રોજ ${label} તરીકે નોંધાયેલ છે. તેમ છતાં આ ડ્યુટી સોંપવી છે?`
+      ))) return;
+    }
     if (!confirmDutyOverride(data, number, dutyDate, catId, name)) return;
     const entry = { date: dutyDate, ts: Date.now(), note: (note || "").trim() || null, batch: uid() };
-    const staffRec = data.staff[number];
     const list = data.membership[catId] || [];
     persist({
       ...dataRef.current,
@@ -3976,18 +4034,28 @@ function DutyRoster() {
     // builds on the one immediately before it.
     const prevRec = dataRef.current.staff[number];
     if (!prevRec) { if (!silent) showToast(t("No staff found with that buckle number", "તે બકલ નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી"), "error"); return; }
+    // Any duty already recorded for this person, in ANY work type, that
+    // falls inside the leave/outstation dates just set is now
+    // impossible — they can't genuinely have been on duty and on leave
+    // the same day. Removed outright rather than left for someone to
+    // notice and clean up by hand later.
+    const { membership: conflictFreeMembership, removedCount } = removeConflictingDutiesForLeave(dataRef.current.membership, number, from, finalTo);
     persist({
       ...dataRef.current,
       staff: {
         ...dataRef.current.staff,
         [number]: { ...prevRec, ...unavailablePeriodUpdate(prevRec, kind, typeId, from, finalTo) },
       },
+      membership: conflictFreeMembership,
     });
     if (silent) return;
     const dateRangeText = isPastOnly
       ? t(` — recorded for ${formatDMY(from)}${finalTo && finalTo !== from ? " to " + formatDMY(finalTo) : ""} on the calendar; today's status is unchanged`, ` — કૅલેન્ડર પર ${formatDMY(from)}${finalTo && finalTo !== from ? " થી " + formatDMY(finalTo) : ""} માટે નોંધાયું; આજની સ્થિતિ યથાવત છે`)
       : (finalTo ? t(" until " + formatDMY(finalTo), " " + formatDMY(finalTo) + " સુધી") : t(" — no end date", " — કોઈ અંતિમ તારીખ નથી"));
-    showToast(t(`${prevRec.name} marked ${label.toLowerCase()}${dateRangeText}`, `${prevRec.name} ને ${label.toLowerCase()} તરીકે માર્ક કર્યું${dateRangeText}`));
+    const conflictText = removedCount > 0
+      ? t(` (${removedCount} conflicting duty ${removedCount === 1 ? "entry" : "entries"} removed)`, ` (${removedCount} વિરોધાભાસી ડ્યુટી નોંધ${removedCount === 1 ? "" : "ો"} દૂર કરી)`)
+      : "";
+    showToast(t(`${prevRec.name} marked ${label.toLowerCase()}${dateRangeText}${conflictText}`, `${prevRec.name} ને ${label.toLowerCase()} તરીકે માર્ક કર્યું${dateRangeText}${conflictText}`));
   };
   const clearUnavailable = (number) => {
     const prevRec = dataRef.current.staff[number];
@@ -4029,8 +4097,12 @@ function DutyRoster() {
         ? newPeriod
         : p
     );
-    persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: newPeriod, unavailableHistory: history } } });
-    showToast(t(`Updated ${prevRec.name}'s dates`, `${prevRec.name} ની તારીખો અપડેટ થઈ`));
+    const { membership: conflictFreeMembership, removedCount } = removeConflictingDutiesForLeave(dataRef.current.membership, number, from, finalTo);
+    persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: newPeriod, unavailableHistory: history } }, membership: conflictFreeMembership });
+    const conflictText = removedCount > 0
+      ? t(` (${removedCount} conflicting duty ${removedCount === 1 ? "entry" : "entries"} removed)`, ` (${removedCount} વિરોધાભાસી ડ્યુટી નોંધ${removedCount === 1 ? "" : "ો"} દૂર કરી)`)
+      : "";
+    showToast(t(`Updated ${prevRec.name}'s dates${conflictText}`, `${prevRec.name} ની તારીખો અપડેટ થઈ${conflictText}`));
   };
   // For fixing an accidental leave/outstation entry on the Duty calendar —
   // Undo can't help once the app's been refreshed, so this is the durable
@@ -4452,13 +4524,13 @@ function DutyRoster() {
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
                   boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
                 }}>
-                  <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
                   <button onClick={() => { chooseBackupFolder(); setDataMenuPos(null); }}
                     title={langCtxValue.t("Choose or change which folder backups are automatically saved into", "બેકઅપ આપમેળે કયા ફોલ્ડરમાં સચવાય છે તે પસંદ કરો અથવા બદલો")}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >📁 {langCtxValue.t("Backup folder…", "બેકઅપ ફોલ્ડર…")}</button>
+                  <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
                   <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
