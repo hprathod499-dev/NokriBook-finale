@@ -1562,6 +1562,36 @@ function useSidebarSwipe(open, setOpen) {
   };
   return { onTouchStart, onTouchEnd };
 }
+// A FileSystemDirectoryHandle (the chosen backup folder) can't be stored
+// in localStorage — it's not a string, and localStorage only holds
+// strings. IndexedDB is the one browser storage that can hold this kind
+// of object directly, so this is a minimal, single-purpose wrapper just
+// for that, not a general-purpose database layer.
+function idbOpenHandles() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("nokribook-handles", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("handles");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGetHandle(key) {
+  const db = await idbOpenHandles();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction("handles", "readonly").objectStore("handles").get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSetHandle(key, value) {
+  const db = await idbOpenHandles();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("handles", "readwrite");
+    tx.objectStore("handles").put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 function useDebouncedValue(value, delay = 250) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -2273,7 +2303,16 @@ function DutyRoster() {
               const prevBackupRaw = localStorage.getItem("nb_auto_backup");
               const prevStaffCount = prevBackupRaw ? Object.keys(JSON.parse(prevBackupRaw).data.staff || {}).length : -1;
               const newStaffCount = Object.keys(normalized.staff || {}).length;
-              if (!snap.metadata.fromCache && newStaffCount >= prevStaffCount) {
+              // Only refuse a DRASTIC, suspicious drop (losing more than
+              // half of a meaningfully-sized directory in one go) — the
+              // previous version required the count to never decrease at
+              // all, which meant something as ordinary as deleting a
+              // single staff member left this backup permanently stuck
+              // on an older snapshot from before that deletion, instead
+              // of updating to reflect the most recent real change like
+              // it's supposed to.
+              const looksSuspicious = prevStaffCount >= 5 && newStaffCount < prevStaffCount / 2;
+              if (!snap.metadata.fromCache && !looksSuspicious) {
                 localStorage.setItem("nb_auto_backup", JSON.stringify({ savedAt: Date.now(), data: normalized }));
               }
             } catch (e) { /* localStorage full or unavailable — not worth surfacing, the Firestore data itself is unaffected either way */ }
@@ -4091,19 +4130,84 @@ function DutyRoster() {
 
   // ---------- full data backup / restore (JSON download & upload) ----------
   const importBackupRef = useRef(null);
-  const exportBackup = () => {
+  // Every backup gets its own uniquely-named file, timestamped down to
+  // the second — matches "every time a backup is triggered, it should
+  // be stored" rather than one file that keeps getting overwritten.
+  const exportBackup = async () => {
     if (!data) return;
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const filename = `nokri-book-backup-${todayStr()}-${Date.now()}.json`;
+    const jsonStr = JSON.stringify(data, null, 2);
+
+    // The File System Access API (Chrome/Edge only — Safari and Firefox
+    // don't support it at all) is the only way a website can write
+    // directly into a real folder on the device without a fresh "Save
+    // As" prompt every single time. The folder is chosen once and its
+    // handle persisted in IndexedDB (see idbGetHandle/idbSetHandle
+    // above); every later backup reuses it silently, asking again only
+    // if permission was actually revoked or no folder was ever chosen.
+    if (window.showDirectoryPicker) {
+      try {
+        let handle = await idbGetHandle("backupDir");
+        if (handle) {
+          const perm = await handle.queryPermission({ mode: "readwrite" });
+          if (perm !== "granted") {
+            const req = await handle.requestPermission({ mode: "readwrite" });
+            if (req !== "granted") handle = null;
+          }
+        }
+        if (!handle) {
+          handle = await window.showDirectoryPicker({ id: "nokribook-backups", mode: "readwrite" });
+          await idbSetHandle("backupDir", handle);
+        }
+        const fileHandle = await handle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(jsonStr);
+        await writable.close();
+        recordBackupNow();
+        showToast(t(`Backup saved to your chosen folder`, `તમારા પસંદ કરેલા ફોલ્ડરમાં બેકઅપ સચવાયો`));
+        return;
+      } catch (e) {
+        // AbortError means they explicitly cancelled the folder picker —
+        // respect that as "not now" and stop, rather than immediately
+        // forcing a plain download as a consolation prize they didn't
+        // ask for. Any OTHER failure (permission API hiccup, etc.) falls
+        // through to the plain download below instead of leaving them
+        // with nothing at all.
+        if (e && e.name === "AbortError") return;
+        console.error("Folder backup failed, falling back to plain download:", e);
+      }
+    }
+
+    // Fallback: a plain single-file download — either this browser
+    // doesn't support the folder-based path at all (Safari, Firefox), or
+    // it does but something about it failed just now.
+    const blob = new Blob([jsonStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `nokri-book-backup-${todayStr()}.json`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     recordBackupNow();
     showToast(t("Backup downloaded", "બેકઅપ ડાઉનલોડ થયું"));
+  };
+  // Lets someone pick a different backup folder later, or set one up for
+  // the first time without waiting for the next actual backup to prompt
+  // for it.
+  const chooseBackupFolder = async () => {
+    if (!window.showDirectoryPicker) {
+      showToast(t("This browser doesn't support choosing a backup folder — backups will download as a file instead", "આ બ્રાઉઝર બેકઅપ ફોલ્ડર પસંદ કરવાનું સપોર્ટ કરતું નથી — બેકઅપ તેના બદલે ફાઇલ તરીકે ડાઉનલોડ થશે"), "error");
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ id: "nokribook-backups", mode: "readwrite" });
+      await idbSetHandle("backupDir", handle);
+      showToast(t("Backup folder set", "બેકઅપ ફોલ્ડર સેટ થયું"));
+    } catch (e) {
+      if (e && e.name !== "AbortError") console.error("Choosing backup folder failed:", e);
+    }
   };
   // Recovers the automatic local snapshot saved on every genuine
   // successful load (see the onSnapshot handler above) — a safety net
@@ -4294,6 +4398,10 @@ function DutyRoster() {
                   <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+                  <button onClick={() => { chooseBackupFolder(); setDataMenuPos(null); }}
+                    title={langCtxValue.t("Choose or change which folder backups are automatically saved into", "બેકઅપ આપમેળે કયા ફોલ્ડરમાં સચવાય છે તે પસંદ કરો અથવા બદલો")}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >📁 {langCtxValue.t("Backup folder…", "બેકઅપ ફોલ્ડર…")}</button>
                   <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
@@ -4532,6 +4640,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
       <div style={{ padding: "8px 0", borderBottom: "1px solid #1B2733" }}>
         <button onClick={() => setView({ mode: "assignDuty" })} style={navBtn(view.mode === "assignDuty")} className="gu">📝 {t("Assign duty", "ડ્યુટી સોંપો")}</button>
         <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
+        <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
       </div>
 
       <div style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
@@ -4599,7 +4708,6 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
             <span className="mono" style={{ fontSize: 10.5, background: "#D98E2B", color: "var(--text-primary)", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{pendingReminderCount}</span>
           )}
         </button>
-        <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
         <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
         <button onClick={() => setView({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
       </div>
@@ -4657,6 +4765,11 @@ function HomeView({ data, goToCategory }) {
                 <div>
                   <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
                   <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
+                  {(doneToday.status === "Leave" || doneToday.status === "Outstation") && (
+                    <div className="gu" style={{ fontSize: 11, color: "var(--status-error-text)", fontWeight: 700, marginTop: 3 }}>
+                      ⚠ {t(`Also marked ${doneToday.statusLabel} today`, `આજે ${doneToday.statusLabel} તરીકે પણ નોંધાયેલ`)}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                   {phone && (
