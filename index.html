@@ -806,7 +806,7 @@ function buildInitialData() {
       ? seed112.map((p) => ({ number: p.number, lastDuty: p.lastDuty, history: [], skip: false }))
       : [];
   });
-  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {} };
+  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {}, _rev: 0 };
 }
 
 // Converts the old per-category schema (name/status stored directly on each
@@ -929,6 +929,10 @@ function normalizeData(d) {
     // popups in a row the first time they open the app after this
     // shipped.
     seenSections: d.seenSections !== undefined ? d.seenSections : Object.fromEntries(SECTION_TIP_IDS.map((id) => [id, true])),
+    // The optimistic-concurrency counter every write now checks against
+    // (see writeToFirestore) — an account predating this feature simply
+    // starts counting from 0, same as brand new.
+    _rev: d._rev || 0,
   };
   const staff = {};
   Object.keys(withDefaults.staff || {}).forEach((num) => {
@@ -2284,6 +2288,7 @@ function DutyRoster() {
             const needsWrite = !d.leaveTypes || !d.outstationTypes || !d.designations || !d.recycleBin || !d.events || !d.reminderAcks
               || JSON.stringify(normalized.staff) !== JSON.stringify(d.staff);
             setData(normalized);
+            confirmedRevRef.current = normalized._rev || 0;
             // Independent second safety net, deliberately separate from
             // the fromCache fix above: that fix closes the ONE specific
             // path that caused real data loss, but this is a general
@@ -2348,6 +2353,7 @@ function DutyRoster() {
             const migrated = normalizeData(migrateOldRoster(d.roster));
             ref.set(migrated).catch(() => {});
             setData(migrated);
+            confirmedRevRef.current = migrated._rev || 0;
             syncPublicRoster(migrated);
           }
         } else if (!snap.metadata.fromCache) {
@@ -2374,6 +2380,7 @@ function DutyRoster() {
           const initial = buildInitialData();
           ref.set(initial).catch(() => {});
           setData(initial);
+          confirmedRevRef.current = initial._rev || 0;
         }
         // else: fromCache && !exists — genuinely don't know yet whether
         // this account exists on the server. Deliberately do nothing
@@ -2509,6 +2516,25 @@ function DutyRoster() {
   // whatever the most recent one actually wrote, never an outdated
   // snapshot from before this render cycle even started.
   const dataRef = useRef(data);
+  // Tracks the LAST revision this tab has actually confirmed the server
+  // holds — updated whenever a genuine load arrives (see the onSnapshot
+  // handler below) or one of this tab's own writes succeeds. Kept
+  // deliberately separate from dataRef.current._rev (the OPTIMISTIC
+  // local value, bumped immediately so several rapid edits in this same
+  // tab can keep building on each other before any of them has actually
+  // round-tripped to the server yet) — writeToFirestore's transaction
+  // checks THIS ref against the server's real current revision, which is
+  // the actual fix for the bug this whole mechanism exists to close: two
+  // tabs (or devices) both starting from the same base document, one
+  // going stale (backgrounded, laptop asleep, simply idle for a while)
+  // while the other keeps saving real changes, and the stale one
+  // eventually performing its own full-document write on top of data
+  // that's since moved on — silently erasing everything the other tab
+  // saved in between. That failure mode is now impossible: a write whose
+  // expected revision no longer matches the server's actual one is
+  // rejected outright before anything is overwritten, and this tab is
+  // refreshed with the real current data instead.
+  const confirmedRevRef = useRef(data ? (data._rev || 0) : 0);
   // Updated directly here in the render body — NOT inside a useEffect.
   // This one line is the actual fix for "Cannot read properties of null
   // (reading 'staff')": React guarantees the render body finishes
@@ -2583,35 +2609,66 @@ function DutyRoster() {
     pendingWritesRef.current += 1;
     setSaveStatus("saving");
 
-    // Retries automatically instead of giving up after one failure —
-    // 2s, then 6s, then every 15s until it finally goes through. Only a
-    // handful of real causes make it here at all (deepStripUndefined
-    // below already rules out the "malformed data" class): a genuine
-    // network drop that offline persistence itself couldn't smooth over,
-    // or a permissions/quota issue that a human needs to go fix — either
-    // way, this keeps trying on its own rather than requiring the person
-    // to notice a toast and manually retry.
+    // Retries automatically on a genuine transient failure (network drop,
+    // brief outage) — 2s, then 6s, then every 15s until it finally goes
+    // through. A REJECTED write (the transaction below) is a different,
+    // terminal outcome, not a transient one — see its own catch branch.
     //
-    // Critical detail: every attempt (including retries) re-reads
-    // dataRef.current fresh at the moment it actually fires, rather than
-    // reusing the snapshot from when this write was first requested.
-    // Assign duty to several people quickly and it's normal for one save
-    // to hit a transient hiccup while the next several succeed
-    // immediately after — if THAT save's retry, firing seconds later,
-    // wrote its own original (by-then outdated) snapshot instead of the
-    // current one, it would silently overwrite and erase everyone
-    // assigned in between. Always writing whatever dataRef.current holds
-    // *right now* means a retry can only ever move the saved state
-    // forward, never backward over other people's already-successful
-    // saves.
+    // Critical detail, unchanged from before: every attempt (including
+    // retries) re-reads dataRef.current fresh at the moment it actually
+    // fires, rather than reusing the snapshot from when this write was
+    // first requested — so several rapid edits in this same tab always
+    // build on each other correctly.
+    //
+    // What's NEW is the transaction itself. Every write now atomically
+    // verifies, against the server's actual current document, that
+    // nothing has changed since this tab last confirmed its own copy
+    // (confirmedRevRef, updated on every genuine load and every one of
+    // this tab's own successful writes — see its declaration above for
+    // the full reasoning). If something HAS changed — another tab, or
+    // another device, saved first — this write is rejected outright
+    // before it can touch the document, this tab is refreshed with
+    // whatever the other write actually saved, and the person is told
+    // plainly that their last action needs to be tried again. That
+    // rejection is the actual fix for the failure this whole mechanism
+    // exists to close: a tab that went stale (backgrounded, laptop
+    // asleep, just idle) silently overwriting real changes another tab
+    // made in the meantime with its own out-of-date full snapshot.
     const attempt = (delayMs) => {
-      const clean = deepStripUndefined(dataRef.current);
-      docRef.set(clean)
+      const expectedRev = confirmedRevRef.current;
+      const clean = deepStripUndefined({ ...dataRef.current, _rev: expectedRev + 1 });
+      db.runTransaction(async (tx) => {
+        const freshSnap = await tx.get(docRef);
+        const freshData = freshSnap.exists ? freshSnap.data() : null;
+        const serverRev = freshData ? (freshData._rev || 0) : 0;
+        if (freshData && serverRev !== expectedRev) {
+          const conflictErr = new Error("Write rejected: another tab or device saved a change first");
+          conflictErr.__conflict = true;
+          conflictErr.freshData = freshData;
+          throw conflictErr;
+        }
+        tx.set(docRef, clean);
+      })
         .then(() => {
+          confirmedRevRef.current = expectedRev + 1;
           pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
           if (pendingWritesRef.current === 0) setSaveStatus("idle");
         })
         .catch((e) => {
+          if (e && e.__conflict) {
+            console.error("Write conflict — another tab/device saved first, this stale write was discarded instead of overwriting it:", e);
+            const normalized = normalizeData(e.freshData);
+            dataRef.current = normalized;
+            setData(normalized);
+            confirmedRevRef.current = normalized._rev || 0;
+            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+            if (pendingWritesRef.current === 0) setSaveStatus("idle");
+            showToast(t(
+              "Someone else saved a change here at the same moment — your last action wasn't applied, and the screen now shows their update instead. Please try again.",
+              "કોઈ બીજાએ તે જ ક્ષણે અહીં ફેરફાર સાચવ્યો — તમારી છેલ્લી ક્રિયા લાગુ થઈ નથી, અને સ્ક્રીન હવે તેમનું અપડેટ બતાવે છે. કૃપા કરી ફરી પ્રયાસ કરો."
+            ), "error");
+            return;
+          }
           console.error("Save failed, will retry:", e);
           setSaveStatus("error");
           retryTimerRef.current = setTimeout(() => attempt(15000), delayMs);
