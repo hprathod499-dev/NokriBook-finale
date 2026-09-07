@@ -4231,6 +4231,12 @@ function DutyRoster() {
   const clearUnavailable = (number) => {
     const prevRec = dataRef.current.staff[number];
     const cur = prevRec.unavailable;
+    if (!cur) return;
+    const kindLabel = cur.kind === "Outstation" ? t("outstation", "બહારગામ") : t("leave", "રજા");
+    if (!window.confirm(t(
+      `End ${prevRec.name}'s ${kindLabel} now? They'll show as back on duty starting today.`,
+      `${prevRec.name} ની ${kindLabel} હમણાં સમાપ્ત કરવી છે? તેઓ આજથી ડ્યુટી પર પાછા ફર્યા હોવાનું બતાવશે.`
+    ))) return;
     // "End now": the person is back on duty starting today. Cap the
     // matching entry in history at yesterday (instead of just discarding
     // it) so the calendar still correctly shows them as away for every day
@@ -4242,6 +4248,7 @@ function DutyRoster() {
         : p
     );
     persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: null, unavailableHistory: history } } });
+    showToast(t(`${prevRec.name}'s ${kindLabel} ended — back on duty`, `${prevRec.name} ની ${kindLabel} સમાપ્ત થઈ — ડ્યુટી પર પાછા`));
   };
   // "Change duration" — adjusts the dates of the CURRENTLY ACTIVE leave/
   // outstation period specifically (not a new, separate period). This is
