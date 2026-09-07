@@ -1807,9 +1807,9 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           </div>
           <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)" }}>
             <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Language", "ભાષા")}</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => setLang("en")} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid " + (lang === "en" ? "#D98E2B" : "var(--border)"), background: lang === "en" ? "#D98E2B" : "transparent", color: lang === "en" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
-              <button onClick={() => setLang("gu")} className="gu" style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid " + (lang === "gu" ? "#D98E2B" : "var(--border)"), background: lang === "gu" ? "#D98E2B" : "transparent", color: lang === "gu" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setLang("en")} style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "en" ? "#D98E2B" : "var(--border)"), background: lang === "en" ? "#D98E2B" : "transparent", color: lang === "en" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
+              <button onClick={() => setLang("gu")} className="gu" style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "gu" ? "#D98E2B" : "var(--border)"), background: lang === "gu" ? "#D98E2B" : "transparent", color: lang === "gu" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
             </div>
           </div>
           {onHelp && (
