@@ -502,6 +502,12 @@ const DEFAULT_OUTSTATION_TYPES = [
   { id: "out3", label: "VIP Bandobast", indefinite: false },
   { id: "out4", label: "Other Outstation", indefinite: false },
 ];
+// The fixed category id used for Miscellaneous duty entries — a genuine
+// top-level constant (not declared inside DutyRoster) so that every
+// component, not just DutyRoster's own functions, can reliably reference
+// it (e.g. DutyNoteModal, which is a sibling component, needs it to tell
+// a Misc duty entry apart from any other category's).
+const MISC_CATEGORY_ID = "misc-duty";
 // Every new account starts with this standard set of designations already
 // in place (still fully editable/removable from Manage Staff).
 const DEFAULT_DESIGNATIONS = [
@@ -3890,7 +3896,6 @@ function DutyRoster() {
   // as assignDuty above; the only real difference is handling someone
   // who isn't already on this category's roster yet, which for a brand
   // new (or rarely used) category is the common case.
-  const MISC_CATEGORY_ID = "misc-duty";
   const assignMiscDuty = (number, name, dutyType, extraNote, date) => {
     if (!data) return;
     const cleanType = (dutyType || "").trim();
@@ -7675,7 +7680,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           map[date].push({
             catId: c.id, catLabel: c.label, number: m.number, name,
             designation: staffRec ? desgLabelOf(staffRec.designation) : "",
-            note: historyNote(entry), idx,
+            note: historyNote(entry), extraNote: historyExtraNote(entry), idx,
           });
         });
       });
@@ -8133,7 +8138,22 @@ function DutyNoteModal({ record, onClose }) {
           </div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
-        <div style={{ fontSize: 13.5, color: "var(--text-primary)", whiteSpace: "pre-wrap" }} className="gu">{record.note}</div>
+        {record.catId === MISC_CATEGORY_ID ? (
+          <div style={{ fontSize: 13.5, color: "var(--text-primary)" }} className="gu">
+            <div style={{ marginBottom: record.extraNote ? 10 : 0 }}>
+              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 3 }}>{t("Duty type", "ડ્યુટીનો પ્રકાર")}</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{record.note}</div>
+            </div>
+            {record.extraNote && (
+              <div>
+                <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 3 }}>{t("Note", "નોંધ")}</div>
+                <div style={{ whiteSpace: "pre-wrap" }}>{record.extraNote}</div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13.5, color: "var(--text-primary)", whiteSpace: "pre-wrap" }} className="gu">{record.note}</div>
+        )}
       </div>
     </div>
   );
