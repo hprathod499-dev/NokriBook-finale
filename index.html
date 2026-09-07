@@ -5793,7 +5793,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   // only them) rather than hiding it — a single value, not a list, since
   // only one designation can be isolated at a time; tapping the same one
   // again (or "Show everyone") clears it back to the full roster.
-  const [onlyDesignation, setOnlyDesignation] = useState(null);
+  const [onlyDesignation, setOnlyDesignation] = useState(() => new Set());
   // The whole filter row starts collapsed behind an arrow (matching the
   // sidebar's own collapse arrow) so it doesn't take up space until
   // someone actually wants it.
@@ -5838,8 +5838,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
     let list = rosterWithCounts;
     const q = debouncedRosterSearch.trim().toLowerCase();
     if (q) list = list.filter((p) => p.name.toLowerCase().includes(q) || String(p.number).toLowerCase().includes(q));
-    if (onlyDesignation) {
-      list = list.filter((p) => p.staffRec && p.staffRec.designation === onlyDesignation);
+    if (onlyDesignation.size > 0) {
+      list = list.filter((p) => p.staffRec && onlyDesignation.has(p.staffRec.designation));
     }
     if (sortMode === "duties") {
       // Fewest-duties-first is meant to answer "who should get the next
@@ -5885,7 +5885,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   // previous work type never appears to carry over. Same for the
   // designation filter — a filter set up for one work type shouldn't
   // silently keep isolating people on a completely different one.
-  useEffect(() => { setTab("roster"); setOnlyDesignation(null); }, [catId]);
+  useEffect(() => { setTab("roster"); setOnlyDesignation(new Set()); }, [catId]);
 
   const nextUp = roster.find((p) => p.rank === 1);
   const presentCount = roster.filter((p) => p.status === "Present").length;
@@ -6068,18 +6068,24 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
             className="gu"
           >
             <span style={{ display: "inline-block", transform: showDesignationFilter ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
-            {onlyDesignation
-              ? t(`Filtered to ${data.designations.find((d) => d.id === onlyDesignation) ? data.designations.find((d) => d.id === onlyDesignation).label : ""}`, `${data.designations.find((d) => d.id === onlyDesignation) ? data.designations.find((d) => d.id === onlyDesignation).label : ""} પર ફિલ્ટર થયેલ`)
+            {onlyDesignation.size > 0
+              ? (onlyDesignation.size === 1
+                  ? t(`Filtered to ${data.designations.find((d) => onlyDesignation.has(d.id)) ? data.designations.find((d) => onlyDesignation.has(d.id)).label : ""}`, `${data.designations.find((d) => onlyDesignation.has(d.id)) ? data.designations.find((d) => onlyDesignation.has(d.id)).label : ""} પર ફિલ્ટર થયેલ`)
+                  : t(`Filtered to ${onlyDesignation.size} designations`, `${onlyDesignation.size} હોદ્દા પર ફિલ્ટર થયેલ`))
               : t("Filter by designation (optional)", "હોદ્દા પ્રમાણે ફિલ્ટર કરો (વૈકલ્પિક)")}
           </button>
           {showDesignationFilter && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
               {data.designations.map((d) => {
-                const active = onlyDesignation === d.id;
+                const active = onlyDesignation.has(d.id);
                 return (
                   <button
                     key={d.id}
-                    onClick={() => setOnlyDesignation((cur) => cur === d.id ? null : d.id)}
+                    onClick={() => setOnlyDesignation((cur) => {
+                      const next = new Set(cur);
+                      if (next.has(d.id)) next.delete(d.id); else next.add(d.id);
+                      return next;
+                    })}
                     style={{
                       fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
                       border: "1px solid " + (active ? "#D98E2B" : "var(--border)"),
@@ -6089,8 +6095,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                   >{d.label}</button>
                 );
               })}
-              {onlyDesignation && (
-                <button onClick={() => setOnlyDesignation(null)} style={{ fontSize: 11, color: "var(--text-tertiary)", background: "transparent", border: "none", textDecoration: "underline", padding: 0 }} className="gu">{t("Show everyone", "બધા બતાવો")}</button>
+              {onlyDesignation.size > 0 && (
+                <button onClick={() => setOnlyDesignation(new Set())} style={{ fontSize: 11, color: "var(--text-tertiary)", background: "transparent", border: "none", textDecoration: "underline", padding: 0 }} className="gu">{t("Show everyone", "બધા બતાવો")}</button>
               )}
             </div>
           )}
