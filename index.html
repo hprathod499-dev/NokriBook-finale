@@ -1695,8 +1695,8 @@ function LangToggle() {
 // dropdown that extended past the sidebar's own width. Rendering as
 // `fixed` and computing its coordinates from getBoundingClientRect keeps
 // it immune to that regardless of where the button sits.
-function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onSignIn, onHelp }) {
-  const { t, lang, setLang } = useLang();
+function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView, onSettings }) {
+  const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null); // { top, left }
   const btnRef = useRef(null);
@@ -1715,17 +1715,12 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
   const toggleOpen = () => {
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      // This same component anchors both the toolbar avatar (near the
-      // screen's RIGHT edge, in the shared/viewer view) and the sidebar
-      // avatar (near the screen's LEFT edge, in the main app). A single
-      // fixed growth direction breaks one of the two: growing leftward
-      // from the button's right edge (the old behavior) keeps the
-      // toolbar case on-screen, but for the sidebar case — button already
-      // near x=0 — it pushes almost the entire menu into negative
-      // coordinates, off the left edge of the screen, leaving only a
-      // sliver visible. So pick the direction based on which side
-      // actually has room for the menu's width.
-      const MENU_WIDTH = 240; // matches minWidth below; used only to pick a direction
+      // Same reasoning as before: this component anchors both the
+      // toolbar avatar (near the screen's right edge, in the
+      // shared/viewer view) and the sidebar avatar (near the screen's
+      // left edge, in the main app), so the growth direction has to be
+      // picked per-instance rather than hardcoded one way.
+      const MENU_WIDTH = 220;
       if (window.innerWidth - r.left >= MENU_WIDTH + 8) {
         setPos({ top: r.bottom + 8, left: r.left });
       } else {
@@ -1734,9 +1729,7 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
     }
     setOpen((v) => !v);
   };
-  const initial = user && user.email ? user.email.trim().charAt(0).toUpperCase() : null;
   const pillBtn = { width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", color: "#EAEDEB", fontSize: 12.5, cursor: "pointer" };
-  const SUPPORT_EMAIL = "nokribook@gmail.com";
   return (
     <React.Fragment>
       <button
@@ -1750,20 +1743,10 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
       {open && pos && (
         <div ref={menuRef} style={{
           position: "fixed", top: pos.top, left: pos.left, right: pos.right, zIndex: 500,
-          background: "#171310", border: "1px solid #2E241A", borderRadius: 10, minWidth: 236, maxWidth: "calc(100vw - 16px)",
+          background: "#171310", border: "1px solid #2E241A", borderRadius: 10, minWidth: 210, maxWidth: "calc(100vw - 16px)",
           maxHeight: "calc(100vh - 24px)", overflowY: "auto", overflowX: "hidden",
           boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
         }}>
-          <div style={{ padding: "12px 14px", borderBottom: "1px solid #2E241A", fontSize: 12, color: "#EAEDEB", wordBreak: "break-all" }} className={user && user.email ? "" : "gu"}>
-            {(user && user.email) || t("Viewing a shared roster — not signed in", "શેર કરેલ રોસ્ટર જોઈ રહ્યાં છો — સાઇન ઇન નથી")}
-          </div>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid #2E241A" }}>
-            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "#8FA0AC", marginBottom: 6 }} className="gu">{t("Language", "ભાષા")}</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => setLang("en")} style={{ flex: 1, padding: "6px 0", borderRadius: 6, border: "1px solid " + (lang === "en" ? "#D98E2B" : "#332A20"), background: lang === "en" ? "#D98E2B" : "transparent", color: lang === "en" ? "#fff" : "#EAEDEB", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>EN</button>
-              <button onClick={() => setLang("gu")} className="gu" style={{ flex: 1, padding: "6px 0", borderRadius: 6, border: "1px solid " + (lang === "gu" ? "#D98E2B" : "#332A20"), background: lang === "gu" ? "#D98E2B" : "transparent", color: lang === "gu" ? "#fff" : "#EAEDEB", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
-            </div>
-          </div>
           <button onClick={() => setDarkMode((d) => !d)} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
           {setDesktopView && (
             <button
@@ -1782,25 +1765,60 @@ function ProfileMenu({ user, signOutUser, darkMode, setDarkMode, formatAllData, 
               <span className="mono" style={{ fontSize: 11, color: desktopView ? "#D98E2B" : "#7C8891" }}>{desktopView ? t("On", "ચાલુ") : t("Off", "બંધ")}</span>
             </button>
           )}
-          {formatAllData && (
-            <button onClick={() => { setOpen(false); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...pillBtn, color: "#F0C674", fontWeight: 600, borderBottom: "1px solid #2E241A" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
-          )}
-          {onHelp && (
-            <button onClick={() => { setOpen(false); onHelp(); }} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
-          )}
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid #2E241A" }}>
-            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, color: "#8FA0AC", marginBottom: 4 }} className="gu">{t("Support", "સપોર્ટ")}</div>
-            <a href={`mailto:${SUPPORT_EMAIL}`} style={{ fontSize: 12, color: "#F0C674", textDecoration: "none", wordBreak: "break-all" }}>{SUPPORT_EMAIL}</a>
-          </div>
-          {signOutUser && (
-            <button onClick={signOutUser} className="gu" style={{ ...pillBtn, color: "#FF9F9F", fontWeight: 600 }}>{t("Sign out", "સાઇન આઉટ")}</button>
-          )}
-          {onSignIn && (
-            <button onClick={onSignIn} className="gu" style={{ ...pillBtn, color: "#D98E2B", fontWeight: 700 }}>🔑 {t("Sign in to Nokri Book", "નોકરી બુકમાં સાઇન ઇન કરો")}</button>
-          )}
+          <button onClick={() => { setOpen(false); onSettings(); }} className="gu" style={pillBtn}>⚙️ {t("Settings", "સેટિંગ્સ")}</button>
         </div>
       )}
     </React.Fragment>
+  );
+}
+// Everything that used to live directly in the profile dropdown, except
+// Dark mode and Desktop view (kept there for one-tap access since
+// they're toggled far more often than anything below) — account
+// identity, language, the destructive Format-all-data action, Top
+// Questions, support contact, and sign out/in. Reached via the new
+// "⚙️ Settings" item in that dropdown instead.
+function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onClose }) {
+  const { t, lang, setLang } = useLang();
+  useEscToClose(onClose);
+  const SUPPORT_EMAIL = "nokribook@gmail.com";
+  const rowBtn = { width: "100%", textAlign: "left", padding: "12px 20px", background: "transparent", border: "none", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border-soft)" };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Settings", "સેટિંગ્સ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Settings", "સેટિંગ્સ")}</div>
+          <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+        </div>
+        <div style={{ overflowY: "auto" }}>
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, color: "var(--text-secondary)", wordBreak: "break-all" }} className={user && user.email ? "" : "gu"}>
+            {(user && user.email) || t("Viewing a shared roster — not signed in", "શેર કરેલ રોસ્ટર જોઈ રહ્યાં છો — સાઇન ઇન નથી")}
+          </div>
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)" }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Language", "ભાષા")}</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => setLang("en")} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid " + (lang === "en" ? "#D98E2B" : "var(--border)"), background: lang === "en" ? "#D98E2B" : "transparent", color: lang === "en" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
+              <button onClick={() => setLang("gu")} className="gu" style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid " + (lang === "gu" ? "#D98E2B" : "var(--border)"), background: lang === "gu" ? "#D98E2B" : "transparent", color: lang === "gu" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
+            </div>
+          </div>
+          {onHelp && (
+            <button onClick={() => { onClose(); onHelp(); }} className="gu" style={{ ...rowBtn, color: "var(--text-primary)" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
+          )}
+          {formatAllData && (
+            <button onClick={() => { onClose(); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600 }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
+          )}
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)" }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 5 }} className="gu">{t("Support", "સપોર્ટ")}</div>
+            <a href={`mailto:${SUPPORT_EMAIL}`} style={{ fontSize: 12.5, color: "#D98E2B", textDecoration: "none", wordBreak: "break-all" }}>{SUPPORT_EMAIL}</a>
+          </div>
+          {signOutUser && (
+            <button onClick={() => { onClose(); signOutUser(); }} className="gu" style={{ ...rowBtn, color: "var(--status-error-text)", fontWeight: 600, borderBottom: "none" }}>{t("Sign out", "સાઇન આઉટ")}</button>
+          )}
+          {onSignIn && (
+            <button onClick={() => { onClose(); onSignIn(); }} className="gu" style={{ ...rowBtn, color: "#D98E2B", fontWeight: 700, borderBottom: "none" }}>🔑 {t("Sign in to Nokri Book", "નોકરી બુકમાં સાઇન ઇન કરો")}</button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2851,6 +2869,7 @@ function DutyRoster() {
   // ---------- About / credits ----------
   const [showAboutPanel, setShowAboutPanel] = useState(false);
   const [showHelpPanel, setShowHelpPanel] = useState(false);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
   const shareUrl = user ? `${window.location.origin}${window.location.pathname}?view=${user.uid}` : "";
@@ -4494,7 +4513,7 @@ function DutyRoster() {
       )}
 
       <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
-        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
+        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} onSettings={() => setShowSettingsPanel(true)} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
         {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
 
         <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
@@ -4720,6 +4739,13 @@ function DutyRoster() {
 
       {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
       {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} />}
+      {showSettingsPanel && (
+        <SettingsPanel
+          user={user} signOutUser={signOutUser} formatAllData={formatAllData}
+          onHelp={() => setShowHelpPanel(true)}
+          onClose={() => setShowSettingsPanel(false)}
+        />
+      )}
 
       {showFormatModal && (
         <FormatAllDataModal
@@ -4769,7 +4795,7 @@ function DutyRoster() {
   );
 }
 
-function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onHelp, mobileOpen, onCloseMobile }) {
+function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onHelp, onSettings, mobileOpen, onCloseMobile }) {
   const { t } = useLang();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -4805,7 +4831,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
   return (
     <div className={"sidebar" + (mobileOpen ? " mobile-sidebar-open" : "")} style={{ width: 230, background: "var(--sidebar-bg)", color: "#EAEDEB", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1B2733", display: "flex", alignItems: "center", gap: 10 }}>
-        {user && <ProfileMenu user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={onHelp} />}
+        {user && <ProfileMenu user={user} darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={onSettings} />}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="disp" style={{ fontSize: 15, fontWeight: 700 }}>Nokri Book</div>
           <div style={{ fontSize: 11, color: "#8FA0AC", marginTop: 2 }} className="gu">{t("Fair rotation console", "ન્યાયી રોટેશન કન્સોલ")}</div>
@@ -9220,6 +9246,7 @@ function PublicRosterView({ uid }) {
   const [view, setView] = useState({ mode: "home" });
   const [showAboutPanel, setShowAboutPanel] = useState(false);
   const [showHelpPanel, setShowHelpPanel] = useState(false);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   // Shared/view-only visitors get their own dark mode preference, kept
   // separate from the admin's (different device/person in the common
   // case) so toggling one never silently flips the other.
@@ -9306,7 +9333,7 @@ function PublicRosterView({ uid }) {
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
                   width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
                 }}>⋮</button>
-                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSignIn={goToLogin} onHelp={() => setShowHelpPanel(true)} />
+                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} />
               </div>
 
               {view.mode === "home" && (
@@ -9325,6 +9352,13 @@ function PublicRosterView({ uid }) {
 
         {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
         {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} sections={PUBLIC_HELP_SECTIONS} />}
+        {showSettingsPanel && (
+          <SettingsPanel
+            onHelp={() => setShowHelpPanel(true)}
+            onSignIn={goToLogin}
+            onClose={() => setShowSettingsPanel(false)}
+          />
+        )}
       </div>
     </LangContext.Provider>
   );
