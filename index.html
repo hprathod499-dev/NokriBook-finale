@@ -4717,13 +4717,20 @@ function DutyRoster() {
                     title={langCtxValue.t("Force a check that everything has actually reached the server", "બધું ખરેખર સર્વર સુધી પહોંચ્યું છે તે ફરજિયાત તપાસો")}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: syncing ? "default" : "pointer", color: syncing ? "var(--text-tertiary)" : "var(--text-primary)" }} className="gu"
                   >🔄 {syncing ? langCtxValue.t("Syncing…", "સિંક થઈ રહ્યું છે…") : langCtxValue.t("Sync", "સિંક")}</button>
-                  <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
-                  <button onClick={() => { recoverLocalBackup(); setDataMenuPos(null); }}
-                    title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >🛟 {langCtxValue.t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
+                  <div style={{ padding: "9px 12px", borderBottom: "1px solid var(--border-soft)" }}>
+                    <div style={{ display: "flex", alignItems: "stretch", borderRadius: 20, overflow: "hidden", border: "1px solid var(--border)" }}>
+                      <button
+                        onClick={() => { exportBackup(); setDataMenuPos(null); }}
+                        style={{ flex: 1, background: "var(--bg-page)", color: "var(--text-primary)", border: "none", borderRight: "1px solid var(--border)", padding: "6px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+                      >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+                      <button
+                        onClick={() => { recoverLocalBackup(); setDataMenuPos(null); }}
+                        title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
+                        aria-label={langCtxValue.t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}
+                        style={{ flex: "0 0 auto", background: "var(--bg-page)", color: "var(--text-primary)", border: "none", padding: "6px 10px", fontSize: 13, cursor: "pointer" }}
+                      >🛟</button>
+                    </div>
+                  </div>
                   <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
@@ -7998,11 +8005,21 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                             <span
                               onClick={() => setNoteFor(r)}
                               style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
-                              title={t("Tap to see the note for this duty", "આ ડ્યુટીની નોંધ જોવા ટેપ કરો")}
+                              title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
                             >{r.name}</span>
                           ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
                           {range && (
                             <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
+                          )}
+                          {/* The note itself, shown plainly — for Miscellaneous
+                              duty specifically this IS the duty description
+                              ("What is this duty?"), not an optional
+                              afterthought, so hiding it behind a tap (the old
+                              behavior) meant the single most important piece
+                              of information about the entry was invisible by
+                              default. */}
+                          {r.note && (
+                            <span className="gu" style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)", marginTop: 1, fontStyle: "italic" }}>{r.note}</span>
                           )}
                         </span>
                         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
