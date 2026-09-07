@@ -4413,7 +4413,20 @@ function DutyRoster() {
               style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", marginRight: 8 }}
             >Retry connection</button>
             <button
-              onClick={signOutUser}
+              onClick={() => {
+                // Deliberately doesn't rely on auth.signOut() alone
+                // triggering a React state update to switch screens —
+                // if whatever's causing THIS connection error also
+                // affects Auth (plausible: same network issue, same
+                // blocked-by-an-extension cause), that call can fail or
+                // hang silently with nothing visibly happening. Forcing
+                // an actual page reload to the base URL afterward
+                // guarantees this button does something regardless of
+                // whether the in-page state update would have worked.
+                auth.signOut().catch((e) => console.error("Sign out failed:", e)).finally(() => {
+                  window.location.href = window.location.origin + window.location.pathname;
+                });
+              }}
               style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
             >Back to sign in</button>
           </div>
@@ -4429,7 +4442,11 @@ function DutyRoster() {
       {connError && (
         <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", padding: "10px 16px", fontSize: 13, textAlign: "center" }}>
           Couldn't reconnect to the shared database — showing the last data received. Your changes may not be saving right now. If this keeps happening, try disabling any ad-blocker or privacy extension for this site, or open it in an incognito/private window — some of them silently block a background security check this app uses.
-          {" "}<button onClick={signOutUser} style={{ background: "transparent", border: "none", color: "var(--status-error-text)", fontWeight: 700, textDecoration: "underline", cursor: "pointer", padding: 0, fontSize: 13 }}>Back to sign in</button>
+          {" "}<button onClick={() => {
+            auth.signOut().catch((e) => console.error("Sign out failed:", e)).finally(() => {
+              window.location.href = window.location.origin + window.location.pathname;
+            });
+          }} style={{ background: "transparent", border: "none", color: "var(--status-error-text)", fontWeight: 700, textDecoration: "underline", cursor: "pointer", padding: 0, fontSize: 13 }}>Back to sign in</button>
         </div>
       )}
       {returnNotices.map((n, i) => (
@@ -9730,7 +9747,7 @@ class ErrorBoundary extends React.Component {
                 style={{ background: "#fff", color: "#2B2116", border: "1px solid #D9CBB0", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
               >Copy error details</button>
               <button
-                onClick={() => { auth.signOut().finally(() => window.location.reload()); }}
+                onClick={() => { auth.signOut().catch((e) => console.error("Sign out failed:", e)).finally(() => window.location.reload()); }}
                 style={{ background: "#fff", color: "#2B2116", border: "1px solid #D9CBB0", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
               >Back to sign in</button>
             </div>
