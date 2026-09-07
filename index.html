@@ -4410,8 +4410,12 @@ function DutyRoster() {
             </div>
             <button
               onClick={() => setRetryKey((k) => k + 1)}
-              style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
+              style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", marginRight: 8 }}
             >Retry connection</button>
+            <button
+              onClick={signOutUser}
+              style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
+            >Back to sign in</button>
           </div>
         </div>
       );
@@ -4425,6 +4429,7 @@ function DutyRoster() {
       {connError && (
         <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", padding: "10px 16px", fontSize: 13, textAlign: "center" }}>
           Couldn't reconnect to the shared database — showing the last data received. Your changes may not be saving right now. If this keeps happening, try disabling any ad-blocker or privacy extension for this site, or open it in an incognito/private window — some of them silently block a background security check this app uses.
+          {" "}<button onClick={signOutUser} style={{ background: "transparent", border: "none", color: "var(--status-error-text)", fontWeight: 700, textDecoration: "underline", cursor: "pointer", padding: 0, fontSize: 13 }}>Back to sign in</button>
         </div>
       )}
       {returnNotices.map((n, i) => (
@@ -9724,6 +9729,10 @@ class ErrorBoundary extends React.Component {
                 }}
                 style={{ background: "#fff", color: "#2B2116", border: "1px solid #D9CBB0", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
               >Copy error details</button>
+              <button
+                onClick={() => { auth.signOut().finally(() => window.location.reload()); }}
+                style={{ background: "#fff", color: "#2B2116", border: "1px solid #D9CBB0", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+              >Back to sign in</button>
             </div>
             <pre style={{
               textAlign: "left", fontSize: 11.5, color: "#6E5D49", background: "#FFFDF8", border: "1px solid #E8DCC4",
