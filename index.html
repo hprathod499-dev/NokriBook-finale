@@ -509,6 +509,24 @@ function uid() { return Math.random().toString(36).slice(2, 10); }
 // param order), a bare "?view=..." fragment, or just the code by itself,
 // since there's no way to know in advance which of those someone will
 // actually paste.
+// A real Firebase Auth UID is a plain alphanumeric string (typically 28
+// characters, no slashes, no query params, no scheme) — used to reject
+// anything else BEFORE it can ever be treated as one. This is the actual
+// fix for a real, self-perpetuating bug: extractShareUid's old fallback
+// path accepted literally any leftover string as "the bare code" if
+// nothing more specific matched, including something like a mistakenly
+// pasted Google search results URL for "nokribook.in" instead of an
+// actual share link. That garbage string then got saved to
+// localStorage (see pinShareLink) as if it were a real UID, and every
+// single page load after that — forever, since it's PERSISTED storage,
+// not a one-time mistake — tried to open a Firestore document using it,
+// which Firestore rejects outright (a document path containing "//",
+// like a URL does, isn't valid) and crashed the whole app immediately.
+// Reloading never helped, because every reload just read the same
+// corrupted value straight back out and crashed again.
+function looksLikeFirebaseUid(s) {
+  return typeof s === "string" && /^[A-Za-z0-9]{10,64}$/.test(s);
+}
 function extractShareUid(input) {
   const trimmed = (input || "").trim();
   if (!trimmed) return "";
@@ -516,13 +534,25 @@ function extractShareUid(input) {
     try {
       const url = new URL(trimmed);
       const fromQuery = url.searchParams.get("view");
-      if (fromQuery) return fromQuery;
+      if (fromQuery && looksLikeFirebaseUid(fromQuery)) return fromQuery;
     } catch (e) { /* not a parseable URL — fall through to the plainer checks below */ }
+    // It WAS a URL (has a scheme), but not a recognizable Nokri Book
+    // share link — critically, never fall through to the bare-code
+    // branch below and treat the whole URL as if it were one. A
+    // mistakenly pasted link to some other page entirely should just
+    // fail validation here, not get silently accepted and then corrupt
+    // every future page load.
+    return "";
   }
   const m = trimmed.match(/[?&]view=([^&\s]+)/);
-  if (m) return decodeURIComponent(m[1]);
-  // Nothing URL-shaped in it at all — assume they pasted the bare code.
-  return trimmed.replace(/\s+/g, "");
+  if (m) {
+    const candidate = decodeURIComponent(m[1]);
+    return looksLikeFirebaseUid(candidate) ? candidate : "";
+  }
+  // Nothing URL-shaped in it at all — assume they pasted the bare code,
+  // but only accept it if it actually looks like one.
+  const bare = trimmed.replace(/\s+/g, "");
+  return looksLikeFirebaseUid(bare) ? bare : "";
 }
 const PINNED_VIEW_KEY = "nb_pinned_view_uid";
 // Firestore rejects the entire write outright if ANY field anywhere in
@@ -9766,6 +9796,11 @@ class ErrorBoundary extends React.Component {
 function RootApp() {
   const params = new URLSearchParams(window.location.search);
   let viewUid = params.get("view");
+  // Ignoring a malformed ?view= param outright (rather than trying to
+  // use it and crashing) — same reasoning as extractShareUid above, for
+  // whatever might land in the URL itself rather than the paste-a-link
+  // field.
+  if (viewUid && !looksLikeFirebaseUid(viewUid)) viewUid = null;
   // No ?view= in the URL this time — check whether this browser has a
   // share link pinned from the sign-in screen before. If so, treat it
   // exactly as if that code were in the URL, so a bare visit to the site
@@ -9774,7 +9809,21 @@ function RootApp() {
   if (!viewUid) {
     try {
       const pinned = localStorage.getItem(PINNED_VIEW_KEY);
-      if (pinned) viewUid = pinned;
+      if (pinned) {
+        if (looksLikeFirebaseUid(pinned)) {
+          viewUid = pinned;
+        } else {
+          // Self-heals a device already affected by the bug described
+          // above extractShareUid — a genuinely corrupted stored value
+          // (from before that fix existed) would otherwise crash every
+          // single future page load forever, no matter how many times
+          // "Reload" or "Back to sign in" gets clicked, since both just
+          // load this same code again and read the same bad value back
+          // out. Clearing it here breaks that loop permanently, this one
+          // time, on this device.
+          localStorage.removeItem(PINNED_VIEW_KEY);
+        }
+      }
     } catch (e) { /* localStorage unavailable — just fall through to normal sign-in */ }
   }
   if (viewUid) return <PublicRosterView uid={viewUid} />;
