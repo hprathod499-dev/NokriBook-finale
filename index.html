@@ -71,6 +71,15 @@
     font-family: inherit; border: 1px solid var(--border); border-radius: 6px;
     padding: 7px 10px; font-size: 13px; background: #fff; color: #16202B;
     transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    /* Without this, a width:100% input's rendered width is 100% of its
+       container PLUS the padding and border on top of that (the
+       default content-box model), so it visibly overflows past
+       whatever it's supposed to line up with — e.g. a search box that
+       looks wider than the rows below it in the same panel. border-box
+       makes width:100% mean "100% including padding and border",
+       matching how every other width:100% element in the app already
+       behaves. */
+    box-sizing: border-box;
   }
   input:focus, textarea:focus, select:focus { outline: 2px solid #D98E2B55; border-color: #D98E2B; }
   select { font-family: inherit; }
@@ -3925,6 +3934,69 @@ function DutyRoster() {
     showToast(t(`Miscellaneous duty assigned to ${personName}: "${cleanType}"`, `${personName} ને વિવિધ ડ્યુટી સોંપાઈ: "${cleanType}"`));
   };
 
+  // Multi-day version of assignMiscDuty — one history entry per calendar
+  // day in the range, written in a single persist() (mirrors
+  // assignGroupDuty's own reasoning just below: looping the single-day
+  // version once per day would show a separate confirm dialog and a
+  // separate success toast for every day, which is exactly the kind of
+  // thing that shouldn't need N interruptions for what is, to the person
+  // doing it, one action).
+  const assignMiscDutyRange = (number, name, dutyType, extraNote, fromDate, toDate) => {
+    if (!data) return;
+    const cleanType = (dutyType || "").trim();
+    if (!cleanType) { showToast(t("Describe the duty before assigning it", "સોંપતા પહેલા ડ્યુટીનું વર્ણન કરો"), "error"); return; }
+    const num = (number || "").trim();
+    const cleanName = (name || "").trim();
+    if (!num) { showToast(t("Enter a buckle number", "બકલ નંબર દાખલ કરો"), "error"); return; }
+    const existingStaff = data.staff[num];
+    if (!existingStaff && !cleanName) { showToast(t("New number — enter the staff name too", "નવો નંબર — સ્ટાફનું નામ પણ દાખલ કરો"), "error"); return; }
+    const from = fromDate || todayStr();
+    const dutyDates = dateRangeStrs(from, toDate);
+    const lastDate = dutyDates[dutyDates.length - 1];
+
+    const conflicts = [];
+    dutyDates.forEach((d) => {
+      const conflict = findDutyConflict(data, num, d, MISC_CATEGORY_ID);
+      if (conflict) conflicts.push({ date: d, conflict });
+    });
+    if (conflicts.length > 0) {
+      const personLabel = existingStaff ? existingStaff.name : cleanName;
+      const lines = conflicts.map((x) => `${formatDMY(x.date)} → "${x.conflict.label}"`).join("\n");
+      const proceed = window.confirm(t(
+        `${personLabel} already has a duty elsewhere on one or more of these days:\n${lines}\n\nAssign this anyway?`,
+        `${personLabel} ને આમાંથી એક અથવા વધુ દિવસોમાં પહેલેથી જ બીજે ડ્યુટી છે:\n${lines}\n\nતેમ છતાં આ સોંપવું છે?`
+      ));
+      if (!proceed) return;
+    }
+
+    const hasMiscCat = (data.categories || []).some((c) => c.id === MISC_CATEGORY_ID);
+    const categories = hasMiscCat ? data.categories : [...data.categories, { id: MISC_CATEGORY_ID, label: t("Miscellaneous duty", "વિવિધ ડ્યુટી") }];
+    const cleanExtraNote = (extraNote || "").trim() || null;
+    const baseTs = Date.now();
+    const batch = uid();
+    const entries = dutyDates.map((d, i) => ({ date: d, ts: baseTs + i, note: cleanType, extraNote: cleanExtraNote, batch }));
+    const list = data.membership[MISC_CATEGORY_ID] || [];
+    const already = list.some((m) => m.number === num);
+    const updatedList = already
+      ? list.map((m) => m.number === num ? { ...m, skip: false, lastDuty: lastDate, history: [...(m.history || []), ...entries] } : m)
+      : [...list, { number: num, lastDuty: lastDate, history: entries, skip: false }];
+    const nextStaff = existingStaff
+      ? { ...data.staff, [num]: { ...existingStaff, skip: false } }
+      : { ...data.staff, [num]: { number: num, name: cleanName, phone: null, unavailable: null, designation: null } };
+
+    persist({
+      ...dataRef.current,
+      categories,
+      staff: nextStaff,
+      membership: { ...data.membership, [MISC_CATEGORY_ID]: updatedList },
+    });
+    const personName = existingStaff ? existingStaff.name : cleanName;
+    showToast(t(
+      `Miscellaneous duty assigned to ${personName} for ${dutyDates.length} days: "${cleanType}"`,
+      `${personName} ને ${dutyDates.length} દિવસ માટે વિવિધ ડ્યુટી સોંપાઈ: "${cleanType}"`
+    ));
+  };
+
   // Assigns the same duty, on the same date range, to a whole typed-in
   // group at once (Group Duty) — in a single persist() rather than looping
   // the single-person assignDuty above, so every person's entry lands
@@ -4595,9 +4667,6 @@ function DutyRoster() {
               borderColor: pendingReminders.length ? "var(--status-warning-border)" : "var(--border)",
               color: pendingReminders.length ? "var(--status-warning-text)" : "var(--text-primary)",
             }} className="gu">{langCtxValue.t("Reminders", "રિમાઇન્ડર")}{pendingReminders.length ? ` (${pendingReminders.length})` : ""}</button>
-            <button onClick={syncNow} disabled={syncing} title={langCtxValue.t("Force a check that everything has actually reached the server", "બધું ખરેખર સર્વર સુધી પહોંચ્યું છે તે ફરજિયાત તપાસો")} style={undoRedoBtn(!syncing)} className="gu">
-              {syncing ? langCtxValue.t("Syncing…", "સિંક થઈ રહ્યું છે…") : "🔄 " + langCtxValue.t("Sync", "સિંક")}
-            </button>
             <button
               onClick={(e) => {
                 if (undoRedoMenuPos) { setUndoRedoMenuPos(null); return; }
@@ -4606,44 +4675,13 @@ function DutyRoster() {
               }}
               title={langCtxValue.t("Undo / Redo", "પૂર્વવત્ / ફરીથી કરો")} style={undoRedoBtn(true)} className="gu"
             >↶↷ {langCtxValue.t("Undo", "પૂર્વવત્")}</button>
-            <div style={{ display: "inline-flex", alignItems: "stretch", borderRadius: 20, overflow: "hidden", border: "1px solid var(--border)" }}>
-              <button
-                onClick={exportBackup}
-                title={langCtxValue.t("Download a backup now", "હમણાં બેકઅપ ડાઉનલોડ કરો")}
-                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "none", borderRight: "1px solid var(--border)", padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} className="gu"
-              >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
-              <button
-                onClick={(e) => {
-                  if (backupMenuPos) { setBackupMenuPos(null); return; }
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setBackupMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left - 100, window.innerWidth - 210 - 8)) });
-                }}
-                title={langCtxValue.t("More backup options", "વધુ બેકઅપ વિકલ્પો")} aria-label={langCtxValue.t("More backup options", "વધુ બેકઅપ વિકલ્પો")}
-                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "none", padding: "6px 10px", fontSize: 12.5, cursor: "pointer" }}
-              >⌄</button>
-            </div>
-            {backupMenuPos && (
-              <React.Fragment>
-                <div onClick={() => setBackupMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
-                <div style={{
-                  position: "fixed", top: backupMenuPos.top, left: backupMenuPos.left, zIndex: 201, minWidth: 210,
-                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
-                  boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
-                }}>
-                  <button onClick={() => { recoverLocalBackup(); setBackupMenuPos(null); }}
-                    title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >🛟 {langCtxValue.t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
-                </div>
-              </React.Fragment>
-            )}
             <button
               onClick={(e) => {
                 if (dataMenuPos) { setDataMenuPos(null); return; }
                 const rect = e.currentTarget.getBoundingClientRect();
-                setDataMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 190 - 8)) });
+                setDataMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 200 - 8)) });
               }}
-              title={langCtxValue.t("Restore and Google Drive", "પુનઃસ્થાપિત કરો અને Google Drive")} style={{
+              title={langCtxValue.t("Sync, Backup, Restore, and Google Drive", "સિંક, બેકઅપ, પુનઃસ્થાપિત કરો અને Google Drive")} style={{
                 ...undoRedoBtn(true),
                 background: driveConnected && !driveNeedsReconnect ? "var(--status-success-bg)" : "var(--bg-surface)",
                 borderColor: driveConnected && !driveNeedsReconnect ? "var(--status-success-border)" : "var(--border)",
@@ -4671,10 +4709,21 @@ function DutyRoster() {
               <React.Fragment>
                 <div onClick={() => setDataMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
                 <div style={{
-                  position: "fixed", top: dataMenuPos.top, left: dataMenuPos.left, zIndex: 201, minWidth: 190,
+                  position: "fixed", top: dataMenuPos.top, left: dataMenuPos.left, zIndex: 201, minWidth: 200,
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
                   boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
                 }}>
+                  <button onClick={() => { syncNow(); setDataMenuPos(null); }} disabled={syncing}
+                    title={langCtxValue.t("Force a check that everything has actually reached the server", "બધું ખરેખર સર્વર સુધી પહોંચ્યું છે તે ફરજિયાત તપાસો")}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: syncing ? "default" : "pointer", color: syncing ? "var(--text-tertiary)" : "var(--text-primary)" }} className="gu"
+                  >🔄 {syncing ? langCtxValue.t("Syncing…", "સિંક થઈ રહ્યું છે…") : langCtxValue.t("Sync", "સિંક")}</button>
+                  <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+                  <button onClick={() => { recoverLocalBackup(); setDataMenuPos(null); }}
+                    title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >🛟 {langCtxValue.t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
                   <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
@@ -4719,7 +4768,7 @@ function DutyRoster() {
             <HomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
           {view.mode === "assignDuty" && (
-            <AssignDutyView data={data} assignDuty={assignDuty} assignGroupDuty={assignGroupDuty} assignMiscDuty={assignMiscDuty} setUnavailable={setUnavailable} showToast={showToast} goToCategory={(catId) => setView({ mode: "category", catId })} />
+            <AssignDutyView data={data} assignDuty={assignDuty} assignGroupDuty={assignGroupDuty} assignMiscDuty={assignMiscDuty} assignMiscDutyRange={assignMiscDutyRange} setUnavailable={setUnavailable} showToast={showToast} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
           {view.mode === "category" && view.catId && (
             <CategoryView
@@ -5069,7 +5118,7 @@ function HomeView({ data, goToCategory }) {
 // "Assign duty" — the working tab: per-work-type next-up + Assign button,
 // with Group duty and Miscellaneous duty tucked in as extra sub-tabs so
 // every assignment flow lives in one place.
-function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, setUnavailable, showToast, goToCategory }) {
+function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, assignMiscDutyRange, setUnavailable, showToast, goToCategory }) {
   const { t, lang } = useLang();
   const [subTab, setSubTab] = useState("individual"); // individual | group | misc
   const today = todayStr();
@@ -5104,7 +5153,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, set
       {subTab === "group" ? (
         <GroupDutyView data={data} assignGroupDuty={assignGroupDuty} />
       ) : subTab === "misc" ? (
-        <MiscDutyView data={data} assignMiscDuty={assignMiscDuty} />
+        <MiscDutyView data={data} assignMiscDuty={assignMiscDuty} assignMiscDutyRange={assignMiscDutyRange} />
       ) : subTab === "leave" ? (
         <RecordLeaveView data={data} setUnavailable={setUnavailable} showToast={showToast} />
       ) : (
@@ -5172,13 +5221,16 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, set
 // auto-created "Miscellaneous duty" category behind the scenes (created
 // on first use), so it still gets its own roster/history/fairness tabs
 // like any other work type without needing to be set up by hand first.
-function MiscDutyView({ data, assignMiscDuty }) {
+function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
   const { t } = useLang();
   const [numberInput, setNumberInput] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [dutyType, setDutyType] = useState("");
   const [extraNote, setExtraNote] = useState("");
+  const [oneDayOnly, setOneDayOnly] = useState(true);
   const [date, setDate] = useState(todayStr());
+  const [dateFrom, setDateFrom] = useState(todayStr());
+  const [dateTo, setDateTo] = useState(todayStr());
 
   const lookupPreview = useMemo(() => {
     const num = numberInput.trim();
@@ -5187,17 +5239,25 @@ function MiscDutyView({ data, assignMiscDuty }) {
     return s ? s.name : null;
   }, [numberInput, data.staff]);
 
-  const canAssign = numberInput.trim() && (lookupPreview || nameInput.trim()) && dutyType.trim();
+  const dayCount = oneDayOnly ? 1 : dateRangeStrs(dateFrom, dateTo).length;
+  const canAssign = numberInput.trim() && (lookupPreview || nameInput.trim()) && dutyType.trim() && dayCount > 0;
   const [showInfo, setShowInfo] = useState(false);
 
   const handleAssign = () => {
     if (!canAssign) return;
-    assignMiscDuty(numberInput.trim(), lookupPreview || nameInput.trim(), dutyType.trim(), extraNote.trim(), date);
+    const name = lookupPreview || nameInput.trim();
+    if (oneDayOnly) {
+      assignMiscDuty(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), date);
+    } else {
+      assignMiscDutyRange(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), dateFrom, dateTo);
+    }
     setNumberInput("");
     setNameInput("");
     setDutyType("");
     setExtraNote("");
     setDate(todayStr());
+    setDateFrom(todayStr());
+    setDateTo(todayStr());
   };
 
   return (
@@ -5245,10 +5305,39 @@ function MiscDutyView({ data, assignMiscDuty }) {
           <input type="text" value={extraNote} onChange={(e) => setExtraNote(e.target.value)} placeholder={t("Any extra detail beyond the duty description above", "ઉપરના ડ્યુટી વર્ણન ઉપરાંત કોઈ વધારાની વિગત")} className="gu" style={{ width: "100%", boxSizing: "border-box" }} />
         </div>
 
-        <div style={{ marginBottom: 18 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Date", "તારીખ")}</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
+          <button
+            onClick={() => setOneDayOnly(true)}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "#D98E2B" : "var(--border)"), background: oneDayOnly ? "#D98E2B" : "transparent", color: oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("One day only", "ફક્ત એક દિવસ")}</button>
+          <button
+            onClick={() => setOneDayOnly(false)}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "#D98E2B" : "var(--border)"), background: !oneDayOnly ? "#D98E2B" : "transparent", color: !oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
         </div>
+
+        {oneDayOnly ? (
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Date", "તારીખ")}</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("From date", "તારીખ થી")}</label>
+              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
+              <input type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
+            </div>
+            {dayCount > 1 && (
+              <div className="gu" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 20, padding: "5px 10px" }}>
+                {t(`${dayCount} days`, `${dayCount} દિવસ`)}
+              </div>
+            )}
+          </div>
+        )}
 
         <button
           onClick={handleAssign}
@@ -5424,6 +5513,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   const [people, setPeople] = useState([]); // { number, name }
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
+  const [oneDayOnly, setOneDayOnly] = useState(true);
   const [note, setNote] = useState("");
   const [markOutstation, setMarkOutstation] = useState(false);
   const outstationTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
@@ -5454,14 +5544,15 @@ function GroupDutyView({ data, assignGroupDuty }) {
   const removePerson = (num) => setPeople((cur) => cur.filter((p) => p.number !== num));
 
   const cat = (data.categories || []).find((c) => c.id === catId);
-  const dayCount = dateRangeStrs(dateFrom, dateTo).length;
+  const effectiveDateTo = oneDayOnly ? dateFrom : dateTo;
+  const dayCount = dateRangeStrs(dateFrom, effectiveDateTo).length;
   const effectiveOutstationTypeId = outstationTypeId || (outstationTypes[0] ? outstationTypes[0].id : "");
   const canAssign = !!catId && people.length > 0 && !!dateFrom && dayCount > 0 && (!markOutstation || !!effectiveOutstationTypeId);
 
   const handleAssign = () => {
     if (!canAssign) return;
-    assignGroupDuty(catId, people, dateFrom, dateTo, note, markOutstation ? effectiveOutstationTypeId : null);
-    setLastAssigned({ catLabel: cat ? cat.label : "", dateFrom, dateTo, people });
+    assignGroupDuty(catId, people, dateFrom, effectiveDateTo, note, markOutstation ? effectiveOutstationTypeId : null);
+    setLastAssigned({ catLabel: cat ? cat.label : "", dateFrom, dateTo: effectiveDateTo, people });
     setPeople([]);
     setNote("");
     setMarkOutstation(false);
@@ -5491,15 +5582,28 @@ function GroupDutyView({ data, assignGroupDuty }) {
           </select>
         </div>
 
+        <div style={{ marginBottom: 10, display: "flex", gap: 6, maxWidth: 300 }}>
+          <button
+            onClick={() => setOneDayOnly(true)}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "#D98E2B" : "var(--border)"), background: oneDayOnly ? "#D98E2B" : "transparent", color: oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("One day only", "ફક્ત એક દિવસ")}</button>
+          <button
+            onClick={() => setOneDayOnly(false)}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "#D98E2B" : "var(--border)"), background: !oneDayOnly ? "#D98E2B" : "transparent", color: !oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
+        </div>
+
         <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("From date", "તારીખ થી")}</label>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{oneDayOnly ? t("Date", "તારીખ") : t("From date", "તારીખ થી")}</label>
             <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
           </div>
-          <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
-            <input type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
-          </div>
+          {!oneDayOnly && (
+            <div>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
+              <input type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
+            </div>
+          )}
           {dayCount > 1 && (
             <div className="gu" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 20, padding: "5px 10px" }}>
               {t(`${dayCount} days`, `${dayCount} દિવસ`)}
@@ -5651,6 +5755,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [importSelected, setImportSelected] = useState(() => new Set());
   const [importSearch, setImportSearch] = useState("");
+  const [importDesgFilter, setImportDesgFilter] = useState("");
   const debouncedRosterSearch = useDebouncedValue(rosterSearch);
   // Tapping a designation pill now ISOLATES that one designation (shows
   // only them) rather than hiding it — a single value, not a list, since
@@ -5682,9 +5787,11 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   }, [data.staff, membership]);
   const filteredImportCandidates = useMemo(() => {
     const q = importSearch.trim().toLowerCase();
-    if (!q) return importCandidates;
-    return importCandidates.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
-  }, [importCandidates, importSearch]);
+    let list = importCandidates;
+    if (importDesgFilter) list = list.filter((s) => s.designation === importDesgFilter);
+    if (!q) return list;
+    return list.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
+  }, [importCandidates, importSearch, importDesgFilter]);
 
   // Total completed-duty count for this work type only, per person — used
   // to sort "fewest duties first" so whoever's been under-rostered for
@@ -5855,12 +5962,20 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
               <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Import Staff", "સ્ટાફ આયાત કરો")}</div>
               <button onClick={() => setShowImportMenu(false)} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
             </div>
-            <div style={{ padding: "12px 20px 0" }}>
+            <div style={{ padding: "12px 20px 0", display: "flex", gap: 8 }}>
               <input
                 type="text" autoFocus value={importSearch} onChange={(e) => setImportSearch(e.target.value)}
                 placeholder={t("Search staff…", "સ્ટાફ શોધો…")} className="gu"
-                style={{ width: "100%", fontSize: 12.5 }}
+                style={{ flex: 1, minWidth: 0, fontSize: 12.5 }}
               />
+              {(data.designations || []).length > 0 && (
+                <select value={importDesgFilter} onChange={(e) => setImportDesgFilter(e.target.value)} className="gu" style={{ fontSize: 12, width: 110, flexShrink: 0 }}>
+                  <option value="">{t("All", "બધા")}</option>
+                  {data.designations.map((d) => (
+                    <option key={d.id} value={d.id}>{d.label}</option>
+                  ))}
+                </select>
+              )}
             </div>
             {filteredImportCandidates.length === 0 ? (
               <div className="gu" style={{ padding: "24px 20px", fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>
