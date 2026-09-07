@@ -4707,7 +4707,7 @@ function DutyRoster() {
             )}
             {dataMenuPos && (
               <React.Fragment>
-                <div onClick={() => setDataMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
+                <div onClick={() => { setDataMenuPos(null); setBackupMenuPos(null); }} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
                 <div style={{
                   position: "fixed", top: dataMenuPos.top, left: dataMenuPos.left, zIndex: 201, minWidth: 200,
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
@@ -4717,21 +4717,39 @@ function DutyRoster() {
                     title={langCtxValue.t("Force a check that everything has actually reached the server", "બધું ખરેખર સર્વર સુધી પહોંચ્યું છે તે ફરજિયાત તપાસો")}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: syncing ? "default" : "pointer", color: syncing ? "var(--text-tertiary)" : "var(--text-primary)" }} className="gu"
                   >🔄 {syncing ? langCtxValue.t("Syncing…", "સિંક થઈ રહ્યું છે…") : langCtxValue.t("Sync", "સિંક")}</button>
-                  <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
-                  <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
-                  <button onClick={() => { recoverLocalBackup(); setDataMenuPos(null); }}
-                    title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >🛟 {langCtxValue.t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
+                  <button
+                    onClick={(e) => {
+                      if (backupMenuPos) { setBackupMenuPos(null); return; }
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const submenuWidth = 200;
+                      const opensRight = window.innerWidth - rect.right >= submenuWidth + 8;
+                      setBackupMenuPos({ top: rect.top, left: opensRight ? rect.right + 4 : Math.max(8, rect.left - submenuWidth - 4) });
+                    }}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", textAlign: "left", padding: "9px 12px", background: backupMenuPos ? "var(--bg-page)" : "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  ><span>⬇ {langCtxValue.t("Backup", "બેકઅપ")}</span><span style={{ color: "var(--text-tertiary)" }}>▸</span></button>
                   <button onClick={() => { setShowDrivePanel(true); setDataMenuPos(null); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >☁ {langCtxValue.t("Google Drive", "Google Drive")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
                 </div>
               </React.Fragment>
+            )}
+            {backupMenuPos && (
+              <div style={{
+                position: "fixed", top: backupMenuPos.top, left: backupMenuPos.left, zIndex: 202, minWidth: 200,
+                background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
+                boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
+              }}>
+                <button onClick={() => { exportBackup(); setDataMenuPos(null); setBackupMenuPos(null); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+                <button onClick={() => { setDataMenuPos(null); setBackupMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
+                <button onClick={() => { recoverLocalBackup(); setDataMenuPos(null); setBackupMenuPos(null); }}
+                  title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                >🛟 {langCtxValue.t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
+              </div>
             )}
             <input
               ref={importBackupRef} type="file" accept="application/json,.json"
