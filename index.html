@@ -1789,7 +1789,7 @@ function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView,
 // identity, language, the destructive Format-all-data action, Top
 // Questions, support contact, and sign out/in. Reached via the new
 // "⚙️ Settings" item in that dropdown instead.
-function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onClose }) {
+function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onChooseBackupFolder, onClose }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const SUPPORT_EMAIL = "nokribook@gmail.com";
@@ -1817,6 +1817,12 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           )}
           {formatAllData && (
             <button onClick={() => { onClose(); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600 }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
+          )}
+          {onChooseBackupFolder && (
+            <button onClick={() => { onClose(); onChooseBackupFolder(); }} className="gu"
+              title={t("Choose or change which folder backups are automatically saved into", "બેકઅપ આપમેળે કયા ફોલ્ડરમાં સચવાય છે તે પસંદ કરો અથવા બદલો")}
+              style={{ ...rowBtn, color: "var(--text-primary)" }}
+            >📁 {t("Backup folder…", "બેકઅપ ફોલ્ડર…")}</button>
           )}
           <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)" }}>
             <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 5 }} className="gu">{t("Support", "સપોર્ટ")}</div>
@@ -2966,9 +2972,10 @@ function DutyRoster() {
   // visually detached from the button that opened it.
   const [undoRedoMenuPos, setUndoRedoMenuPos] = useState(null);
   const [dataMenuPos, setDataMenuPos] = useState(null);
+  const [backupMenuPos, setBackupMenuPos] = useState(null);
   useEffect(() => {
     if (!undoRedoMenuPos && !dataMenuPos) return;
-    const closeOnScroll = () => { setUndoRedoMenuPos(null); setDataMenuPos(null); };
+    const closeOnScroll = () => { setUndoRedoMenuPos(null); setDataMenuPos(null); setBackupMenuPos(null); };
     window.addEventListener("scroll", closeOnScroll, true);
     return () => window.removeEventListener("scroll", closeOnScroll, true);
   }, [undoRedoMenuPos, dataMenuPos]);
@@ -4366,6 +4373,16 @@ function DutyRoster() {
           }
         }
         if (!handle) {
+          // First backup ever on this device/browser — explain what's
+          // about to happen before the native OS folder picker pops up
+          // with no context. Declining just falls straight through to a
+          // plain single-file download below instead, so "no" still
+          // produces a real backup.
+          const wantsFolder = window.confirm(t(
+            "Choose a folder on this device where every backup will be saved automatically from now on? You'll only be asked once — after this, backups happen silently. Choose Cancel to just download this one backup as a file instead.",
+            "આ ડિવાઇસ પર એક ફોલ્ડર પસંદ કરવું છે જ્યાં હવેથી દરેક બેકઅપ આપમેળે સચવાય? તમને ફક્ત એક જ વાર પૂછવામાં આવશે — ત્યાર પછી, બેકઅપ ચૂપચાપ થાય છે. ફક્ત આ એક બેકઅપને ફાઇલ તરીકે ડાઉનલોડ કરવા માટે રદ કરો પસંદ કરો."
+          ));
+          if (!wantsFolder) throw Object.assign(new Error("declined"), { name: "AbortError" });
           handle = await window.showDirectoryPicker({ id: "nokribook-backups", mode: "readwrite" });
           await idbSetHandle("backupDir", handle);
         }
@@ -4429,16 +4446,16 @@ function DutyRoster() {
   const recoverLocalBackup = () => {
     let raw;
     try { raw = localStorage.getItem("nb_auto_backup"); } catch (e) { raw = null; }
-    if (!raw) { showToast(t("No local backup found on this device yet", "આ ડિવાઇસ પર હજુ કોઈ સ્થાનિક બેકઅપ મળ્યો નથી"), "error"); return; }
+    if (!raw) { showToast(t("No local data snapshot found on this device yet", "આ ડિવાઇસ પર હજુ કોઈ સ્થાનિક ડેટા સ્નેપશોટ મળ્યો નથી"), "error"); return; }
     let parsed;
-    try { parsed = JSON.parse(raw); } catch (e) { showToast(t("The local backup on this device is corrupted", "આ ડિવાઇસ પરનો સ્થાનિક બેકઅપ ખરાબ થયેલો છે"), "error"); return; }
+    try { parsed = JSON.parse(raw); } catch (e) { showToast(t("The local data snapshot on this device is corrupted", "આ ડિવાઇસ પરનો સ્થાનિક ડેટા સ્નેપશોટ ખરાબ થયેલો છે"), "error"); return; }
     const when = new Date(parsed.savedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
     if (!window.confirm(t(
-      `Restore the local backup from ${when}? It will replace ALL current data (staff, work types, history, designations, everything). You can still Ctrl+Z once right after, but do this carefully.`,
-      `${when} નો સ્થાનિક બેકઅપ પુનઃસ્થાપિત કરવો છે? તે તમામ હાલનો ડેટા (સ્ટાફ, કામના પ્રકારો, ઇતિહાસ, હોદ્દાઓ, બધું) બદલી નાખશે. તમે તરત જ પછી એકવાર Ctrl+Z કરી શકો છો, પણ કાળજીપૂર્વક કરો.`
+      `Restore the local data from ${when}? It will replace ALL current data (staff, work types, history, designations, everything). You can still Ctrl+Z once right after, but do this carefully.`,
+      `${when} નો સ્થાનિક ડેટા પુનઃસ્થાપિત કરવો છે? તે તમામ હાલનો ડેટા (સ્ટાફ, કામના પ્રકારો, ઇતિહાસ, હોદ્દાઓ, બધું) બદલી નાખશે. તમે તરત જ પછી એકવાર Ctrl+Z કરી શકો છો, પણ કાળજીપૂર્વક કરો.`
     ))) return;
     persist(normalizeData(parsed.data));
-    showToast(t("Local backup restored", "સ્થાનિક બેકઅપ પુનઃસ્થાપિત થયો"));
+    showToast(t("Local data restored", "સ્થાનિક ડેટા પુનઃસ્થાપિત થયો"));
   };
   const importBackup = (file) => {
     if (!file) return;
@@ -4589,13 +4606,44 @@ function DutyRoster() {
               }}
               title={langCtxValue.t("Undo / Redo", "પૂર્વવત્ / ફરીથી કરો")} style={undoRedoBtn(true)} className="gu"
             >↶↷ {langCtxValue.t("Undo", "પૂર્વવત્")}</button>
+            <div style={{ display: "inline-flex", alignItems: "stretch", borderRadius: 20, overflow: "hidden", border: "1px solid var(--border)" }}>
+              <button
+                onClick={exportBackup}
+                title={langCtxValue.t("Download a backup now", "હમણાં બેકઅપ ડાઉનલોડ કરો")}
+                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "none", borderRight: "1px solid var(--border)", padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} className="gu"
+              >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+              <button
+                onClick={(e) => {
+                  if (backupMenuPos) { setBackupMenuPos(null); return; }
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setBackupMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left - 100, window.innerWidth - 210 - 8)) });
+                }}
+                title={langCtxValue.t("More backup options", "વધુ બેકઅપ વિકલ્પો")} aria-label={langCtxValue.t("More backup options", "વધુ બેકઅપ વિકલ્પો")}
+                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "none", padding: "6px 10px", fontSize: 12.5, cursor: "pointer" }}
+              >⌄</button>
+            </div>
+            {backupMenuPos && (
+              <React.Fragment>
+                <div onClick={() => setBackupMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
+                <div style={{
+                  position: "fixed", top: backupMenuPos.top, left: backupMenuPos.left, zIndex: 201, minWidth: 210,
+                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
+                  boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
+                }}>
+                  <button onClick={() => { recoverLocalBackup(); setBackupMenuPos(null); }}
+                    title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
+                  >🛟 {langCtxValue.t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
+                </div>
+              </React.Fragment>
+            )}
             <button
               onClick={(e) => {
                 if (dataMenuPos) { setDataMenuPos(null); return; }
                 const rect = e.currentTarget.getBoundingClientRect();
                 setDataMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 190 - 8)) });
               }}
-              title={langCtxValue.t("Backup, Restore, and Google Drive", "બેકઅપ, પુનઃસ્થાપિત કરો અને Google Drive")} style={{
+              title={langCtxValue.t("Restore and Google Drive", "પુનઃસ્થાપિત કરો અને Google Drive")} style={{
                 ...undoRedoBtn(true),
                 background: driveConnected && !driveNeedsReconnect ? "var(--status-success-bg)" : "var(--bg-surface)",
                 borderColor: driveConnected && !driveNeedsReconnect ? "var(--status-success-border)" : "var(--border)",
@@ -4627,20 +4675,9 @@ function DutyRoster() {
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
                   boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
                 }}>
-                  <button onClick={() => { chooseBackupFolder(); setDataMenuPos(null); }}
-                    title={langCtxValue.t("Choose or change which folder backups are automatically saved into", "બેકઅપ આપમેળે કયા ફોલ્ડરમાં સચવાય છે તે પસંદ કરો અથવા બદલો")}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >📁 {langCtxValue.t("Backup folder…", "બેકઅપ ફોલ્ડર…")}</button>
-                  <button onClick={() => { exportBackup(); setDataMenuPos(null); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
                   <button onClick={() => { setDataMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
-                  <button onClick={() => { recoverLocalBackup(); setDataMenuPos(null); }}
-                    title={langCtxValue.t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >🛟 {langCtxValue.t("Recover local backup", "સ્થાનિક બેકઅપ પુનઃપ્રાપ્ત કરો")}</button>
                   <button onClick={() => { setShowDrivePanel(true); setDataMenuPos(null); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
                   >☁ {langCtxValue.t("Google Drive", "Google Drive")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
@@ -4775,6 +4812,7 @@ function DutyRoster() {
         <SettingsPanel
           user={user} signOutUser={signOutUser} formatAllData={formatAllData}
           onHelp={() => setShowHelpPanel(true)}
+          onChooseBackupFolder={chooseBackupFolder}
           onClose={() => setShowSettingsPanel(false)}
         />
       )}
@@ -8777,8 +8815,8 @@ const HELP_SECTIONS = [
   },
   {
     titleEn: "What do I do if data seems missing?", titleGu: "ડેટા ગુમ થયેલો લાગે તો શું કરવું?",
-    bodyEn: "First, tap \"🔄 Sync\" (top toolbar) — sometimes it's just a connection hiccup making current data look missing, not an actual loss, and Sync tells you plainly which one it is. If it's genuinely gone, try these in order: (1) Undo (top toolbar) if it just happened. (2) Data → \"🛟 Recover local backup\" — an automatic snapshot saved on this device from the last time it successfully loaded your real data. (3) Data → \"Restore\" — if you've ever downloaded a backup file (manually, or automatically into a chosen folder). (4) Data → \"Google Drive\" — if connected, it keeps a daily backup there. (5) Check another device signed into the same account — if the data is fine there, this device just hasn't synced yet, and simply reopening the app here should catch it up.",
-    bodyGu: "પહેલા \"🔄 સિંક\" પર ટેપ કરો (ટોચનું ટૂલબાર) — ક્યારેક તે ફક્ત જોડાણની સમસ્યા હોય છે જે હાલનો ડેટા ગુમ થયેલો દેખાડે છે, ખરેખર ગુમ થયેલો નથી, અને સિંક તમને સ્પષ્ટ રીતે કહે છે કે તે કયું છે. જો તે ખરેખર ગુમ થયો હોય, તો આ ક્રમમાં અજમાવો: (1) જો હમણાં જ થયું હોય તો પૂર્વવત્ (ટોચનું ટૂલબાર). (2) ડેટા → \"🛟 સ્થાનિક બેકઅપ પુનઃપ્રાપ્ત કરો\" — આ ડિવાઇસ પર છેલ્લે તમારો વાસ્તવિક ડેટા સફળતાપૂર્વક લોડ થયો ત્યારનો આપમેળે સચવાયેલો સ્નેપશોટ. (3) ડેટા → \"પુનઃસ્થાપિત કરો\" — જો તમે ક્યારેય બેકઅપ ફાઇલ ડાઉનલોડ કરી હોય (જાતે, અથવા પસંદ કરેલા ફોલ્ડરમાં આપમેળે). (4) ડેટા → \"Google Drive\" — જો જોડાયેલ હોય, તો તે ત્યાં દૈનિક બેકઅપ રાખે છે. (5) એ જ ખાતામાં સાઇન-ઇન થયેલ બીજું ડિવાઇસ તપાસો — જો ત્યાં ડેટા બરાબર હોય, તો આ ડિવાઇસ હજુ સિંક થયું નથી, અને ફક્ત અહીં એપ ફરી ખોલવાથી તે અપડેટ થઈ જવું જોઈએ.",
+    bodyEn: "First, tap \"🔄 Sync\" (top toolbar) — sometimes it's just a connection hiccup making current data look missing, not an actual loss, and Sync tells you plainly which one it is. If it's genuinely gone, try these in order: (1) Undo (top toolbar) if it just happened. (2) The ⌄ next to \"Backup\" (top toolbar) → \"🛟 Recover local data\" — an automatic snapshot saved on this device from the last time it successfully loaded your real data. (3) Data → \"Restore\" — if you've ever downloaded a backup file (manually, or automatically into a chosen folder). (4) Data → \"Google Drive\" — if connected, it keeps a daily backup there. (5) Check another device signed into the same account — if the data is fine there, this device just hasn't synced yet, and simply reopening the app here should catch it up.",
+    bodyGu: "પહેલા \"🔄 સિંક\" પર ટેપ કરો (ટોચનું ટૂલબાર) — ક્યારેક તે ફક્ત જોડાણની સમસ્યા હોય છે જે હાલનો ડેટા ગુમ થયેલો દેખાડે છે, ખરેખર ગુમ થયેલો નથી, અને સિંક તમને સ્પષ્ટ રીતે કહે છે કે તે કયું છે. જો તે ખરેખર ગુમ થયો હોય, તો આ ક્રમમાં અજમાવો: (1) જો હમણાં જ થયું હોય તો પૂર્વવત્ (ટોચનું ટૂલબાર). (2) \"બેકઅપ\" ની બાજુમાં ⌄ (ટોચનું ટૂલબાર) → \"🛟 સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો\" — આ ડિવાઇસ પર છેલ્લે તમારો વાસ્તવિક ડેટા સફળતાપૂર્વક લોડ થયો ત્યારનો આપમેળે સચવાયેલો સ્નેપશોટ. (3) ડેટા → \"પુનઃસ્થાપિત કરો\" — જો તમે ક્યારેય બેકઅપ ફાઇલ ડાઉનલોડ કરી હોય (જાતે, અથવા પસંદ કરેલા ફોલ્ડરમાં આપમેળે). (4) ડેટા → \"Google Drive\" — જો જોડાયેલ હોય, તો તે ત્યાં દૈનિક બેકઅપ રાખે છે. (5) એ જ ખાતામાં સાઇન-ઇન થયેલ બીજું ડિવાઇસ તપાસો — જો ત્યાં ડેટા બરાબર હોય, તો આ ડિવાઇસ હજુ સિંક થયું નથી, અને ફક્ત અહીં એપ ફરી ખોલવાથી તે અપડેટ થઈ જવું જોઈએ.",
   },
 ];
 // Separate, shorter set for the read-only shared-link viewer — leaves
