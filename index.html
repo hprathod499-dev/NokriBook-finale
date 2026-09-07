@@ -46,8 +46,20 @@
   .modal-backdrop { animation: modalFadeIn 0.15s ease-out; }
   .modal-card { animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
   .toast-anim { animation: toastSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+  /* Slow-drifting soft blobs behind the sign-in card — pure CSS
+     transform animation (GPU-accelerated, no JS/canvas needed), looped
+     and offset so the motion reads as organic rather than a visibly
+     repeating loop. Deliberately slow (18-26s per cycle) and low-opacity
+     — this is the first thing anyone sees before they've even signed
+     in, so it should feel calm and premium, not busy or distracting. */
+  @keyframes blobDrift1 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(60px, -40px) scale(1.15); } }
+  @keyframes blobDrift2 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-50px, 50px) scale(1.1); } }
+  @keyframes blobDrift3 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(35px, 45px) scale(0.9); } }
+  .signin-blob-1 { animation: blobDrift1 22s ease-in-out infinite; }
+  .signin-blob-2 { animation: blobDrift2 26s ease-in-out infinite; animation-delay: -8s; }
+  .signin-blob-3 { animation: blobDrift3 19s ease-in-out infinite; animation-delay: -4s; }
   @media (prefers-reduced-motion: reduce) {
-    .modal-backdrop, .modal-card, .toast-anim { animation: none !important; }
+    .modal-backdrop, .modal-card, .toast-anim, .signin-blob-1, .signin-blob-2, .signin-blob-3 { animation: none !important; }
     button, button:not(:disabled):active { transition: none !important; transform: none !important; }
   }
   button {
@@ -2040,6 +2052,26 @@ function SignInScreen() {
       display: "flex", alignItems: "center", justifyContent: "center", padding: "14px",
       boxSizing: "border-box",
     }}>
+      {/* Slow-drifting soft blobs (see .signin-blob-* keyframes) — sit
+          behind the noise overlay and card, in the same amber/navy
+          palette as the rest of this screen's gradient. blur() is what
+          turns each into a soft glow instead of a visible hard-edged
+          circle. */}
+      <div className="signin-blob-1" style={{
+        position: "absolute", top: "-10%", left: "5%", width: 420, height: 420, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(224,180,80,0.28) 0%, rgba(224,180,80,0) 70%)",
+        filter: "blur(40px)", pointerEvents: "none",
+      }} />
+      <div className="signin-blob-2" style={{
+        position: "absolute", bottom: "-15%", right: "-5%", width: 480, height: 480, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(94,132,196,0.22) 0%, rgba(94,132,196,0) 70%)",
+        filter: "blur(50px)", pointerEvents: "none",
+      }} />
+      <div className="signin-blob-3" style={{
+        position: "absolute", bottom: "10%", left: "-8%", width: 320, height: 320, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(224,180,80,0.16) 0%, rgba(224,180,80,0) 70%)",
+        filter: "blur(35px)", pointerEvents: "none",
+      }} />
       {/* Subtle grain overlay for a premium, textured feel — tiled noise blended into the gradient */}
       <div style={{
         position: "absolute", inset: 0, backgroundImage: `url(${NOISE_DATA_URI})`, backgroundSize: "128px 128px",
