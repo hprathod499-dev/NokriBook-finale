@@ -1098,20 +1098,30 @@ function dateRangeStrs(from, to) {
 // one day apart.
 function groupHistoryRows(rows) {
   const groups = [];
+  // Tracks each person's still-extendable group by number, not just
+  // "whatever was pushed last". A plain "check the last group" approach
+  // breaks the moment two different people have entries on the same
+  // date (e.g. 7 people all assigned the same 3-day Group Duty): their
+  // rows interleave once sorted by date, so "last" keeps flipping
+  // between people and every person's span gets fragmented into
+  // separate single-day rows instead of merging into one span each.
+  const openByNumber = new Map();
   rows.forEach((r) => {
-    const last = groups[groups.length - 1];
-    const sameBatch = last && last.batch && r.batch && last.batch === r.batch;
-    const legacyAdjacent = last && !last.batch && !r.batch && last.note === r.note && last.firstTs - r.ts === 1;
+    const open = openByNumber.get(r.number);
+    const sameBatch = open && open.batch && r.batch && open.batch === r.batch;
+    const legacyAdjacent = open && !open.batch && !r.batch && open.note === r.note && open.firstTs - r.ts === 1;
     if (
-      last && last.number === r.number && last.catLabel === r.catLabel &&
-      addDaysStr(r.date, 1) === last.from && (sameBatch || legacyAdjacent)
+      open && open.catLabel === r.catLabel &&
+      addDaysStr(r.date, 1) === open.from && (sameBatch || legacyAdjacent)
     ) {
-      last.from = r.date;
-      last.firstTs = r.ts;
-      last.idxs.push(r.idx);
-      last.days += 1;
+      open.from = r.date;
+      open.firstTs = r.ts;
+      open.idxs.push(r.idx);
+      open.days += 1;
     } else {
-      groups.push({ number: r.number, name: r.name, from: r.date, to: r.date, note: r.note, extraNote: r.extraNote, ts: r.ts, firstTs: r.ts, batch: r.batch, idxs: [r.idx], days: 1, catLabel: r.catLabel });
+      const g = { number: r.number, name: r.name, from: r.date, to: r.date, note: r.note, extraNote: r.extraNote, ts: r.ts, firstTs: r.ts, batch: r.batch, idxs: [r.idx], days: 1, catLabel: r.catLabel };
+      groups.push(g);
+      openByNumber.set(r.number, g);
     }
   });
   return groups;
@@ -7657,6 +7667,7 @@ const calNavBtn = {
   fontSize: 14, color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "center",
 };
 function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntry }) {
+  const canDelete = !!(deleteHistoryEntries && deleteUnavailableHistoryEntry);
   const { t, lang } = useLang();
   const [month, setMonth] = useState(todayStr().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -7999,16 +8010,18 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div className="disp" style={{ fontWeight: 700, fontSize: 15 }}>{formatDMY(selectedDate)}</div>
-                <button
-                  onClick={() => setDeleteMode((v) => !v)}
-                  title={t("Show a delete button next to each entry below, to remove one you logged by mistake", "નીચેની દરેક એન્ટ્રીની બાજુમાં ડિલીટ બટન બતાવો, જેથી ભૂલથી નોંધેલી કોઈ એન્ટ્રી કાઢી શકાય")}
-                  style={{
-                    fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
-                    background: deleteMode ? "var(--status-error-text)" : "var(--bg-surface)",
-                    color: deleteMode ? "#fff" : "var(--text-secondary)",
-                    border: "1px solid " + (deleteMode ? "var(--status-error-text)" : "var(--border)"),
-                  }} className="gu"
-                >{t("Delete entry", "નોંધ ડીલીટ કરો")}</button>
+                {canDelete && (
+                  <button
+                    onClick={() => setDeleteMode((v) => !v)}
+                    title={t("Show a delete button next to each entry below, to remove one you logged by mistake", "નીચેની દરેક એન્ટ્રીની બાજુમાં ડિલીટ બટન બતાવો, જેથી ભૂલથી નોંધેલી કોઈ એન્ટ્રી કાઢી શકાય")}
+                    style={{
+                      fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+                      background: deleteMode ? "var(--status-error-text)" : "var(--bg-surface)",
+                      color: deleteMode ? "#fff" : "var(--text-secondary)",
+                      border: "1px solid " + (deleteMode ? "var(--status-error-text)" : "var(--border)"),
+                    }} className="gu"
+                  >{t("Delete entry", "નોંધ ડીલીટ કરો")}</button>
+                )}
               </div>
               <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setMonth(e.target.value.slice(0, 7)); }} style={{ fontSize: 12 }} />
             </div>
