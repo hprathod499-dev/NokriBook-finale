@@ -1886,9 +1886,31 @@ function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView,
 // identity, language, the destructive Format-all-data action, Top
 // Questions, support contact, and sign out/in. Reached via the new
 // "⚙️ Settings" item in that dropdown instead.
+// Real colors pulled from the [data-color-theme] CSS rules above (sidebar,
+// page background) so each preview swatch honestly represents what the
+// theme looks like. The accent bar uses a slightly bolder tone than the
+// theme's actual pale --accent variable purely so it's visible at this
+// small size — the real in-app accent stays exactly as defined in the CSS.
+const THEME_OPTIONS = [
+  { value: "classic", label: ["Classic (Original)", "ક્લાસિક (મૂળ)"], sidebar: "#1E1712", page: "#F4EBDC", accent: "#D98E2B" },
+  { value: "soft-blue", label: ["Soft Blue", "સોફ્ટ બ્લુ"], sidebar: "#000000", page: "#F2F8FC", accent: "#5B9BD5" },
+  { value: "light-green", label: ["Light Green", "લાઇટ ગ્રીન"], sidebar: "#000000", page: "#F3FAF0", accent: "#6FBF73" },
+];
+function ThemeSwatch({ sidebar, page, accent }) {
+  return (
+    <span style={{ width: 44, height: 30, borderRadius: 6, overflow: "hidden", display: "flex", border: "1px solid rgba(0,0,0,0.14)", flexShrink: 0 }}>
+      <span style={{ width: 9, background: sidebar, display: "block" }} />
+      <span style={{ flex: 1, background: page, display: "flex", alignItems: "flex-end", padding: 4, boxSizing: "border-box" }}>
+        <span style={{ width: "100%", height: 4, borderRadius: 2, background: accent, display: "block" }} />
+      </span>
+    </span>
+  );
+}
 function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const activeTheme = THEME_OPTIONS.find((o) => o.value === (theme || "classic")) || THEME_OPTIONS[0];
   const SUPPORT_EMAIL = "nokribook@gmail.com";
   // Only these dividing lines are meant to stand out boldly — everything
   // else in the panel (button borders, the language toggle's outline)
@@ -1916,42 +1938,46 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           {setTheme && (
             <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
               <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Appearance — Theme", "દેખાવ — થીમ")}</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {[
-                  { id: "classic", label: t("Classic", "ક્લાસિક"), page: "#F4EBDC", card: "#FFFDF8", accent: "#D98E2B", sidebar: "#1E1712" },
-                  { id: "soft-blue", label: t("Soft Blue", "સોફ્ટ બ્લુ"), page: "#F2F8FC", card: "#FFFFFF", accent: "#5B9BD5", sidebar: "#000000" },
-                  { id: "light-green", label: t("Light Green", "લાઇટ ગ્રીન"), page: "#F3FAF0", card: "#FFFFFF", accent: "#7BBF6A", sidebar: "#000000" },
-                ].map((opt) => {
-                  const active = (theme || "classic") === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() => setTheme(opt.id)}
-                      title={opt.label}
-                      style={{
-                        width: 92, padding: 8, borderRadius: 10, cursor: "pointer",
-                        border: "2px solid " + (active ? "#D98E2B" : "var(--border)"),
-                        background: "var(--bg-surface)", position: "relative",
-                      }}
-                    >
-                      {active && (
-                        <span style={{ position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: "50%", background: "#D98E2B", color: "#fff", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✓</span>
-                      )}
-                      {/* Mini preview: sidebar strip + page/card/accent swatch,
-                          so the card gives a real sense of the theme rather
-                          than just naming it. */}
-                      <div style={{ display: "flex", height: 40, borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-soft)", marginBottom: 6 }}>
-                        <div style={{ width: 12, background: opt.sidebar }} />
-                        <div style={{ flex: 1, background: opt.page, padding: 4, display: "flex", flexDirection: "column", gap: 3 }}>
-                          <div style={{ flex: 1, background: opt.card, borderRadius: 3 }} />
-                          <div style={{ height: 6, width: "60%", background: opt.accent, borderRadius: 3 }} />
-                        </div>
-                      </div>
-                      <div className="gu" style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)", textAlign: "left" }}>{opt.label}</div>
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                onClick={() => setThemeOpen((v) => !v)}
+                aria-expanded={themeOpen}
+                className="gu"
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                  padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-page)",
+                  cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <ThemeSwatch sidebar={activeTheme.sidebar} page={activeTheme.page} accent={activeTheme.accent} />
+                  {t(...activeTheme.label)}
+                </span>
+                <span style={{ color: "var(--text-tertiary)", fontSize: 11, transform: themeOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }}>▾</span>
+              </button>
+              {themeOpen && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                  {THEME_OPTIONS.map((opt) => {
+                    const active = opt.value === activeTheme.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => { setTheme(opt.value); setThemeOpen(false); }}
+                        className="gu"
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                          padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                          border: "1px solid " + (active ? "#D98E2B" : "var(--border)"),
+                          background: active ? "var(--accent-light)" : "var(--bg-surface)",
+                        }}
+                      >
+                        <ThemeSwatch sidebar={opt.sidebar} page={opt.page} accent={opt.accent} />
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{t(...opt.label)}</span>
+                        {active && <span style={{ color: "#D98E2B", fontWeight: 700 }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
           {onHelp && (
