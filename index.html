@@ -239,7 +239,19 @@
     --focus-ring: #D98E2B55;
     --accent-glow: #D98E2B33;
   }
-  [data-theme="dark"] {
+  /* html[data-theme="dark"] (rather than the plain attribute selector
+     [data-theme="dark"]) is deliberate: both data-theme and
+     data-color-theme live on the same element (<html>), so a plain
+     [data-theme="dark"] rule and a plain [data-color-theme="soft-blue"]/
+     [light-green] rule have identical specificity, and whichever is later
+     in the stylesheet wins — which used to mean a color theme always beat
+     Dark Mode, even when Dark Mode was turned on afterwards. Adding the
+     "html" type selector bumps this rule's specificity just enough to
+     always beat a plain [data-color-theme] rule, so Dark Mode + Soft Blue/
+     Light Green together stay dark, while Soft Blue/Light Green still
+     freely override the light-mode (Classic) palette when Dark Mode is
+     off, regardless of source order. */
+  html[data-theme="dark"] {
     color-scheme: dark;
     /* Pure pitch black everywhere in dark mode — page background, every
        card/panel surface, and the sidebar all use the same #000000, with
@@ -299,12 +311,15 @@
   [data-theme="dark"] .signin-field-input::placeholder { color: #8B958E; opacity: 1; }
   /* ===== Color theme system (Settings → Appearance → Theme) =====
      A second, independent attribute from [data-theme] (which only ever
-     toggles light/dark). [data-color-theme] carries the app's page
-     background / card / accent palette. Leaving it unset (Classic) means
-     the :root defaults above apply untouched — Classic is not a special
-     case here, it's simply "no override". Placed AFTER [data-theme="dark"]
-     above so selecting a color theme always wins over whatever dark mode
-     had set, regardless of which was toggled first. */
+     toggles light/dark). [data-color-theme] carries the app's light-mode
+     page background / card / accent palette. Leaving it unset (Classic)
+     means the :root defaults above apply untouched — Classic is not a
+     special case here, it's simply "no override". These rules only ever
+     override the light-mode (:root) palette: the html[data-theme="dark"]
+     block above uses the "html" type selector specifically so it always
+     outranks a plain [data-color-theme="..."] rule regardless of source
+     order, so Dark Mode stays dark no matter which was toggled first or
+     which color theme is selected underneath it. */
   [data-color-theme="soft-blue"] {
     --bg-page: #F2F8FC;
     --bg-surface: #FFFFFF;
@@ -1918,12 +1933,13 @@ const THEME_OPTIONS = [
   { value: "soft-blue", label: ["Soft Blue", "સોફ્ટ બ્લુ"], sidebar: "#000000", page: "#F2F8FC", accent: "#5B9BD5" },
   { value: "light-green", label: ["Light Green", "લાઇટ ગ્રીન"], sidebar: "#000000", page: "#F3FAF0", accent: "#6FBF73" },
 ];
-function ThemeSwatch({ sidebar, page, accent }) {
+function ThemeSwatch({ sidebar, page, accent, small }) {
+  const w = small ? 32 : 44, h = small ? 22 : 30, sw = small ? 7 : 9, bar = small ? 3 : 4, pad = small ? 3 : 4;
   return (
-    <span style={{ width: 44, height: 30, borderRadius: 6, overflow: "hidden", display: "flex", border: "1px solid rgba(0,0,0,0.14)", flexShrink: 0 }}>
-      <span style={{ width: 9, background: sidebar, display: "block" }} />
-      <span style={{ flex: 1, background: page, display: "flex", alignItems: "flex-end", padding: 4, boxSizing: "border-box" }}>
-        <span style={{ width: "100%", height: 4, borderRadius: 2, background: accent, display: "block" }} />
+    <span style={{ width: w, height: h, borderRadius: 6, overflow: "hidden", display: "flex", border: "1px solid rgba(0,0,0,0.14)", flexShrink: 0 }}>
+      <span style={{ width: sw, background: sidebar, display: "block" }} />
+      <span style={{ flex: 1, background: page, display: "flex", alignItems: "flex-end", padding: pad, boxSizing: "border-box" }}>
+        <span style={{ width: "100%", height: bar, borderRadius: 2, background: accent, display: "block" }} />
       </span>
     </span>
   );
@@ -1959,41 +1975,36 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           </div>
           {setTheme && (
             <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
-              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Appearance — Theme", "દેખાવ — થીમ")}</div>
               <button
                 onClick={() => setThemeOpen((v) => !v)}
                 aria-expanded={themeOpen}
-                className="gu"
+                className="disp gu"
                 style={{
-                  width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
-                  padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-page)",
-                  cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+                  display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13,
+                  background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)",
                 }}
               >
-                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <ThemeSwatch sidebar={activeTheme.sidebar} page={activeTheme.page} accent={activeTheme.accent} />
-                  {t(...activeTheme.label)}
-                </span>
-                <span style={{ color: "var(--text-tertiary)", fontSize: 11, transform: themeOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }}>▾</span>
+                <span style={{ display: "inline-block", transform: themeOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                {t("Theme", "થીમ")}
               </button>
               {themeOpen && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
                   {THEME_OPTIONS.map((opt) => {
                     const active = opt.value === activeTheme.value;
                     return (
                       <button
                         key={opt.value}
-                        onClick={() => { setTheme(opt.value); setThemeOpen(false); }}
+                        onClick={() => setTheme(opt.value)}
                         className="gu"
                         style={{
-                          display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-                          padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-                          border: "1px solid " + (active ? "var(--accent-strong)" : "var(--border)"),
-                          background: active ? "var(--accent-light)" : "var(--bg-surface)",
+                          display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                          padding: "6px 8px", borderRadius: 8, cursor: "pointer",
+                          border: "1px solid " + (active ? "var(--accent-strong)" : "transparent"),
+                          background: active ? "var(--accent-light)" : "transparent",
                         }}
                       >
-                        <ThemeSwatch sidebar={opt.sidebar} page={opt.page} accent={opt.accent} />
-                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{t(...opt.label)}</span>
+                        <ThemeSwatch sidebar={opt.sidebar} page={opt.page} accent={opt.accent} small />
+                        <span style={{ flex: 1, fontSize: 13, color: "var(--text-primary)" }}>{t(...opt.label)}</span>
                         {active && <span style={{ color: "var(--accent-strong)", fontWeight: 700 }}>✓</span>}
                       </button>
                     );
