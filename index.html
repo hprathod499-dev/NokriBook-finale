@@ -4870,10 +4870,10 @@ function DutyRoster() {
         </div>
       ))}
       {backupReminder && (
-        <div style={{ background: "var(--status-warning-bg)", color: "var(--status-warning-text)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }} className="no-print">
+        <div style={{ background: "var(--accent-light)", color: "var(--accent-strong)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }} className="no-print">
           <span className="gu">{t("It's been a couple of days since your last backup — worth taking one now.", "તમારા છેલ્લા બેકઅપને થોડા દિવસ થઈ ગયા છે — હમણાં એક લેવો યોગ્ય રહેશે.")}</span>
-          <button onClick={() => { exportBackup(); setBackupReminder(false); }} style={{ background: "var(--btn-warning-solid)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }} className="gu">⬇ {t("Backup now", "હમણાં બેકઅપ કરો")}</button>
-          <button onClick={() => setBackupReminder(false)} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--status-warning-text)", fontWeight: 700, cursor: "pointer" }}>✕</button>
+          <button onClick={() => { exportBackup(); setBackupReminder(false); }} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }} className="gu">⬇ {t("Backup now", "હમણાં બેકઅપ કરો")}</button>
+          <button onClick={() => setBackupReminder(false)} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--accent-strong)", fontWeight: 700, cursor: "pointer" }}>✕</button>
         </div>
       )}
 
