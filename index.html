@@ -82,7 +82,7 @@
   button:not(:disabled):active { transform: scale(0.97); }
   input[type=text], input[type=date], input[type=month], input[type=number], textarea, select {
     font-family: inherit; border: 1px solid var(--border); border-radius: 6px;
-    padding: 7px 10px; font-size: 13px; background: #fff; color: #16202B;
+    padding: 7px 10px; font-size: 13px; background: var(--bg-surface); color: var(--text-primary);
     transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
     /* Without this, a width:100% input's rendered width is 100% of its
        container PLUS the padding and border on top of that (the
@@ -94,7 +94,7 @@
        behaves. */
     box-sizing: border-box;
   }
-  input:focus, textarea:focus, select:focus { outline: 2px solid #D98E2B55; border-color: #D98E2B; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--focus-ring); border-color: var(--accent-strong); }
   select { font-family: inherit; }
   a, .clickable, [role="button"] { transition: color 0.15s ease, background-color 0.15s ease; }
   table { transition: opacity 0.15s ease; }
@@ -226,6 +226,18 @@
     --accent-hover: #C27D22;
     --accent-light: #FCEFD9;
     --accent-text: #FFFFFF;
+    /* --accent-strong: a version of the accent hue guaranteed legible as
+       standalone text/icon color (numbers, labels, focus rings) rather than
+       only as a button fill — needed because --accent itself is deliberately
+       pale for Soft Blue/Light Green (a soft fill color, not a text color).
+       Classic's accent is already vivid enough to serve both roles, so this
+       is identical to --accent here — no visual change for Classic.
+       --focus-ring / --accent-glow are complete literal colors (not built
+       from --accent-strong via string concatenation) because inline JS
+       style strings can't append an alpha suffix onto a var() token. */
+    --accent-strong: #D98E2B;
+    --focus-ring: #D98E2B55;
+    --accent-glow: #D98E2B33;
   }
   [data-theme="dark"] {
     color-scheme: dark;
@@ -310,6 +322,11 @@
     --accent-hover: #C3E2FA;
     --accent-light: #E4F1FA;
     --accent-text: #000000;
+    /* A clear, readable mid-tone blue for standalone text/icons/focus rings
+       — the pale --accent above is a fill color, not legible as text. */
+    --accent-strong: #4A90D9;
+    --focus-ring: #4A90D955;
+    --accent-glow: #4A90D933;
   }
   [data-color-theme="light-green"] {
     --bg-page: #F3FAF0;
@@ -328,6 +345,11 @@
     --accent-hover: #C7E8B6;
     --accent-light: #E7F5E0;
     --accent-text: #000000;
+    /* A clear, readable mid-tone green for standalone text/icons/focus
+       rings — the pale --accent above is a fill color, not legible as text. */
+    --accent-strong: #4CAF50;
+    --focus-ring: #4CAF5055;
+    --accent-glow: #4CAF5033;
   }
   /* Same input/option/placeholder theming the dark-mode block does above
      — soft-blue and light-green are both light-on-light palettes, so
@@ -1780,11 +1802,11 @@ function LangToggle() {
   return (
     <div style={{ display: "flex", gap: 4, padding: "10px 14px 0" }}>
       <button onClick={() => setLang("en")} style={{
-        flex: 1, background: lang === "en" ? "#D98E2B" : "#1B2733", color: lang === "en" ? "var(--text-primary)" : "#8FA0AC",
+        flex: 1, background: lang === "en" ? "var(--accent)" : "#1B2733", color: lang === "en" ? "var(--text-primary)" : "#8FA0AC",
         border: "none", borderRadius: 6, padding: "5px 0", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
       }}>EN</button>
       <button onClick={() => setLang("gu")} className="gu" style={{
-        flex: 1, background: lang === "gu" ? "#D98E2B" : "#1B2733", color: lang === "gu" ? "var(--text-primary)" : "#8FA0AC",
+        flex: 1, background: lang === "gu" ? "var(--accent)" : "#1B2733", color: lang === "gu" ? "var(--text-primary)" : "#8FA0AC",
         border: "none", borderRadius: 6, padding: "5px 0", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
       }}>ગુજરાતી</button>
     </div>
@@ -1871,7 +1893,7 @@ function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView,
               style={{ ...pillBtn, borderBottom: "1px solid #2E241A", display: "flex", justifyContent: "space-between", alignItems: "center" }}
             >
               <span>🖥️ {t("Desktop view", "ડેસ્કટોપ વ્યુ")}</span>
-              <span className="mono" style={{ fontSize: 11, color: desktopView ? "#D98E2B" : "#7C8891" }}>{desktopView ? t("On", "ચાલુ") : t("Off", "બંધ")}</span>
+              <span className="mono" style={{ fontSize: 11, color: desktopView ? "var(--accent-strong)" : "#7C8891" }}>{desktopView ? t("On", "ચાલુ") : t("Off", "બંધ")}</span>
             </button>
           )}
           <button onClick={() => { setOpen(false); onSettings(); }} className="gu" style={pillBtn}>⚙️ {t("Settings", "સેટિંગ્સ")}</button>
@@ -1931,8 +1953,8 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
             <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Language", "ભાષા")}</div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setLang("en")} style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "en" ? "#D98E2B" : "var(--border)"), background: lang === "en" ? "#D98E2B" : "transparent", color: lang === "en" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
-              <button onClick={() => setLang("gu")} className="gu" style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "gu" ? "#D98E2B" : "var(--border)"), background: lang === "gu" ? "#D98E2B" : "transparent", color: lang === "gu" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
+              <button onClick={() => setLang("en")} style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "en" ? "var(--accent-strong)" : "var(--border)"), background: lang === "en" ? "var(--accent)" : "transparent", color: lang === "en" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
+              <button onClick={() => setLang("gu")} className="gu" style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "gu" ? "var(--accent-strong)" : "var(--border)"), background: lang === "gu" ? "var(--accent)" : "transparent", color: lang === "gu" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
             </div>
           </div>
           {setTheme && (
@@ -1966,13 +1988,13 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
                         style={{
                           display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
                           padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-                          border: "1px solid " + (active ? "#D98E2B" : "var(--border)"),
+                          border: "1px solid " + (active ? "var(--accent-strong)" : "var(--border)"),
                           background: active ? "var(--accent-light)" : "var(--bg-surface)",
                         }}
                       >
                         <ThemeSwatch sidebar={opt.sidebar} page={opt.page} accent={opt.accent} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{t(...opt.label)}</span>
-                        {active && <span style={{ color: "#D98E2B", fontWeight: 700 }}>✓</span>}
+                        {active && <span style={{ color: "var(--accent-strong)", fontWeight: 700 }}>✓</span>}
                       </button>
                     );
                   })}
@@ -2000,13 +2022,13 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           )}
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
             <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 5 }} className="gu">{t("Suggest any changes", "કોઈપણ ફેરફારો સૂચવો")}</div>
-            <a href={`mailto:${SUPPORT_EMAIL}`} style={{ fontSize: 12.5, color: "#D98E2B", textDecoration: "none", wordBreak: "break-all" }}>{SUPPORT_EMAIL}</a>
+            <a href={`mailto:${SUPPORT_EMAIL}`} style={{ fontSize: 12.5, color: "var(--accent-strong)", textDecoration: "none", wordBreak: "break-all" }}>{SUPPORT_EMAIL}</a>
           </div>
           {signOutUser && (
             <button onClick={() => { onClose(); signOutUser(); }} className="gu" style={{ ...rowBtn, color: "var(--status-error-text)", fontWeight: 600, borderBottom: "none" }}>{t("Sign out", "સાઇન આઉટ")}</button>
           )}
           {onSignIn && (
-            <button onClick={() => { onClose(); onSignIn(); }} className="gu" style={{ ...rowBtn, color: "#D98E2B", fontWeight: 700, borderBottom: "none" }}>🔑 {t("Sign in to Nokri Book", "નોકરી બુકમાં સાઇન ઇન કરો")}</button>
+            <button onClick={() => { onClose(); onSignIn(); }} className="gu" style={{ ...rowBtn, color: "var(--accent-strong)", fontWeight: 700, borderBottom: "none" }}>🔑 {t("Sign in to Nokri Book", "નોકરી બુકમાં સાઇન ઇન કરો")}</button>
           )}
         </div>
       </div>
@@ -2320,7 +2342,7 @@ function SignInScreen() {
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "12px 0" }}>
             <div style={{ flex: 1, height: 1, background: "var(--border-soft)" }} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#B0B8C1", letterSpacing: 0.5 }}>{t("OR", "અથવા")}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: 0.5 }}>{t("OR", "અથવા")}</span>
             <div style={{ flex: 1, height: 1, background: "var(--border-soft)" }} />
           </div>
 
@@ -2337,10 +2359,10 @@ function SignInScreen() {
 
             {authAction === "signin" && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: -4 }}>
-                <button type="button" onClick={jumpToShareLink} aria-expanded={showShareLink} className="gu" style={{ background: "none", border: "none", padding: 0, color: showShareLink ? "#A9781E" : "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                <button type="button" onClick={jumpToShareLink} aria-expanded={showShareLink} className="gu" style={{ background: "none", border: "none", padding: 0, color: showShareLink ? "var(--accent-strong)" : "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                   {t("Viewer", "દર્શક")}
                 </button>
-                <button type="button" onClick={handleForgotPassword} className="gu" style={{ background: "none", border: "none", padding: 0, color: "#A9781E", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                <button type="button" onClick={handleForgotPassword} className="gu" style={{ background: "none", border: "none", padding: 0, color: "var(--accent-strong)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                   {t("Forgot Password?", "પાસવર્ડ ભૂલી ગયા?")}
                 </button>
               </div>
@@ -2348,8 +2370,8 @@ function SignInScreen() {
 
             <button type="submit" disabled={busy} className="gu" style={{
               width: "100%", boxSizing: "border-box", border: "none", borderRadius: 10, padding: "11px 14px", marginTop: 2,
-              background: "linear-gradient(135deg, #D4AF37, #A9781E)", color: "#1B1610", fontSize: 14, fontWeight: 700,
-              boxShadow: "0 10px 20px rgba(169,120,30,0.32)", cursor: busy ? "default" : "pointer", opacity: busy ? 0.75 : 1,
+              background: "linear-gradient(135deg, var(--accent), var(--accent-hover))", color: "var(--accent-text)", fontSize: 14, fontWeight: 700,
+              boxShadow: "0 10px 20px var(--accent-glow)", cursor: busy ? "default" : "pointer", opacity: busy ? 0.75 : 1,
             }}>
               {busy ? t("Please wait…", "કૃપા કરી રાહ જુઓ…") : authAction === "signup" ? t("Sign Up", "સાઇન અપ") : t("Login", "લોગિન")}
             </button>
@@ -2357,7 +2379,7 @@ function SignInScreen() {
 
           <div style={{ textAlign: "center", marginTop: 12, fontSize: 12.5, color: "var(--text-secondary)" }} className="gu">
             {authAction === "signup" ? t("Already have an account? ", "પહેલેથી ખાતું છે? ") : t("Don't have an account? ", "ખાતું નથી? ")}
-            <button type="button" onClick={() => { setAuthAction(authAction === "signup" ? "signin" : "signup"); resetFeedback(); }} style={{ background: "none", border: "none", padding: 0, color: "#A9781E", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }} className="gu">
+            <button type="button" onClick={() => { setAuthAction(authAction === "signup" ? "signin" : "signup"); resetFeedback(); }} style={{ background: "none", border: "none", padding: 0, color: "var(--accent-strong)", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }} className="gu">
               {authAction === "signup" ? t("Sign In", "સાઇન ઇન") : t("Sign Up", "સાઇન અપ")}
             </button>
           </div>
@@ -5103,7 +5125,7 @@ function DutyRoster() {
           // toast is a small overlay surface, not page content, so it
           // stays the same dark color regardless of the app's theme,
           // exactly like most OS/app toast notifications do.
-          background: toast.type === "error" ? "#A32D2D" : "#2B2116", color: "#fff",
+          background: toast.type === "error" ? "var(--btn-danger-solid)" : "var(--btn-dark-bg)", color: "#fff",
           padding: "10px 18px", borderRadius: 8, fontSize: 13, maxWidth: "min(90vw, 420px)", textAlign: "center",
           boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
         }}>{toast.msg}</div>
@@ -5191,7 +5213,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
               )}
               <button onClick={() => setView({ mode: "category", catId: c.id })} style={{
                 flex: 1, textAlign: "left", background: active ? "#1B2733" : "transparent",
-                border: "none", borderLeft: active ? "3px solid #D98E2B" : "3px solid transparent", borderRadius: editing ? 6 : 0,
+                border: "none", borderLeft: active ? "3px solid var(--accent-strong)" : "3px solid transparent", borderRadius: editing ? 6 : 0,
                 color: active ? "#fff" : "#B7C2CA", padding: editing ? "8px 10px 8px 4px" : "9px 16px 9px 15px", fontSize: 13,
                 fontWeight: active ? 600 : 400, display: "flex", justifyContent: "space-between", alignItems: "center",
               }}>
@@ -5214,7 +5236,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
               onChange={(e) => setNewLabel(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { addCategory(newLabel); setNewLabel(""); setAdding(false); } if (e.key === "Escape") { setNewLabel(""); setAdding(false); } }}
               style={{ flex: 1, minWidth: 0, fontSize: 12 }} />
-            <button onClick={() => { addCategory(newLabel); setNewLabel(""); setAdding(false); }} title={t("Add", "ઉમેરો")} aria-label={t("Add", "ઉમેરો")} style={{ flexShrink: 0, background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>+</button>
+            <button onClick={() => { addCategory(newLabel); setNewLabel(""); setAdding(false); }} title={t("Add", "ઉમેરો")} aria-label={t("Add", "ઉમેરો")} style={{ flexShrink: 0, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>+</button>
             <button onClick={() => { setNewLabel(""); setAdding(false); }} title={t("Cancel", "રદ કરો")} aria-label={t("Cancel", "રદ કરો")} style={{ flexShrink: 0, background: "transparent", color: "#8FA0AC", border: "1px solid #2E3742", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>✕</button>
           </div>
         ) : (
@@ -5231,7 +5253,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
         <button onClick={() => setView({ mode: "events" })} style={{ ...navBtn(view.mode === "events"), display: "flex", justifyContent: "space-between", alignItems: "center" }} className="gu">
           <span>🔔 {t("Events & reminders", "ઇવેન્ટ્સ અને રિમાઇન્ડર")}</span>
           {pendingReminderCount > 0 && (
-            <span className="mono" style={{ fontSize: 10.5, background: "#D98E2B", color: "var(--text-primary)", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{pendingReminderCount}</span>
+            <span className="mono" style={{ fontSize: 10.5, background: "var(--accent)", color: "var(--text-primary)", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{pendingReminderCount}</span>
           )}
         </button>
         <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
@@ -5249,7 +5271,7 @@ function undoRedoBtn(enabled) {
 }
 function navBtn(active) {
   return { width: "100%", textAlign: "left", background: active ? "#1B2733" : "transparent", border: "none",
-    borderLeft: active ? "3px solid #D98E2B" : "3px solid transparent", color: active ? "#fff" : "#B7C2CA",
+    borderLeft: active ? "3px solid var(--accent-strong)" : "3px solid transparent", color: active ? "#fff" : "#B7C2CA",
     padding: "9px 16px 9px 15px", fontSize: 13, fontWeight: active ? 600 : 400 };
 }
 
@@ -5508,11 +5530,11 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
         <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
           <button
             onClick={() => setOneDayOnly(true)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "#D98E2B" : "var(--border)"), background: oneDayOnly ? "#D98E2B" : "transparent", color: oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: oneDayOnly ? "var(--accent)" : "transparent", color: oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("One day only", "ફક્ત એક દિવસ")}</button>
           <button
             onClick={() => setOneDayOnly(false)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "#D98E2B" : "var(--border)"), background: !oneDayOnly ? "#D98E2B" : "transparent", color: !oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: !oneDayOnly ? "var(--accent)" : "transparent", color: !oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
         </div>
 
@@ -5697,7 +5719,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
           ))}
           <button
             onClick={recordAll}
-            style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600, width: "100%", marginTop: 8 }} className="gu"
+            style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600, width: "100%", marginTop: 8 }} className="gu"
           >{t(`Record ${queue.length} leave${queue.length === 1 ? "" : "s"}`, `${queue.length} રજા નોંધો`)}</button>
         </div>
       )}
@@ -5785,11 +5807,11 @@ function GroupDutyView({ data, assignGroupDuty }) {
         <div style={{ marginBottom: 10, display: "flex", gap: 6, maxWidth: 300 }}>
           <button
             onClick={() => setOneDayOnly(true)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "#D98E2B" : "var(--border)"), background: oneDayOnly ? "#D98E2B" : "transparent", color: oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: oneDayOnly ? "var(--accent)" : "transparent", color: oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("One day only", "ફક્ત એક દિવસ")}</button>
           <button
             onClick={() => setOneDayOnly(false)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "#D98E2B" : "var(--border)"), background: !oneDayOnly ? "#D98E2B" : "transparent", color: !oneDayOnly ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: !oneDayOnly ? "var(--accent)" : "transparent", color: !oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
         </div>
 
@@ -5894,7 +5916,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
                 <div key={p.number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "var(--bg-surface-2)", borderRadius: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <div className="gu" style={{ fontSize: 13 }}>{p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{p.number}</span></div>
-                    <div className="mono" style={{ fontSize: 10.5, color: hasNumber ? "var(--status-success-text)" : "#B8892E" }}>
+                    <div className="mono" style={{ fontSize: 10.5, color: hasNumber ? "var(--status-success-text)" : "var(--status-warning-text)" }}>
                       {hasNumber ? staffRec.phone : t("No number on file — you'll need to pick them manually", "કોઈ નંબર નથી — તમારે તેમને જાતે પસંદ કરવા પડશે")}
                     </div>
                   </div>
@@ -6096,7 +6118,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           <button
             onClick={handleDownloadPdf} disabled={pdfBusy}
             title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
-            style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+            style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
           >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
         </div>
       </div>
@@ -6108,7 +6130,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       ) : (
       <React.Fragment>
       <div style={{
-        background: "var(--bg-surface)", border: "1px solid var(--border)", borderLeft: nextUp ? "4px solid #D98E2B" : "4px solid var(--border)",
+        background: "var(--bg-surface)", border: "1px solid var(--border)", borderLeft: nextUp ? "4px solid var(--accent-strong)" : "4px solid var(--border)",
         borderRadius: 10, padding: "16px 20px", marginBottom: 22, display: "flex", alignItems: "center",
         justifyContent: "space-between", flexWrap: "wrap", gap: 12,
       }}>
@@ -6221,7 +6243,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
               <button
                 onClick={() => { importStaffToCategory(catId, [...importSelected]); setShowImportMenu(false); }}
                 disabled={importSelected.size === 0}
-                style={{ width: "100%", background: importSelected.size ? "#D98E2B" : "var(--border-soft)", color: importSelected.size ? "#fff" : "var(--text-tertiary)", border: "none", borderRadius: 7, padding: "10px 12px", fontSize: 13, fontWeight: 700 }} className="gu"
+                style={{ width: "100%", background: importSelected.size ? "var(--accent)" : "var(--border-soft)", color: importSelected.size ? "var(--accent-text)" : "var(--text-tertiary)", border: "none", borderRadius: 7, padding: "10px 12px", fontSize: 13, fontWeight: 700 }} className="gu"
               >{t(`Import${importSelected.size ? ` (${importSelected.size})` : ""}`, `આયાત કરો${importSelected.size ? ` (${importSelected.size})` : ""}`)}</button>
             </div>
           </div>
@@ -6256,8 +6278,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                     })}
                     style={{
                       fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
-                      border: "1px solid " + (active ? "#D98E2B" : "var(--border)"),
-                      background: active ? "#D98E2B" : "var(--bg-surface)", color: active ? "#fff" : "var(--text-secondary)",
+                      border: "1px solid " + (active ? "var(--accent-strong)" : "var(--border)"),
+                      background: active ? "var(--accent)" : "var(--bg-surface)", color: active ? "var(--accent-text)" : "var(--text-secondary)",
                     }}
                     className="gu"
                   >{d.label}</button>
@@ -6386,9 +6408,9 @@ function InfoIconButton({ active, onClick, label }) {
       aria-pressed={active}
       style={{
         width: 19, height: 19, borderRadius: "50%", flexShrink: 0,
-        border: "1px solid " + (active ? "#D98E2B" : "var(--text-tertiary)"),
-        background: active ? "#D98E2B" : "transparent",
-        color: active ? "#fff" : "var(--text-tertiary)",
+        border: "1px solid " + (active ? "var(--accent-strong)" : "var(--text-tertiary)"),
+        background: active ? "var(--accent)" : "transparent",
+        color: active ? "var(--accent-text)" : "var(--text-tertiary)",
         fontSize: 11.5, fontWeight: 700, fontStyle: "italic", fontFamily: "Georgia, 'Times New Roman', serif",
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         cursor: "pointer", padding: 0, lineHeight: 1, marginLeft: 7,
@@ -6489,7 +6511,7 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
   const [date, setDate] = useState(addDaysStr(todayStr(), 1));
   const quickBtn = (active) => ({
     fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
-    border: "1px solid " + (active ? "#D98E2B" : "var(--border)"),
+    border: "1px solid " + (active ? "var(--accent-strong)" : "var(--border)"),
     background: active ? "var(--status-warning-bg)" : "var(--bg-surface)", color: active ? "var(--status-warning-text)" : "var(--text-secondary)",
   });
   return (
@@ -6566,7 +6588,7 @@ function CategoryFairnessTable({ roster, catLabel }) {
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--border-soft)", overflow: "hidden", minWidth: 60 }}>
-                      <div style={{ width: `${Math.max(r.pct > 0 ? 3 : 0, r.pct)}%`, height: "100%", borderRadius: 3, background: "#D98E2B" }} />
+                      <div style={{ width: `${Math.max(r.pct > 0 ? 3 : 0, r.pct)}%`, height: "100%", borderRadius: 3, background: "var(--accent)" }} />
                     </div>
                     <span className="mono" style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 42, textAlign: "right" }}>{r.pct.toFixed(1)}%</span>
                   </div>
@@ -6932,9 +6954,9 @@ function StaffView({
           title={t("Show Edit name and Remove entirely for each person in the table below", "નીચેના કોષ્ટકમાં દરેક વ્યક્તિ માટે નામ સંપાદિત કરો અને સંપૂર્ણપણે કાઢી નાખો બતાવો")}
           style={{
             marginLeft: 8, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7,
-            background: showFullActions ? "#D98E2B" : "var(--bg-surface)",
-            color: showFullActions ? "#fff" : "var(--text-secondary)",
-            border: "1px solid " + (showFullActions ? "#D98E2B" : "var(--border)"),
+            background: showFullActions ? "var(--accent)" : "var(--bg-surface)",
+            color: showFullActions ? "var(--accent-text)" : "var(--text-secondary)",
+            border: "1px solid " + (showFullActions ? "var(--accent-strong)" : "var(--border)"),
           }} className="gu"
         >{t("Edit staff", "સ્ટાફ સંપાદિત કરો")}</button>
       </div>
@@ -6971,8 +6993,8 @@ function StaffView({
         <button
           onClick={() => setShowFairnessCompare((v) => !v)}
           style={{
-            background: showFairnessCompare ? "#D98E2B" : "var(--bg-surface)", color: showFairnessCompare ? "#fff" : "var(--text-primary)",
-            border: "1px solid " + (showFairnessCompare ? "#D98E2B" : "var(--border)"), borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+            background: showFairnessCompare ? "var(--accent)" : "var(--bg-surface)", color: showFairnessCompare ? "var(--accent-text)" : "var(--text-primary)",
+            border: "1px solid " + (showFairnessCompare ? "var(--accent-strong)" : "var(--border)"), borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
           }} className="gu"
         >⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
         <button
@@ -7073,7 +7095,7 @@ function StaffView({
                         <div style={{
                           width: maxDuties > 0 ? `${Math.max(6, (s.dutiesThisMonth / maxDuties) * 100)}%` : "0%",
                           height: "100%", borderRadius: 2,
-                          background: maxDuties > 0 && s.dutiesThisMonth === 0 ? "var(--border)" : "#D98E2B",
+                          background: maxDuties > 0 && s.dutiesThisMonth === 0 ? "var(--border)" : "var(--accent)",
                         }} />
                       </div>
                     </div>
@@ -7243,7 +7265,7 @@ function StaffView({
               <input type="checkbox" checked={newLeaveIndefinite} onChange={(e) => setNewLeaveIndefinite(e.target.checked)} />
               {t("No end date", "કોઈ અંતિમ તારીખ નથી")}
             </label>
-            <button onClick={() => { addLeaveType(newLeaveLabel, newLeaveIndefinite); setNewLeaveLabel(""); setNewLeaveIndefinite(false); }} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
+            <button onClick={() => { addLeaveType(newLeaveLabel, newLeaveIndefinite); setNewLeaveLabel(""); setNewLeaveIndefinite(false); }} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
           </div>
           </React.Fragment>
           )}
@@ -7294,7 +7316,7 @@ function StaffView({
               <input type="checkbox" checked={newOutIndefinite} onChange={(e) => setNewOutIndefinite(e.target.checked)} />
               {t("No end date", "કોઈ અંતિમ તારીખ નથી")}
             </label>
-            <button onClick={() => { addOutstationType(newOutLabel, newOutIndefinite); setNewOutLabel(""); setNewOutIndefinite(false); }} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
+            <button onClick={() => { addOutstationType(newOutLabel, newOutIndefinite); setNewOutLabel(""); setNewOutIndefinite(false); }} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
           </div>
           </React.Fragment>
           )}
@@ -7333,7 +7355,7 @@ function StaffView({
             <input type="text" placeholder={t("New designation", "નવો હોદ્દો")} value={newDesgLabel} onChange={(e) => setNewDesgLabel(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { addDesignation(newDesgLabel); setNewDesgLabel(""); } }}
               style={{ flex: 1, minWidth: 120, fontSize: 12 }} className="gu" />
-            <button onClick={() => { addDesignation(newDesgLabel); setNewDesgLabel(""); }} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
+            <button onClick={() => { addDesignation(newDesgLabel); setNewDesgLabel(""); }} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
           </div>
           </React.Fragment>
           )}
@@ -7381,7 +7403,7 @@ function StaffView({
                   else setUnavailable(modalFor, modalKind, modalTypeId, modalFrom, modalTo);
                   setModalFor(null);
                 }}
-                style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu"
+                style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu"
               >{t("Save", "સાચવો")}</button>
             </div>
           </div>
@@ -7530,7 +7552,7 @@ function PersonHistoryModal({ data, number, onClose }) {
             <button
               onClick={handleDownloadPdf} disabled={pdfBusy}
               title={t("Download this duty history as a PDF for the selected period", "પસંદ કરેલ સમયગાળા માટે આ ડ્યુટી ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
-              style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+              style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
             >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
           </div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
@@ -7538,7 +7560,7 @@ function PersonHistoryModal({ data, number, onClose }) {
 
         <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div style={{ background: "var(--bg-surface-2)", borderRadius: 8, padding: "8px 14px" }}>
-            <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: "#D98E2B" }}>{totalThisMonth}</div>
+            <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: "var(--accent-strong)" }}>{totalThisMonth}</div>
             <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{t("This month", "આ મહિને")}</div>
           </div>
           <div style={{ background: "var(--bg-surface-2)", borderRadius: 8, padding: "8px 14px" }}>
@@ -7665,7 +7687,7 @@ function DutyFairnessCompare({ data, staffList }) {
 
   const Bar = ({ pct, color }) => (
     <div style={{ flex: 1, height: 7, borderRadius: 4, background: "var(--border-soft)", overflow: "hidden" }}>
-      <div style={{ width: `${pct}%`, height: "100%", background: color || "#D98E2B", borderRadius: 4 }} />
+      <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--accent)", borderRadius: 4 }} />
     </div>
   );
   const barRow = (key, label, count, pct, color) => (
@@ -7729,7 +7751,7 @@ function DutyFairnessCompare({ data, staffList }) {
                   return (
                     <div key={p.number} style={{ flex: "1 1 220px", background: "var(--bg-surface-2)", borderRadius: 8, padding: 12 }}>
                       <div className="gu" style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{p.name} <span className="mono" style={{ fontWeight: 400, fontSize: 11, color: "var(--text-tertiary)" }}>#{p.number}</span></div>
-                      <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "#D98E2B" }}>{p.periodCount}</div>
+                      <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "var(--accent-strong)" }}>{p.periodCount}</div>
                       <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 8 }}>{t(`duties in ${periodLabel(t, period)}`, `${periodLabel(t, period)} ડ્યુટીઓ`)} · {pct}% {t("of the busiest in this comparison", "આ સરખામણીમાં સૌથી વ્યસ્તની સાપેક્ષે")}</div>
                       {breakdown.length > 0 ? breakdown.map((b) => (
                         <div key={b.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginBottom: 3 }} className="gu">
@@ -8090,7 +8112,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
             value={exportKind} onChange={(e) => setExportKind(e.target.value)}
             style={{
               fontSize: 12.5, padding: "8px 6px 8px 10px", border: "none", borderRadius: 0, borderRight: "1px solid rgba(255,255,255,0.4)",
-              background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", fontWeight: 600, cursor: "pointer",
+              background: exportRows.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", fontWeight: 600, cursor: "pointer",
             }} className="gu"
           >
             <option value="both">{t("Leave + Outstation", "રજા + બહારગામ")}</option>
@@ -8100,7 +8122,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           <button
             onClick={downloadCalendarPdf} disabled={exportRows.length === 0 || pdfBusy}
             style={{
-              background: exportRows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 0,
+              background: exportRows.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 0,
               padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: exportRows.length && !pdfBusy ? "pointer" : "default",
             }} className="gu"
           >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Export PDF", "PDF એક્સપોર્ટ કરો")}</button>
@@ -8147,7 +8169,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                   (count ? t(`${count} duty record${count === 1 ? "" : "s"}`, `${count} ડ્યુટી રેકોર્ડ`) : t("No duty recorded", "કોઈ ડ્યુટી નોંધાયેલી નથી"))
                   + (awaySummary ? " · " + awayTitle : "")
                 } style={{
-                  aspectRatio: "1", border: "1px solid " + (isSelected ? "#D98E2B" : "var(--border-soft)"),
+                  aspectRatio: "1", border: "1px solid " + (isSelected ? "var(--accent-strong)" : "var(--border-soft)"),
                   background: isSelected ? "var(--status-warning-bg)" : (isToday ? "var(--bg-surface-2)" : "var(--bg-surface)"),
                   borderRadius: 7, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                   padding: 2, position: "relative",
@@ -8156,7 +8178,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                     <span style={{ position: "absolute", top: 3, right: 3, width: 6, height: 6, borderRadius: "50%", background: dotColor }} />
                   )}
                   <span className="mono" style={{ fontSize: 12, fontWeight: isToday ? 700 : 500, color: isSelected ? "var(--status-warning-text)" : "var(--text-primary)" }}>{dayNum}</span>
-                  {count > 0 && <span style={{ fontSize: 9, color: "#D98E2B", fontWeight: 700, marginTop: 1 }}>{count}</span>}
+                  {count > 0 && <span style={{ fontSize: 9, color: "var(--accent-strong)", fontWeight: 700, marginTop: 1 }}>{count}</span>}
                 </button>
               );
             })}
@@ -8194,7 +8216,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
               Object.keys(selGrouped).sort().map((cat) => (
                 <div key={cat} style={{ marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 5 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#D98E2B", display: "inline-block", flexShrink: 0 }} />
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", display: "inline-block", flexShrink: 0 }} />
                     {cat}
                   </div>
                   {selGrouped[cat].map((r, i) => {
@@ -8524,7 +8546,7 @@ function ReportView({ data }) {
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, width: 30, height: 30, fontSize: 14, color: "var(--text-primary)", cursor: "pointer" }}
           >▶</button>
         </div>
-        <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+        <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
         <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t(`${rows.length} duty record${rows.length === 1 ? "" : "s"} in ${monthLabel}`, `${monthLabel} માં ${rows.length} ડ્યુટી રેકોર્ડ`)}</div>
       </div>
 
@@ -8695,7 +8717,7 @@ function EventsTab({ data, events, addEvent, updateEvent, deleteEvent }) {
           <input type="date" value={start} onChange={(e) => setStart(e.target.value)} title={t("Start date", "શરૂઆતની તારીખ")} />
           <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} title={t("End date", "અંતિમ તારીખ")} />
           <input type="text" placeholder={t("Notes (optional)", "નોંધ (વૈકલ્પિક)")} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: 200 }} className="gu" />
-          <button type="submit" style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{t("+ Add", "+ ઉમેરો")}</button>
+          <button type="submit" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{t("+ Add", "+ ઉમેરો")}</button>
         </form>
       </div>
     </React.Fragment>
@@ -9025,7 +9047,7 @@ function WelcomeModal({ onGetStarted, onClose }) {
         {step === 0 && <img src="./welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
         <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 6, paddingRight: 152 }}>
           {WELCOME_STEPS.map((_, i) => (
-            <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "#D98E2B" : "var(--border-soft)" }} />
+            <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--accent)" : "var(--border-soft)" }} />
           ))}
         </div>
         <div className="disp gu" style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{t(cur.titleEn, cur.titleGu)}</div>
@@ -9040,7 +9062,7 @@ function WelcomeModal({ onGetStarted, onClose }) {
           )}
           <button
             onClick={() => (isLast ? onGetStarted() : setStep((s) => s + 1))}
-            style={{ flex: 1, background: "#D98E2B", color: "#fff", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700 }} className="gu"
+            style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700 }} className="gu"
           >
             {isLast ? t("Assign my first duty →", "મારી પહેલી ડ્યુટી સોંપો →") : t("Next →", "આગળ →")}
           </button>
@@ -9274,7 +9296,7 @@ function AboutPanel({ onClose }) {
         <div style={{
           position: "absolute", top: -40, left: "50%", transform: "translateX(-50%)",
           width: 180, height: 180, borderRadius: "50%",
-          background: "radial-gradient(circle, #D98E2B33 0%, transparent 70%)", pointerEvents: "none",
+          background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)", pointerEvents: "none",
         }} />
         <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")}
           style={{ position: "absolute", top: 10, right: 12, background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15 }}>✕</button>
@@ -9305,7 +9327,7 @@ function AboutPanel({ onClose }) {
 
         <div className="disp gu" style={{ fontSize: 14.5, fontWeight: 700, lineHeight: 1.5, color: "var(--text-primary)", letterSpacing: 0.2 }}>
           {t("TESTED AND DEVELOPED BY", "પરીક્ષણ અને વિકાસ કરનાર")}<br />
-          <span style={{ color: "#D98E2B", fontSize: 16 }} className="gu">{t("HARSHVARDHAN RATHOD P.", "હર્ષવર્ધન રાઠોડ પી.")}</span>
+          <span style={{ color: "var(--accent-strong)", fontSize: 16 }} className="gu">{t("HARSHVARDHAN RATHOD P.", "હર્ષવર્ધન રાઠોડ પી.")}</span>
         </div>
         <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, fontWeight: 600 }}>
           {t("(CLASS-10 STUDENT)", "(ધોરણ-૧૦ નો વિદ્યાર્થી)")}
@@ -9963,7 +9985,7 @@ function PublicCategoryView({ data, catId }) {
           <button
             onClick={handleDownloadPdf} disabled={pdfBusy}
             title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
-            style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+            style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
           >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
         </div>
       </div>
@@ -10118,8 +10140,8 @@ function PublicStaffView({ data }) {
         <button
           onClick={() => setShowFairnessCompare((v) => !v)}
           style={{
-            background: showFairnessCompare ? "#D98E2B" : "var(--bg-surface)", color: showFairnessCompare ? "#fff" : "var(--text-primary)",
-            border: "1px solid " + (showFairnessCompare ? "#D98E2B" : "var(--border)"), borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+            background: showFairnessCompare ? "var(--accent)" : "var(--bg-surface)", color: showFairnessCompare ? "var(--accent-text)" : "var(--text-primary)",
+            border: "1px solid " + (showFairnessCompare ? "var(--accent-strong)" : "var(--border)"), borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
           }} className="gu"
         >⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
       </div>
@@ -10225,15 +10247,15 @@ class ErrorBoundary extends React.Component {
     if (this.state.error) {
       const details = `${this.state.error && this.state.error.message}\n\n${(this.state.error && this.state.error.stack) || ""}`.trim();
       return (
-        <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#F4EBDC", padding: 24, overflowY: "auto" }}>
+        <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-page)", padding: 24, overflowY: "auto" }}>
           <div style={{ maxWidth: 560, textAlign: "center" }}>
             <div style={{ fontSize: 34, marginBottom: 10 }}>⚠️</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#2B2116", marginBottom: 8 }}>Something went wrong</div>
-            <div style={{ fontSize: 13.5, color: "#6E5D49", marginBottom: 18 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>Something went wrong</div>
+            <div style={{ fontSize: 13.5, color: "var(--text-secondary)", marginBottom: 18 }}>
               This screen hit an unexpected error. Your data is safe — every change is saved as it happens. Reloading usually fixes it.
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18 }}>
-              <button onClick={() => window.location.reload()} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Reload</button>
+              <button onClick={() => window.location.reload()} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Reload</button>
               <button
                 onClick={(e) => {
                   navigator.clipboard.writeText(details).then(() => {
@@ -10241,15 +10263,15 @@ class ErrorBoundary extends React.Component {
                     setTimeout(() => { e.target.textContent = "Copy error details"; }, 1500);
                   }).catch(() => {});
                 }}
-                style={{ background: "#fff", color: "#2B2116", border: "1px solid #D9CBB0", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
               >Copy error details</button>
               <button
                 onClick={() => { auth.signOut().catch((e) => console.error("Sign out failed:", e)).finally(() => window.location.reload()); }}
-                style={{ background: "#fff", color: "#2B2116", border: "1px solid #D9CBB0", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+                style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
               >Back to sign in</button>
             </div>
             <pre style={{
-              textAlign: "left", fontSize: 11.5, color: "#6E5D49", background: "#FFFDF8", border: "1px solid #E8DCC4",
+              textAlign: "left", fontSize: 11.5, color: "var(--text-secondary)", background: "var(--bg-surface)", border: "1px solid var(--border-soft)",
               borderRadius: 8, padding: 12, maxHeight: 220, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word",
             }}>{details || "(no error details captured)"}</pre>
           </div>
