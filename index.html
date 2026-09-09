@@ -4870,10 +4870,10 @@ function DutyRoster() {
         </div>
       ))}
       {backupReminder && (
-        <div style={{ background: "var(--highlight-bg)", color: darkMode ? "#FFFFFF" : "#000000", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }} className="no-print">
+        <div style={{ background: "var(--highlight-bg)", color: "var(--text-primary)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }} className="no-print">
           <span className="gu">{t("It's been a couple of days since your last backup — worth taking one now.", "તમારા છેલ્લા બેકઅપને થોડા દિવસ થઈ ગયા છે — હમણાં એક લેવો યોગ્ય રહેશે.")}</span>
           <button onClick={() => { exportBackup(); setBackupReminder(false); }} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }} className="gu">⬇ {t("Backup now", "હમણાં બેકઅપ કરો")}</button>
-          <button onClick={() => setBackupReminder(false)} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: darkMode ? "#FFFFFF" : "#000000", fontWeight: 700, cursor: "pointer" }}>✕</button>
+          <button onClick={() => setBackupReminder(false)} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-primary)", fontWeight: 700, cursor: "pointer" }}>✕</button>
         </div>
       )}
 
@@ -5001,7 +5001,6 @@ function DutyRoster() {
               borderColor: data.shareEnabled ? "var(--status-success-border)" : "var(--border)",
               color: data.shareEnabled ? "var(--status-success-text)" : "var(--text-primary)",
             }}>{langCtxValue.t("Share", "શેર")}{data.shareEnabled ? " ✓" : ""}</button>
-            <button onClick={() => setShowSettingsPanel(true)} title={langCtxValue.t("Settings", "સેટિંગ્સ")} style={undoRedoBtn(true)} className="gu">⚙️ {langCtxValue.t("Settings", "સેટિંગ્સ")}</button>
             <button onClick={() => setShowAboutPanel(true)} title={langCtxValue.t("About this app", "આ એપ વિશે")} aria-label={langCtxValue.t("About this app", "આ એપ વિશે")} style={{
               ...undoRedoBtn(true),
               // Deliberately keeps the same 6px top/bottom padding as
@@ -5929,8 +5928,8 @@ function GroupDutyView({ data, assignGroupDuty }) {
           onClick={handleAssign}
           disabled={!canAssign}
           style={{
-            background: canAssign ? "var(--accent)" : "var(--status-warning-border)", color: canAssign ? "var(--accent-text)" : "#fff",
-            border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13.5, fontWeight: 700,
+            background: canAssign ? "var(--accent)" : "var(--border)", color: canAssign ? "var(--accent-text)" : "var(--text-secondary)",
+            border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13.5, fontWeight: 700, cursor: canAssign ? "pointer" : "default",
           }} className="gu"
         >
           {people.length > 0
