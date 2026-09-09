@@ -2,6 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<script>
+  // Applied as early as physically possible (before the stylesheet below
+  // even parses) so a saved Soft Blue / Light Green choice never flashes
+  // the Classic theme for a frame on load. Wrapped in try/catch since
+  // localStorage can throw in some locked-down/private-browsing contexts
+  // — a failure here should never block the page from loading.
+  try {
+    var savedTheme = localStorage.getItem("nokriBookTheme");
+    if (savedTheme && savedTheme !== "classic") {
+      document.documentElement.setAttribute("data-color-theme", savedTheme);
+    }
+  } catch (e) {}
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Console</title>
 <link rel="manifest" href="./manifest.json" />
@@ -205,6 +218,14 @@
        same readable dark color in both themes. */
     --btn-warning-solid: #8A5A16;
     --btn-danger-solid: #A32D2D;
+    /* Accent family — introduced for the theme system below. Classic
+       values match the app's existing hardcoded gold (#D98E2B) exactly,
+       so selecting "Classic (Original)" looks byte-for-byte identical to
+       how the app looked before this variable existed. */
+    --accent: #D98E2B;
+    --accent-hover: #C27D22;
+    --accent-light: #FCEFD9;
+    --accent-text: #FFFFFF;
   }
   [data-theme="dark"] {
     color-scheme: dark;
@@ -264,6 +285,57 @@
      placeholder white and make it invisible on the light pill). */
   .signin-field-input::placeholder { color: #8B958E; opacity: 1; }
   [data-theme="dark"] .signin-field-input::placeholder { color: #8B958E; opacity: 1; }
+  /* ===== Color theme system (Settings → Appearance → Theme) =====
+     A second, independent attribute from [data-theme] (which only ever
+     toggles light/dark). [data-color-theme] carries the app's page
+     background / card / accent palette. Leaving it unset (Classic) means
+     the :root defaults above apply untouched — Classic is not a special
+     case here, it's simply "no override". Placed AFTER [data-theme="dark"]
+     above so selecting a color theme always wins over whatever dark mode
+     had set, regardless of which was toggled first. */
+  [data-color-theme="soft-blue"] {
+    --bg-page: #F2F8FC;
+    --bg-surface: #FFFFFF;
+    --bg-surface-2: #E4F1FA;
+    --sidebar-bg: #000000;
+    --text-primary: #000000;
+    --text-secondary: #000000;
+    --text-tertiary: #000000;
+    --border: #D5E6F2;
+    --border-soft: #E4F1FA;
+    --btn-dark-bg: #000000;
+    --highlight-bg: #E4F1FA;
+    --highlight-border: #BFDEF2;
+    --accent: #DCEEFF;
+    --accent-hover: #C3E2FA;
+    --accent-light: #E4F1FA;
+    --accent-text: #000000;
+  }
+  [data-color-theme="light-green"] {
+    --bg-page: #F3FAF0;
+    --bg-surface: #FFFFFF;
+    --bg-surface-2: #E7F5E0;
+    --sidebar-bg: #000000;
+    --text-primary: #000000;
+    --text-secondary: #000000;
+    --text-tertiary: #000000;
+    --border: #D6EDCB;
+    --border-soft: #E7F5E0;
+    --btn-dark-bg: #000000;
+    --highlight-bg: #E7F5E0;
+    --highlight-border: #C3E4B4;
+    --accent: #DCF2D0;
+    --accent-hover: #C7E8B6;
+    --accent-light: #E7F5E0;
+    --accent-text: #000000;
+  }
+  /* Same input/option/placeholder theming the dark-mode block does above
+     — soft-blue and light-green are both light-on-light palettes, so
+     this mainly matters for keeping <select> option lists from
+     defaulting to native black-on-white regardless of CSS. */
+  [data-color-theme="soft-blue"] option, [data-color-theme="light-green"] option {
+    background: var(--bg-surface); color: var(--text-primary);
+  }
 </style>
 </head>
 <body>
@@ -1814,7 +1886,7 @@ function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView,
 // identity, language, the destructive Format-all-data action, Top
 // Questions, support contact, and sign out/in. Reached via the new
 // "⚙️ Settings" item in that dropdown instead.
-function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, onClose }) {
+function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const SUPPORT_EMAIL = "nokribook@gmail.com";
@@ -1841,6 +1913,47 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
               <button onClick={() => setLang("gu")} className="gu" style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "gu" ? "#D98E2B" : "var(--border)"), background: lang === "gu" ? "#D98E2B" : "transparent", color: lang === "gu" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
             </div>
           </div>
+          {setTheme && (
+            <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
+              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Appearance — Theme", "દેખાવ — થીમ")}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { id: "classic", label: t("Classic", "ક્લાસિક"), page: "#F4EBDC", card: "#FFFDF8", accent: "#D98E2B", sidebar: "#1E1712" },
+                  { id: "soft-blue", label: t("Soft Blue", "સોફ્ટ બ્લુ"), page: "#F2F8FC", card: "#FFFFFF", accent: "#5B9BD5", sidebar: "#000000" },
+                  { id: "light-green", label: t("Light Green", "લાઇટ ગ્રીન"), page: "#F3FAF0", card: "#FFFFFF", accent: "#7BBF6A", sidebar: "#000000" },
+                ].map((opt) => {
+                  const active = (theme || "classic") === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => setTheme(opt.id)}
+                      title={opt.label}
+                      style={{
+                        width: 92, padding: 8, borderRadius: 10, cursor: "pointer",
+                        border: "2px solid " + (active ? "#D98E2B" : "var(--border)"),
+                        background: "var(--bg-surface)", position: "relative",
+                      }}
+                    >
+                      {active && (
+                        <span style={{ position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: "50%", background: "#D98E2B", color: "#fff", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✓</span>
+                      )}
+                      {/* Mini preview: sidebar strip + page/card/accent swatch,
+                          so the card gives a real sense of the theme rather
+                          than just naming it. */}
+                      <div style={{ display: "flex", height: 40, borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-soft)", marginBottom: 6 }}>
+                        <div style={{ width: 12, background: opt.sidebar }} />
+                        <div style={{ flex: 1, background: opt.page, padding: 4, display: "flex", flexDirection: "column", gap: 3 }}>
+                          <div style={{ flex: 1, background: opt.card, borderRadius: 3 }} />
+                          <div style={{ height: 6, width: "60%", background: opt.accent, borderRadius: 3 }} />
+                        </div>
+                      </div>
+                      <div className="gu" style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)", textAlign: "left" }}>{opt.label}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {onHelp && (
             <button onClick={() => { onClose(); onHelp(); }} className="gu" style={{ ...rowBtn, color: "var(--text-primary)" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
           )}
@@ -2355,6 +2468,19 @@ function DutyRoster() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+  // Color theme (Settings → Appearance → Theme) — independent of dark
+  // mode above. "classic" means no override at all (see the CSS comment
+  // where [data-color-theme] is defined), so it's never written as an
+  // attribute value, only "soft-blue" / "light-green" are.
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("nokriBookTheme") || "classic"; } catch (e) { return "classic"; } });
+  useEffect(() => { try { localStorage.setItem("nokriBookTheme", theme); } catch (e) {} }, [theme]);
+  useEffect(() => {
+    if (theme && theme !== "classic") {
+      document.documentElement.setAttribute("data-color-theme", theme);
+    } else {
+      document.documentElement.removeAttribute("data-color-theme");
+    }
+  }, [theme]);
   const notifiedRef = useRef(new Set());
   const migratedRef = useRef(false);
   const lastActionRef = useRef("");
@@ -4909,6 +5035,7 @@ function DutyRoster() {
           onHelp={() => setShowHelpPanel(true)}
           onChooseBackupFolder={chooseBackupFolder}
           onRecoverLocalBackup={recoverLocalBackup}
+          theme={theme} setTheme={setTheme}
           onClose={() => setShowSettingsPanel(false)}
         />
       )}
@@ -5233,7 +5360,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
                         <a href={`tel:${nextPhone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
                       )}
                       <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat.label, phone: nextPhone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
-                      <button onClick={() => setAssignTarget({ catId: cat.id, number: nextUp.number, name: nextUp.name })} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu">{t("Assign", "સોંપો")}</button>
+                      <button onClick={() => setAssignTarget({ catId: cat.id, number: nextUp.number, name: nextUp.name })} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu">{t("Assign", "સોંપો")}</button>
                     </div>
                   </div>
                 ) : (
@@ -5390,7 +5517,7 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
           onClick={handleAssign}
           disabled={!canAssign}
           style={{
-            background: canAssign ? "#D98E2B" : "var(--border)", color: "#fff", border: "none", borderRadius: 7,
+            background: canAssign ? "var(--accent)" : "var(--border)", color: canAssign ? "var(--accent-text)" : "var(--text-secondary)", border: "none", borderRadius: 7,
             padding: "9px 16px", fontSize: 13, fontWeight: 600, width: "100%", cursor: canAssign ? "pointer" : "default",
           }} className="gu"
         >{t("Assign miscellaneous duty", "વિવિધ ડ્યુટી સોંપો")}</button>
@@ -5715,7 +5842,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
           onClick={handleAssign}
           disabled={!canAssign}
           style={{
-            background: canAssign ? "#D98E2B" : "var(--status-warning-border)", color: "#fff",
+            background: canAssign ? "var(--accent)" : "var(--status-warning-border)", color: canAssign ? "var(--accent-text)" : "#fff",
             border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13.5, fontWeight: 700,
           }} className="gu"
         >
@@ -5974,7 +6101,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                 <a href={`tel:${nextUp.staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center" }} className="gu">📞 {t("Call", "કૉલ કરો")}</a>
               )}
               <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat ? cat.label : "", phone: nextUp.staffRec && nextUp.staffRec.phone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600 }} className="gu">📲 {t("Share", "શેર કરો")}</button>
-              <button onClick={() => setAssignTarget({ number: nextUp.number, name: nextUp.name })} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
+              <button onClick={() => setAssignTarget({ number: nextUp.number, name: nextUp.name })} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
             </div>
           </React.Fragment>
         ) : (
@@ -6363,7 +6490,7 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
           <button onClick={() => onConfirm("", date)} title={t("Assign this duty with no note", "નોંધ વગર આ ડ્યુટી સોંપો")} aria-label={t("Assign this duty with no note", "નોંધ વગર આ ડ્યુટી સોંપો")} style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("No note — assign", "નોંધ નહીં — સોંપો")}</button>
-          <button onClick={() => onConfirm(note, date)} style={{ background: "#D98E2B", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
+          <button onClick={() => onConfirm(note, date)} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
         </div>
       </div>
     </div>
@@ -9541,6 +9668,19 @@ function PublicRosterView({ uid }) {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+  // Same color theme system as the main admin view, sharing the same
+  // localStorage key — a deliberate choice so a person who uses both the
+  // manager app and a shared view-only link (e.g. on the same device)
+  // sees a consistent theme rather than two independently-remembered ones.
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("nokriBookTheme") || "classic"; } catch (e) { return "classic"; } });
+  useEffect(() => { try { localStorage.setItem("nokriBookTheme", theme); } catch (e) {} }, [theme]);
+  useEffect(() => {
+    if (theme && theme !== "classic") {
+      document.documentElement.setAttribute("data-color-theme", theme);
+    } else {
+      document.documentElement.removeAttribute("data-color-theme");
+    }
+  }, [theme]);
 
   useEffect(() => {
     // Reads publicRosters/{uid} — a separate, deliberately public-safe
@@ -9622,6 +9762,7 @@ function PublicRosterView({ uid }) {
           <SettingsPanel
             onHelp={() => setShowHelpPanel(true)}
             onSignIn={goToLogin}
+            theme={theme} setTheme={setTheme}
             onClose={() => setShowSettingsPanel(false)}
           />
         )}
