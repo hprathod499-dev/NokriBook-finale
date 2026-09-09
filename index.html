@@ -239,19 +239,7 @@
     --focus-ring: #D98E2B55;
     --accent-glow: #D98E2B33;
   }
-  /* html[data-theme="dark"] (rather than the plain attribute selector
-     [data-theme="dark"]) is deliberate: both data-theme and
-     data-color-theme live on the same element (<html>), so a plain
-     [data-theme="dark"] rule and a plain [data-color-theme="soft-blue"]/
-     [light-green] rule have identical specificity, and whichever is later
-     in the stylesheet wins — which used to mean a color theme always beat
-     Dark Mode, even when Dark Mode was turned on afterwards. Adding the
-     "html" type selector bumps this rule's specificity just enough to
-     always beat a plain [data-color-theme] rule, so Dark Mode + Soft Blue/
-     Light Green together stay dark, while Soft Blue/Light Green still
-     freely override the light-mode (Classic) palette when Dark Mode is
-     off, regardless of source order. */
-  html[data-theme="dark"] {
+  [data-theme="dark"] {
     color-scheme: dark;
     /* Pure pitch black everywhere in dark mode — page background, every
        card/panel surface, and the sidebar all use the same #000000, with
@@ -311,15 +299,12 @@
   [data-theme="dark"] .signin-field-input::placeholder { color: #8B958E; opacity: 1; }
   /* ===== Color theme system (Settings → Appearance → Theme) =====
      A second, independent attribute from [data-theme] (which only ever
-     toggles light/dark). [data-color-theme] carries the app's light-mode
-     page background / card / accent palette. Leaving it unset (Classic)
-     means the :root defaults above apply untouched — Classic is not a
-     special case here, it's simply "no override". These rules only ever
-     override the light-mode (:root) palette: the html[data-theme="dark"]
-     block above uses the "html" type selector specifically so it always
-     outranks a plain [data-color-theme="..."] rule regardless of source
-     order, so Dark Mode stays dark no matter which was toggled first or
-     which color theme is selected underneath it. */
+     toggles light/dark). [data-color-theme] carries the app's page
+     background / card / accent palette. Leaving it unset (Classic) means
+     the :root defaults above apply untouched — Classic is not a special
+     case here, it's simply "no override". Placed AFTER [data-theme="dark"]
+     above so selecting a color theme always wins over whatever dark mode
+     had set, regardless of which was toggled first. */
   [data-color-theme="soft-blue"] {
     --bg-page: #F2F8FC;
     --bg-surface: #FFFFFF;
@@ -366,11 +351,52 @@
     --focus-ring: #4CAF5055;
     --accent-glow: #4CAF5033;
   }
+  [data-color-theme="lavender"] {
+    --bg-page: #F7F3FC;
+    --bg-surface: #FFFFFF;
+    --bg-surface-2: #EDE4F7;
+    --sidebar-bg: #000000;
+    --text-primary: #000000;
+    --text-secondary: #000000;
+    --text-tertiary: #000000;
+    --border: #DCC9F0;
+    --border-soft: #EDE4F7;
+    --btn-dark-bg: #000000;
+    --highlight-bg: #EDE4F7;
+    --highlight-border: #D3B8EC;
+    --accent: #E8DFF5;
+    --accent-hover: #7B5BA8;
+    --accent-light: #EDE4F7;
+    --accent-text: #000000;
+    --accent-strong: #8E6BBE;
+    --focus-ring: #8E6BBE55;
+    --accent-glow: #8E6BBE33;
+  }
+  /* Lavender + Dark mode: unlike Soft Blue / Light Green (always-light
+     palettes), Lavender should still turn genuinely dark when Dark mode is
+     also on. This reasserts dark mode's own black/white surface, text, and
+     border colors on top of the Lavender block above — only the accent hue
+     (--accent / --accent-strong / etc., untouched here) stays Lavender's,
+     the same way Classic's gold accent already survives into Dark mode. */
+  [data-theme="dark"][data-color-theme="lavender"] {
+    --bg-page: #000000;
+    --bg-surface: #000000;
+    --bg-surface-2: #000000;
+    --sidebar-bg: #000000;
+    --text-primary: #FFFFFF;
+    --text-secondary: #FFFFFF;
+    --text-tertiary: #FFFFFF;
+    --border: #333C48;
+    --border-soft: #2A323C;
+    --btn-dark-bg: #2E3742;
+    --highlight-bg: #3A331F;
+    --highlight-border: #5C4E27;
+  }
   /* Same input/option/placeholder theming the dark-mode block does above
      — soft-blue and light-green are both light-on-light palettes, so
      this mainly matters for keeping <select> option lists from
      defaulting to native black-on-white regardless of CSS. */
-  [data-color-theme="soft-blue"] option, [data-color-theme="light-green"] option {
+  [data-color-theme="soft-blue"] option, [data-color-theme="light-green"] option, [data-color-theme="lavender"] option {
     background: var(--bg-surface); color: var(--text-primary);
   }
 </style>
@@ -1932,6 +1958,7 @@ const THEME_OPTIONS = [
   { value: "classic", label: ["Classic (Original)", "ક્લાસિક (મૂળ)"], sidebar: "#1E1712", page: "#F4EBDC", accent: "#D98E2B" },
   { value: "soft-blue", label: ["Soft Blue", "સોફ્ટ બ્લુ"], sidebar: "#000000", page: "#F2F8FC", accent: "#5B9BD5" },
   { value: "light-green", label: ["Light Green", "લાઇટ ગ્રીન"], sidebar: "#000000", page: "#F3FAF0", accent: "#6FBF73" },
+  { value: "lavender", label: ["Lavender", "લેવેન્ડર"], sidebar: "#000000", page: "#F7F3FC", accent: "#8E6BBE" },
 ];
 function ThemeSwatch({ sidebar, page, accent, small }) {
   const w = small ? 32 : 44, h = small ? 22 : 30, sw = small ? 7 : 9, bar = small ? 3 : 4, pad = small ? 3 : 4;
