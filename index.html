@@ -1818,19 +1818,23 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const SUPPORT_EMAIL = "nokribook@gmail.com";
-  const rowBtn = { width: "100%", textAlign: "left", padding: "12px 20px", background: "transparent", border: "none", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border-soft)" };
+  // Only these dividing lines are meant to stand out boldly — everything
+  // else in the panel (button borders, the language toggle's outline)
+  // stays at the normal weight it already had.
+  const DIVIDER = "2px solid var(--border)";
+  const rowBtn = { width: "100%", textAlign: "left", padding: "12px 20px", background: "transparent", border: "none", fontSize: 13, cursor: "pointer", borderBottom: DIVIDER };
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Settings", "સેટિંગ્સ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "16px 20px", borderBottom: DIVIDER, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Settings", "સેટિંગ્સ")}</div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
         <div style={{ overflowY: "auto" }}>
-          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, color: "var(--text-secondary)", wordBreak: "break-all" }} className={user && user.email ? "" : "gu"}>
+          <div style={{ padding: "12px 20px", borderBottom: DIVIDER, fontSize: 12.5, color: "var(--text-secondary)", wordBreak: "break-all" }} className={user && user.email ? "" : "gu"}>
             {(user && user.email) || t("Viewing a shared roster — not signed in", "શેર કરેલ રોસ્ટર જોઈ રહ્યાં છો — સાઇન ઇન નથી")}
           </div>
-          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)" }}>
+          <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
             <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Language", "ભાષા")}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => setLang("en")} style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "en" ? "#D98E2B" : "var(--border)"), background: lang === "en" ? "#D98E2B" : "transparent", color: lang === "en" ? "#fff" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
@@ -1855,8 +1859,8 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
               style={{ ...rowBtn, color: "var(--text-primary)" }}
             >🛟 {t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
           )}
-          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-soft)" }}>
-            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 5 }} className="gu">{t("Support", "સપોર્ટ")}</div>
+          <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 5 }} className="gu">{t("Suggest any changes", "કોઈપણ ફેરફારો સૂચવો")}</div>
             <a href={`mailto:${SUPPORT_EMAIL}`} style={{ fontSize: 12.5, color: "#D98E2B", textDecoration: "none", wordBreak: "break-all" }}>{SUPPORT_EMAIL}</a>
           </div>
           {signOutUser && (
@@ -4785,6 +4789,7 @@ function DutyRoster() {
               borderColor: data.shareEnabled ? "var(--status-success-border)" : "var(--border)",
               color: data.shareEnabled ? "var(--status-success-text)" : "var(--text-primary)",
             }}>{langCtxValue.t("Share", "શેર")}{data.shareEnabled ? " ✓" : ""}</button>
+            <button onClick={() => setShowSettingsPanel(true)} title={langCtxValue.t("Settings", "સેટિંગ્સ")} style={undoRedoBtn(true)} className="gu">⚙️ {langCtxValue.t("Settings", "સેટિંગ્સ")}</button>
             <button onClick={() => setShowAboutPanel(true)} title={langCtxValue.t("About this app", "આ એપ વિશે")} aria-label={langCtxValue.t("About this app", "આ એપ વિશે")} style={{
               ...undoRedoBtn(true),
               // Deliberately keeps the same 6px top/bottom padding as
