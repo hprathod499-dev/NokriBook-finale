@@ -6344,7 +6344,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
             {displayRoster.map((p) => {
               const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
               return (
-                <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
+                <tr key={p.number} style={{ borderTop: "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "var(--bg-surface)" }}>
                   <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td} className="mono">{p.number}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
@@ -10095,7 +10095,7 @@ function PublicCategoryView({ data, catId }) {
                 {roster.map((p) => {
                   const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
                   return (
-                    <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
+                    <tr key={p.number} style={{ borderTop: "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "var(--bg-surface)" }}>
                       <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{p.number}</td>
                       <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
