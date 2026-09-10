@@ -6344,7 +6344,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
             {displayRoster.map((p) => {
               const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
               return (
-                <tr key={p.number} style={{ borderTop: "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
+                <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                   <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td} className="mono">{p.number}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
@@ -9342,6 +9342,13 @@ function AboutPanel({ onClose }) {
         <div style={{
           width: 64, height: 64, margin: "0 auto 14px", borderRadius: 16,
           overflow: "hidden", boxShadow: "0 6px 16px rgba(0,0,0,0.3)",
+          /* Fixed background (not theme-linked): the logo artwork has
+             transparent/light corners around the mark, so without a fixed
+             backing color those corners pick up whatever var(--bg-surface)
+             happens to be (e.g. pure black in Dark mode), making the logo
+             look different per theme. A constant cream backing keeps the
+             logo's appearance identical in every theme. */
+          background: "#FFFDF8",
         }}>
           <img src={LOGO_DATA_URI} alt="Nokri Book" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         </div>
@@ -9357,8 +9364,15 @@ function AboutPanel({ onClose }) {
 
         <div className="mono gu" style={{
           display: "inline-block", fontSize: 10.5, fontWeight: 700, letterSpacing: 1.2,
-          color: "var(--status-warning-text)", background: "var(--status-warning-bg)",
-          border: "1px solid var(--status-warning-border)", borderRadius: 20, padding: "4px 12px", marginBottom: 14,
+          /* Solid accent fill (var(--accent-strong)) instead of the pale
+             var(--accent-light) tint — in the Soft Blue / Light Green /
+             Lavender themes --accent-light is nearly the same pale color as
+             the card surface, so the pill barely read as "colored". A solid
+             accent-strong background with var(--accent-text) on top stays
+             clearly color-coded in every theme, the same way the app's
+             other solid accent buttons already work. */
+          color: "#FFFFFF", background: "var(--accent-strong)",
+          border: "1px solid var(--accent-strong)", borderRadius: 20, padding: "4px 12px", marginBottom: 14,
         }}>
           {t("DEVELOPER CREDIT", "ડેવલપર ક્રેડિટ")}
         </div>
@@ -10041,7 +10055,7 @@ function PublicCategoryView({ data, catId }) {
               </thead>
               <tbody>
                 {historyRows.map((r, i) => (
-                  <tr key={`${r.number}#${r.idxs.join(",")}`} style={{ borderTop: "1px solid var(--border-soft)", background: i === 0 ? "var(--highlight-bg)" : "transparent" }}>
+                  <tr key={`${r.number}#${r.idxs.join(",")}`} style={{ borderTop: i === 0 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: i === 0 ? "var(--highlight-bg)" : "transparent" }}>
                     <td style={td} className="mono">{i + 1}</td>
                     <td style={td} className="mono">
                       {r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to)}
@@ -10073,7 +10087,7 @@ function PublicCategoryView({ data, catId }) {
                 {roster.map((p) => {
                   const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
                   return (
-                    <tr key={p.number} style={{ borderTop: "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
+                    <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                       <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{p.number}</td>
                       <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
