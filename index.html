@@ -5189,11 +5189,9 @@ function DutyRoster() {
         />
       )}
 
-      {data.hasSeenWelcome === false && (
+      {data.hasSeenWelcome === false && !showSpotlightTour && (
         <WelcomeModal
-          onGetStarted={() => { persist({ ...dataRef.current, hasSeenWelcome: true }); setView({ mode: "assignDuty" }); }}
-          onStartTour={() => { persist({ ...dataRef.current, hasSeenWelcome: true }); setShowSpotlightTour(true); }}
-          onClose={() => persist({ ...dataRef.current, hasSeenWelcome: true })}
+          onStartTour={() => setShowSpotlightTour(true)}
         />
       )}
 
@@ -5201,7 +5199,7 @@ function DutyRoster() {
         <SpotlightTour
           data={data} view={view} setView={setView}
           mobileSidebarOpen={mobileSidebarOpen} setMobileSidebarOpen={setMobileSidebarOpen}
-          onFinish={() => { setShowSpotlightTour(false); setMobileSidebarOpen(false); }}
+          onFinish={() => { persist({ ...dataRef.current, hasSeenWelcome: true }); setShowSpotlightTour(false); setMobileSidebarOpen(false); }}
         />
       )}
 
@@ -9127,21 +9125,26 @@ const WELCOME_STEPS = [
     bodyGu: "રોસ્ટર જોવા માટે કોઈપણ ખોલી શકે તેવી લિંક મેળવવા ટોચના ટૂલબારમાં શેર ચાલુ કરો — સાઇન-ઇન નહીં, સંપાદન પ્રવેશ નહીં, ફક્ત શેડ્યૂલ.",
   },
 ];
-function WelcomeModal({ onGetStarted, onStartTour, onClose }) {
+// No onClose / ESC-dismiss here on purpose: the welcome tour is
+// compulsory for brand-new accounts, so there is deliberately no way to
+// close, skip, or click past this modal without pressing "Start Tour" on
+// its final step. hasSeenWelcome (see RootApp usage below) is only set
+// to true once SpotlightTour itself finishes — never from this modal —
+// so a reload mid-way (here or mid-tour) simply brings the person right
+// back to this same starting point instead of letting them slip through.
+function WelcomeModal({ onStartTour }) {
   const { t } = useLang();
   const [step, setStep] = useState(0);
-  useEscToClose(onClose);
   const isLast = step === WELCOME_STEPS.length - 1;
   const cur = WELCOME_STEPS[step];
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Welcome to Nokri Book", "નોકરી બુકમાં આપનું સ્વાગત છે")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
       <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 440, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", position: "relative" }}>
-        <div style={{ position: "absolute", top: 14, right: 14, zIndex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ position: "absolute", top: 14, right: 14, zIndex: 1 }}>
           <LangInlineToggle />
-          <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
         {step === 0 && <img src="./welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
-        <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 6, paddingRight: 152 }}>
+        <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 6, paddingRight: 64 }}>
           {WELCOME_STEPS.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--accent)" : "var(--border-soft)" }} />
           ))}
@@ -9157,20 +9160,12 @@ function WelcomeModal({ onGetStarted, onStartTour, onClose }) {
             </button>
           )}
           <button
-            onClick={() => (isLast ? onGetStarted() : setStep((s) => s + 1))}
+            onClick={() => (isLast ? onStartTour() : setStep((s) => s + 1))}
             style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700 }} className="gu"
           >
-            {isLast ? t("Assign my first duty →", "મારી પહેલી ડ્યુટી સોંપો →") : t("Next →", "આગળ →")}
+            {isLast ? `🚀 ${t("Start Tour →", "ટૂર શરૂ કરો →")}` : t("Next →", "આગળ →")}
           </button>
         </div>
-        {isLast && onStartTour && (
-          <button
-            onClick={onStartTour}
-            style={{ width: "100%", marginTop: 8, background: "transparent", color: "var(--accent-strong)", border: "1px dashed var(--accent-strong)", borderRadius: 8, padding: "10px 16px", fontSize: 13.5, fontWeight: 600 }} className="gu"
-          >
-            🚀 {t("Show me an interactive tour instead", "તેના બદલે ઇન્ટરેક્ટિવ ટૂર બતાવો")}
-          </button>
-        )}
       </div>
     </div>
   );
@@ -9179,10 +9174,11 @@ function WelcomeModal({ onGetStarted, onStartTour, onClose }) {
 // A guided walkthrough that highlights REAL elements on screen (via
 // data-tour="..." attributes sprinkled through Sidebar/AssignDutyView/
 // CategoryView/StaffView/SkipHistoryView) rather than just describing them
-// in a static modal like WelcomeModal above. Reachable two ways: the "Show
-// me an interactive tour instead" link on WelcomeModal's last step (brand
-// new accounts), and a permanent "🚀 Interactive tour" entry in HelpPanel
-// (so anyone can re-run it later, not just first-time users).
+// in a static modal like WelcomeModal above. Reachable two ways: the
+// "Start Tour" button on WelcomeModal's last step — compulsory for brand
+// new accounts, with no skip/close available until it's completed — and
+// a permanent "🚀 Interactive tour" entry in HelpPanel (so anyone can
+// re-run it later, not just first-time users).
 // Each step optionally switches `view` to wherever its target actually
 // lives (e.g. the roster table only exists once `view.mode` is
 // "category"), then waits for that element to actually appear in the DOM
@@ -9194,8 +9190,8 @@ const TOUR_STEPS = [
   {
     selector: "nb-tour-logo",
     titleEn: "Let's look around", titleGu: "ચાલો એક નજર કરીએ",
-    bodyEn: "A quick tour of the real screens — press Next to move through the app, or Skip tour any time.",
-    bodyGu: "ખરેખરી સ્ક્રીનોનો ઝડપી ટૂર — એપમાં આગળ વધવા Next દબાવો, અથવા ગમે ત્યારે Skip tour કરો.",
+    bodyEn: "A quick tour of the real screens — press Next to move through the app, step by step.",
+    bodyGu: "ખરેખરી સ્ક્રીનોનો ઝડપી ટૂર — એપમાં આગળ વધવા Next દબાવો, પગલું-દર-પગલું.",
   },
   {
     selector: "nb-tour-nav-assign", view: { mode: "assignDuty" },
@@ -9256,12 +9252,14 @@ const TOUR_STEPS = [
     bodyGu: "અહીંથી ભાષા, ડાર્ક મોડ, અથવા કલર થીમ બદલો — સાથે બેકઅપ, પુનઃસ્થાપિત કરો અને એકાઉન્ટના વિકલ્પો.",
   },
 ];
+// No ESC-dismiss and no "skip tour" affordance here on purpose — see the
+// note above WelcomeModal. onFinish only ever fires from the "Done ✓"
+// button on the last step, so the only way through is completing it.
 function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSidebarOpen, onFinish }) {
   const { t } = useLang();
   const [stepIdx, setStepIdx] = useState(0);
   const [rect, setRect] = useState(null);
   const attemptsRef = useRef(0);
-  useEscToClose(onFinish);
   const step = TOUR_STEPS[stepIdx];
   // Sidebar-targeted steps (the logo, or any nav-* button) need the
   // mobile drawer open to even be on screen; content steps (the roster
@@ -9373,16 +9371,18 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
         role="dialog" aria-modal="true" aria-label={t(step.titleEn, step.titleGu)}
         style={rect ? {
           position: "fixed", top: tooltipTop, left: tooltipLeft, width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
-          background: "var(--bg-surface)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
+          background: "var(--bg-surface)", border: "1px solid var(--border-soft)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
         } : {
           position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
-          background: "var(--bg-surface)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
+          background: "var(--bg-surface)", border: "1px solid var(--border-soft)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{stepIdx + 1} / {TOUR_STEPS.length}</span>
-          <button onClick={onFinish} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, fontWeight: 600 }} className="gu">✕ {t("Skip tour", "ટૂર છોડો")}</button>
+        <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+          {TOUR_STEPS.map((_, i) => (
+            <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= stepIdx ? "var(--accent)" : "var(--border-soft)" }} />
+          ))}
         </div>
+        <div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 8, letterSpacing: 0.3 }}>{t("STEP", "પગલું")} {stepIdx + 1} / {TOUR_STEPS.length}</div>
         <div className="disp gu" style={{ fontSize: 15.5, fontWeight: 700, marginBottom: 6 }}>{t(step.titleEn, step.titleGu)}</div>
         <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55, margin: "0 0 14px" }} className="gu">{t(step.bodyEn, step.bodyGu)}</p>
         <div style={{ display: "flex", gap: 8 }}>
