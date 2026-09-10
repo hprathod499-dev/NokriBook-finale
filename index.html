@@ -384,12 +384,45 @@
     --focus-ring: #8E6BBE55;
     --accent-glow: #8E6BBE33;
   }
-  /* Lavender + Dark mode: unlike Soft Blue / Light Green (always-light
-     palettes), Lavender should still turn genuinely dark when Dark mode is
-     also on. This reasserts dark mode's own black/white surface, text, and
-     border colors on top of the Lavender block above — only the accent hue
-     (--accent / --accent-strong / etc., untouched here) stays Lavender's,
-     the same way Classic's gold accent already survives into Dark mode. */
+  /* Soft Blue / Light Green / Lavender + Dark mode: these three color
+     themes are defined above as always-light palettes (white surface,
+     black text), and since each [data-color-theme=...] rule has the same
+     specificity as [data-theme="dark"] and comes later in the stylesheet,
+     it would otherwise silently win and cancel Dark mode out entirely —
+     turning Dark mode on while one of these is selected would visibly do
+     nothing. Each block below reasserts Dark mode's own black/white
+     surface, text, and border colors on top of its color-theme block
+     above — only the accent hue (--accent / --accent-strong / etc.,
+     untouched here) stays the color theme's, the same way Classic's gold
+     accent already survives into Dark mode. */
+  [data-theme="dark"][data-color-theme="soft-blue"] {
+    --bg-page: #000000;
+    --bg-surface: #000000;
+    --bg-surface-2: #000000;
+    --sidebar-bg: #000000;
+    --text-primary: #FFFFFF;
+    --text-secondary: #FFFFFF;
+    --text-tertiary: #FFFFFF;
+    --border: #333C48;
+    --border-soft: #2A323C;
+    --btn-dark-bg: #2E3742;
+    --highlight-bg: #3A331F;
+    --highlight-border: #5C4E27;
+  }
+  [data-theme="dark"][data-color-theme="light-green"] {
+    --bg-page: #000000;
+    --bg-surface: #000000;
+    --bg-surface-2: #000000;
+    --sidebar-bg: #000000;
+    --text-primary: #FFFFFF;
+    --text-secondary: #FFFFFF;
+    --text-tertiary: #FFFFFF;
+    --border: #333C48;
+    --border-soft: #2A323C;
+    --btn-dark-bg: #2E3742;
+    --highlight-bg: #3A331F;
+    --highlight-border: #5C4E27;
+  }
   [data-theme="dark"][data-color-theme="lavender"] {
     --bg-page: #000000;
     --bg-surface: #000000;
@@ -3167,6 +3200,7 @@ function DutyRoster() {
   const [showAboutPanel, setShowAboutPanel] = useState(false);
   const [showHelpPanel, setShowHelpPanel] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [showSpotlightTour, setShowSpotlightTour] = useState(false);
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
   const shareUrl = user ? `${window.location.origin}${window.location.pathname}?view=${user.uid}` : "";
@@ -5125,7 +5159,7 @@ function DutyRoster() {
       )}
 
       {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
-      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} />}
+      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} onStartTour={() => { setShowHelpPanel(false); setShowSpotlightTour(true); }} />}
       {showSettingsPanel && (
         <SettingsPanel
           user={user} signOutUser={signOutUser} formatAllData={formatAllData}
@@ -5158,7 +5192,15 @@ function DutyRoster() {
       {data.hasSeenWelcome === false && (
         <WelcomeModal
           onGetStarted={() => { persist({ ...dataRef.current, hasSeenWelcome: true }); setView({ mode: "assignDuty" }); }}
+          onStartTour={() => { persist({ ...dataRef.current, hasSeenWelcome: true }); setShowSpotlightTour(true); }}
           onClose={() => persist({ ...dataRef.current, hasSeenWelcome: true })}
+        />
+      )}
+
+      {showSpotlightTour && (
+        <SpotlightTour
+          data={data} view={view} setView={setView}
+          onFinish={() => setShowSpotlightTour(false)}
         />
       )}
 
@@ -5222,7 +5264,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
     <div className={"sidebar" + (mobileOpen ? " mobile-sidebar-open" : "")} style={{ width: 230, background: "var(--sidebar-bg)", color: "#EAEDEB", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1B2733", display: "flex", alignItems: "center", gap: 10 }}>
         {user && <ProfileMenu user={user} darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={onSettings} />}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div data-tour="nb-tour-logo" style={{ flex: 1, minWidth: 0 }}>
           <div className="disp" style={{ fontSize: 15, fontWeight: 700 }}>Nokri Book</div>
           <div style={{ fontSize: 11, color: "#8FA0AC", marginTop: 2 }} className="gu">{t("Fair rotation console", "ન્યાયી રોટેશન કન્સોલ")}</div>
         </div>
@@ -5235,12 +5277,12 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
       </div>
 
       <div style={{ padding: "8px 0", borderBottom: "1px solid #1B2733" }}>
-        <button onClick={() => setView({ mode: "assignDuty" })} style={navBtn(view.mode === "assignDuty")} className="gu">📝 {t("Assign duty", "ડ્યુટી સોંપો")}</button>
+        <button data-tour="nb-tour-nav-assign" onClick={() => setView({ mode: "assignDuty" })} style={navBtn(view.mode === "assignDuty")} className="gu">📝 {t("Assign duty", "ડ્યુટી સોંપો")}</button>
         <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
         <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
       </div>
 
-      <div style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
+      <div data-tour="nb-tour-nav-worktypes" style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
         {(data.categories || []).map((c, i) => {
           const count = (data.membership[c.id] || []).length;
           const active = view.mode === "category" && c.id === view.catId;
@@ -5297,8 +5339,8 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
       </div>
 
       <div style={{ borderTop: "1px solid #1B2733", padding: "8px 0" }}>
-        <button onClick={() => setView({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</button>
-        <button onClick={() => setView({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
+        <button data-tour="nb-tour-nav-staff" onClick={() => setView({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</button>
+        <button data-tour="nb-tour-nav-skiphistory" onClick={() => setView({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
         <button onClick={() => setView({ mode: "events" })} style={{ ...navBtn(view.mode === "events"), display: "flex", justifyContent: "space-between", alignItems: "center" }} className="gu">
           <span>🔔 {t("Events & reminders", "ઇવેન્ટ્સ અને રિમાઇન્ડર")}</span>
           {pendingReminderCount > 0 && (
@@ -5307,7 +5349,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
         </button>
         <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
         <button onClick={() => setView({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
-        <button onClick={onSettings} style={navBtn(false)} className="gu">⚙️ {t("Settings", "સેટિંગ્સ")}</button>
+        <button data-tour="nb-tour-nav-settings" onClick={onSettings} style={navBtn(false)} className="gu">⚙️ {t("Settings", "સેટિંગ્સ")}</button>
       </div>
     </div>
   );
@@ -5430,7 +5472,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
         <RecordLeaveView data={data} setUnavailable={setUnavailable} showToast={showToast} />
       ) : (
         <React.Fragment>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
+          <div data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
             {cards.map(({ cat, doneToday, nextUp, total }) => {
               const nextPhone = nextUp && nextUp.staffRec && nextUp.staffRec.phone;
               return (
@@ -6179,7 +6221,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} />
       ) : (
       <React.Fragment>
-      <div style={{
+      <div data-tour="nb-tour-roster-nextup" style={{
         background: "var(--bg-surface)", border: "1px solid var(--border)", borderLeft: nextUp ? "4px solid var(--accent-strong)" : "4px solid var(--border)",
         borderRadius: 10, padding: "16px 20px", marginBottom: 22, display: "flex", alignItems: "center",
         justifyContent: "space-between", flexWrap: "wrap", gap: 12,
@@ -6343,7 +6385,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         </div>
       )}
 
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+      <div data-tour="nb-tour-roster-table" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
@@ -6996,7 +7038,7 @@ function StaffView({
 
   return (
     <React.Fragment>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20, gap: 4 }}>
+      <div data-tour="nb-tour-staff-content" style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20, gap: 4 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
         <button
@@ -9081,7 +9123,7 @@ const WELCOME_STEPS = [
     bodyGu: "રોસ્ટર જોવા માટે કોઈપણ ખોલી શકે તેવી લિંક મેળવવા ટોચના ટૂલબારમાં શેર ચાલુ કરો — સાઇન-ઇન નહીં, સંપાદન પ્રવેશ નહીં, ફક્ત શેડ્યૂલ.",
   },
 ];
-function WelcomeModal({ onGetStarted, onClose }) {
+function WelcomeModal({ onGetStarted, onStartTour, onClose }) {
   const { t } = useLang();
   const [step, setStep] = useState(0);
   useEscToClose(onClose);
@@ -9115,6 +9157,225 @@ function WelcomeModal({ onGetStarted, onClose }) {
             style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700 }} className="gu"
           >
             {isLast ? t("Assign my first duty →", "મારી પહેલી ડ્યુટી સોંપો →") : t("Next →", "આગળ →")}
+          </button>
+        </div>
+        {isLast && onStartTour && (
+          <button
+            onClick={onStartTour}
+            style={{ width: "100%", marginTop: 8, background: "transparent", color: "var(--accent-strong)", border: "1px dashed var(--accent-strong)", borderRadius: 8, padding: "10px 16px", fontSize: 13.5, fontWeight: 600 }} className="gu"
+          >
+            🚀 {t("Show me an interactive tour instead", "તેના બદલે ઇન્ટરેક્ટિવ ટૂર બતાવો")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+// ===== Interactive spotlight tour =====
+// A guided walkthrough that highlights REAL elements on screen (via
+// data-tour="..." attributes sprinkled through Sidebar/AssignDutyView/
+// CategoryView/StaffView/SkipHistoryView) rather than just describing them
+// in a static modal like WelcomeModal above. Reachable two ways: the "Show
+// me an interactive tour instead" link on WelcomeModal's last step (brand
+// new accounts), and a permanent "🚀 Interactive tour" entry in HelpPanel
+// (so anyone can re-run it later, not just first-time users).
+// Each step optionally switches `view` to wherever its target actually
+// lives (e.g. the roster table only exists once `view.mode` is
+// "category"), then waits for that element to actually appear in the DOM
+// before measuring its position — necessary because switching pages is an
+// async React re-render, not instant. Steps whose target may not exist
+// (e.g. the roster table when the account has zero work types yet) are
+// marked optional: true and silently skipped rather than getting stuck.
+const TOUR_STEPS = [
+  {
+    selector: "nb-tour-logo",
+    titleEn: "Let's look around", titleGu: "ચાલો એક નજર કરીએ",
+    bodyEn: "A quick tour of the real screens — press Next to move through the app, or Skip tour any time.",
+    bodyGu: "ખરેખરી સ્ક્રીનોનો ઝડપી ટૂર — એપમાં આગળ વધવા Next દબાવો, અથવા ગમે ત્યારે Skip tour કરો.",
+  },
+  {
+    selector: "nb-tour-nav-assign", view: { mode: "assignDuty" },
+    titleEn: "Assign Duty", titleGu: "ડ્યુટી સોંપો",
+    bodyEn: "This is home base — every work type's current turn, at a glance.",
+    bodyGu: "આ મુખ્ય પાનું છે — દરેક કામના પ્રકારનો હાલનો વારો, એક નજરમાં.",
+  },
+  {
+    selector: "nb-tour-assignduty-cards", view: { mode: "assignDuty" },
+    titleEn: "Who's next, per work type", titleGu: "કામના પ્રકાર પ્રમાણે વારો કોનો",
+    bodyEn: "Each card shows who's next in that work type's rotation. One tap on Assign hands them the duty — no manual checking needed.",
+    bodyGu: "દરેક કાર્ડ બતાવે છે કે તે કામના પ્રકારમાં વારો કોનો છે. Assign પર એક ટેપ કરતાં જ ડ્યુટી સોંપાઈ જાય છે — જાતે તપાસવાની જરૂર નથી.",
+  },
+  {
+    selector: "nb-tour-nav-worktypes", view: { mode: "assignDuty" },
+    titleEn: "Work types", titleGu: "કામના પ્રકારો",
+    bodyEn: "Every work type you add shows up here — click one to open its full roster and history.",
+    bodyGu: "તમે ઉમેરેલ દરેક કામનો પ્રકાર અહીં દેખાય છે — તેનું સંપૂર્ણ રોસ્ટર અને ઇતિહાસ ખોલવા તેના પર ક્લિક કરો.",
+  },
+  {
+    selector: "nb-tour-roster-nextup",
+    view: (data) => (data.categories && data.categories[0] ? { mode: "category", catId: data.categories[0].id } : null),
+    optional: true,
+    titleEn: "Next up", titleGu: "આગળ કોણ",
+    bodyEn: "Inside a work type's roster, the person who's waited longest is always shown here first — that's who gets the next duty.",
+    bodyGu: "કામના પ્રકારના રોસ્ટરમાં, જે વ્યક્તિ સૌથી લાંબા સમયથી રાહ જોઈ રહી છે તે હંમેશા અહીં પ્રથમ બતાવાય છે — આગળની ડ્યુટી તેમની જ છે.",
+  },
+  {
+    selector: "nb-tour-roster-table",
+    view: (data) => (data.categories && data.categories[0] ? { mode: "category", catId: data.categories[0].id } : null),
+    optional: true,
+    titleEn: "Full roster & rank", titleGu: "સંપૂર્ણ રોસ્ટર અને ક્રમ",
+    bodyEn: "Everyone in this work type, ranked by whose turn is next. Search, sort, or mark someone Present/Skip right from this table.",
+    bodyGu: "આ કામના પ્રકારના બધા લોકો, વારા પ્રમાણે ક્રમાંકિત. આ કોષ્ટકમાંથી જ શોધો, ક્રમ બદલો, અથવા કોઈને હાજર/સ્કિપ તરીકે માર્ક કરો.",
+  },
+  {
+    selector: "nb-tour-nav-staff", view: { mode: "staff" },
+    titleEn: "Manage Staff", titleGu: "સ્ટાફ સંચાલિત કરો",
+    bodyEn: "Add each person once here, by their buckle number — they're then available in every work type.",
+    bodyGu: "અહીં દરેક વ્યક્તિને એક વખત, તેમના બકલ નંબરથી ઉમેરો — પછી તેઓ દરેક કામના પ્રકારમાં ઉપલબ્ધ થાય છે.",
+  },
+  {
+    selector: "nb-tour-staff-content", view: { mode: "staff" },
+    titleEn: "One staff list, everywhere", titleGu: "એક જ સ્ટાફ યાદી, બધે",
+    bodyEn: "Leave, outstation, and designation are all set here — and apply automatically to every work type that person is part of.",
+    bodyGu: "રજા, બહારગામ અને હોદ્દો બધું અહીંથી જ સેટ થાય છે — અને તે વ્યક્તિ જ્યાં પણ હોય ત્યાં આપમેળે લાગુ પડે છે.",
+  },
+  {
+    selector: "nb-tour-nav-skiphistory", view: { mode: "skipHistory" },
+    titleEn: "Skip History", titleGu: "સ્કિપ ઇતિહાસ",
+    bodyEn: "Every time someone is marked Skip, who did it and why is logged here automatically — separate from each work type's duty history.",
+    bodyGu: "જ્યારે પણ કોઈને સ્કિપ માર્ક કરવામાં આવે, કોણે અને શા માટે કર્યું તે અહીં આપમેળે નોંધાય છે — દરેક કામના પ્રકારના ડ્યુટી ઇતિહાસથી અલગ.",
+  },
+  {
+    selector: "nb-tour-nav-settings",
+    titleEn: "Themes & settings", titleGu: "થીમ અને સેટિંગ્સ",
+    bodyEn: "Switch language, dark mode, or pick a color theme here — plus backup, restore, and account options.",
+    bodyGu: "અહીંથી ભાષા, ડાર્ક મોડ, અથવા કલર થીમ બદલો — સાથે બેકઅપ, પુનઃસ્થાપિત કરો અને એકાઉન્ટના વિકલ્પો.",
+  },
+];
+function SpotlightTour({ data, view, setView, onFinish }) {
+  const { t } = useLang();
+  const [stepIdx, setStepIdx] = useState(0);
+  const [rect, setRect] = useState(null);
+  const attemptsRef = useRef(0);
+  useEscToClose(onFinish);
+  const step = TOUR_STEPS[stepIdx];
+
+  // Resolve this step's required view (a plain object, or a function of
+  // data for steps whose target depends on data — e.g. "the first work
+  // type", whatever it's actually called). null means "stay wherever we
+  // are" (used for the settings-button step, which shouldn't yank the
+  // user off whatever page they were touring).
+  const wantedView = typeof step.view === "function" ? step.view(data) : step.view;
+
+  useEffect(() => {
+    if (step.view && !wantedView) {
+      // This step needs data that doesn't exist (e.g. zero work types) —
+      // it's marked optional, so skip straight past it instead of
+      // getting stuck with nothing to highlight.
+      if (step.optional) { setStepIdx((i) => Math.min(i + 1, TOUR_STEPS.length - 1)); return; }
+    }
+    if (wantedView && (wantedView.mode !== view.mode || wantedView.catId !== view.catId)) {
+      setView(wantedView);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepIdx]);
+
+  useEffect(() => {
+    setRect(null);
+    attemptsRef.current = 0;
+    let raf;
+    const tryFind = () => {
+      const el = document.querySelector(`[data-tour="${step.selector}"]`);
+      if (el) {
+        el.scrollIntoView({ block: "center", behavior: "auto" });
+        const r = el.getBoundingClientRect();
+        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        return;
+      }
+      attemptsRef.current += 1;
+      if (attemptsRef.current > 40) {
+        // ~40 animation frames (roughly 0.6s) of not finding it — either
+        // the target genuinely isn't there, or this step should have been
+        // marked optional. Either way, don't hang the tour forever.
+        if (step.optional) { setStepIdx((i) => Math.min(i + 1, TOUR_STEPS.length - 1)); }
+        return;
+      }
+      raf = requestAnimationFrame(tryFind);
+    };
+    raf = requestAnimationFrame(tryFind);
+    return () => raf && cancelAnimationFrame(raf);
+  }, [stepIdx, view.mode, view.catId]);
+
+  // Keep the highlight glued to its element through scrolling/resizing
+  // while a step is showing (e.g. resizing the window, or the on-screen
+  // keyboard opening on mobile).
+  useEffect(() => {
+    const reposition = () => {
+      const el = document.querySelector(`[data-tour="${step.selector}"]`);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      }
+    };
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => { window.removeEventListener("resize", reposition); window.removeEventListener("scroll", reposition, true); };
+  }, [stepIdx]);
+
+  const isLast = stepIdx === TOUR_STEPS.length - 1;
+  const pad = 8;
+  // Tooltip placement: below the highlight if there's room, else above —
+  // and clamped horizontally so it never runs off a narrow/mobile screen.
+  const tooltipWidth = 320;
+  let tooltipTop, tooltipLeft, placement;
+  if (rect) {
+    const spaceBelow = window.innerHeight - (rect.top + rect.height);
+    placement = spaceBelow > 180 || rect.top < 180 ? "below" : "above";
+    tooltipTop = placement === "below" ? rect.top + rect.height + pad + 10 : Math.max(12, rect.top - pad - 10);
+    tooltipLeft = Math.min(Math.max(12, rect.left), window.innerWidth - tooltipWidth - 12);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 9000 }}>
+      {rect ? (
+        <div style={{
+          position: "fixed", top: rect.top - pad, left: rect.left - pad,
+          width: rect.width + pad * 2, height: rect.height + pad * 2,
+          borderRadius: 10, boxShadow: "0 0 0 9999px rgba(0,0,0,0.68)",
+          border: "2px solid var(--accent-strong)", pointerEvents: "none",
+          transition: "top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease",
+        }} />
+      ) : (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.68)" }} />
+      )}
+
+      <div
+        role="dialog" aria-modal="true" aria-label={t(step.titleEn, step.titleGu)}
+        style={rect ? {
+          position: "fixed", top: tooltipTop, left: tooltipLeft, width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
+          background: "var(--bg-surface)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
+        } : {
+          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
+          background: "var(--bg-surface)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{stepIdx + 1} / {TOUR_STEPS.length}</span>
+          <button onClick={onFinish} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, fontWeight: 600 }} className="gu">✕ {t("Skip tour", "ટૂર છોડો")}</button>
+        </div>
+        <div className="disp gu" style={{ fontSize: 15.5, fontWeight: 700, marginBottom: 6 }}>{t(step.titleEn, step.titleGu)}</div>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55, margin: "0 0 14px" }} className="gu">{t(step.bodyEn, step.bodyGu)}</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          {stepIdx > 0 && (
+            <button onClick={() => setStepIdx((i) => i - 1)} style={{ background: "var(--bg-page)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 12px", fontSize: 13, fontWeight: 600 }} className="gu">
+              {t("← Back", "← પાછળ")}
+            </button>
+          )}
+          <button
+            onClick={() => (isLast ? onFinish() : setStepIdx((i) => i + 1))}
+            style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 12px", fontSize: 13, fontWeight: 700 }} className="gu"
+          >
+            {isLast ? t("Done ✓", "પૂર્ણ ✓") : t("Next →", "આગળ →")}
           </button>
         </div>
       </div>
@@ -9277,7 +9538,7 @@ const PUBLIC_HELP_SECTIONS = [
     bodyGu: "હા — દરેક કામનો પ્રકાર, માસિક અહેવાલ, અને દરેક વ્યક્તિનો પોતાનો ઇતિહાસ, વ્યવસ્થાપક જુએ છે તે જ રીતે PDF ડાઉનલોડ વિકલ્પ ધરાવે છે. પહેલાં સમયગાળો પસંદ કરો, પછી ડાઉનલોડ કરો.",
   },
 ];
-function HelpPanel({ onClose, sections }) {
+function HelpPanel({ onClose, sections, onStartTour }) {
   const list = sections || HELP_SECTIONS;
   const { t } = useLang();
   useEscToClose(onClose);
@@ -9289,6 +9550,13 @@ function HelpPanel({ onClose, sections }) {
           <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
+        {onStartTour && (
+          <div style={{ padding: "14px 20px 0" }}>
+            <button onClick={onStartTour} style={{ width: "100%", background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 9, padding: "10px 14px", fontSize: 13.5, fontWeight: 700, color: "var(--status-warning-text)", textAlign: "left" }} className="gu">
+              🚀 {t("Take an interactive tour of the app", "એપનો ઇન્ટરેક્ટિવ ટૂર લો")}
+            </button>
+          </div>
+        )}
         <div style={{ overflowY: "auto", padding: "8px 20px 20px" }}>
           {list.map((s, i) => {
             const isOpen = openIndex === i;
@@ -9487,7 +9755,7 @@ function SkipHistoryView({ data, initialSearch }) {
 
   return (
     <React.Fragment>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+      <div data-tour="nb-tour-skiphistory-content" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Skip history", "સ્કિપ ઇતિહાસ")}</h1>
           <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
