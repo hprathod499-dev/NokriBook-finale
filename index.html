@@ -9342,14 +9342,37 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
 
   const isLast = stepIdx === TOUR_STEPS.length - 1;
   const pad = 8;
-  // Tooltip placement: below the highlight if there's room, else above —
-  // and clamped horizontally so it never runs off a narrow/mobile screen.
+  // Tooltip placement: below the highlight if there's more room there,
+  // else above — and clamped horizontally so it never runs off a
+  // narrow/mobile screen.
+  //
+  // For "above" placement, position is anchored by the tooltip's BOTTOM
+  // edge (via the `bottom` CSS property) rather than computing a `top`
+  // from the card's height, since that height isn't known until after
+  // render. Anchoring by `top` there used to only nudge the card up by a
+  // fixed ~18px regardless of its real height — fine for a short card,
+  // but for a target near the bottom of the screen (e.g. the last
+  // sidebar item) the card's top edge still landed near the bottom of
+  // the viewport and most of it rendered off-screen, unreachable. Bottom
+  // anchoring sidesteps that entirely: whatever the card's height turns
+  // out to be, its bottom edge — not its top — is what's pinned near the
+  // target, so it always grows upward into visible space.
   const tooltipWidth = 320;
-  let tooltipTop, tooltipLeft, placement;
+  let tooltipTop, tooltipBottom, tooltipLeft, placement;
   if (rect) {
     const spaceBelow = window.innerHeight - (rect.top + rect.height);
-    placement = spaceBelow > 180 || rect.top < 180 ? "below" : "above";
-    tooltipTop = placement === "below" ? rect.top + rect.height + pad + 10 : Math.max(12, rect.top - pad - 10);
+    const spaceAbove = rect.top;
+    placement = spaceBelow >= spaceAbove ? "below" : "above";
+    if (placement === "below") {
+      tooltipTop = rect.top + rect.height + pad + 10;
+      // Extra safety net: even if a step's card turns out taller than
+      // expected, never let its top start so low that the buttons at
+      // the bottom of the card are guaranteed to be off-screen — the
+      // maxHeight + overflowY below lets it scroll internally instead.
+      tooltipTop = Math.min(tooltipTop, window.innerHeight - 12 - 120);
+    } else {
+      tooltipBottom = Math.max(12, window.innerHeight - rect.top + pad + 10);
+    }
     tooltipLeft = Math.min(Math.max(12, rect.left), window.innerWidth - tooltipWidth - 12);
   }
 
@@ -9370,10 +9393,14 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
       <div
         role="dialog" aria-modal="true" aria-label={t(step.titleEn, step.titleGu)}
         style={rect ? {
-          position: "fixed", top: tooltipTop, left: tooltipLeft, width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
+          position: "fixed",
+          ...(placement === "below" ? { top: tooltipTop } : { bottom: tooltipBottom }),
+          left: tooltipLeft, width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
+          maxHeight: "calc(100vh - 24px)", overflowY: "auto",
           background: "var(--bg-surface)", border: "1px solid var(--border-soft)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
         } : {
           position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
+          maxHeight: "calc(100vh - 24px)", overflowY: "auto",
           background: "var(--bg-surface)", border: "1px solid var(--border-soft)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
         }}
       >
