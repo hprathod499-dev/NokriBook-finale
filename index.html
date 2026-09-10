@@ -2561,6 +2561,13 @@ function DutyRoster() {
   // it only hides it for this session; it'll reappear next time it's due.
   useEffect(() => {
     if (!data) return;
+    // Nothing to back up yet — a brand-new account with zero staff and
+    // zero work types shouldn't be nagged about backups no matter how
+    // much time has passed. This check is independent of the timestamp
+    // logic below, so it holds even if the timestamp were ever stale or
+    // seeded incorrectly.
+    const hasAnyData = (data.categories && data.categories.length > 0) || (data.staff && Object.keys(data.staff).length > 0);
+    if (!hasAnyData) return;
     const check = () => {
       let last = null;
       try { last = localStorage.getItem("nb_last_backup_at"); } catch (e) {}
@@ -9151,20 +9158,20 @@ function WelcomeModal({ onStartTour }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Welcome to Nokri Book", "નોકરી બુકમાં આપનું સ્વાગત છે")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
       <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 440, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", position: "relative" }}>
-        <div style={{ position: "absolute", top: 14, right: 14, zIndex: 1 }}>
+        {/* Normal document flow, not absolutely positioned — this is
+            what actually guarantees the toggle can never overlap the
+            progress bar (or anything else) below it, regardless of how
+            wide "ગુજરાતી" renders in a given browser/font. An
+            absolutely-positioned badge floating over the banner looked
+            nicer, but meant overlap-avoidance had to be manually
+            calculated (and got it wrong) whereas plain flow doesn't
+            need any calculation at all — the toggle simply always
+            pushes everything after it down by its own real height. */}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: step === 0 ? 10 : 14 }}>
           <LangInlineToggle />
         </div>
         {step === 0 && <img src="./welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
-        {/* marginTop clears the absolutely-positioned language toggle
-            above (top:14, height:30 → its bottom edge sits ~44px down
-            from the card's top edge, outside the card's own padding).
-            A fixed paddingRight here used to try to dodge the toggle
-            horizontally instead, but that only worked for one specific
-            toggle width — this clears it vertically instead, which
-            holds regardless of how wide "ગુજરાતી" renders. Only needed
-            when there's no banner image (step 0) already pushing
-            everything well past that point. */}
-        <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 28 }}>
+        <div style={{ display: "flex", gap: 5, marginBottom: 16 }}>
           {WELCOME_STEPS.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--accent)" : "var(--border-soft)" }} />
           ))}
