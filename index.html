@@ -2552,9 +2552,11 @@ function DutyRoster() {
   // while" reminder below only fires when truly none of them have run
   // recently, not just one specific method.
   const recordBackupNow = () => { try { localStorage.setItem("nb_last_backup_at", new Date().toISOString()); } catch (e) {} };
-  // A gentle reminder — not a blocking dialog — if it's been 2+ days (or
-  // it's never happened at all) since any backup: manual download, Drive,
-  // or the silent on-close Drive save. Checked once, shortly after the
+  // A gentle reminder — not a blocking dialog — once it's been 2+ days
+  // since any backup: manual download, Drive, or the silent on-close
+  // Drive save. A device that's never backed up at all doesn't nag right
+  // away (see the seeding below) — the countdown only starts once it has
+  // a real timestamp to count from. Checked once, shortly after the
   // roster loads, so it doesn't compete with the initial render; dismissing
   // it only hides it for this session; it'll reappear next time it's due.
   useEffect(() => {
@@ -2562,8 +2564,17 @@ function DutyRoster() {
     const check = () => {
       let last = null;
       try { last = localStorage.getItem("nb_last_backup_at"); } catch (e) {}
+      if (!last) {
+        // Never backed up on this device before — most likely a
+        // brand-new account with nothing worth backing up yet, not
+        // someone who's actually overdue. Seed the timestamp now so the
+        // 2-day countdown starts from this first load, instead of
+        // "never" being trivially true and nagging immediately.
+        try { localStorage.setItem("nb_last_backup_at", new Date().toISOString()); } catch (e) {}
+        return;
+      }
       const dueMs = 2 * 24 * 60 * 60 * 1000;
-      if (!last || Date.now() - new Date(last).getTime() >= dueMs) setBackupReminder(true);
+      if (Date.now() - new Date(last).getTime() >= dueMs) setBackupReminder(true);
     };
     const t = setTimeout(check, 4000);
     return () => clearTimeout(t);
@@ -5333,7 +5344,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
             <button onClick={() => { setNewLabel(""); setAdding(false); }} title={t("Cancel", "રદ કરો")} aria-label={t("Cancel", "રદ કરો")} style={{ flexShrink: 0, background: "transparent", color: "#8FA0AC", border: "1px solid #2E3742", borderRadius: 6, padding: "0 8px", fontSize: 12 }}>✕</button>
           </div>
         ) : (
-          <button onClick={() => setAdding(true)} style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#8FA0AC", padding: "9px 16px", fontSize: 12.5 }} className="gu">+ {t("Add work type", "કામનો પ્રકાર ઉમેરો")}</button>
+          <button data-tour="nb-tour-add-worktype" onClick={() => setAdding(true)} style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#8FA0AC", padding: "9px 16px", fontSize: 12.5 }} className="gu">+ {t("Add work type", "કામનો પ્રકાર ઉમેરો")}</button>
         )}
         <button onClick={() => setEditing((v) => !v)} style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#6B7A85", padding: "6px 16px", fontSize: 11.5 }} className="gu">
           {editing ? t("Done editing", "સંપાદન પૂર્ણ") : t("Edit work types", "કામના પ્રકારો સંપાદિત કરો")}
@@ -9144,7 +9155,16 @@ function WelcomeModal({ onStartTour }) {
           <LangInlineToggle />
         </div>
         {step === 0 && <img src="./welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
-        <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 6, paddingRight: 64 }}>
+        {/* marginTop clears the absolutely-positioned language toggle
+            above (top:14, height:30 → its bottom edge sits ~44px down
+            from the card's top edge, outside the card's own padding).
+            A fixed paddingRight here used to try to dodge the toggle
+            horizontally instead, but that only worked for one specific
+            toggle width — this clears it vertically instead, which
+            holds regardless of how wide "ગુજરાતી" renders. Only needed
+            when there's no banner image (step 0) already pushing
+            everything well past that point. */}
+        <div style={{ display: "flex", gap: 5, marginBottom: 16, marginTop: step === 0 ? 0 : 28 }}>
           {WELCOME_STEPS.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--accent)" : "var(--border-soft)" }} />
           ))}
@@ -9211,6 +9231,17 @@ const TOUR_STEPS = [
     bodyEn: "Every work type you add shows up here — click one to open its full roster and history.",
     bodyGu: "તમે ઉમેરેલ દરેક કામનો પ્રકાર અહીં દેખાય છે — તેનું સંપૂર્ણ રોસ્ટર અને ઇતિહાસ ખોલવા તેના પર ક્લિક કરો.",
   },
+  // Not optional, unlike the two roster-* steps below — this button always
+  // exists, so every brand-new account (which starts with zero work types)
+  // still gets a real step here instead of the tour silently skipping
+  // straight past "what's inside a roster" with no mention of how to
+  // create one in the first place.
+  {
+    selector: "nb-tour-add-worktype", view: { mode: "assignDuty" },
+    titleEn: "Add your first work type", titleGu: "તમારો પહેલો કામનો પ્રકાર ઉમેરો",
+    bodyEn: "New account? Start here — tap this to create a work type (e.g. Night duty, Cleaning). It begins with an empty roster, ready for you to add staff to.",
+    bodyGu: "નવું ખાતું છે? અહીંથી શરૂ કરો — કામનો પ્રકાર (દા.ત. નાઇટ ડ્યુટી, સફાઈ) બનાવવા આના પર ટેપ કરો. તે ખાલી રોસ્ટરથી શરૂ થાય છે, જેમાં તમે સ્ટાફ ઉમેરી શકો.",
+  },
   {
     selector: "nb-tour-roster-nextup",
     view: (data) => (data.categories && data.categories[0] ? { mode: "category", catId: data.categories[0].id } : null),
@@ -9265,7 +9296,7 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
   // mobile drawer open to even be on screen; content steps (the roster
   // table, staff heading, etc.) need it closed so it isn't sitting on
   // top of — or dimming — the thing being highlighted.
-  const needsSidebar = step.selector === "nb-tour-logo" || step.selector.indexOf("nb-tour-nav-") === 0;
+  const needsSidebar = step.selector === "nb-tour-logo" || step.selector === "nb-tour-add-worktype" || step.selector.indexOf("nb-tour-nav-") === 0;
   useEffect(() => {
     if (setMobileSidebarOpen) setMobileSidebarOpen(needsSidebar);
   }, [stepIdx]);
