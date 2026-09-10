@@ -4924,7 +4924,7 @@ function DutyRoster() {
       )}
 
       <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
-        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} onSettings={() => setShowSettingsPanel(true)} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
+        <Sidebar data={data} view={view} setView={setView} addCategory={addCategory} renameCategory={renameCategory} deleteCategory={deleteCategory} reorderCategories={(from, to) => reorderList("categories", from, to)} pendingReminderCount={pendingReminders.length} user={user} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} formatAllData={formatAllData} desktopView={desktopView} setDesktopView={setDesktopView} onHelp={() => setShowHelpPanel(true)} onSettings={() => setShowSettingsPanel(true)} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} forceExpanded={showSpotlightTour} />
         {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
 
         <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
@@ -5200,7 +5200,8 @@ function DutyRoster() {
       {showSpotlightTour && (
         <SpotlightTour
           data={data} view={view} setView={setView}
-          onFinish={() => setShowSpotlightTour(false)}
+          mobileSidebarOpen={mobileSidebarOpen} setMobileSidebarOpen={setMobileSidebarOpen}
+          onFinish={() => { setShowSpotlightTour(false); setMobileSidebarOpen(false); }}
         />
       )}
 
@@ -5227,7 +5228,7 @@ function DutyRoster() {
   );
 }
 
-function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onHelp, onSettings, mobileOpen, onCloseMobile }) {
+function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCategory, reorderCategories, pendingReminderCount, user, signOutUser, darkMode, setDarkMode, formatAllData, desktopView, setDesktopView, onHelp, onSettings, mobileOpen, onCloseMobile, forceExpanded }) {
   const { t } = useLang();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -5247,7 +5248,10 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
   // "drawer" would show nothing usable). While actually open as a mobile
   // drawer, the collapsed-rail state is ignored entirely and the full
   // sidebar always renders; it only matters again once back on desktop.
-  if (collapsed && !mobileOpen) {
+  // forceExpanded additionally overrides it during the interactive
+  // spotlight tour — a collapsed rail has no labels for the tour to
+  // point at.
+  if (collapsed && !mobileOpen && !forceExpanded) {
     return (
       <div className="sidebar" style={{ width: 44, background: "var(--sidebar-bg)", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", paddingTop: 14 }}>
         <button
@@ -9252,13 +9256,21 @@ const TOUR_STEPS = [
     bodyGu: "અહીંથી ભાષા, ડાર્ક મોડ, અથવા કલર થીમ બદલો — સાથે બેકઅપ, પુનઃસ્થાપિત કરો અને એકાઉન્ટના વિકલ્પો.",
   },
 ];
-function SpotlightTour({ data, view, setView, onFinish }) {
+function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSidebarOpen, onFinish }) {
   const { t } = useLang();
   const [stepIdx, setStepIdx] = useState(0);
   const [rect, setRect] = useState(null);
   const attemptsRef = useRef(0);
   useEscToClose(onFinish);
   const step = TOUR_STEPS[stepIdx];
+  // Sidebar-targeted steps (the logo, or any nav-* button) need the
+  // mobile drawer open to even be on screen; content steps (the roster
+  // table, staff heading, etc.) need it closed so it isn't sitting on
+  // top of — or dimming — the thing being highlighted.
+  const needsSidebar = step.selector === "nb-tour-logo" || step.selector.indexOf("nb-tour-nav-") === 0;
+  useEffect(() => {
+    if (setMobileSidebarOpen) setMobileSidebarOpen(needsSidebar);
+  }, [stepIdx]);
 
   // Resolve this step's required view (a plain object, or a function of
   // data for steps whose target depends on data — e.g. "the first work
@@ -9283,13 +9295,21 @@ function SpotlightTour({ data, view, setView, onFinish }) {
   useEffect(() => {
     setRect(null);
     attemptsRef.current = 0;
-    let raf;
+    let raf, settleTimer;
+    const measure = (el) => {
+      const r = el.getBoundingClientRect();
+      setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    };
     const tryFind = () => {
       const el = document.querySelector(`[data-tour="${step.selector}"]`);
       if (el) {
         el.scrollIntoView({ block: "center", behavior: "auto" });
-        const r = el.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        measure(el);
+        // The mobile sidebar drawer (and the desktop collapse-to-rail
+        // toggle) animates open/closed over ~0.3s — re-measure once that
+        // settles so the spotlight isn't left framing where the element
+        // was mid-slide.
+        settleTimer = setTimeout(() => { const el2 = document.querySelector(`[data-tour="${step.selector}"]`); if (el2) measure(el2); }, 340);
         return;
       }
       attemptsRef.current += 1;
@@ -9303,8 +9323,8 @@ function SpotlightTour({ data, view, setView, onFinish }) {
       raf = requestAnimationFrame(tryFind);
     };
     raf = requestAnimationFrame(tryFind);
-    return () => raf && cancelAnimationFrame(raf);
-  }, [stepIdx, view.mode, view.catId]);
+    return () => { raf && cancelAnimationFrame(raf); settleTimer && clearTimeout(settleTimer); };
+  }, [stepIdx, view.mode, view.catId, needsSidebar]);
 
   // Keep the highlight glued to its element through scrolling/resizing
   // while a step is showing (e.g. resizing the window, or the on-screen
