@@ -6344,7 +6344,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
             {displayRoster.map((p) => {
               const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
               return (
-                <tr key={p.number} style={{ borderTop: "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "var(--bg-surface)" }}>
+                <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                   <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td} className="mono">{p.number}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
@@ -9334,15 +9334,7 @@ function AboutPanel({ onClose }) {
         <div style={{
           position: "absolute", top: -40, left: "50%", transform: "translateX(-50%)",
           width: 180, height: 180, borderRadius: "50%",
-          // Fixed color (not var(--accent-glow)) for the same reason the
-          // logo's own backing below is fixed: this glow sits directly
-          // behind/around the logo, and in Soft Blue / Light Green (or any
-          // future theme) the theme-linked accent glow visibly tinted the
-          // area right around the logo, making the logo itself look
-          // tinted even though the logo image and its backing box were
-          // already theme-independent. A constant warm glow keeps that
-          // area identical in every theme.
-          background: "radial-gradient(circle, #FCEFD9 0%, transparent 70%)", pointerEvents: "none",
+          background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)", pointerEvents: "none",
         }} />
         <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")}
           style={{ position: "absolute", top: 10, right: 12, background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15 }}>✕</button>
@@ -10095,7 +10087,7 @@ function PublicCategoryView({ data, catId }) {
                 {roster.map((p) => {
                   const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
                   return (
-                    <tr key={p.number} style={{ borderTop: "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "var(--bg-surface)" }}>
+                    <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                       <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{p.number}</td>
                       <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
