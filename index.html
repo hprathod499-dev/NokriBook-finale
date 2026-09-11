@@ -10457,6 +10457,12 @@ function PublicRosterView({ uid }) {
               >☰</button>
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
+                <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
+                  ...undoRedoBtn(true),
+                  background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
+                  borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
+                  color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
+                }} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
                 <LangInlineToggle />
                 <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
