@@ -5774,7 +5774,13 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
   const [nameInput, setNameInput] = useState("");
   const [dutyType, setDutyType] = useState("");
   const [extraNote, setExtraNote] = useState("");
-  const [oneDayOnly, setOneDayOnly] = useState(true);
+  // "one" = single day, "multi" = a fixed from/to range, "noend" = starts on
+  // a date and logs every day through today — same three-way pattern as
+  // Group duty and Record Leave, so all three assignment screens behave
+  // consistently. assignMiscDutyRange already writes one history entry per
+  // calendar day in a from/to span, so "noend" reuses it unchanged with
+  // today's date standing in for the (not yet known) end date.
+  const [dateMode, setDateMode] = useState("one");
   const [date, setDate] = useState(todayStr());
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
@@ -5786,17 +5792,18 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
     return s ? s.name : null;
   }, [numberInput, data.staff]);
 
-  const dayCount = oneDayOnly ? 1 : dateRangeStrs(dateFrom, dateTo).length;
+  const effectiveDateTo = dateMode === "one" ? date : (dateMode === "noend" ? (dateFrom > todayStr() ? dateFrom : todayStr()) : dateTo);
+  const dayCount = dateMode === "one" ? 1 : dateRangeStrs(dateFrom, effectiveDateTo).length;
   const canAssign = numberInput.trim() && (lookupPreview || nameInput.trim()) && dutyType.trim() && dayCount > 0;
   const [showInfo, setShowInfo] = useState(false);
 
   const handleAssign = () => {
     if (!canAssign) return;
     const name = lookupPreview || nameInput.trim();
-    if (oneDayOnly) {
+    if (dateMode === "one") {
       assignMiscDuty(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), date);
     } else {
-      assignMiscDutyRange(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), dateFrom, dateTo);
+      assignMiscDutyRange(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), dateFrom, effectiveDateTo);
     }
     setNumberInput("");
     setNameInput("");
@@ -5854,21 +5861,25 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
 
         <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
           <button
-            onClick={() => setOneDayOnly(true)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: oneDayOnly ? "var(--accent)" : "transparent", color: oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            onClick={() => setDateMode("one")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "one" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "one" ? "var(--accent)" : "transparent", color: dateMode === "one" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("One day only", "ફક્ત એક દિવસ")}</button>
           <button
-            onClick={() => setOneDayOnly(false)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: !oneDayOnly ? "var(--accent)" : "transparent", color: !oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            onClick={() => setDateMode("multi")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "multi" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "multi" ? "var(--accent)" : "transparent", color: dateMode === "multi" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
+          <button
+            onClick={() => setDateMode("noend")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "noend" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "noend" ? "var(--accent)" : "transparent", color: dateMode === "noend" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("No end date", "કોઈ અંતિમ તારીખ નથી")}</button>
         </div>
 
-        {oneDayOnly ? (
+        {dateMode === "one" ? (
           <div style={{ marginBottom: 18 }}>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Date", "તારીખ")}</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
-        ) : (
+        ) : dateMode === "multi" ? (
           <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
             <div>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("From date", "તારીખ થી")}</label>
@@ -5883,6 +5894,14 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
                 {t(`${dayCount} days`, `${dayCount} દિવસ`)}
               </div>
             )}
+          </div>
+        ) : (
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Starts", "શરૂ થાય છે")}</label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
+              {t("Logs duty from the start date through today. Come back and assign this same duty again later to extend it further.", "શરૂઆતની તારીખથી આજ સુધીની ડ્યુટી નોંધાય છે. આગળ વધારવા માટે પછીથી ફરી આ જ ડ્યુટી સોંપો.")}
+            </div>
           </div>
         )}
 
@@ -5911,7 +5930,12 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
   const { t } = useLang();
   const leaveTypes = data.leaveTypes || [];
   const [typeId, setTypeId] = useState(leaveTypes[0] ? leaveTypes[0].id : "");
-  const [oneDayOnly, setOneDayOnly] = useState(true);
+  // "one" = single day, "multi" = a fixed from/to range, "noend" = starts on
+  // a date and just keeps going (mirrors how indefinite Leave types already
+  // behave — to stays null until someone clears it from Manage staff) —
+  // chosen per entry here regardless of whether the selected leave TYPE
+  // itself defaults to indefinite.
+  const [dateMode, setDateMode] = useState("one");
   const [from, setFrom] = useState(todayStr());
   const [to, setTo] = useState(todayStr());
   const [numberInput, setNumberInput] = useState("");
@@ -5919,7 +5943,6 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
   const [showInfo, setShowInfo] = useState(false);
 
   const selectedType = leaveTypes.find((lt) => lt.id === typeId);
-  const isIndefinite = !!(selectedType && selectedType.indefinite);
 
   const lookupName = useMemo(() => {
     const num = numberInput.trim();
@@ -5928,8 +5951,8 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
     return s ? s.name : undefined; // undefined = not found, null = nothing typed yet
   }, [numberInput, data.staff]);
 
-  const effectiveTo = isIndefinite ? null : (oneDayOnly ? from : to);
-  const canAdd = numberInput.trim() && lookupName && typeId && from && (isIndefinite || (effectiveTo && effectiveTo >= from));
+  const effectiveTo = dateMode === "noend" ? null : (dateMode === "one" ? from : to);
+  const canAdd = numberInput.trim() && lookupName && typeId && from && (dateMode === "noend" || (effectiveTo && effectiveTo >= from));
 
   const addToQueue = () => {
     if (!canAdd) return;
@@ -5974,31 +5997,39 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
           </select>
         </div>
 
-        {!isIndefinite && (
-          <React.Fragment>
-            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 7 }}>
-              <input type="checkbox" id="oneDayOnlyCk" checked={oneDayOnly} onChange={(e) => setOneDayOnly(e.target.checked)} />
-              <label htmlFor="oneDayOnlyCk" style={{ fontSize: 12.5, color: "var(--text-primary)", cursor: "pointer" }} className="gu">{t("One day only", "ફક્ત એક દિવસ")}</label>
+        <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
+          <button
+            onClick={() => setDateMode("one")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "one" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "one" ? "var(--accent)" : "transparent", color: dateMode === "one" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("One day only", "ફક્ત એક દિવસ")}</button>
+          <button
+            onClick={() => setDateMode("multi")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "multi" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "multi" ? "var(--accent)" : "transparent", color: dateMode === "multi" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
+          <button
+            onClick={() => setDateMode("noend")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "noend" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "noend" ? "var(--accent)" : "transparent", color: dateMode === "noend" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("No end date", "કોઈ અંતિમ તારીખ નથી")}</button>
+        </div>
+
+        {dateMode !== "noend" ? (
+          <div style={{ marginBottom: 14, display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{dateMode === "one" ? t("Date", "તારીખ") : t("From", "થી")}</label>
+              <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); if (dateMode === "one") setTo(e.target.value); else if (to < e.target.value) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
             </div>
-            <div style={{ marginBottom: 14, display: "flex", gap: 10 }}>
+            {dateMode === "multi" && (
               <div style={{ flex: 1 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{oneDayOnly ? t("Date", "તારીખ") : t("From", "થી")}</label>
-                <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); if (oneDayOnly) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To", "સુધી")}</label>
+                <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
               </div>
-              {!oneDayOnly && (
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To", "સુધી")}</label>
-                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
-                </div>
-              )}
-            </div>
-          </React.Fragment>
-        )}
-        {isIndefinite && (
+            )}
+          </div>
+        ) : (
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Starts", "શરૂ થાય છે")}</label>
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">{t("This type has no fixed end date.", "આ પ્રકારની કોઈ નિશ્ચિત અંતિમ તારીખ નથી.")}</div>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">{t("Stays on leave until you clear it from Manage staff.", "તમે સ્ટાફ સંચાલિત કરોમાંથી સાફ ન કરો ત્યાં સુધી રજા પર રહેશે.")}</div>
           </div>
         )}
 
@@ -6060,13 +6091,46 @@ function GroupDutyView({ data, assignGroupDuty }) {
   const [people, setPeople] = useState([]); // { number, name }
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
-  const [oneDayOnly, setOneDayOnly] = useState(true);
+  // "one" = single day, "multi" = a fixed from/to range, "noend" = starts on
+  // a date with no fixed end — since Group duty writes one concrete history
+  // entry per calendar day (unlike an indefinite Leave/Outstation period),
+  // "no end date" logs every day from the start date through today right
+  // now; re-opening this screen later and assigning again for the same
+  // people/category picks up where it left off, so an ongoing posting is
+  // just extended a day at a time as it continues instead of needing a
+  // known end date up front.
+  const [dateMode, setDateMode] = useState("one");
   const [note, setNote] = useState("");
   const [markOutstation, setMarkOutstation] = useState(false);
   const outstationTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
   const [outstationTypeId, setOutstationTypeId] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [lastAssigned, setLastAssigned] = useState(null); // snapshot for the WhatsApp step below
+
+  // ---------- "Select staff from roster" picker ----------
+  // Lets people already on the selected work type's own roster be added to
+  // the group with a tap instead of retyping their buckle number — the
+  // buckle-number field right below still works for anyone NOT on that
+  // roster (e.g. borrowing someone from a different work type for this
+  // duty). Mirrors the designation-filter pattern used by "Import Staff"
+  // in the Roster tab.
+  const [showRosterPicker, setShowRosterPicker] = useState(false);
+  const [rosterPickerSelected, setRosterPickerSelected] = useState(() => new Set());
+  const [rosterOnlyDesignation, setRosterOnlyDesignation] = useState(() => new Set());
+  const [showRosterDesigFilter, setShowRosterDesigFilter] = useState(false);
+  const categoryRoster = useMemo(() => (catId ? computeRoster(data, catId) : []), [data, catId]);
+  const rosterCandidates = useMemo(() => {
+    let list = categoryRoster.filter((p) => !people.some((pp) => pp.number === p.number));
+    if (rosterOnlyDesignation.size > 0) list = list.filter((p) => p.staffRec && rosterOnlyDesignation.has(p.staffRec.designation));
+    return list;
+  }, [categoryRoster, people, rosterOnlyDesignation]);
+  const addSelectedFromRoster = () => {
+    const chosen = categoryRoster.filter((p) => rosterPickerSelected.has(p.number));
+    if (chosen.length === 0) return;
+    setPeople((cur) => [...cur, ...chosen.filter((p) => !cur.some((pp) => pp.number === p.number)).map((p) => ({ number: p.number, name: p.name }))]);
+    setRosterPickerSelected(new Set());
+    setShowRosterPicker(false);
+  };
 
   const lookupPreview = useMemo(() => {
     const num = numberInput.trim();
@@ -6091,7 +6155,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   const removePerson = (num) => setPeople((cur) => cur.filter((p) => p.number !== num));
 
   const cat = (data.categories || []).find((c) => c.id === catId);
-  const effectiveDateTo = oneDayOnly ? dateFrom : dateTo;
+  const effectiveDateTo = dateMode === "one" ? dateFrom : (dateMode === "noend" ? (dateFrom > todayStr() ? dateFrom : todayStr()) : dateTo);
   const dayCount = dateRangeStrs(dateFrom, effectiveDateTo).length;
   const effectiveOutstationTypeId = outstationTypeId || (outstationTypes[0] ? outstationTypes[0].id : "");
   const canAssign = !!catId && people.length > 0 && !!dateFrom && dayCount > 0 && (!markOutstation || !!effectiveOutstationTypeId);
@@ -6129,23 +6193,27 @@ function GroupDutyView({ data, assignGroupDuty }) {
           </select>
         </div>
 
-        <div style={{ marginBottom: 10, display: "flex", gap: 6, maxWidth: 300 }}>
+        <div style={{ marginBottom: 10, display: "flex", gap: 6, maxWidth: 440 }}>
           <button
-            onClick={() => setOneDayOnly(true)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: oneDayOnly ? "var(--accent)" : "transparent", color: oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            onClick={() => setDateMode("one")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "one" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "one" ? "var(--accent)" : "transparent", color: dateMode === "one" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("One day only", "ફક્ત એક દિવસ")}</button>
           <button
-            onClick={() => setOneDayOnly(false)}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (!oneDayOnly ? "var(--accent-strong)" : "var(--border)"), background: !oneDayOnly ? "var(--accent)" : "transparent", color: !oneDayOnly ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            onClick={() => setDateMode("multi")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "multi" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "multi" ? "var(--accent)" : "transparent", color: dateMode === "multi" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
+          <button
+            onClick={() => setDateMode("noend")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "noend" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "noend" ? "var(--accent)" : "transparent", color: dateMode === "noend" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >{t("No end date", "કોઈ અંતિમ તારીખ નથી")}</button>
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 4, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{oneDayOnly ? t("Date", "તારીખ") : t("From date", "તારીખ થી")}</label>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{dateMode === "one" ? t("Date", "તારીખ") : (dateMode === "noend" ? t("Starts", "શરૂ થાય છે") : t("From date", "તારીખ થી"))}</label>
             <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
           </div>
-          {!oneDayOnly && (
+          {dateMode === "multi" && (
             <div>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
               <input type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
@@ -6161,6 +6229,11 @@ function GroupDutyView({ data, assignGroupDuty }) {
             <input type="text" value={note} onChange={(e) => setNote(e.target.value)} className="gu" style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
         </div>
+        {dateMode === "noend" && (
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", margin: "0 0 14px" }} className="gu">
+            {t("Logs duty from the start date through today. Come back and assign this same group again later to extend it further.", "શરૂઆતની તારીખથી આજ સુધીની ડ્યુટી નોંધાય છે. આગળ વધારવા માટે પછીથી ફરી આ જ જૂથને ડ્યુટી સોંપો.")}
+          </div>
+        )}
 
         <div style={{
           display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14,
@@ -6184,7 +6257,21 @@ function GroupDutyView({ data, assignGroupDuty }) {
           </p>
         )}
 
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Add people to the group", "જૂથમાં લોકો ઉમેરો")}</label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5, flexWrap: "wrap", gap: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }} className="gu">{t("Add people to the group", "જૂથમાં લોકો ઉમેરો")}</label>
+          <button
+            type="button"
+            onClick={() => { if (!catId) return; setRosterPickerSelected(new Set()); setShowRosterPicker(true); }}
+            disabled={!catId}
+            title={!catId ? t("Pick a work type first", "પહેલા કામનો પ્રકાર પસંદ કરો") : undefined}
+            style={{
+              background: "transparent", border: "1px solid var(--border)", borderRadius: 20,
+              padding: "5px 12px", fontSize: 11.5, fontWeight: 600,
+              color: catId ? "var(--text-secondary)" : "var(--text-tertiary)",
+              cursor: catId ? "pointer" : "default", opacity: catId ? 1 : 0.6,
+            }} className="gu"
+          >👤 {t("Select staff from roster", "રોસ્ટરમાંથી સ્ટાફ પસંદ કરો")}</button>
+        </div>
         <form onSubmit={addPerson} style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap", alignItems: "flex-start" }}>
           <div>
             <input type="text" placeholder={t("Buckle number", "બકલ નંબર")} value={numberInput} onChange={(e) => setNumberInput(e.target.value)} className="gu" style={{ width: 140 }} />
@@ -6199,6 +6286,127 @@ function GroupDutyView({ data, assignGroupDuty }) {
           )}
           <button type="submit" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">+ {t("Add", "ઉમેરો")}</button>
         </form>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: -2, marginBottom: 6 }} className="gu">
+          {t("Not on this work type's roster? Add them by buckle number above instead.", "આ કામના પ્રકારના રોસ્ટરમાં નથી? તેના બદલે ઉપર બકલ નંબરથી ઉમેરો.")}
+        </div>
+
+        {showRosterPicker && (
+          <div role="dialog" aria-modal="true" aria-label={t("Select staff from roster", "રોસ્ટરમાંથી સ્ટાફ પસંદ કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 500, padding: 16 }} onClick={() => setShowRosterPicker(false)}>
+            <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{
+              width: 380, maxWidth: "100%", maxHeight: "80vh",
+              display: "flex", flexDirection: "column", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden",
+            }}>
+              <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>👤 {t("Select staff from roster", "રોસ્ટરમાંથી સ્ટાફ પસંદ કરો")}{cat ? <span className="gu" style={{ fontWeight: 500, fontSize: 12.5, color: "var(--text-tertiary)" }}> — {cat.label}</span> : null}</div>
+                <button onClick={() => setShowRosterPicker(false)} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+              </div>
+
+              {(data.designations || []).length > 0 && (
+                <div style={{ padding: "12px 20px 0" }}>
+                  <button
+                    onClick={() => setShowRosterDesigFilter((v) => !v)}
+                    style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", background: "transparent", border: "none", padding: 0, marginBottom: showRosterDesigFilter ? 6 : 0, cursor: "pointer" }}
+                    className="gu"
+                  >
+                    <span style={{ display: "inline-block", transform: showRosterDesigFilter ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                    {rosterOnlyDesignation.size > 0
+                      ? (rosterOnlyDesignation.size === 1
+                          ? t(`Filtered to ${data.designations.find((d) => rosterOnlyDesignation.has(d.id)) ? data.designations.find((d) => rosterOnlyDesignation.has(d.id)).label : ""}`, `${data.designations.find((d) => rosterOnlyDesignation.has(d.id)) ? data.designations.find((d) => rosterOnlyDesignation.has(d.id)).label : ""} પર ફિલ્ટર થયેલ`)
+                          : t(`Filtered to ${rosterOnlyDesignation.size} designations`, `${rosterOnlyDesignation.size} હોદ્દા પર ફિલ્ટર થયેલ`))
+                      : t("Filter by designation (optional)", "હોદ્દા પ્રમાણે ફિલ્ટર કરો (વૈકલ્પિક)")}
+                  </button>
+                  {showRosterDesigFilter && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                      {data.designations.map((d) => {
+                        const active = rosterOnlyDesignation.has(d.id);
+                        return (
+                          <button
+                            key={d.id}
+                            onClick={() => setRosterOnlyDesignation((cur) => {
+                              const next = new Set(cur);
+                              if (next.has(d.id)) next.delete(d.id); else next.add(d.id);
+                              return next;
+                            })}
+                            style={{
+                              fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
+                              border: "1px solid " + (active ? "var(--accent-strong)" : "var(--border)"),
+                              background: active ? "var(--accent)" : "var(--bg-surface)", color: active ? "var(--accent-text)" : "var(--text-secondary)",
+                            }}
+                            className="gu"
+                          >{d.label}</button>
+                        );
+                      })}
+                      {rosterOnlyDesignation.size > 0 && (
+                        <button onClick={() => setRosterOnlyDesignation(new Set())} style={{ fontSize: 11, color: "var(--text-tertiary)", background: "transparent", border: "none", textDecoration: "underline", padding: 0 }} className="gu">{t("Show everyone", "બધા બતાવો")}</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {rosterCandidates.length === 0 ? (
+                <div className="gu" style={{ padding: "24px 20px", fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>
+                  {categoryRoster.length === 0
+                    ? t("No one on this work type's roster yet", "આ કામના પ્રકારના રોસ્ટરમાં હજુ કોઈ નથી")
+                    : t("No match — everyone here is already added, or none match the filter", "કોઈ મેળ નથી — બધા પહેલેથી ઉમેરાયેલા છે, અથવા ફિલ્ટર સાથે કોઈ મેળ ખાતું નથી")}
+                </div>
+              ) : (
+                <React.Fragment>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 20px 10px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }} className="gu">
+                    <input
+                      type="checkbox"
+                      checked={rosterCandidates.length > 0 && rosterCandidates.every((p) => rosterPickerSelected.has(p.number))}
+                      onChange={(e) => {
+                        setRosterPickerSelected((cur) => {
+                          const next = new Set(cur);
+                          rosterCandidates.forEach((p) => e.target.checked ? next.add(p.number) : next.delete(p.number));
+                          return next;
+                        });
+                      }}
+                    />
+                    {t("Select all", "બધા પસંદ કરો")}
+                  </label>
+                  <div style={{ overflowY: "auto", flex: 1, borderTop: "1px solid var(--border-soft)" }}>
+                    {rosterCandidates.map((p) => {
+                      const desigLabel = p.staffRec && p.staffRec.designation && data.designations
+                        ? (data.designations.find((d) => d.id === p.staffRec.designation) || {}).label
+                        : null;
+                      return (
+                        <label key={p.number} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", fontSize: 12.5, cursor: "pointer", borderBottom: "1px solid var(--border-soft)" }} className="gu">
+                          <input
+                            type="checkbox" checked={rosterPickerSelected.has(p.number)}
+                            onChange={(e) => setRosterPickerSelected((cur) => {
+                              const next = new Set(cur);
+                              e.target.checked ? next.add(p.number) : next.delete(p.number);
+                              return next;
+                            })}
+                          />
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            {p.name}
+                            {desigLabel && <span style={{ color: "var(--text-tertiary)" }}> · {desigLabel}</span>}
+                          </span>
+                          {p.status !== "Present" && (
+                            <span className="gu" style={{ fontSize: 10.5, fontWeight: 600, color: "var(--status-warning-text)", background: "var(--status-warning-bg)", border: "1px solid var(--status-warning-border)", borderRadius: 10, padding: "2px 6px" }}>{p.statusLabel}</span>
+                          )}
+                          <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{p.number}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </React.Fragment>
+              )}
+
+              <div style={{ padding: "14px 20px", borderTop: "1px solid var(--border-soft)" }}>
+                <button
+                  onClick={addSelectedFromRoster}
+                  disabled={rosterPickerSelected.size === 0}
+                  style={{ width: "100%", background: rosterPickerSelected.size ? "var(--accent)" : "var(--border-soft)", color: rosterPickerSelected.size ? "var(--accent-text)" : "var(--text-tertiary)", border: "none", borderRadius: 7, padding: "10px 12px", fontSize: 13, fontWeight: 700 }} className="gu"
+                >{t(`Add${rosterPickerSelected.size ? ` (${rosterPickerSelected.size})` : ""}`, `ઉમેરો${rosterPickerSelected.size ? ` (${rosterPickerSelected.size})` : ""}`)}</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {people.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "10px 0 16px" }}>
