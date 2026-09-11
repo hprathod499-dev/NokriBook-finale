@@ -789,6 +789,15 @@ function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+// Used by performFormatAllData: the boundary date below which duty history,
+// Skip history, recycle-bin entries, and fully-past Leave/Outstation
+// periods get cleared — everything ON or AFTER this date is always kept,
+// no matter how "Format all data" is run.
+function monthAgoStr() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 function daysBetween(a, b) {
   const ms = new Date(b + "T00:00:00") - new Date(a + "T00:00:00");
   return Math.max(0, Math.round(ms / 86400000));
@@ -2119,7 +2128,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
                       simply layers on top (higher z-index) instead. */}
                   <button onClick={() => setShowImportStaff(true)} className="gu" style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}>📥 {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
                   {formatAllData && (
-                    <button onClick={() => { onClose(); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600, borderBottom: "1px solid var(--border-soft)" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
+                    <button onClick={() => { onClose(); formatAllData(); }} className="gu" title={t("Clears duty history older than 1 month — keeps staff, designations, work types, and the last month", "1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો મહિનો સચવાય છે")} style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600, borderBottom: "1px solid var(--border-soft)" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
                   )}
                   {onChooseBackupFolder && (
                     <button onClick={() => { onClose(); onChooseBackupFolder(); }} className="gu"
@@ -4077,33 +4086,60 @@ function DutyRoster() {
     if (!staffRec) return;
     const personName = staffRec.name;
     const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    // Everything dated ON or AFTER this stays; only what's strictly older
+    // gets cleared. String comparison works directly since every date here
+    // is "YYYY-MM-DD".
+    const cutoff = monthAgoStr();
     const cleanStaff = {};
     Object.values(data.staff || {}).forEach((s) => {
-      cleanStaff[s.number] = { number: s.number, name: s.name, phone: s.phone || null, designation: s.designation || null, unavailable: null, unavailableHistory: [] };
+      // A Leave/Outstation period is kept whenever any part of it could
+      // still matter going forward or within the retained month — i.e.
+      // unless it's indefinite-and-still-open (to === null, never drop
+      // those) it's only dropped once its own end date is older than the
+      // cutoff. currentUnavailablePeriod then re-derives which one (if
+      // any) of what's left counts as "the" current status, the same way
+      // it's derived everywhere else in the app.
+      const keptPeriods = (s.unavailableHistory || []).filter((p) => !p.to || p.to >= cutoff);
+      cleanStaff[s.number] = {
+        number: s.number, name: s.name, phone: s.phone || null, designation: s.designation || null,
+        unavailable: currentUnavailablePeriod(keptPeriods),
+        unavailableHistory: keptPeriods,
+      };
     });
     const cleanMembership = {};
     Object.keys(data.membership || {}).forEach((catId) => {
-      cleanMembership[catId] = (data.membership[catId] || []).map((m) => ({ number: m.number, lastDuty: null, history: [], skip: false }));
+      cleanMembership[catId] = (data.membership[catId] || []).map((m) => {
+        const keptHistory = (m.history || []).filter((e) => historyDate(e) >= cutoff);
+        // lastDuty is re-derived from what's actually kept, rather than
+        // trusting the old value — so it can never point at an entry that
+        // just got cleared out from under it.
+        let newLastDuty = null;
+        keptHistory.forEach((e) => {
+          const d = historyDate(e);
+          if (!newLastDuty || d > newLastDuty) newLastDuty = d;
+        });
+        return { number: m.number, lastDuty: newLastDuty, history: keptHistory, skip: false };
+      });
     });
     persist({
       ...dataRef.current,
       staff: cleanStaff,
       membership: cleanMembership,
-      skipLog: [],
-      recycleBin: [],
-      events: [],
+      skipLog: (data.skipLog || []).filter((e) => (e.date || "") >= cutoff),
+      recycleBin: (data.recycleBin || []).filter((e) => (e.deletedAt || "") >= cutoff),
+      events: (data.events || []).filter((e) => !e.end || e.end >= cutoff),
       reminderAcks: {},
     });
     if (user && user.email) {
-      const subject = "Nokri Book — all duty data was formatted";
+      const subject = "Nokri Book — old duty data was formatted";
       const performedByLine = `Performed by: ${personName} (buckle number ${buckleNumber})`;
       const bodyLines = [
-        "This confirms that all duty data in Nokri Book was cleared.",
+        "This confirms that duty data older than 1 month in Nokri Book was cleared.",
         "",
         performedByLine,
         `Time: ${whenText}`,
         "",
-        "Staff names, designations, and work types were kept. All duty history, last-duty dates, Skip status, Leave/Outstation records, skip history, recycle bin, and events were erased.",
+        "Staff names, designations, and work types were kept, along with the last 1 month of duty history, last-duty dates, Leave/Outstation records, Skip history, and recycle bin. Everything older than that was erased.",
       ];
       const messageText = bodyLines.join("\n");
       if (emailjsConfigured) {
@@ -4132,7 +4168,7 @@ function DutyRoster() {
         a.click();
       }
     }
-    showToastRaw(t("All duty data cleared — staff, designations, and work types kept.", "બધો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ અને કામના પ્રકારો સચવાયા."));
+    showToastRaw(t("Duty data older than 1 month cleared — staff, designations, work types, and the last month are kept.", "1 મહિનાથી જૂનો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો 1 મહિનો સચવાયા."));
   };
 
 
@@ -5356,7 +5392,7 @@ function DutyRoster() {
         <FormatAllDataModal
           data={data}
           staffCount={Object.keys(data.staff || {}).length}
-          dutyCount={Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).length, 0), 0)}
+          dutyCount={Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).filter((e) => historyDate(e) < monthAgoStr()).length, 0), 0)}
           onConfirm={(buckleNumber) => { setShowFormatModal(false); performFormatAllData(buckleNumber); }}
           onCancel={() => setShowFormatModal(false)}
         />
@@ -6732,8 +6768,8 @@ function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }
           <React.Fragment>
             <p className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", margin: "10px 0 0", lineHeight: 1.5 }}>
               {t(
-                `This clears ALL duty history, last-duty dates, Skip status, Leave/Outstation records, skip history, recycle bin, and events for every one of your ${staffCount} staff — that's ${dutyCount} duty entries gone for good. Staff names, buckle numbers, phone numbers, designations, and your work types themselves are kept. This cannot be undone from here.`,
-                `આ તમારા ${staffCount} સ્ટાફ માટેનો બધો ડ્યુટી ઇતિહાસ, છેલ્લી ડ્યુટીની તારીખો, સ્કિપ સ્થિતિ, રજા/બહારગામ રેકોર્ડ, સ્કિપ ઇતિહાસ, રિસાયકલ બિન અને ઇવેન્ટ્સ સાફ કરે છે — એટલે કે ${dutyCount} ડ્યુટી એન્ટ્રીઓ કાયમ માટે જતી રહેશે. સ્ટાફના નામ, બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને તમારા કામના પ્રકારો સચવાશે. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
+                `This clears duty history, Skip history, recycle bin, and past Leave/Outstation records that are OLDER than 1 month, for every one of your ${staffCount} staff — that's ${dutyCount} duty entries gone for good. The last 1 month of duty history is kept, along with staff names, buckle numbers, phone numbers, designations, and your work types themselves. This cannot be undone from here.`,
+                `આ તમારા ${staffCount} સ્ટાફ માટેનો 1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ, સ્કિપ ઇતિહાસ, રિસાયકલ બિન અને જૂના રજા/બહારગામ રેકોર્ડ સાફ કરે છે — એટલે કે ${dutyCount} ડ્યુટી એન્ટ્રીઓ કાયમ માટે જતી રહેશે. છેલ્લો 1 મહિનાનો ડ્યુટી ઇતિહાસ સચવાશે, સાથે સ્ટાફના નામ, બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને તમારા કામના પ્રકારો પણ. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
               )}
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
