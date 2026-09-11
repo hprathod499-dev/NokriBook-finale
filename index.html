@@ -2093,9 +2093,6 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
               )}
             </div>
           )}
-          {onHelp && (
-            <button onClick={() => { onClose(); onHelp(); }} className="gu" style={{ ...rowBtn, color: "var(--text-primary)" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
-          )}
           {showDataSection && (
             <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
               <button
@@ -2139,6 +2136,9 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
                 </div>
               )}
             </div>
+          )}
+          {onHelp && (
+            <button onClick={() => { onClose(); onHelp(); }} className="gu" style={{ ...rowBtn, color: "var(--text-primary)" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
           )}
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
             <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 5 }} className="gu">{t("Suggest any changes", "કોઈપણ ફેરફારો સૂચવો")}</div>
