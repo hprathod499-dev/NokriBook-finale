@@ -2020,7 +2020,14 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
+  const [showImportStaff, setShowImportStaff] = useState(false);
   const activeTheme = THEME_OPTIONS.find((o) => o.value === (theme || "classic")) || THEME_OPTIONS[0];
+  // Only the full admin panel (not the read-only shared-roster one, which
+  // never passes formatAllData) gets this section at all — Import Staff
+  // makes no sense with nothing to import into, and the other three are
+  // already individually gated the same way below.
+  const showDataSection = !!(formatAllData || onChooseBackupFolder || onRecoverLocalBackup);
   const SUPPORT_EMAIL = "nokribook@gmail.com";
   // Only these dividing lines are meant to stand out boldly — everything
   // else in the panel (button borders, the language toggle's outline)
@@ -2088,20 +2095,49 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           {onHelp && (
             <button onClick={() => { onClose(); onHelp(); }} className="gu" style={{ ...rowBtn, color: "var(--text-primary)" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
           )}
-          {formatAllData && (
-            <button onClick={() => { onClose(); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600 }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
-          )}
-          {onChooseBackupFolder && (
-            <button onClick={() => { onClose(); onChooseBackupFolder(); }} className="gu"
-              title={t("Choose or change which folder backups are automatically saved into", "બેકઅપ આપમેળે કયા ફોલ્ડરમાં સચવાય છે તે પસંદ કરો અથવા બદલો")}
-              style={{ ...rowBtn, color: "var(--text-primary)" }}
-            >📁 {t("Backup folder…", "બેકઅપ ફોલ્ડર…")}</button>
-          )}
-          {onRecoverLocalBackup && (
-            <button onClick={() => { onClose(); onRecoverLocalBackup(); }} className="gu"
-              title={t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
-              style={{ ...rowBtn, color: "var(--text-primary)" }}
-            >🛟 {t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
+          {showDataSection && (
+            <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
+              <button
+                onClick={() => setDataOpen((v) => !v)}
+                aria-expanded={dataOpen}
+                className="disp gu"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13,
+                  background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)",
+                }}
+              >
+                <span style={{ display: "inline-block", transform: dataOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                {t("Data", "ડેટા")}
+              </button>
+              {dataOpen && (
+                <div style={{ display: "flex", flexDirection: "column", marginTop: 8, marginLeft: -8, marginRight: -8 }}>
+                  {/* Deliberately doesn't call onClose() first, unlike the
+                      other rows here — those hand off to a sibling panel
+                      controlled by RootApp's own state, so unmounting this
+                      one first is harmless. ImportStaffModal instead is
+                      owned entirely by THIS component's own state
+                      (showImportStaff), so closing Settings first would
+                      unmount it before it ever got a chance to open. It
+                      simply layers on top (higher z-index) instead. */}
+                  <button onClick={() => setShowImportStaff(true)} className="gu" style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}>📥 {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
+                  {formatAllData && (
+                    <button onClick={() => { onClose(); formatAllData(); }} className="gu" title={t("Wipes duty history — keeps staff and work types", "ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ અને કામના પ્રકારો સચવાય છે")} style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600, borderBottom: "1px solid var(--border-soft)" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
+                  )}
+                  {onChooseBackupFolder && (
+                    <button onClick={() => { onClose(); onChooseBackupFolder(); }} className="gu"
+                      title={t("Choose or change which folder backups are automatically saved into", "બેકઅપ આપમેળે કયા ફોલ્ડરમાં સચવાય છે તે પસંદ કરો અથવા બદલો")}
+                      style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}
+                    >📁 {t("Backup folder…", "બેકઅપ ફોલ્ડર…")}</button>
+                  )}
+                  {onRecoverLocalBackup && (
+                    <button onClick={() => { onClose(); onRecoverLocalBackup(); }} className="gu"
+                      title={t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
+                      style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "none" }}
+                    >🛟 {t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
             <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 5 }} className="gu">{t("Suggest any changes", "કોઈપણ ફેરફારો સૂચવો")}</div>
@@ -2113,6 +2149,59 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           {onSignIn && (
             <button onClick={() => { onClose(); onSignIn(); }} className="gu" style={{ ...rowBtn, color: "var(--accent-strong)", fontWeight: 700, borderBottom: "none" }}>🔑 {t("Sign in to Nokri Book", "નોકરી બુકમાં સાઇન ઇન કરો")}</button>
           )}
+        </div>
+      </div>
+      {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} />}
+    </div>
+  );
+}
+
+// Shown from two places — a prominent call-to-action on Manage Staff while
+// the staff list is still empty (first login), and permanently afterward
+// under Settings → Data. Doesn't touch `data` itself: it only hands the
+// person a copyable prompt to paste into a Claude chat, alongside their own
+// exported backup .json and a staff-details PDF/Word file. The reply comes
+// back as an updated .json, which they then load the normal way — Data ▸
+// Restore in the top toolbar (importBackupRef/importBackup above) — so no
+// new import machinery is needed inside the app at all.
+function ImportStaffModal({ onClose }) {
+  const { t, lang } = useLang();
+  const [copied, setCopied] = useState(false);
+  const promptEn = `I'm sending my Nokri Book app's .json backup file, plus a PDF/Word file listing police station staff (buckle number, mobile number, name, designation). Please read the staff file and add each person as a new entry inside the "staff" object of the .json file — keyed by buckle number as a string — using this exact shape, and leave every other part of the .json file exactly as it already is:
+"<buckleNumber>": { "number": "<buckleNumber>", "name": "<name>", "phone": "<10-digit mobile number, or null if missing>", "designation": null, "unavailable": null }
+Buckle number and mobile number must be plain English digits (0-9) only. Name must stay in Gujarati script. Leave "designation" as null unless I tell you otherwise. Give me back the complete, updated .json file to download.`;
+  const promptGu = `હું Nokri Book એપની .json બેકઅપ ફાઈલ, અને પોલીસ સ્ટેશન સ્ટાફની વિગતો (બકલ નંબર, મોબાઈલ નંબર, નામ, હોદ્દો) વાળી PDF/Word ફાઈલ મોકલું છું. કૃપા કરી સ્ટાફ ફાઈલ વાંચીને દરેક વ્યક્તિને .json ફાઈલના "staff" ઓબ્જેક્ટમાં નવી entry તરીકે ઉમેરો — બકલ નંબરને string key તરીકે વાપરીને — બરાબર આ જ ફોર્મેટમાં, અને .json ફાઈલનો બાકીનો ભાગ જેમનો તેમ જ રહેવા દો:
+"<બકલ નંબર>": { "number": "<બકલ નંબર>", "name": "<નામ>", "phone": "<10 અંકનો મોબાઈલ નંબર, અથવા ન હોય તો null>", "designation": null, "unavailable": null }
+બકલ નંબર અને મોબાઈલ નંબર ફક્ત English અંકો (0-9) માં જ હોવા જોઈએ. નામ ગુજરાતી લિપિમાં જ રહેવું જોઈએ. "designation" ને null જ રહેવા દો, જ્યાં સુધી હું ખાસ ન કહું. મને સંપૂર્ણ, અપડેટેડ .json ફાઈલ download કરવા માટે પાછી આપો.`;
+  const prompt = lang === "gu" ? promptGu : promptEn;
+  const copyPrompt = () => {
+    navigator.clipboard.writeText(prompt).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }).catch(() => {});
+  };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Import Staff", "સ્ટાફ આયાત કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 480, maxWidth: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>📥 {t("Import Staff", "સ્ટાફ આયાત કરો")}</div>
+          <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+        </div>
+        <div style={{ padding: "18px 20px", overflowY: "auto" }}>
+          <ol className="gu" style={{ margin: "0 0 16px", paddingLeft: 20, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.9 }}>
+            <li>{t("Top toolbar → Data ▸ Backup, to download your .json backup file.", "ટોચનું ટૂલબાર → Data ▸ Backup, તમારી .json બેકઅપ ફાઈલ ડાઉનલોડ કરવા.")}</li>
+            <li>{t("Open a chat with Claude, and copy-paste the prompt below into it.", "Claude સાથે એક ચેટ ખોલો, અને નીચેનો prompt કોપી-પેસ્ટ કરો.")}</li>
+            <li>{t("Attach your .json backup file AND the staff-details PDF/Word file to that same message, then send.", "એ જ મેસેજ સાથે તમારી .json બેકઅપ ફાઈલ અને સ્ટાફ-ડિટેલ્સ વાળી PDF/Word ફાઈલ બંને attach કરો, પછી મોકલો.")}</li>
+            <li>{t("Save the updated .json file Claude gives you back.", "Claude તમને પાછી આપે એ અપડેટેડ .json ફાઈલ સાચવો.")}</li>
+            <li>{t("Here: top toolbar → Data ▸ Restore, and pick that file — it replaces all data, so staff you'd already added by hand should also be in the PDF/Word file, or add them again after.", "અહીં: ટોચનું ટૂલબાર → Data ▸ Restore, અને એ ફાઈલ પસંદ કરો — તે બધો ડેટા બદલી નાખે છે, એટલે તમે જાતે ઉમેરેલો સ્ટાફ પણ PDF/Word ફાઈલમાં હોવો જોઈએ, અથવા પછી ફરીથી ઉમેરજો.")}</li>
+          </ol>
+          <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Prompt to copy", "કોપી કરવાનો પ્રોમ્પ્ટ")}</div>
+          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, lineHeight: 1.7, background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 9, padding: 12, margin: 0, color: "var(--text-primary)", fontFamily: "inherit" }} className="gu">{prompt}</pre>
+        </div>
+        <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)" }}>
+          <button onClick={copyPrompt} className="gu" style={{ width: "100%", background: copied ? "var(--status-success-bg)" : "var(--accent)", color: copied ? "var(--status-success-text)" : "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            {copied ? `✓ ${t("Copied!", "કોપી થયું!")}` : `📋 ${t("Copy prompt", "પ્રોમ્પ્ટ કોપી કરો")}`}
+          </button>
         </div>
       </div>
     </div>
@@ -6872,6 +6961,7 @@ function StaffView({
   const [phone, setPhone] = useState("");
   const [newStaffDesg, setNewStaffDesg] = useState("");
   const [showInfo, setShowInfo] = useState(false);
+  const [showImportStaff, setShowImportStaff] = useState(false);
   const [search, setSearch] = useState(initialSearch || "");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
@@ -7072,6 +7162,31 @@ function StaffView({
           }} className="gu"
         >{t("Edit staff", "સ્ટાફ સંપાદિત કરો")}</button>
       </div>
+      {/* Only while the staff list is genuinely empty — brand-new account,
+          nothing to import into anyone's way of yet. Once even one person
+          exists (imported or added by hand), this disappears from here for
+          good; Import Staff still lives on permanently under Settings →
+          Data for anyone who wants it later (a second station, a fresh
+          batch of transfers, etc.). */}
+      {Object.keys(data.staff || {}).length === 0 && (
+        <button
+          data-tour="nb-tour-import-staff"
+          onClick={() => setShowImportStaff(true)}
+          className="gu"
+          style={{
+            display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+            background: "var(--accent-light)", border: "1px dashed var(--accent-strong)", borderRadius: 10,
+            padding: "14px 16px", marginBottom: 18, cursor: "pointer",
+          }}
+        >
+          <span style={{ fontSize: 22 }}>📥</span>
+          <span>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{t("Import Staff from a PDF/Word file", "PDF/Word ફાઈલમાંથી સ્ટાફ આયાત કરો")}</span>
+            <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{t("Have a staff list already? Add everyone at once with Claude's help, instead of typing each person in by hand.", "તમારી પાસે પહેલેથી સ્ટાફ યાદી છે? દરેક વ્યક્તિને જાતે ટાઈપ કરવાને બદલે, Claude ની મદદથી બધાને એકસાથે ઉમેરો.")}</span>
+          </span>
+        </button>
+      )}
+      {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} />}
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
           {t("Each person has one buckle number shared across every work type. Leave and outstation set here apply everywhere automatically. Assign a designation per person from the dropdown in the table. Add, edit (✎), or delete (✕) leave/outstation types and designations below — changes apply instantly to anyone currently marked with them.", "દરેક વ્યક્તિનો એક બકલ નંબર છે જે દરેક કામના પ્રકારમાં શેર થાય છે. અહીં સેટ કરેલી રજા અને બહારગામ આપમેળે બધે લાગુ પડે છે. કોષ્ટકમાંના ડ્રોપડાઉનમાંથી દરેક વ્યક્તિને હોદ્દો સોંપો. નીચે રજા/બહારગામના પ્રકારો અને હોદ્દાઓ ઉમેરો, સંપાદિત કરો (✎), અથવા ડિલીટ કરો (✕) — ફેરફારો હાલમાં તેની સાથે માર્ક થયેલા કોઈપણને તરત જ લાગુ પડે છે.")}
@@ -9288,6 +9403,19 @@ const TOUR_STEPS = [
     titleEn: "Themes & settings", titleGu: "થીમ અને સેટિંગ્સ",
     bodyEn: "Switch language, dark mode, or pick a color theme here — plus backup, restore, and account options.",
     bodyGu: "અહીંથી ભાષા, ડાર્ક મોડ, અથવા કલર થીમ બદલો — સાથે બેકઅપ, પુનઃસ્થાપિત કરો અને એકાઉન્ટના વિકલ્પો.",
+  },
+  // Final step, on purpose — this is the one actionable thing a genuinely
+  // new account (zero staff) most needs right after the tour ends. Only
+  // renders on Manage Staff while data.staff is still empty (see StaffView),
+  // so on a re-run of this tour via Help → Interactive tour, once staff
+  // already exist, there's nothing to highlight here — optional: true skips
+  // it cleanly instead of getting stuck. It isn't gone for such accounts,
+  // just relocated: Settings → Data → Import Staff, permanently.
+  {
+    selector: "nb-tour-import-staff", view: { mode: "staff" }, optional: true,
+    titleEn: "Already have a staff list?", titleGu: "પહેલેથી સ્ટાફ યાદી છે?",
+    bodyEn: "Skip the typing — tap this to get a ready-made prompt for Claude. Send it your staff PDF/Word file and this app's backup, and it hands back an updated backup with everyone already added.",
+    bodyGu: "ટાઈપિંગ છોડો — Claude માટે તૈયાર prompt મેળવવા આના પર ટેપ કરો. તેને તમારી સ્ટાફ PDF/Word ફાઈલ અને આ એપની બેકઅપ મોકલો, અને તે બધા ઉમેરાયેલા સાથે અપડેટેડ બેકઅપ પાછી આપશે.",
   },
 ];
 // No ESC-dismiss and no "skip tour" affordance here on purpose — see the
