@@ -2031,6 +2031,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
   const [showImportStaff, setShowImportStaff] = useState(false);
   const activeTheme = THEME_OPTIONS.find((o) => o.value === (theme || "classic")) || THEME_OPTIONS[0];
   // Only the full admin panel (not the read-only shared-roster one, which
@@ -2056,11 +2057,24 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
             {(user && user.email) || t("Viewing a shared roster — not signed in", "શેર કરેલ રોસ્ટર જોઈ રહ્યાં છો — સાઇન ઇન નથી")}
           </div>
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
-            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Language", "ભાષા")}</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setLang("en")} style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "en" ? "var(--accent-strong)" : "var(--border)"), background: lang === "en" ? "var(--accent)" : "transparent", color: lang === "en" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
-              <button onClick={() => setLang("gu")} className="gu" style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "gu" ? "var(--accent-strong)" : "var(--border)"), background: lang === "gu" ? "var(--accent)" : "transparent", color: lang === "gu" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
-            </div>
+            <button
+              onClick={() => setLangOpen((v) => !v)}
+              aria-expanded={langOpen}
+              className="disp gu"
+              style={{
+                display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13,
+                background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)",
+              }}
+            >
+              <span style={{ display: "inline-block", transform: langOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+              {t("Language", "ભાષા")}
+            </button>
+            {langOpen && (
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={() => setLang("en")} style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "en" ? "var(--accent-strong)" : "var(--border)"), background: lang === "en" ? "var(--accent)" : "transparent", color: lang === "en" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>EN</button>
+                <button onClick={() => setLang("gu")} className="gu" style={{ padding: "6px 16px", borderRadius: 7, border: "1px solid " + (lang === "gu" ? "var(--accent-strong)" : "var(--border)"), background: lang === "gu" ? "var(--accent)" : "transparent", color: lang === "gu" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>ગુજરાતી</button>
+              </div>
+            )}
           </div>
           {setTheme && (
             <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
