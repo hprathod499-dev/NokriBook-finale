@@ -2017,7 +2017,7 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose }) {
+function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -2152,7 +2152,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           )}
         </div>
       </div>
-      {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} />}
+      {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} exportBackup={exportBackup} />}
     </div>
   );
 }
@@ -2165,10 +2165,11 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
 // back as an updated .json, which they then load the normal way — Data ▸
 // Restore in the top toolbar (importBackupRef/importBackup above) — so no
 // new import machinery is needed inside the app at all.
-function ImportStaffModal({ onClose }) {
+function ImportStaffModal({ onClose, exportBackup }) {
   const { t, lang } = useLang();
   const [copied, setCopied] = useState(false);
-  const promptEn = `I'm sending my Nokri Book app's .json backup file, plus a PDF/Word file listing police station staff (buckle number, mobile number, name, designation). Please read the staff file and add each person as a new entry inside the "staff" object of the .json file — keyed by buckle number as a string — using this exact shape, and leave every other part of the .json file exactly as it already is:
+  const [downloaded, setDownloaded] = useState(false);
+  const promptEn = `I'm sending my Nokri Book app's .json backup file, plus a PDF/Word file listing police station staff (buckle number, mobile number, name, designation) — called the "મહેકમ પત્ર". Please read the staff file and add each person as a new entry inside the "staff" object of the .json file — keyed by buckle number as a string — using this exact shape, and leave every other part of the .json file exactly as it already is:
 "<buckleNumber>": { "number": "<buckleNumber>", "name": "<name>", "phone": "<10-digit mobile number, or null if missing>", "designation": "<designation id, or null>", "unavailable": null }
 Buckle number and mobile number must be plain English digits (0-9) only. Name must stay in Gujarati script.
 Be strict about "designation" — this is the part I most need double-checked:
@@ -2180,15 +2181,15 @@ Be strict about "designation" — this is the part I most need double-checked:
 Be strict about "phone" too: it must be a genuine 10-digit Indian mobile number (exactly 10 digits, starting with 6, 7, 8, or 9). If what's written is the wrong length, starts with a different digit, or is otherwise clearly not a valid mobile number, leave "phone" as null rather than forcing it in.
 At the end, tell me: how many staff got a designation assigned, how many were left null (with their buckle numbers), any brand-new designations you added, and how many phone numbers were left null for looking invalid.
 Give me back the complete, updated .json file to download.`;
-  const promptGu = `હું Nokri Book એપની .json બેકઅપ ફાઈલ, અને પોલીસ સ્ટેશન સ્ટાફની વિગતો (બકલ નંબર, મોબાઈલ નંબર, નામ, હોદ્દો) વાળી PDF/Word ફાઈલ મોકલું છું. કૃપા કરી સ્ટાફ ફાઈલ વાંચીને દરેક વ્યક્તિને .json ફાઈલના "staff" ઓબ્જેક્ટમાં નવી entry તરીકે ઉમેરો — બકલ નંબરને string key તરીકે વાપરીને — બરાબર આ જ ફોર્મેટમાં, અને .json ફાઈલનો બાકીનો ભાગ જેમનો તેમ જ રહેવા દો:
+  const promptGu = `હું Nokri Book એપની .json બેકઅપ ફાઈલ, અને પોલીસ સ્ટેશન સ્ટાફની વિગતો (બકલ નંબર, મોબાઈલ નંબર, નામ, હોદ્દો) વાળી "મહેકમ પત્ર" (PDF/Word ફાઈલ) મોકલું છું. કૃપા કરી મહેકમ પત્ર વાંચીને દરેક વ્યક્તિને .json ફાઈલના "staff" ઓબ્જેક્ટમાં નવી entry તરીકે ઉમેરો — બકલ નંબરને string key તરીકે વાપરીને — બરાબર આ જ ફોર્મેટમાં, અને .json ફાઈલનો બાકીનો ભાગ જેમનો તેમ જ રહેવા દો:
 "<બકલ નંબર>": { "number": "<બકલ નંબર>", "name": "<નામ>", "phone": "<10 અંકનો મોબાઈલ નંબર, અથવા ન હોય તો null>", "designation": "<designation id, અથવા null>", "unavailable": null }
 બકલ નંબર અને મોબાઈલ નંબર ફક્ત English અંકો (0-9) માં જ હોવા જોઈએ. નામ ગુજરાતી લિપિમાં જ રહેવું જોઈએ.
 "designation" બાબતે કડક રહેજો — આ ભાગ મારે સૌથી વધુ ડબલ-ચેક કરાવવો છે:
 1. પહેલા .json ફાઈલની "designations" array માં જેટલા distinct "label" પહેલેથી છે એ બધા લિસ્ટ કરો, જેથી તમારી પાસે ચોક્કસ allowed list હોય.
-2. દરેક સ્ટાફ મેમ્બર માટે, PDF/Word ફાઈલમાંનો હોદ્દો એ જ ચોક્કસ label list સાથે મેચ કરો — સરખું abbreviation, case સિવાય, ફક્ત વધારાની spaces ignore કરો. મળતું આવતું પણ પૂરેપૂરું ન મેચ થતું label match તરીકે ન ગણો.
-3. જો કોઈ વ્યક્તિનો હોદ્દો PDF/Word ફાઈલમાં સ્પષ્ટ લખેલો હોય પણ હાલના કોઈ label સાથે મેચ ન થાય, તો એને null ન રહેવા દેશો — .json ફાઈલની "designations" array માં નવી entry ઉમેરો (ફોર્મેટ: { "id": "<નવો id>", "label": "<જેમ લખેલું છે એમ જ label>" }, જે id હાલના કોઈ id સાથે ટકરાય નહીં) અને એ નવો id એ વ્યક્તિ માટે વાપરો. જો એક કરતાં વધુ સ્ટાફનો સરખો નવો હોદ્દો હોય તો એક જ નવી entry ફરીથી વાપરો, ડુપ્લિકેટ ન બનાવો.
-4. "designation" ને null ફક્ત ત્યારે જ રહેવા દો જ્યારે PDF/Word ફાઈલમાં એ વ્યક્તિ માટે કોઈ હોદ્દો લખેલો જ ન હોય — ક્યારેય અંદાજો ન લગાવો, અને નવો હોદ્દો ઉમેરવાને બદલે સૌથી નજીક લાગતું હાલનું label પણ ન પસંદ કરો.
-5. Final કરતા પહેલા, દરેક વ્યક્તિને બીજી વાર ફરીથી તપાસો — assign કરેલ designation id (હાલનું હોય કે નવું ઉમેરેલું), PDF/Word ફાઈલમાં ખરેખર શું લખ્યું છે એની સામે ફરીથી ચેક કરો — હમણાં જ કોઈ mismatch પકડીને સુધારો, મારા માટે શોધવા ન છોડો.
+2. દરેક સ્ટાફ મેમ્બર માટે, મહેકમ પત્રમાંનો હોદ્દો એ જ ચોક્કસ label list સાથે મેચ કરો — સરખું abbreviation, case સિવાય, ફક્ત વધારાની spaces ignore કરો. મળતું આવતું પણ પૂરેપૂરું ન મેચ થતું label match તરીકે ન ગણો.
+3. જો કોઈ વ્યક્તિનો હોદ્દો મહેકમ પત્રમાં સ્પષ્ટ લખેલો હોય પણ હાલના કોઈ label સાથે મેચ ન થાય, તો એને null ન રહેવા દેશો — .json ફાઈલની "designations" array માં નવી entry ઉમેરો (ફોર્મેટ: { "id": "<નવો id>", "label": "<જેમ લખેલું છે એમ જ label>" }, જે id હાલના કોઈ id સાથે ટકરાય નહીં) અને એ નવો id એ વ્યક્તિ માટે વાપરો. જો એક કરતાં વધુ સ્ટાફનો સરખો નવો હોદ્દો હોય તો એક જ નવી entry ફરીથી વાપરો, ડુપ્લિકેટ ન બનાવો.
+4. "designation" ને null ફક્ત ત્યારે જ રહેવા દો જ્યારે મહેકમ પત્રમાં એ વ્યક્તિ માટે કોઈ હોદ્દો લખેલો જ ન હોય — ક્યારેય અંદાજો ન લગાવો, અને નવો હોદ્દો ઉમેરવાને બદલે સૌથી નજીક લાગતું હાલનું label પણ ન પસંદ કરો.
+5. Final કરતા પહેલા, દરેક વ્યક્તિને બીજી વાર ફરીથી તપાસો — assign કરેલ designation id (હાલનું હોય કે નવું ઉમેરેલું), મહેકમ પત્રમાં ખરેખર શું લખ્યું છે એની સામે ફરીથી ચેક કરો — હમણાં જ કોઈ mismatch પકડીને સુધારો, મારા માટે શોધવા ન છોડો.
 "phone" બાબતે પણ કડક રહેજો: એ સાચો 10 અંકનો ભારતીય મોબાઈલ નંબર જ હોવો જોઈએ (બરાબર 10 અંક, અને શરૂઆત 6, 7, 8 કે 9 થી થતી હોય). જો લખેલો નંબર ખોટી લંબાઈનો હોય, બીજા અંકથી શરૂ થતો હોય, કે સ્પષ્ટપણે યોગ્ય મોબાઈલ નંબર ન લાગે, તો "phone" ને null જ રહેવા દો, બળજબરીથી ભરશો નહીં.
 છેલ્લે મને કહો: કેટલા સ્ટાફને designation મળ્યું, કેટલાને null રહ્યું (એમના બકલ નંબર સાથે), તમે કઈ-કઈ નવી designations ઉમેરી, અને અમાન્ય લાગવાથી કેટલા phone number null રહ્યા.
 મને સંપૂર્ણ, અપડેટેડ .json ફાઈલ download કરવા માટે પાછી આપો.`;
@@ -2199,10 +2200,19 @@ Give me back the complete, updated .json file to download.`;
       setTimeout(() => setCopied(false), 1800);
     }).catch(() => {});
   };
+  // Grabs the .json backup right here, right now — no more sending
+  // someone off to hunt for Data ▸ Backup in the top toolbar first. Reuses
+  // the exact same exportBackup() the toolbar button calls, so it's the
+  // same file either way.
+  const downloadBackupNow = () => {
+    if (!exportBackup) return;
+    Promise.resolve(exportBackup()).then(() => setDownloaded(true)).catch(() => {});
+  };
   // Opens a brand-new Claude chat with the prompt already typed into the
   // message box (claude.ai reads the "q" query param and pre-fills it —
-  // the person still has to attach their .json backup + staff file and
-  // hit send themselves, but they no longer have to copy-paste anything).
+  // the person still has to attach their .json backup + મહેકમ પત્ર
+  // (staff PDF/Word file) and hit send themselves, but they no longer
+  // have to copy-paste anything).
   const claudeUrl = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Import Staff", "સ્ટાફ આયાત કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }} onClick={onClose}>
@@ -2212,12 +2222,30 @@ Give me back the complete, updated .json file to download.`;
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
         <div style={{ padding: "18px 20px", overflowY: "auto" }}>
+          {exportBackup && (
+            <button
+              onClick={downloadBackupNow}
+              className="gu"
+              style={{
+                width: "100%", boxSizing: "border-box", marginBottom: 14,
+                background: downloaded ? "var(--status-success-bg)" : "var(--accent)",
+                color: downloaded ? "var(--status-success-text)" : "var(--accent-text)",
+                border: "1px solid " + (downloaded ? "var(--status-success-border)" : "var(--accent-strong)"),
+                borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}
+            >
+              {downloaded ? `✓ ${t("Backup downloaded — attach it below", "બેકઅપ ડાઉનલોડ થયો — નીચે attach કરો")}` : `⬇ ${t("Step 1 — Download my .json backup now", "સ્ટેપ 1 — હમણાં જ મારો .json બેકઅપ ડાઉનલોડ કરો")}`}
+            </button>
+          )}
           <ol className="gu" style={{ margin: "0 0 16px", paddingLeft: 20, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.9 }}>
-            <li>{t("Top toolbar → Data ▸ Backup, to download your .json backup file.", "ટોચનું ટૂલબાર → Data ▸ Backup, તમારી .json બેકઅપ ફાઈલ ડાઉનલોડ કરવા.")}</li>
+            {!exportBackup && (
+              <li>{t("Top toolbar → Data ▸ Backup, to download your .json backup file.", "ટોચનું ટૂલબાર → Data ▸ Backup, તમારી .json બેકઅપ ફાઈલ ડાઉનલોડ કરવા.")}</li>
+            )}
             <li>{t("Tap \"Open in Claude\" below — it opens a new Claude chat with the prompt already typed in.", "નીચે \"Claude માં ખોલો\" પર ટેપ કરો — તે નવી Claude ચેટ ખોલશે, જેમાં prompt પહેલેથી જ ટાઈપ થયેલો હશે.")}</li>
-            <li>{t("Attach your .json backup file AND the staff-details PDF/Word file to that same message, then send.", "એ જ મેસેજ સાથે તમારી .json બેકઅપ ફાઈલ અને સ્ટાફ-ડિટેલ્સ વાળી PDF/Word ફાઈલ બંને attach કરો, પછી મોકલો.")}</li>
+            <li>{t("Attach your .json backup file AND the staff-details PDF/Word file (મહેકમ પત્ર) to that same message, then send.", "એ જ મેસેજ સાથે તમારી .json બેકઅપ ફાઈલ અને મહેકમ પત્ર (સ્ટાફ-ડિટેલ્સ વાળી PDF/Word ફાઈલ) બંને attach કરો, પછી મોકલો.")}</li>
             <li>{t("Save the updated .json file Claude gives you back.", "Claude તમને પાછી આપે એ અપડેટેડ .json ફાઈલ સાચવો.")}</li>
-            <li>{t("Here: top toolbar → Data ▸ Restore, and pick that file — it replaces all data, so staff you'd already added by hand should also be in the PDF/Word file, or add them again after.", "અહીં: ટોચનું ટૂલબાર → Data ▸ Restore, અને એ ફાઈલ પસંદ કરો — તે બધો ડેટા બદલી નાખે છે, એટલે તમે જાતે ઉમેરેલો સ્ટાફ પણ PDF/Word ફાઈલમાં હોવો જોઈએ, અથવા પછી ફરીથી ઉમેરજો.")}</li>
+            <li>{t("Here: top toolbar → Data ▸ Restore, and pick that file — it replaces all data, so staff you'd already added by hand should also be in the મહેકમ પત્ર, or add them again after.", "અહીં: ટોચનું ટૂલબાર → Data ▸ Restore, અને એ ફાઈલ પસંદ કરો — તે બધો ડેટા બદલી નાખે છે, એટલે તમે જાતે ઉમેરેલો સ્ટાફ પણ મહેકમ પત્રમાં હોવો જોઈએ, અથવા પછી ફરીથી ઉમેરજો.")}</li>
           </ol>
           <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Prompt (opens pre-filled below, or copy it manually)", "પ્રોમ્પ્ટ (નીચે આપમેળે ભરાઈ જશે, અથવા જાતે કોપી કરો)")}</div>
           <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, lineHeight: 1.7, background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 9, padding: 12, margin: 0, color: "var(--text-primary)", fontFamily: "inherit" }} className="gu">{prompt}</pre>
@@ -5101,12 +5129,12 @@ function DutyRoster() {
               </span>
             )}
             <button onClick={() => setShowCommandPalette(true)} title={langCtxValue.t("Search everything (Ctrl+K)", "બધું શોધો (Ctrl+K)")} style={undoRedoBtn(true)} className="gu">{langCtxValue.t("Search", "શોધો")}</button>
-            <button onClick={() => setShowReminderPanel(true)} title={langCtxValue.t("Show pending reminders", "બાકી રિમાઇન્ડર બતાવો")} style={{
+            <button onClick={() => setView({ mode: "calendar" })} title={langCtxValue.t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
               ...undoRedoBtn(true),
-              background: pendingReminders.length ? "var(--status-warning-bg)" : "var(--bg-surface)",
-              borderColor: pendingReminders.length ? "var(--status-warning-border)" : "var(--border)",
-              color: pendingReminders.length ? "var(--status-warning-text)" : "var(--text-primary)",
-            }} className="gu">{langCtxValue.t("Reminders", "રિમાઇન્ડર")}{pendingReminders.length ? ` (${pendingReminders.length})` : ""}</button>
+              background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
+              borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
+              color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
+            }} className="gu">📅 {langCtxValue.t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
             <button
               onClick={(e) => {
                 if (undoRedoMenuPos) { setUndoRedoMenuPos(null); return; }
@@ -5248,6 +5276,7 @@ function DutyRoster() {
               addDesignation={addDesignation} renameDesignation={renameDesignation} deleteDesignation={deleteDesignation} setStaffDesignation={setStaffDesignation}
               reorderList={reorderList}
               initialSearch={view.presetSearch}
+              exportBackup={exportBackup}
             />
           )}
           {view.mode === "calendar" && <CalendarView data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
@@ -5319,6 +5348,7 @@ function DutyRoster() {
           onRecoverLocalBackup={recoverLocalBackup}
           theme={theme} setTheme={setTheme}
           onClose={() => setShowSettingsPanel(false)}
+          exportBackup={exportBackup}
         />
       )}
 
@@ -6998,6 +7028,7 @@ function StaffView({
   changeUnavailableDuration,
   reorderList,
   initialSearch,
+  exportBackup,
 }) {
   const { t, lang } = useLang();
   const [num, setNum] = useState("");
@@ -7230,7 +7261,7 @@ function StaffView({
           </span>
         </button>
       )}
-      {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} />}
+      {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} exportBackup={exportBackup} />}
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
           {t("Each person has one buckle number shared across every work type. Leave and outstation set here apply everywhere automatically. Assign a designation per person from the dropdown in the table. Add, edit (✎), or delete (✕) leave/outstation types and designations below — changes apply instantly to anyone currently marked with them.", "દરેક વ્યક્તિનો એક બકલ નંબર છે જે દરેક કામના પ્રકારમાં શેર થાય છે. અહીં સેટ કરેલી રજા અને બહારગામ આપમેળે બધે લાગુ પડે છે. કોષ્ટકમાંના ડ્રોપડાઉનમાંથી દરેક વ્યક્તિને હોદ્દો સોંપો. નીચે રજા/બહારગામના પ્રકારો અને હોદ્દાઓ ઉમેરો, સંપાદિત કરો (✎), અથવા ડિલીટ કરો (✕) — ફેરફારો હાલમાં તેની સાથે માર્ક થયેલા કોઈપણને તરત જ લાગુ પડે છે.")}
