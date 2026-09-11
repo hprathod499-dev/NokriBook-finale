@@ -705,6 +705,8 @@ const DEFAULT_DESIGNATIONS = [
   { id: "desg-wupc", label: "WUPC" },
   { id: "desg-apc", label: "APC" },
   { id: "desg-wapc", label: "WAPC" },
+  { id: "desg-ulrd", label: "ULRD" },
+  { id: "desg-alrd", label: "ALRD" },
 ];
 
 // New accounts start with no staff at all — add people from Manage Staff.
@@ -2168,11 +2170,29 @@ function ImportStaffModal({ onClose }) {
   const { t, lang } = useLang();
   const [copied, setCopied] = useState(false);
   const promptEn = `I'm sending my Nokri Book app's .json backup file, plus a PDF/Word file listing police station staff (buckle number, mobile number, name, designation). Please read the staff file and add each person as a new entry inside the "staff" object of the .json file — keyed by buckle number as a string — using this exact shape, and leave every other part of the .json file exactly as it already is:
-"<buckleNumber>": { "number": "<buckleNumber>", "name": "<name>", "phone": "<10-digit mobile number, or null if missing>", "designation": null, "unavailable": null }
-Buckle number and mobile number must be plain English digits (0-9) only. Name must stay in Gujarati script. Leave "designation" as null unless I tell you otherwise. Give me back the complete, updated .json file to download.`;
+"<buckleNumber>": { "number": "<buckleNumber>", "name": "<name>", "phone": "<10-digit mobile number, or null if missing>", "designation": "<designation id, or null>", "unavailable": null }
+Buckle number and mobile number must be plain English digits (0-9) only. Name must stay in Gujarati script.
+Be strict about "designation" — this is the part I most need double-checked:
+1. First list every distinct "label" already present in the .json file's "designations" array, so you have the exact allowed set.
+2. For each staff member, match their designation from the PDF/Word file against that exact set of labels — same abbreviation, case-insensitive, ignoring only extra spaces. Do not treat similar-looking or partially-matching labels as a match.
+3. If a person's designation is clearly stated in the PDF/Word file but doesn't match any existing label, don't leave it null — add it as a new entry to the "designations" array in the .json file (shape: { "id": "<new-id>", "label": "<exact label as written>" }, with a new id that doesn't collide with any existing id) and use that new id for them. Reuse the same new designation entry (don't create duplicates) if multiple staff share that same new designation.
+4. Only leave "designation" as null if the PDF/Word file simply doesn't state a designation for that person — never guess, never pick the closest-sounding existing label instead of adding a new one.
+5. Before finalizing, go back through every person a second time and re-check each assigned designation id (existing or newly added) against what the PDF/Word file actually says for them — catch and fix any mismatch now, don't leave it for me to find.
+Be strict about "phone" too: it must be a genuine 10-digit Indian mobile number (exactly 10 digits, starting with 6, 7, 8, or 9). If what's written is the wrong length, starts with a different digit, or is otherwise clearly not a valid mobile number, leave "phone" as null rather than forcing it in.
+At the end, tell me: how many staff got a designation assigned, how many were left null (with their buckle numbers), any brand-new designations you added, and how many phone numbers were left null for looking invalid.
+Give me back the complete, updated .json file to download.`;
   const promptGu = `હું Nokri Book એપની .json બેકઅપ ફાઈલ, અને પોલીસ સ્ટેશન સ્ટાફની વિગતો (બકલ નંબર, મોબાઈલ નંબર, નામ, હોદ્દો) વાળી PDF/Word ફાઈલ મોકલું છું. કૃપા કરી સ્ટાફ ફાઈલ વાંચીને દરેક વ્યક્તિને .json ફાઈલના "staff" ઓબ્જેક્ટમાં નવી entry તરીકે ઉમેરો — બકલ નંબરને string key તરીકે વાપરીને — બરાબર આ જ ફોર્મેટમાં, અને .json ફાઈલનો બાકીનો ભાગ જેમનો તેમ જ રહેવા દો:
-"<બકલ નંબર>": { "number": "<બકલ નંબર>", "name": "<નામ>", "phone": "<10 અંકનો મોબાઈલ નંબર, અથવા ન હોય તો null>", "designation": null, "unavailable": null }
-બકલ નંબર અને મોબાઈલ નંબર ફક્ત English અંકો (0-9) માં જ હોવા જોઈએ. નામ ગુજરાતી લિપિમાં જ રહેવું જોઈએ. "designation" ને null જ રહેવા દો, જ્યાં સુધી હું ખાસ ન કહું. મને સંપૂર્ણ, અપડેટેડ .json ફાઈલ download કરવા માટે પાછી આપો.`;
+"<બકલ નંબર>": { "number": "<બકલ નંબર>", "name": "<નામ>", "phone": "<10 અંકનો મોબાઈલ નંબર, અથવા ન હોય તો null>", "designation": "<designation id, અથવા null>", "unavailable": null }
+બકલ નંબર અને મોબાઈલ નંબર ફક્ત English અંકો (0-9) માં જ હોવા જોઈએ. નામ ગુજરાતી લિપિમાં જ રહેવું જોઈએ.
+"designation" બાબતે કડક રહેજો — આ ભાગ મારે સૌથી વધુ ડબલ-ચેક કરાવવો છે:
+1. પહેલા .json ફાઈલની "designations" array માં જેટલા distinct "label" પહેલેથી છે એ બધા લિસ્ટ કરો, જેથી તમારી પાસે ચોક્કસ allowed list હોય.
+2. દરેક સ્ટાફ મેમ્બર માટે, PDF/Word ફાઈલમાંનો હોદ્દો એ જ ચોક્કસ label list સાથે મેચ કરો — સરખું abbreviation, case સિવાય, ફક્ત વધારાની spaces ignore કરો. મળતું આવતું પણ પૂરેપૂરું ન મેચ થતું label match તરીકે ન ગણો.
+3. જો કોઈ વ્યક્તિનો હોદ્દો PDF/Word ફાઈલમાં સ્પષ્ટ લખેલો હોય પણ હાલના કોઈ label સાથે મેચ ન થાય, તો એને null ન રહેવા દેશો — .json ફાઈલની "designations" array માં નવી entry ઉમેરો (ફોર્મેટ: { "id": "<નવો id>", "label": "<જેમ લખેલું છે એમ જ label>" }, જે id હાલના કોઈ id સાથે ટકરાય નહીં) અને એ નવો id એ વ્યક્તિ માટે વાપરો. જો એક કરતાં વધુ સ્ટાફનો સરખો નવો હોદ્દો હોય તો એક જ નવી entry ફરીથી વાપરો, ડુપ્લિકેટ ન બનાવો.
+4. "designation" ને null ફક્ત ત્યારે જ રહેવા દો જ્યારે PDF/Word ફાઈલમાં એ વ્યક્તિ માટે કોઈ હોદ્દો લખેલો જ ન હોય — ક્યારેય અંદાજો ન લગાવો, અને નવો હોદ્દો ઉમેરવાને બદલે સૌથી નજીક લાગતું હાલનું label પણ ન પસંદ કરો.
+5. Final કરતા પહેલા, દરેક વ્યક્તિને બીજી વાર ફરીથી તપાસો — assign કરેલ designation id (હાલનું હોય કે નવું ઉમેરેલું), PDF/Word ફાઈલમાં ખરેખર શું લખ્યું છે એની સામે ફરીથી ચેક કરો — હમણાં જ કોઈ mismatch પકડીને સુધારો, મારા માટે શોધવા ન છોડો.
+"phone" બાબતે પણ કડક રહેજો: એ સાચો 10 અંકનો ભારતીય મોબાઈલ નંબર જ હોવો જોઈએ (બરાબર 10 અંક, અને શરૂઆત 6, 7, 8 કે 9 થી થતી હોય). જો લખેલો નંબર ખોટી લંબાઈનો હોય, બીજા અંકથી શરૂ થતો હોય, કે સ્પષ્ટપણે યોગ્ય મોબાઈલ નંબર ન લાગે, તો "phone" ને null જ રહેવા દો, બળજબરીથી ભરશો નહીં.
+છેલ્લે મને કહો: કેટલા સ્ટાફને designation મળ્યું, કેટલાને null રહ્યું (એમના બકલ નંબર સાથે), તમે કઈ-કઈ નવી designations ઉમેરી, અને અમાન્ય લાગવાથી કેટલા phone number null રહ્યા.
+મને સંપૂર્ણ, અપડેટેડ .json ફાઈલ download કરવા માટે પાછી આપો.`;
   const prompt = lang === "gu" ? promptGu : promptEn;
   const copyPrompt = () => {
     navigator.clipboard.writeText(prompt).then(() => {
@@ -5266,7 +5286,7 @@ function DutyRoster() {
       )}
 
       {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
-      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} onStartTour={() => { setShowHelpPanel(false); setShowSpotlightTour(true); }} />}
+      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} onStartTour={() => { setShowHelpPanel(false); setShowSpotlightTour(true); }} onNavigate={(v) => { setView(v); setShowHelpPanel(false); }} />}
       {showSettingsPanel && (
         <SettingsPanel
           user={user} signOutUser={signOutUser} formatAllData={formatAllData}
@@ -9682,6 +9702,13 @@ const HELP_SECTIONS = [
     titleEn: "How do I add or manage staff?", titleGu: "હું સ્ટાફ કેવી રીતે ઉમેરું અથવા સંચાલિત કરું?",
     bodyEn: "Add a person once here, by their buckle number — they're then available to add to any work type. Leave, outstation, and designation are all set here too, and apply everywhere that person is on a roster.",
     bodyGu: "અહીં એક વખત વ્યક્તિને તેમના બકલ નંબરથી ઉમેરો — પછી તેમને કોઈપણ કામના પ્રકારમાં ઉમેરી શકાય છે. રજા, બહારગામ અને હોદ્દો પણ અહીંથી જ સેટ થાય છે, અને તે વ્યક્તિ જ્યાં પણ રોસ્ટરમાં હોય ત્યાં લાગુ પડે છે.",
+    goTo: { mode: "staff" },
+  },
+  {
+    titleEn: "How do I add new leave types, designations, or outstation types?", titleGu: "નવા રજા પ્રકારો, હોદ્દાઓ કે બહારગામ પ્રકારો કેવી રીતે ઉમેરવા?",
+    bodyEn: "All three are managed from Manage Staff — scroll down to the Leave types, Outstation types, and Designations sections there. Each has its own \"+ Add\" control; once added, the new one is immediately available anywhere that type is picked (assigning leave, outstation, or a designation to a person).",
+    bodyGu: "ત્રણેય મેનેજ સ્ટાફ પરથી સંચાલિત થાય છે — ત્યાં નીચે સ્ક્રોલ કરીને રજા પ્રકારો, બહારગામ પ્રકારો અને હોદ્દાઓ વિભાગો જુઓ. દરેકનું પોતાનું \"+ ઉમેરો\" નિયંત્રણ છે; ઉમેર્યા પછી, નવો પ્રકાર તરત જ ગમે ત્યાં (વ્યક્તિને રજા, બહારગામ કે હોદ્દો સોંપતી વખતે) પસંદ કરવા માટે ઉપલબ્ધ થાય છે.",
+    goTo: { mode: "staff" },
   },
   {
     titleEn: "What's the difference between Leave and Outstation?", titleGu: "રજા અને બહારગામ વચ્ચે શું તફાવત છે?",
@@ -9751,7 +9778,7 @@ const PUBLIC_HELP_SECTIONS = [
     bodyGu: "હા — દરેક કામનો પ્રકાર, માસિક અહેવાલ, અને દરેક વ્યક્તિનો પોતાનો ઇતિહાસ, વ્યવસ્થાપક જુએ છે તે જ રીતે PDF ડાઉનલોડ વિકલ્પ ધરાવે છે. પહેલાં સમયગાળો પસંદ કરો, પછી ડાઉનલોડ કરો.",
   },
 ];
-function HelpPanel({ onClose, sections, onStartTour }) {
+function HelpPanel({ onClose, sections, onStartTour, onNavigate }) {
   const list = sections || HELP_SECTIONS;
   const { t } = useLang();
   useEscToClose(onClose);
@@ -9793,7 +9820,19 @@ function HelpPanel({ onClose, sections, onStartTour }) {
                     track inside a grid can. */}
                 <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.25s cubic-bezier(0.16, 1, 0.3, 1)" }}>
                   <div style={{ overflow: "hidden" }}>
-                    <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6, paddingBottom: 16 }}>{t(s.bodyEn, s.bodyGu)}</div>
+                    <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6, paddingBottom: s.goTo && onNavigate ? 8 : 16 }}>{t(s.bodyEn, s.bodyGu)}</div>
+                    {s.goTo && onNavigate && (
+                      <button
+                        onClick={() => onNavigate(s.goTo)}
+                        className="gu"
+                        style={{
+                          marginBottom: 16, background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)",
+                          borderRadius: 7, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, color: "var(--status-warning-text)",
+                        }}
+                      >
+                        {t("→ Go there", "→ ત્યાં જાઓ")}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
