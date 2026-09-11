@@ -2200,6 +2200,11 @@ Give me back the complete, updated .json file to download.`;
       setTimeout(() => setCopied(false), 1800);
     }).catch(() => {});
   };
+  // Opens a brand-new Claude chat with the prompt already typed into the
+  // message box (claude.ai reads the "q" query param and pre-fills it —
+  // the person still has to attach their .json backup + staff file and
+  // hit send themselves, but they no longer have to copy-paste anything).
+  const claudeUrl = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Import Staff", "સ્ટાફ આયાત કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 480, maxWidth: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.35)" }}>
@@ -2210,17 +2215,20 @@ Give me back the complete, updated .json file to download.`;
         <div style={{ padding: "18px 20px", overflowY: "auto" }}>
           <ol className="gu" style={{ margin: "0 0 16px", paddingLeft: 20, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.9 }}>
             <li>{t("Top toolbar → Data ▸ Backup, to download your .json backup file.", "ટોચનું ટૂલબાર → Data ▸ Backup, તમારી .json બેકઅપ ફાઈલ ડાઉનલોડ કરવા.")}</li>
-            <li>{t("Open a chat with Claude, and copy-paste the prompt below into it.", "Claude સાથે એક ચેટ ખોલો, અને નીચેનો prompt કોપી-પેસ્ટ કરો.")}</li>
+            <li>{t("Tap \"Open in Claude\" below — it opens a new Claude chat with the prompt already typed in.", "નીચે \"Claude માં ખોલો\" પર ટેપ કરો — તે નવી Claude ચેટ ખોલશે, જેમાં prompt પહેલેથી જ ટાઈપ થયેલો હશે.")}</li>
             <li>{t("Attach your .json backup file AND the staff-details PDF/Word file to that same message, then send.", "એ જ મેસેજ સાથે તમારી .json બેકઅપ ફાઈલ અને સ્ટાફ-ડિટેલ્સ વાળી PDF/Word ફાઈલ બંને attach કરો, પછી મોકલો.")}</li>
             <li>{t("Save the updated .json file Claude gives you back.", "Claude તમને પાછી આપે એ અપડેટેડ .json ફાઈલ સાચવો.")}</li>
             <li>{t("Here: top toolbar → Data ▸ Restore, and pick that file — it replaces all data, so staff you'd already added by hand should also be in the PDF/Word file, or add them again after.", "અહીં: ટોચનું ટૂલબાર → Data ▸ Restore, અને એ ફાઈલ પસંદ કરો — તે બધો ડેટા બદલી નાખે છે, એટલે તમે જાતે ઉમેરેલો સ્ટાફ પણ PDF/Word ફાઈલમાં હોવો જોઈએ, અથવા પછી ફરીથી ઉમેરજો.")}</li>
           </ol>
-          <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Prompt to copy", "કોપી કરવાનો પ્રોમ્પ્ટ")}</div>
+          <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--text-tertiary)", marginBottom: 7 }} className="gu">{t("Prompt (opens pre-filled below, or copy it manually)", "પ્રોમ્પ્ટ (નીચે આપમેળે ભરાઈ જશે, અથવા જાતે કોપી કરો)")}</div>
           <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, lineHeight: 1.7, background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 9, padding: 12, margin: 0, color: "var(--text-primary)", fontFamily: "inherit" }} className="gu">{prompt}</pre>
         </div>
-        <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)" }}>
-          <button onClick={copyPrompt} className="gu" style={{ width: "100%", background: copied ? "var(--status-success-bg)" : "var(--accent)", color: copied ? "var(--status-success-text)" : "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-            {copied ? `✓ ${t("Copied!", "કોપી થયું!")}` : `📋 ${t("Copy prompt", "પ્રોમ્પ્ટ કોપી કરો")}`}
+        <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <a href={claudeUrl} target="_blank" rel="noopener noreferrer" className="gu" style={{ width: "100%", boxSizing: "border-box", background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            ✨ {t("Open in Claude", "Claude માં ખોલો")}
+          </a>
+          <button onClick={copyPrompt} className="gu" style={{ width: "100%", background: copied ? "var(--status-success-bg)" : "var(--bg-surface)", color: copied ? "var(--status-success-text)" : "var(--text-primary)", border: "1px solid " + (copied ? "var(--status-success-border)" : "var(--border)"), borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            {copied ? `✓ ${t("Copied!", "કોપી થયું!")}` : `📋 ${t("Copy prompt instead", "તેના બદલે પ્રોમ્પ્ટ કોપી કરો")}`}
           </button>
         </div>
       </div>
