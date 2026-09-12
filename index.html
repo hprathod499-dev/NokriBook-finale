@@ -4098,6 +4098,30 @@ function DutyRoster() {
     // list, but the actual wipe checks that match again right here too,
     // rather than trusting the modal was the only possible caller.
     if (!staffRec) return;
+    // Safety net: whatever's about to be trimmed below is genuinely gone
+    // afterward — this write is a full overwrite, both here and on
+    // Firestore, so there's no "it's still on the server somewhere" to
+    // fall back on. A plain, silent download of the FULL current data
+    // (before any trimming) gives a real way back if it's ever needed,
+    // without interrupting this flow with the folder-picker/confirm
+    // dialogs exportBackup() normally shows for a person-initiated
+    // backup — this one just needs to happen, quietly, every time.
+    try {
+      const preFormatJson = JSON.stringify(data, null, 2);
+      const preFormatFilename = `nokri-book-backup-${todayStr()}-${Date.now()}-before-format.json`;
+      const blob = new Blob([preFormatJson], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = preFormatFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      recordBackupNow();
+    } catch (e) {
+      console.error("Pre-format safety backup failed — proceeding with format anyway", e);
+    }
     const personName = staffRec.name;
     const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
     // Everything dated ON or AFTER this stays; only what's strictly older
@@ -7024,6 +7048,12 @@ function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }
                 `આ તમારા ${staffCount} સ્ટાફ માટેનો 1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ, સ્કિપ ઇતિહાસ, રિસાયકલ બિન અને જૂના રજા/બહારગામ રેકોર્ડ સાફ કરે છે — એટલે કે ${dutyCount} ડ્યુટી એન્ટ્રીઓ કાયમ માટે જતી રહેશે. છેલ્લો 1 મહિનાનો ડ્યુટી ઇતિહાસ સચવાશે, સાથે સ્ટાફના નામ, બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને તમારા કામના પ્રકારો પણ. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
               )}
             </p>
+            <p className="gu" style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "8px 0 0", lineHeight: 1.5 }}>
+              {t(
+                "A full backup of everything — exactly as it is right now, before anything is cleared — downloads automatically the moment you confirm this, as a safety copy.",
+                "તમે આ પુષ્ટિ કરો કે તરત જ, અત્યારે જેવું બધું છે તેવું જ — કંઈપણ સાફ થાય એ પહેલાં — એક સંપૂર્ણ બેકઅપ સલામતી નકલ તરીકે આપમેળે ડાઉનલોડ થાય છે."
+              )}
+            </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
               <button onClick={() => setStep(2)} style={{ background: "var(--btn-danger-solid)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("I understand — continue", "હું સમજુ છું — ચાલુ રાખો")}</button>
@@ -8521,6 +8551,20 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
     if (!span || span.from === span.to) return null;
     return { from: span.from, to: span.to };
   };
+  // Every underlying history index that belongs to the same span as the
+  // given date — a single-day duty is just [idx] on its own, but a
+  // multi-day one (Group Duty, or Miscellaneous duty given "No end date")
+  // returns every day in that span. Deleting from the calendar's
+  // day-detail panel used to pass only the ONE day being viewed, so
+  // removing a "no end date" entry from here silently left every other
+  // day of it behind — this is what fixes that: the button below now
+  // always deletes the whole span in one action, exactly like the
+  // Select-and-delete flow in Manage Staff's own History tab already did.
+  const dutySpanIdxs = (catId, number, date) => {
+    const spans = dutySpansByKey[catId + "|" + number] || [];
+    const span = spans.find((g) => date >= g.from && date <= g.to);
+    return span ? span.idxs : [];
+  };
 
   // A person can be marked away either from "Events & reminders" (a dated
   // Leave/Outstation/Training record) or from "Manage staff" (any Leave/
@@ -8842,10 +8886,15 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                           {deleteMode && deleteHistoryEntries && (
                             <button
                               onClick={() => {
-                                if (!window.confirm(t(`Delete this duty entry for ${r.name}? It moves to the Recycle bin, so it can still be restored.`, `${r.name} માટે આ ડ્યુટી એન્ટ્રી ડિલીટ કરવી છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`))) return;
-                                deleteHistoryEntries(r.catId, new Set([`${r.number}#${r.idx}`]));
+                                const idxs = dutySpanIdxs(r.catId, r.number, selectedDate);
+                                const spanIdxs = idxs.length ? idxs : [r.idx];
+                                const confirmMsg = spanIdxs.length > 1
+                                  ? t(`This is one entry spanning ${spanIdxs.length} days. Delete this duty entry for ${r.name} — all ${spanIdxs.length} days of it? It moves to the Recycle bin, so it can still be restored.`, `આ એન્ટ્રી ${spanIdxs.length} દિવસ સુધીની છે. ${r.name} માટે આ ડ્યુટી એન્ટ્રી — તેના બધા ${spanIdxs.length} દિવસ — ડિલીટ કરવી છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`)
+                                  : t(`Delete this duty entry for ${r.name}? It moves to the Recycle bin, so it can still be restored.`, `${r.name} માટે આ ડ્યુટી એન્ટ્રી ડિલીટ કરવી છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`);
+                                if (!window.confirm(confirmMsg)) return;
+                                deleteHistoryEntries(r.catId, new Set(spanIdxs.map((idx) => `${r.number}#${idx}`)));
                               }}
-                              title={t("Delete this entry", "આ એન્ટ્રી ડિલીટ કરો")}
+                              title={t("Delete this entry (all its days, if it spans more than one)", "આ એન્ટ્રી ડિલીટ કરો (એક કરતાં વધુ દિવસની હોય તો બધા દિવસ સહિત)")}
                               aria-label={t("Delete this entry", "આ એન્ટ્રી ડિલીટ કરો")}
                               style={{ ...iconBtn, padding: "3px 6px", fontSize: 11 }}
                             >✕</button>
@@ -10065,8 +10114,8 @@ const HELP_SECTIONS = [
   },
   {
     titleEn: "How is my data backed up?", titleGu: "મારો ડેટા કેવી રીતે બેકઅપ થાય છે?",
-    bodyEn: "Your data saves automatically as you work. \"Data\" (top toolbar) lets you download a local backup file, restore from one, or connect Google Drive for an automatic daily backup — the fastest route to any of that. The same backup-folder and recover-local-data options also live under Settings → Data, alongside Import Staff, if that's easier to find. Note: \"Format all data\" only clears duty history older than 1 month now — the last month is always kept.",
-    bodyGu: "તમે કામ કરો છો ત્યારે તમારો ડેટા આપમેળે સચવાય છે. ટોચના ટૂલબારમાં \"ડેટા\" તમને સ્થાનિક બેકઅપ ફાઇલ ડાઉનલોડ કરવા, તેમાંથી પુનઃસ્થાપિત કરવા, અથવા દૈનિક ઓટો-બેકઅપ માટે Google Drive જોડવા દે છે — આ માટેનો સૌથી ઝડપી રસ્તો. એ જ બેકઅપ-ફોલ્ડર અને recover-local-data વિકલ્પો Settings → ડેટા હેઠળ પણ છે, Import Staff ની બાજુમાં, જો એ શોધવું સહેલું લાગે. નોંધ: \"બધો ડેટા ફોર્મેટ કરો\" હવે ફક્ત 1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ સાફ કરે છે — છેલ્લો મહિનો હંમેશા સચવાય છે.",
+    bodyEn: "Your data saves automatically as you work. \"Data\" (top toolbar) lets you download a local backup file, restore from one, or connect Google Drive for an automatic daily backup — the fastest route to any of that. The same backup-folder and recover-local-data options also live under Settings → Data, alongside Import Staff, if that's easier to find. Note: \"Format all data\" only clears duty history older than 1 month now — the last month is always kept, and a full safety backup downloads automatically the moment you confirm it, before anything is cleared.",
+    bodyGu: "તમે કામ કરો છો ત્યારે તમારો ડેટા આપમેળે સચવાય છે. ટોચના ટૂલબારમાં \"ડેટા\" તમને સ્થાનિક બેકઅપ ફાઇલ ડાઉનલોડ કરવા, તેમાંથી પુનઃસ્થાપિત કરવા, અથવા દૈનિક ઓટો-બેકઅપ માટે Google Drive જોડવા દે છે — આ માટેનો સૌથી ઝડપી રસ્તો. એ જ બેકઅપ-ફોલ્ડર અને recover-local-data વિકલ્પો Settings → ડેટા હેઠળ પણ છે, Import Staff ની બાજુમાં, જો એ શોધવું સહેલું લાગે. નોંધ: \"બધો ડેટા ફોર્મેટ કરો\" હવે ફક્ત 1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ સાફ કરે છે — છેલ્લો મહિનો હંમેશા સચવાય છે, અને તમે પુષ્ટિ કરો કે તરત જ, કંઈપણ સાફ થાય એ પહેલાં, એક સંપૂર્ણ સલામતી બેકઅપ આપમેળે ડાઉનલોડ થાય છે.",
   },
   {
     titleEn: "What do I do if data seems missing?", titleGu: "ડેટા ગુમ થયેલો લાગે તો શું કરવું?",
