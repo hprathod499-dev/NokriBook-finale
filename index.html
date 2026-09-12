@@ -7028,13 +7028,37 @@ function InfoIconButton({ active, onClick, label }) {
 function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }) {
   const { t } = useLang();
   useEscToClose(onCancel);
-  const [step, setStep] = useState(1); // 1 warning | 2 phrase | 3 buckle number
+  const [step, setStep] = useState(1); // 1 warning | 2 phrase | 3 backup-now | 4 buckle number
   const [phrase, setPhrase] = useState("");
   const [buckle, setBuckle] = useState("");
+  const [backedUp, setBackedUp] = useState(false);
   const REQUIRED_PHRASE = "format all data";
   const phraseOk = phrase.trim().toLowerCase() === REQUIRED_PHRASE;
   const buckleStaff = buckle.trim() && data.staff[buckle.trim()] ? data.staff[buckle.trim()] : null;
   const labelStyle = { fontSize: 12, color: "var(--text-secondary)", display: "block", marginTop: 12, marginBottom: 5 };
+  // Same plain, silent download performFormatAllData itself does
+  // automatically right before it clears anything — offered here too as
+  // its own explicit step/button, so there's a clear moment to grab (or
+  // re-grab) a copy of the FULL, untouched data on demand, rather than
+  // only ever getting one passively at the very end of the flow.
+  const backupNow = () => {
+    try {
+      const jsonStr = JSON.stringify(data, null, 2);
+      const filename = `nokri-book-backup-${todayStr()}-${Date.now()}-before-format.json`;
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBackedUp(true);
+    } catch (e) {
+      console.error("Manual pre-format backup failed", e);
+    }
+  };
   return (
     <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
       <div role="dialog" aria-modal="true" aria-label={t("Format all data", "બધો ડેટા ફોર્મેટ કરો")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 380, maxWidth: "92vw" }}>
@@ -7076,6 +7100,29 @@ function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }
         )}
 
         {step === 3 && (
+          <React.Fragment>
+            <p className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", margin: "10px 0 0", lineHeight: 1.5 }}>
+              {t(
+                "Before continuing — want a copy of everything as it is right now? One downloads automatically at the very last step too either way, but you're welcome to grab one here as well, to check it or keep it wherever you like.",
+                "આગળ વધતાં પહેલાં — અત્યારે જેવું બધું છે તેની નકલ જોઈએ છે? છેલ્લા પગલે એક નકલ આપમેળે પણ ડાઉનલોડ થાય જ છે, પણ તપાસવા કે ગમે ત્યાં રાખવા માટે અહીં પણ એક લઈ શકો છો."
+              )}
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", margin: "16px 0" }}>
+              <button onClick={backupNow} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 13.5, fontWeight: 700 }}>
+                📥 {t("Backup old data now!", "જૂનો ડેટા હમણાં બેકઅપ કરો!")}
+              </button>
+            </div>
+            {backedUp && (
+              <p className="gu" style={{ fontSize: 12, color: "var(--status-success-text)", margin: "0 0 4px", textAlign: "center" }}>✓ {t("Downloaded.", "ડાઉનલોડ થયું.")}</p>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
+              <button onClick={() => setStep(4)} style={{ background: "var(--btn-danger-solid)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Continue", "ચાલુ રાખો")}</button>
+            </div>
+          </React.Fragment>
+        )}
+
+        {step === 4 && (
           <React.Fragment>
             <p className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", margin: "10px 0 0", lineHeight: 1.5 }}>
               {t("Last step — enter your own બકલ નંબર. It must match someone on your Manage Staff list. This is recorded as who performed this, along with the time, in a confirmation email sent to your account's email.", "છેલ્લું પગલું — તમારો પોતાનો બકલ નંબર દાખલ કરો. તે તમારી મેનેજ સ્ટાફ યાદીમાંની કોઈ વ્યક્તિ સાથે મેળ ખાવો જોઈએ. આ કોણે કર્યું તેની નોંધ, સમય સાથે, તમારા ખાતાના ઈમેલ પર મોકલવામાં આવતા પુષ્ટિ ઈમેલમાં થાય છે.")}
