@@ -5929,20 +5929,38 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
 function RecordLeaveView({ data, setUnavailable, showToast }) {
   const { t } = useLang();
   const leaveTypes = data.leaveTypes || [];
+  const outstationTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
+  // "Leave" or "Outstation" — which list of types this batch is picking
+  // from right now. Record Leave started out leave-only; this lets the
+  // exact same batch-and-queue flow record Outstation periods too, so
+  // there's one screen for both instead of sending people to Manage
+  // Staff just to log an outstation.
+  const [kind, setKind] = useState("Leave");
+  const typeList = kind === "Leave" ? leaveTypes : outstationTypes;
   const [typeId, setTypeId] = useState(leaveTypes[0] ? leaveTypes[0].id : "");
   // "one" = single day, "multi" = a fixed from/to range, "noend" = starts on
-  // a date and just keeps going (mirrors how indefinite Leave types already
-  // behave — to stays null until someone clears it from Manage staff) —
-  // chosen per entry here regardless of whether the selected leave TYPE
-  // itself defaults to indefinite.
+  // a date and just keeps going (mirrors how indefinite Leave/Outstation
+  // types already behave — to stays null until someone clears it from
+  // Manage staff) — chosen per entry here regardless of whether the
+  // selected type itself defaults to indefinite.
   const [dateMode, setDateMode] = useState("one");
   const [from, setFrom] = useState(todayStr());
   const [to, setTo] = useState(todayStr());
   const [numberInput, setNumberInput] = useState("");
-  const [queue, setQueue] = useState([]); // [{ number, name, typeId, typeLabel, from, to }]
+  const [queue, setQueue] = useState([]); // [{ number, name, kind, typeId, typeLabel, from, to }]
   const [showInfo, setShowInfo] = useState(false);
 
-  const selectedType = leaveTypes.find((lt) => lt.id === typeId);
+  // Switching kind swaps which type list is in play, so the picked type
+  // needs to reset to something valid on the new list rather than
+  // silently keeping a leave-type id selected while showing outstation
+  // types (or vice versa).
+  const switchKind = (nextKind) => {
+    setKind(nextKind);
+    const list = nextKind === "Leave" ? leaveTypes : outstationTypes;
+    setTypeId(list[0] ? list[0].id : "");
+  };
+
+  const selectedType = typeList.find((lt) => lt.id === typeId);
 
   const lookupName = useMemo(() => {
     const num = numberInput.trim();
@@ -5957,7 +5975,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
   const addToQueue = () => {
     if (!canAdd) return;
     const num = numberInput.trim();
-    setQueue((q) => [...q, { number: num, name: lookupName, typeId, typeLabel: selectedType ? selectedType.label : "", from, to: effectiveTo }]);
+    setQueue((q) => [...q, { number: num, name: lookupName, kind, typeId, typeLabel: selectedType ? selectedType.label : "", from, to: effectiveTo }]);
     setNumberInput("");
   };
 
@@ -5967,9 +5985,10 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
     if (queue.length === 0) return;
     // Every entry writes silently (no per-entry toast) — a single summary
     // toast at the end instead of one popping up for every person in a
-    // batch of, say, ten.
-    queue.forEach((entry) => setUnavailable(entry.number, "Leave", entry.typeId, entry.from, entry.to, true));
-    showToast(t(`Recorded ${queue.length} leave ${queue.length === 1 ? "entry" : "entries"}`, `${queue.length} રજા નોંધાઈ`));
+    // batch of, say, ten. Each entry carries its own kind, so a single
+    // batch can freely mix Leave and Outstation entries.
+    queue.forEach((entry) => setUnavailable(entry.number, entry.kind, entry.typeId, entry.from, entry.to, true));
+    showToast(t(`Recorded ${queue.length} ${queue.length === 1 ? "entry" : "entries"}`, `${queue.length} નોંધ સંગ્રહાઈ`));
     setQueue([]);
   };
 
@@ -5982,18 +6001,29 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 520 }} className="gu">
           {t(
-            "Pick a leave type and date once, then add as many people to the list below as needed — different people, or the same person again for a separate stretch — before saving all of it together.",
-            "એક વખત રજાનો પ્રકાર અને તારીખ પસંદ કરો, પછી નીચેની યાદીમાં જરૂર મુજબ ઘણા લોકો ઉમેરો — અલગ લોકો, અથવા એ જ વ્યક્તિ ફરીથી અલગ સમયગાળા માટે — બધું એકસાથે સાચવતાં પહેલાં."
+            "Pick Leave or Outstation, a type, and a date once, then add as many people to the list below as needed — different people, or the same person again for a separate stretch, either kind mixed freely in the same batch — before saving all of it together.",
+            "એક વખત રજા અથવા બહારગામ, પ્રકાર, અને તારીખ પસંદ કરો, પછી નીચેની યાદીમાં જરૂર મુજબ ઘણા લોકો ઉમેરો — અલગ લોકો, અથવા એ જ વ્યક્તિ ફરીથી અલગ સમયગાળા માટે, બંને પ્રકાર એક જ બેચમાં ભેગા પણ કરી શકાય — બધું એકસાથે સાચવતાં પહેલાં."
           )}
         </p>
       )}
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480, marginBottom: queue.length ? 18 : 0 }}>
+        <div style={{ marginBottom: 14, display: "flex", gap: 6 }}>
+          <button
+            onClick={() => switchKind("Leave")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (kind === "Leave" ? "var(--accent-strong)" : "var(--border)"), background: kind === "Leave" ? "var(--accent)" : "transparent", color: kind === "Leave" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >🌴 {t("Leave", "રજા")}</button>
+          <button
+            onClick={() => switchKind("Outstation")}
+            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (kind === "Outstation" ? "var(--status-purple-border)" : "var(--border)"), background: kind === "Outstation" ? "var(--status-purple-bg)" : "transparent", color: kind === "Outstation" ? "var(--status-purple-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+          >🧳 {t("Outstation", "બહારગામ")}</button>
+        </div>
+
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Leave type", "રજાનો પ્રકાર")}</label>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{kind === "Leave" ? t("Leave type", "રજાનો પ્રકાર") : t("Outstation type", "બહારગામનો પ્રકાર")}</label>
           <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }} className="gu">
-            {leaveTypes.length === 0 && <option value="">{t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી")}</option>}
-            {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
+            {typeList.length === 0 && <option value="">{kind === "Leave" ? t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી") : t("No outstation types set up yet", "હજુ કોઈ બહારગામનો પ્રકાર સેટ નથી")}</option>}
+            {typeList.map((lt) => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
           </select>
         </div>
 
@@ -6068,7 +6098,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
             <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ fontSize: 12.5 }} className="gu">
                 <span style={{ fontWeight: 600 }}>{entry.name}</span>
-                <span style={{ color: "var(--text-tertiary)" }}> #{entry.number} · {entry.typeLabel} · {formatDMY(entry.from)}{entry.to && entry.to !== entry.from ? ` – ${formatDMY(entry.to)}` : ""}{!entry.to ? ` ${t("onward", "થી આગળ")}` : ""}</span>
+                <span style={{ color: "var(--text-tertiary)" }}> #{entry.number} · {entry.kind === "Outstation" ? "🧳" : "🌴"} {entry.typeLabel} · {formatDMY(entry.from)}{entry.to && entry.to !== entry.from ? ` – ${formatDMY(entry.to)}` : ""}{!entry.to ? ` ${t("onward", "થી આગળ")}` : ""}</span>
               </div>
               <button onClick={() => removeFromQueue(idx)} title={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} aria-label={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} style={{ ...iconBtn, flexShrink: 0 }}>✕</button>
             </div>
@@ -6076,7 +6106,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
           <button
             onClick={recordAll}
             style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600, width: "100%", marginTop: 8 }} className="gu"
-          >{t(`Record ${queue.length} leave${queue.length === 1 ? "" : "s"}`, `${queue.length} રજા નોંધો`)}</button>
+          >{t(`Record ${queue.length} ${queue.length === 1 ? "entry" : "entries"}`, `${queue.length} નોંધો`)}</button>
         </div>
       )}
     </React.Fragment>
@@ -8794,16 +8824,6 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                           ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
                           {range && (
                             <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
-                          )}
-                          {/* The note itself, shown plainly — for Miscellaneous
-                              duty specifically this IS the duty description
-                              ("What is this duty?"), not an optional
-                              afterthought, so hiding it behind a tap (the old
-                              behavior) meant the single most important piece
-                              of information about the entry was invisible by
-                              default. */}
-                          {r.note && (
-                            <span className="gu" style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)", marginTop: 1, fontStyle: "italic" }}>{r.note}</span>
                           )}
                         </span>
                         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
