@@ -1276,7 +1276,14 @@ function collapseConsecutiveDutyRows(rows) {
       out.push({ name: r.name, designation: r.designation, category: r.category, note: r.note, from: r.date, to: r.date, days: 1 });
     }
   });
-  return out.sort((a, b) => a.name.localeCompare(b.name) || a.from.localeCompare(b.from));
+  // The grouping pass above needs rows sorted by name first (so a
+  // person's consecutive days actually sit next to each other to merge)
+  // — but that's only scratch-work ordering. The final list handed back
+  // is what actually prints in the Monthly report PDF's "Full detail"
+  // table, and that should read as a timeline of the month — first duty
+  // assigned through the last — not grouped by person, so it's re-sorted
+  // by date here at the very end instead of reusing the grouping sort.
+  return out.sort((a, b) => a.from.localeCompare(b.from) || a.name.localeCompare(b.name));
 }
 // Every calendar date from `from` through `to`, inclusive, as an array of
 // "YYYY-MM-DD" strings. Used by multi-day group duty so one assignment
