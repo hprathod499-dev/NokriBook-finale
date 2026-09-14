@@ -5786,7 +5786,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
                   <div style={{ background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <div>
                       <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-warning-text)", fontWeight: 700 }} className="gu">{t("Not assigned yet · next up", "હજુ સોંપાયું નથી · આગળ")}</div>
-                      <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{nextUp.name}</div>
+                      <div className="gu" onClick={() => setAssignTarget({ catId: cat.id, number: nextUp.number, name: nextUp.name })} title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")} style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2, cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)", display: "inline-block" }}>{nextUp.name}</div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
                       {nextPhone && (
@@ -6763,7 +6763,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
               <div className="disp" style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--status-warning-bg)", color: "var(--status-warning-text)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15 }}>1</div>
               <div>
                 <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--status-warning-text)", fontWeight: 600, marginBottom: 2 }} className="gu">{t("Next up", "આગળ")}</div>
-                <div className="gu" style={{ fontSize: 16, fontWeight: 600 }}>{nextUp.name}</div>
+                <div className="gu" onClick={() => setAssignTarget({ number: nextUp.number, name: nextUp.name })} title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")} style={{ fontSize: 16, fontWeight: 600, cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)", display: "inline-block" }}>{nextUp.name}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }} className="gu">{t("Waiting", "રાહ જોઈ રહ્યા છે")} {nextUp.waiting} {nextUp.waiting === 1 ? t("day", "દિવસ") : t("days", "દિવસો")} · {t("last duty", "છેલ્લી ડ્યુટી")} {formatDMY(nextUp.lastDuty)}</div>
               </div>
             </div>
@@ -6932,7 +6932,12 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                 <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                   <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td} className="mono">{p.number}</td>
-                  <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
+                  <td
+                    style={{ ...td, minWidth: 160, cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
+                    className="gu"
+                    onClick={() => setAssignTarget({ number: p.number, name: p.name })}
+                    title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")}
+                  >{p.name}</td>
                   <td style={td}>
                     {editingDate === p.number ? (
                       <input type="date" defaultValue={p.lastDuty} autoFocus onBlur={(e) => { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); }} onKeyDown={(e) => { if (e.key === "Enter") { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); } }} />
