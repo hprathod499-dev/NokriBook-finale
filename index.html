@@ -7308,9 +7308,26 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
   const { t } = useLang();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
+  const [search, setSearch] = useState("");
 
   const keyOf = (r) => `${r.number}#${r.idxs.join(",")}`;
-  const allSelected = rows.length > 0 && selected.size === rows.length;
+
+  // Matches on name, buckle number, or the note text (and its extra-note
+  // detail) — a free-text search across everything shown in this table, so
+  // typing e.g. a place name from a Miscellaneous-duty note finds every
+  // entry that mentions it, not just an exact buckle-number lookup.
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      (r.name || "").toLowerCase().includes(q) ||
+      (r.number || "").toLowerCase().includes(q) ||
+      (r.note || "").toLowerCase().includes(q) ||
+      (r.extraNote || "").toLowerCase().includes(q)
+    );
+  }, [rows, search]);
+
+  const allSelected = filteredRows.length > 0 && filteredRows.every((r) => selected.has(keyOf(r)));
 
   const toggle = (key) => {
     setSelected((prev) => {
@@ -7319,7 +7336,7 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
       return next;
     });
   };
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(rows.map(keyOf)));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filteredRows.map(keyOf)));
   const startSelect = (key) => { setSelectMode(true); setSelected(new Set([key])); };
   const cancelSelect = () => { setSelectMode(false); setSelected(new Set()); };
   const confirmDelete = () => {
@@ -7350,7 +7367,15 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
             ? t(`${selected.size} selected — tap a row to toggle it.`, `${selected.size} પસંદ કરેલ — ટોગલ કરવા માટે પંક્તિ પર ટેપ કરો.`)
             : t(`Every completed "${catLabel}" duty, most recent first — a multi-day Group Duty assignment shows as one row spanning its dates. Tap "Select" to pick specific entries to delete, or clear everything at once.`, `"${catLabel}" ની બધી પૂર્ણ થયેલી ડ્યુટી, નવીનતમ પહેલા — બહુ-દિવસીય જૂથ ડ્યુટી સોંપણી તેની તારીખોને આવરી લેતી એક પંક્તિ તરીકે બતાય છે. ડિલીટ કરવા માટે ચોક્કસ એન્ટ્રીઓ પસંદ કરવા "Select" પર ટેપ કરો, અથવા બધું એકસાથે સાફ કરો.`)}
         </p>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+          {!selectMode && rows.length > 0 && (
+            <input
+              type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("Search name, number, note…", "નામ, નંબર, નોંધ શોધો…")}
+              className="gu"
+              style={{ width: 190, fontSize: 12.5, padding: "6px 10px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)" }}
+            />
+          )}
           {selectMode ? (
             <React.Fragment>
               <button onClick={toggleAll} style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu">{allSelected ? t("Deselect all", "બધું અનસિલેક્ટ કરો") : t("Select all", "બધું પસંદ કરો")}</button>
@@ -7364,7 +7389,7 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
                 <button
                   onClick={() => downloadCsv(
                     `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.csv`,
-                    [["#", "From", "To", "Days", "Number", "Name", "Note"], ...rows.map((r, i) => [rows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, r.note || ""])]
+                    [["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, r.note || ""])]
                   )}
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
                 >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
@@ -7376,6 +7401,11 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
           )}
         </div>
       </div>
+      {search.trim() && (
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", margin: "-8px 0 10px" }} className="gu">
+          {t(`${filteredRows.length} match${filteredRows.length === 1 ? "" : "es"} for "${search.trim()}"`, `"${search.trim()}" માટે ${filteredRows.length} મેળ`)}
+        </div>
+      )}
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -7386,7 +7416,7 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => {
+            {filteredRows.map((r, i) => {
               const key = keyOf(r);
               const isSel = selected.has(key);
               return (
@@ -7425,6 +7455,9 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
                 </tr>
               );
             })}
+            {filteredRows.length === 0 && rows.length > 0 && (
+              <tr><td colSpan={selectMode ? 6 : 5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No matches for that search.", "તે શોધ માટે કોઈ મેળ નથી.")}</td></tr>
+            )}
             {rows.length === 0 && (
               <tr><td colSpan={selectMode ? 6 : 5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No duty has been completed in this work type yet.", "આ કામના પ્રકારમાં હજુ સુધી કોઈ ડ્યુટી પૂર્ણ થઈ નથી.")}</td></tr>
             )}
