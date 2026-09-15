@@ -4283,7 +4283,19 @@ function DutyRoster() {
       [catId]: list.map((m) => {
         const idxSet = byNumber[m.number];
         if (!idxSet) return m;
-        return { ...m, history: (m.history || []).filter((_, i) => !idxSet.has(i)) };
+        const keptHistory = (m.history || []).filter((_, i) => !idxSet.has(i));
+        // lastDuty has to be re-derived from what's actually left, rather
+        // than left pointing at whatever it was before — otherwise
+        // deleting someone's most recent (often today's) entry leaves a
+        // stale lastDuty behind, which is exactly what made them keep
+        // showing up under "Today's duty" and in Fairness/roster ordering
+        // even after their only entry for today was gone.
+        let newLastDuty = null;
+        keptHistory.forEach((e) => {
+          const d = historyDate(e);
+          if (!newLastDuty || d > newLastDuty) newLastDuty = d;
+        });
+        return { ...m, history: keptHistory, lastDuty: newLastDuty };
       }),
     };
     const count = selectedKeys.size;
