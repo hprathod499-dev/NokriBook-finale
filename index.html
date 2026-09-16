@@ -1024,6 +1024,26 @@ function PdfReadyModal({ pdf, onClose }) {
     </div>
   );
 }
+// Same shape/spirit as PdfReadyModal just above (centered card, two
+// buttons) — used by Settings' "Format all data" row so picking between
+// the two very different wipes (keep this month vs. everything) feels
+// like the same kind of choice as View/Download, not a random dropdown.
+function FormatChoiceModal({ onChoose, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Format all data", "બધો ડેટા ફોર્મેટ કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 340, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, textAlign: "center" }}>{t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</div>
+        <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 16, textAlign: "center" }}>{t("Choose what to clear", "શું સાફ કરવું તે પસંદ કરો")}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={() => onChoose("keep")} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗓️ {t("Delete all data — keep this month", "બધો ડેટા ડિલીટ કરો — આ મહિનો સાચવો")}</button>
+          <button onClick={() => onChoose("all")} className="gu" style={{ background: "var(--btn-danger-solid)", color: "#fff", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗑️ {t("Delete all data", "બધો ડેટા ડિલીટ કરો")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -2111,13 +2131,11 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
   const [dataOpen, setDataOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [showImportStaff, setShowImportStaff] = useState(false);
-  // Same pattern as the main toolbar's "Data ▸ Backup ▸" submenu — a
-  // small anchored popup (position:fixed, opening to the right of the
-  // row that triggered it) instead of firing the confirmation modal
-  // straight away, so there's a clear first choice between the two very
-  // different things "Format all data" can now mean before the 3-step
-  // guard even starts.
-  const [formatMenuPos, setFormatMenuPos] = useState(null);
+  // Which of the two choices "Format all data" can now mean — shown as a
+  // centered picker (same look as PdfReadyModal's View/Download card)
+  // before the 3-step guard starts, rather than firing the confirmation
+  // modal straight away.
+  const [showFormatChoice, setShowFormatChoice] = useState(false);
   const activeTheme = THEME_OPTIONS.find((o) => o.value === (theme || "classic")) || THEME_OPTIONS[0];
   // Only the full admin panel (not the read-only shared-roster one, which
   // never passes formatAllData) gets this section at all — Import Staff
@@ -2228,16 +2246,11 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
                   <button onClick={() => setShowImportStaff(true)} className="gu" style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}>📥 {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
                   {formatAllData && (
                     <button
-                      onClick={(e) => {
-                        if (formatMenuPos) { setFormatMenuPos(null); return; }
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const submenuWidth = 240;
-                        setFormatMenuPos({ top: rect.top, left: Math.max(8, Math.min(rect.right + 8, window.innerWidth - submenuWidth - 8)) });
-                      }}
+                      onClick={() => setShowFormatChoice(true)}
                       className="gu"
                       title={t("Choose what to clear", "શું સાફ કરવું તે પસંદ કરો")}
-                      style={{ ...rowBtn, display: "flex", justifyContent: "space-between", alignItems: "center", color: "var(--status-warning-text)", fontWeight: 600, borderBottom: "1px solid var(--border-soft)", background: formatMenuPos ? "var(--bg-page)" : "transparent" }}
-                    ><span>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</span><span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>▸</span></button>
+                      style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600, borderBottom: "1px solid var(--border-soft)" }}
+                    >🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
                   )}
                   {onChooseBackupFolder && (
                     <button onClick={() => { onClose(); onChooseBackupFolder(); }} className="gu"
@@ -2270,28 +2283,11 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           )}
         </div>
       </div>
-      {formatMenuPos && (
-        <React.Fragment>
-          <div onClick={() => setFormatMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 91 }} />
-          <div style={{
-            position: "fixed", top: formatMenuPos.top, left: formatMenuPos.left, zIndex: 92, minWidth: 240,
-            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
-            boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
-          }}>
-            <button
-              onClick={() => { setFormatMenuPos(null); onClose(); formatAllData("keep"); }}
-              className="gu"
-              title={t("Clears duty history older than 1 month — keeps staff, designations, work types, and the last month", "1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો મહિનો સચવાય છે")}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, color: "var(--text-primary)", cursor: "pointer" }}
-            >🗓️ {t("Delete all data — keep this month", "બધો ડેટા ડિલીટ કરો — આ મહિનો સાચવો")}</button>
-            <button
-              onClick={() => { setFormatMenuPos(null); onClose(); formatAllData("all"); }}
-              className="gu"
-              title={t("Erases everything — staff, designations, work types, and all duty history — with no exceptions", "બધું ભૂંસી નાખે છે — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને બધો ડ્યુટી ઇતિહાસ — કોઈ અપવાદ વગર")}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, color: "var(--status-error-text)", fontWeight: 600, cursor: "pointer" }}
-            >🗑️ {t("Delete all data", "બધો ડેટા ડિલીટ કરો")}</button>
-          </div>
-        </React.Fragment>
+      {showFormatChoice && (
+        <FormatChoiceModal
+          onClose={() => setShowFormatChoice(false)}
+          onChoose={(mode) => { setShowFormatChoice(false); onClose(); formatAllData(mode); }}
+        />
       )}
       {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} exportBackup={exportBackup} />}
     </div>
