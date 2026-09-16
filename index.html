@@ -2375,11 +2375,19 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
                 className="disp gu"
                 style={{
                   display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13,
-                  background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)",
+                  background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)", width: "100%",
                 }}
               >
-                <span style={{ display: "inline-block", transform: stationOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
-                🏢 {t("Station name", "સ્ટેશનનું નામ")}
+                <span style={{ display: "inline-block", transform: stationOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}>▸</span>
+                <span style={{ flexShrink: 0 }}>🏢 {t("Station name", "સ્ટેશનનું નામ")}</span>
+                {/* Shown collapsed too — otherwise the row gives no sign the
+                    name set during onboarding (or anywhere else) actually
+                    saved, which reads as "it didn't save" even when it did. */}
+                {!stationOpen && (
+                  <span className="gu" style={{ fontWeight: 400, color: stationName ? "var(--text-secondary)" : "var(--text-tertiary)", fontSize: 12.5, marginLeft: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {stationName || t("(not set)", "(સેટ નથી)")}
+                  </span>
+                )}
               </button>
               {stationOpen && (
                 <input
@@ -10315,7 +10323,7 @@ function WelcomeModal({ onStartTour }) {
         {step === 0 && <img src="./welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
         <div style={{ display: "flex", gap: 5, marginBottom: 16 }}>
           {WELCOME_STEPS.map((_, i) => (
-            <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--accent)" : "var(--border-soft)" }} />
+            <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--accent-strong)" : "var(--border-soft)" }} />
           ))}
         </div>
         <div className="disp gu" style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{t(cur.titleEn, cur.titleGu)}</div>
@@ -10646,7 +10654,7 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
       >
         <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
           {TOUR_STEPS.map((_, i) => (
-            <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= stepIdx ? "var(--accent)" : "var(--border-soft)" }} />
+            <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= stepIdx ? "var(--accent-strong)" : "var(--border-soft)" }} />
           ))}
         </div>
         <div className="mono" style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 8, letterSpacing: 0.3 }}>{t("STEP", "પગલું")} {stepIdx + 1} / {TOUR_STEPS.length}</div>
