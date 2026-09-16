@@ -1079,7 +1079,14 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
   // Same overlap test used by every other period filter in the app (a
   // multi-day span counts if ANY part of it falls in the window, not only
   // if it starts inside it).
-  const filteredHistoryRows = historyRows.filter((r) => r.from <= periodTo && r.to >= periodFrom);
+  // historyRows arrives newest-first (that's what suits the on-screen
+  // History tab), but a PDF is read top-to-bottom like a timeline, so it
+  // gets re-sorted oldest-first here — starting from the 1st of the
+  // month — purely for this export; the on-screen table's own order is
+  // untouched.
+  const filteredHistoryRows = historyRows
+    .filter((r) => r.from <= periodTo && r.to >= periodFrom)
+    .sort((a, b) => a.from.localeCompare(b.from) || a.name.localeCompare(b.name));
   doc.autoTable({
     startY: doc.lastAutoTable.finalY + 14,
     head: [["#", "Number", "Name", "Dates", "Days", "Note"]],
@@ -8302,10 +8309,15 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   doc.setFontSize(8.5);
   doc.text("Generated " + new Date().toLocaleString(), 14, 44);
 
+  // filteredGroups arrives newest-first (matching the on-screen modal),
+  // but the PDF should read as a timeline of the period — earliest date
+  // first, starting from the 1st of the month — so it's re-sorted here
+  // just for this export; the modal's own on-screen order is untouched.
+  const sortedGroups = [...filteredGroups].sort((a, b) => a.from.localeCompare(b.from));
   doc.autoTable({
     startY: 52,
     head: [["Date", "Work type", "Days", "Note"]],
-    body: filteredGroups.map((g) => [
+    body: sortedGroups.map((g) => [
       g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
       g.catLabel, g.days, g.note || "",
     ]),
