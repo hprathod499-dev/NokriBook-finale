@@ -1044,7 +1044,7 @@ function FormatChoiceModal({ onChoose, onClose }) {
     </div>
   );
 }
-async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
+async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
@@ -1058,15 +1058,26 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
 
   doc.setFontSize(14);
   doc.text(`Nokri Book — ${catLabel}`, 14, 16);
+  // Station name is almost always typed in Gujarati, so it needs the same
+  // canvas-image treatment as every Gujarati table cell — jsPDF's own
+  // font (used by plain doc.text) has no Gujarati glyphs at all.
+  if (stationName) {
+    if (needsImageRender(stationName)) {
+      drawTextImageInCell(doc, { x: 14, y: 18, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
+    } else {
+      doc.setFontSize(10);
+      doc.text(stationName, 14, 23);
+    }
+  }
   doc.setFontSize(10);
-  doc.text(periodLabelEn(period), 14, 23);
+  doc.text(periodLabelEn(period), 14, 30);
   doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, 28);
+  doc.text("Generated " + new Date().toLocaleString(), 14, 35);
 
   doc.setFontSize(11);
-  doc.text("Roster", 14, 36);
+  doc.text("Roster", 14, 43);
   doc.autoTable({
-    startY: 40,
+    startY: 47,
     head: [["Rank", "Number", "Name", "Last duty", "Waiting", "Duties", "Status"]],
     // p.history comes straight off the membership row computeRoster
     // spreads in — same source both CategoryView and PublicCategoryView
@@ -1134,6 +1145,115 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
   const slug = String(catLabel).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
   return { doc, filename: `nokri-book-${slug || "duty-type"}-report.pdf` };
 }
+// ---------- Full staff directory PDF (Manage Staff's "Download PDF") ----------
+// Same Gujarati-safe pipeline as every other PDF in the app — plain
+// jsPDF text for the header/numbers, canvas-rendered images (via
+// renderTextToImage/drawTextImageInCell) for any autoTable cell holding
+// real Gujarati text (Name, Designation, Status can all be Gujarati).
+async function downloadStaffDirectoryPdf(staffList, stationName) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const FONT_PT = 9;
+
+  const base64 = await loadGujaratiFont();
+  doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
+  doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
+  await ensureGujaratiCanvasFont();
+
+  doc.setFontSize(14);
+  doc.text("Nokri Book — Staff Directory", 14, 16);
+  let headerY = 23;
+  if (stationName) {
+    if (needsImageRender(stationName)) {
+      drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
+    } else {
+      doc.setFontSize(10);
+      doc.text(stationName, 14, headerY);
+    }
+    headerY += 7;
+  }
+  doc.setFontSize(8.5);
+  doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
+  doc.setFontSize(8.5);
+  doc.text(`${staffList.length} staff`, 14, headerY + 5);
+
+  doc.autoTable({
+    startY: headerY + 10,
+    head: [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"]],
+    body: staffList.map((s) => [s.number, s.name, s.phone || "—", s.desgLabel || "—", s.statusLabel, s.dutiesThisMonth]),
+    styles: { fontSize: FONT_PT },
+    headStyles: { fillColor: [14, 22, 32] },
+    columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
+    didParseCell: (hookData) => {
+      if (hookData.section === "body" && [1, 3, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+        hookData.cell.text = [];
+      }
+    },
+    didDrawCell: (hookData) => {
+      if (hookData.section === "body" && [1, 3, 4].includes(hookData.column.index)) {
+        const raw = hookData.cell.raw;
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      }
+    },
+  });
+
+  return { doc, filename: "nokri-book-staff-directory.pdf" };
+}
+// ---------- Skip-history PDF (Skip history's "Download PDF") ----------
+// `rows` here are pre-built arrays matching the exact same columns as the
+// CSV export (Date, Time, Skipped person, Number, Work type, Skipped by,
+// By number, Note) — built once by the caller and reused for both exports,
+// same pattern as Manage Staff's exportRows.
+async function downloadSkipHistoryPdf(rows, stationName) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const FONT_PT = 8;
+
+  const base64 = await loadGujaratiFont();
+  doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
+  doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
+  await ensureGujaratiCanvasFont();
+
+  doc.setFontSize(14);
+  doc.text("Nokri Book — Skip History", 14, 16);
+  let headerY = 23;
+  if (stationName) {
+    if (needsImageRender(stationName)) {
+      drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
+    } else {
+      doc.setFontSize(10);
+      doc.text(stationName, 14, headerY);
+    }
+    headerY += 7;
+  }
+  doc.setFontSize(8.5);
+  doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
+
+  // Name/Skipped-by columns (indices 2 and 5) are the only ones that can
+  // hold real Gujarati text — same image-cell treatment as every other
+  // Gujarati-capable PDF table in the app.
+  doc.autoTable({
+    startY: headerY + 5,
+    head: [["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"]],
+    body: rows,
+    styles: { fontSize: FONT_PT },
+    headStyles: { fillColor: [14, 22, 32] },
+    columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 } },
+    didParseCell: (hookData) => {
+      if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+        hookData.cell.text = [];
+      }
+    },
+    didDrawCell: (hookData) => {
+      if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
+        const raw = hookData.cell.raw;
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      }
+    },
+  });
+
+  return { doc, filename: "nokri-book-skip-history.pdf" };
+}
 
 function buildInitialData() {
   const staff = {};
@@ -1144,7 +1264,7 @@ function buildInitialData() {
       ? seed112.map((p) => ({ number: p.number, lastDuty: p.lastDuty, history: [], skip: false }))
       : [];
   });
-  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {}, _rev: 0 };
+  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {}, stationName: null, _rev: 0 };
 }
 
 // Converts the old per-category schema (name/status stored directly on each
@@ -2124,13 +2244,24 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveStationName, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [showImportStaff, setShowImportStaff] = useState(false);
+  // Local draft of the station-name field, right below the email — kept
+  // separate from the prop so typing doesn't fire a write on every
+  // keystroke; only committed (via onSaveStationName) on blur or Enter,
+  // same pattern as every other free-text field elsewhere in the app that
+  // saves on blur rather than per-keystroke.
+  const [stationDraft, setStationDraft] = useState(stationName || "");
+  useEffect(() => { setStationDraft(stationName || ""); }, [stationName]);
+  const saveStationName = () => {
+    const next = stationDraft.trim();
+    if (next !== (stationName || "")) onSaveStationName(next);
+  };
   // Which of the two choices "Format all data" can now mean — shown as a
   // centered picker (same look as PdfReadyModal's View/Download card)
   // before the 3-step guard starts, rather than firing the confirmation
@@ -2159,6 +2290,18 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER, fontSize: 12.5, color: "var(--text-secondary)", wordBreak: "break-all" }} className={user && user.email ? "" : "gu"}>
             {(user && user.email) || t("Viewing a shared roster — not signed in", "શેર કરેલ રોસ્ટર જોઈ રહ્યાં છો — સાઇન ઇન નથી")}
           </div>
+          {onSaveStationName && (
+            <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 5 }} className="gu">🏢 {t("Police station", "પોલીસ સ્ટેશન")}</label>
+              <input
+                type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
+                onBlur={saveStationName}
+                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
+                className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
+              />
+            </div>
+          )}
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
             <button
               onClick={() => setLangOpen((v) => !v)}
@@ -3516,6 +3659,12 @@ function DutyRoster() {
   const [showHelpPanel, setShowHelpPanel] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [showSpotlightTour, setShowSpotlightTour] = useState(false);
+  // Compulsory gate shown right after a brand-new account clicks through
+  // WelcomeModal, before the interactive tour starts — see
+  // StationNameGateModal below for why (every duty PDF/CSV export needs
+  // this to put the actual station's name on it instead of a generic
+  // "Nokri Book" heading).
+  const [showStationGate, setShowStationGate] = useState(false);
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
   // Which of the two choices from Settings' "Format all data ▸" submenu is
@@ -5583,6 +5732,7 @@ function DutyRoster() {
         <SettingsPanel
           user={user}
           signOutUser={signOutUser} formatAllData={formatAllData}
+          stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
           onHelp={() => setShowHelpPanel(true)}
           onChooseBackupFolder={chooseBackupFolder}
           onRecoverLocalBackup={recoverLocalBackup}
@@ -5615,9 +5765,20 @@ function DutyRoster() {
         />
       )}
 
-      {data.hasSeenWelcome === false && !showSpotlightTour && (
+      {data.hasSeenWelcome === false && !showStationGate && !showSpotlightTour && (
         <WelcomeModal
-          onStartTour={() => setShowSpotlightTour(true)}
+          onStartTour={() => setShowStationGate(true)}
+        />
+      )}
+
+      {showStationGate && (
+        <StationNameGateModal
+          initialValue={data.stationName || "પોલીસ સ્ટેશન"}
+          onSubmit={(name) => {
+            persist({ ...dataRef.current, stationName: name });
+            setShowStationGate(false);
+            setShowSpotlightTour(true);
+          }}
         />
       )}
 
@@ -6898,7 +7059,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -6940,7 +7101,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       </div>
 
       {tab === "history" ? (
-        <CategoryHistoryTable key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)} />
+        <CategoryHistoryTable key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName} onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)} />
       ) : tab === "fairness" ? (
         <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} />
       ) : (
@@ -7182,7 +7343,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap", alignItems: "flex-start" }}
       >
         <div>
-          <input type="text" placeholder={t("Buckle number", "બકલ નંબર")} value={newNumber} onChange={(e) => setNewNumber(e.target.value)} style={{ width: 130 }} className="gu" />
+          <input type="text" inputMode="numeric" placeholder={t("Buckle number", "બકલ નંબર")} value={newNumber} onChange={(e) => setNewNumber(e.target.value.replace(/\D/g, ""))} style={{ width: 130 }} className="mono" />
           {lookupPreview && <div className="gu" style={{ fontSize: 11, color: "var(--status-success-text)", marginTop: 3 }}>→ {lookupPreview}</div>}
           {!lookupPreview && newNumber.trim() && <div style={{ fontSize: 11, color: "var(--status-warning-text)", marginTop: 3 }} className="gu">{t("New number — enter name →", "નવો નંબર — નામ દાખલ કરો →")}</div>}
         </div>
@@ -7371,7 +7532,7 @@ function FormatAllDataModal({ data, mode, staffCount, dutyCount, onConfirm, onCa
               {t("Last step — enter your own બકલ નંબર. It must match someone on your Manage Staff list. This is recorded as who performed this, along with the time, in a confirmation email sent to your account's email.", "છેલ્લું પગલું — તમારો પોતાનો બકલ નંબર દાખલ કરો. તે તમારી મેનેજ સ્ટાફ યાદીમાંની કોઈ વ્યક્તિ સાથે મેળ ખાવો જોઈએ. આ કોણે કર્યું તેની નોંધ, સમય સાથે, તમારા ખાતાના ઈમેલ પર મોકલવામાં આવતા પુષ્ટિ ઈમેલમાં થાય છે.")}
             </p>
             <label style={labelStyle} className="gu">{t("Your buckle number", "તમારો બકલ નંબર")}</label>
-            <input type="text" autoFocus inputMode="numeric" value={buckle} onChange={(e) => setBuckle(e.target.value)} placeholder={t("e.g. 1123", "દા.ત. 1123")} className="mono" style={{ width: "100%", boxSizing: "border-box" }} />
+            <input type="text" autoFocus inputMode="numeric" value={buckle} onChange={(e) => setBuckle(e.target.value.replace(/\D/g, ""))} placeholder={t("e.g. 1123", "દા.ત. 1123")} className="mono" style={{ width: "100%", boxSizing: "border-box" }} />
             <div style={{ fontSize: 12, marginTop: 6, minHeight: 16 }} className="gu">
               {buckle.trim() && (buckleStaff
                 ? <span style={{ color: "var(--status-success-text)" }}>{buckleStaff.name}</span>
@@ -7494,7 +7655,7 @@ function CategoryFairnessTable({ roster, catLabel }) {
 // tap the ✕ on any row to start selecting, tap rows to add/remove from the
 // selection, then delete just the picked entries — or clear everything at
 // once with the separate "Clear history" button.
-function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected }) {
+function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onDeleteSelected }) {
   const { t } = useLang();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -7579,7 +7740,7 @@ function CategoryHistoryTable({ rows, catLabel, onClearHistory, onDeleteSelected
                 <button
                   onClick={() => downloadCsv(
                     `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.csv`,
-                    [["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, r.note || ""])]
+                    [...(stationName ? [[stationName], []] : []), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, r.note || ""])]
                   )}
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
                 >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
@@ -7678,6 +7839,8 @@ function StaffView({
   const [newStaffDesg, setNewStaffDesg] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showImportStaff, setShowImportStaff] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
   const [search, setSearch] = useState(initialSearch || "");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
@@ -7858,6 +8021,26 @@ function StaffView({
   };
   useEscToClose(useCallback(() => setModalFor(null), []));
 
+  // Shared row-builder for both Export CSV and Download PDF, so the two
+  // exports never drift apart — same status label logic (Leave/Outstation
+  // label if currently away, else Skip or Present), same column order.
+  const exportRows = useMemo(() => filteredStaffList.map((s) => {
+    const active = s.unavailable && (!s.unavailable.to || s.unavailable.to >= todayStr());
+    return { ...s, statusLabel: active ? unavailLabel(data, s.unavailable) : (s.skip ? "Skip" : "Present") };
+  }), [filteredStaffList, data]);
+
+  const handleDownloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      const pdf = await downloadStaffDirectoryPdf(exportRows, data.stationName);
+      setPdfReady(pdf);
+    } catch (e) {
+      window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const modalTypeList = modalKind === "Leave" ? leaveTypes : outstationTypes;
   const selectedType = modalTypeList.find((mt) => mt.id === modalTypeId);
   const modalIsIndefinite = !!(selectedType && selectedType.indefinite);
@@ -7943,16 +8126,19 @@ function StaffView({
         <button
           onClick={() => downloadCsv(
             "nokri-book-staff-directory.csv",
-            [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...filteredStaffList.map((s) => {
-              const active = s.unavailable && (!s.unavailable.to || s.unavailable.to >= todayStr());
-              const label = active ? unavailLabel(data, s.unavailable) : (s.skip ? "Skip" : "Present");
-              return [s.number, s.name, s.phone || "", s.desgLabel || "", label, s.dutiesThisMonth];
-            })]
+            [...(data.stationName ? [[data.stationName], []] : []), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, s.phone || "", s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
           )}
           disabled={filteredStaffList.length === 0}
           style={{ background: "var(--bg-surface)", color: filteredStaffList.length ? "var(--text-primary)" : "var(--text-tertiary)", border: "1px solid var(--border)", borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
         >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
+        <button
+          onClick={handleDownloadPdf}
+          disabled={filteredStaffList.length === 0 || pdfBusy}
+          style={{ background: filteredStaffList.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+        >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
       </div>
+
+      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
 
       {showFairnessCompare && (
         <DutyFairnessCompare data={data} staffList={staffList} currentMonth={currentMonth} />
@@ -8149,7 +8335,7 @@ function StaffView({
         onSubmit={(e) => { e.preventDefault(); createStaff(num, name, phone, newStaffDesg); setNum(""); setName(""); setPhone(""); setNewStaffDesg(""); }}
         style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 20 }}
       >
-        <input type="text" placeholder={t("Buckle number", "બકલ નંબર")} value={num} onChange={(e) => setNum(e.target.value)} style={{ width: 150 }} className="gu" />
+        <input type="text" inputMode="numeric" placeholder={t("Buckle number", "બકલ નંબર")} value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))} style={{ width: 150 }} className="mono" />
         <input type="text" placeholder={t("Full name", "પૂરું નામ")} value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} className="gu" />
         <input type="text" placeholder={t("Mobile number (optional)", "મોબાઇલ નંબર (વૈકલ્પિક)")} value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: 160 }} className="mono" />
         <select value={newStaffDesg} onChange={(e) => setNewStaffDesg(e.target.value)} style={{ width: 160, fontSize: 13 }} className="gu">
@@ -8369,7 +8555,7 @@ function StaffView({
 // table. Uses the same Gujarati-safe canvas-image pipeline as every
 // other PDF in the app (native jsPDF text for headers/dates, rendered
 // images only for cells that actually contain Gujarati).
-async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period) {
+async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, stationName) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
@@ -8394,10 +8580,20 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
     doc.setFontSize(13);
     doc.text(`${staffRec.name}  #${number}`, 14, 25);
   }
+  let y = 39;
+  if (stationName) {
+    if (needsImageRender(stationName)) {
+      drawTextImageInCell(doc, { x: 14, y: y - 5, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
+    } else {
+      doc.setFontSize(10);
+      doc.text(stationName, 14, y);
+    }
+    y += 7;
+  }
   doc.setFontSize(10);
-  doc.text(periodLabelEn(period), 14, 39);
+  doc.text(periodLabelEn(period), 14, y);
   doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, 44);
+  doc.text("Generated " + new Date().toLocaleString(), 14, y + 5);
 
   // filteredGroups arrives newest-first (matching the on-screen modal),
   // but the PDF should read as a timeline of the period — earliest date
@@ -8405,7 +8601,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   // just for this export; the modal's own on-screen order is untouched.
   const sortedGroups = [...filteredGroups].sort((a, b) => a.from.localeCompare(b.from));
   doc.autoTable({
-    startY: 52,
+    startY: y + 13,
     head: [["Date", "Work type", "Days", "Note"]],
     body: sortedGroups.map((g) => [
       g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
@@ -8480,7 +8676,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period);
+      const pdf = await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, data.stationName);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -8986,12 +9182,22 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       const doc = new jsPDF();
       doc.setFontSize(14);
       doc.text("Nokri Book — Leave / Outstation Calendar", 14, 16);
+      let headerY = 23;
+      if (data.stationName) {
+        if (needsImageRender(data.stationName)) {
+          drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(data.stationName, 10), 10);
+        } else {
+          doc.setFontSize(10);
+          doc.text(data.stationName, 14, headerY);
+        }
+        headerY += 7;
+      }
       doc.setFontSize(10);
-      doc.text(monthLabel, 14, 23);
+      doc.text(monthLabel, 14, headerY);
       doc.setFontSize(8.5);
-      doc.text("Generated " + new Date().toLocaleString(), 14, 28);
+      doc.text("Generated " + new Date().toLocaleString(), 14, headerY + 5);
       doc.autoTable({
-        startY: 33,
+        startY: headerY + 10,
         head: [["#", "Name", "Number", "Type", "From", "To"]],
         body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT },
@@ -9396,10 +9602,20 @@ function ReportView({ data }) {
 
     doc.setFontSize(14);
     doc.text("Nokri Book — Monthly Duty Report", 14, 16);
+    let headerY = 23;
+    if (data.stationName) {
+      if (needsImageRender(data.stationName)) {
+        drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(data.stationName, 10), 10);
+      } else {
+        doc.setFontSize(10);
+        doc.text(data.stationName, 14, headerY);
+      }
+      headerY += 7;
+    }
     doc.setFontSize(10);
-    doc.text(monthLabel, 14, 23);
+    doc.text(monthLabel, 14, headerY);
     doc.setFontSize(8.5);
-    doc.text("Generated " + new Date().toLocaleString(), 14, 28);
+    doc.text("Generated " + new Date().toLocaleString(), 14, headerY + 5);
     // Summary table first: one row per person, total duties this month
     // across every work type combined, most duties first — the "who does
     // duty the most" answer at a glance before the full day-by-day list.
@@ -9417,7 +9633,7 @@ function ReportView({ data }) {
     // normal auto-sizing untouched either way; didDrawCell then places
     // the pre-rendered image on top only for those same cells.
     doc.autoTable({
-      startY: 33,
+      startY: headerY + 10,
       head: [["#", "Name", "Designation", "Total duties"]],
       body: summaryNames.map((name, i) => [i + 1, name, grouped[name][0].designation, grouped[name].length]),
       styles: { fontSize: FONT_PT },
@@ -10049,6 +10265,53 @@ function WelcomeModal({ onStartTour }) {
     </div>
   );
 }
+// Shown exactly once, right after a brand-new account clicks through
+// WelcomeModal — compulsory, same as WelcomeModal itself (no ✕, no ESC,
+// no way past it except submitting a non-empty name). Every duty PDF/CSV
+// export in the app (staff directory, skip history, duty calendar,
+// monthly report, per-work-type reports) headlines itself "Nokri Book —
+// ..." by default; once this is set, that heading becomes "<station
+// name> — ..." instead, so a printed report actually names the real
+// police station it's for. "પોલીસ સ્ટેશન" ("police station") comes
+// pre-typed in the field — literally the same as any other text already
+// sitting in an input, so it can be selected and deleted like anything
+// else — the person normally just types their station's own name in
+// front of it (e.g. "ધારી પોલીસ સ્ટેશન"). Editable again anytime from
+// Settings, right next to the account email.
+function StationNameGateModal({ initialValue, onSubmit }) {
+  const { t } = useLang();
+  const [value, setValue] = useState(initialValue);
+  const inputRef = useRef(null);
+  // Puts the cursor at the very start (before "પોલીસ સ્ટેશન") the moment
+  // this mounts, so the first thing typed lands in front of it rather
+  // than at the end — matching how the field is actually meant to be
+  // filled in.
+  useEffect(() => {
+    if (inputRef.current) { inputRef.current.focus(); inputRef.current.setSelectionRange(0, 0); }
+  }, []);
+  const canSubmit = value.trim().length > 0;
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Your police station", "તમારું પોલીસ સ્ટેશન")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+      <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 400, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)" }}>
+        <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>🏢 {t("Your police station", "તમારું પોલીસ સ્ટેશન")}</div>
+        <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 18px" }} className="gu">
+          {t("This name appears at the top of every PDF and CSV export — the duty calendar, staff directory, skip history, and reports. Type your station's name in front of the pre-filled text below (or replace it entirely).", "આ નામ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે — ડ્યુટી કૅલેન્ડર, સ્ટાફ ડિરેક્ટરી, સ્કિપ ઇતિહાસ અને અહેવાલો. નીચે પહેલેથી ભરેલા લખાણની આગળ તમારા સ્ટેશનનું નામ ટાઈપ કરો (અથવા તેને સંપૂર્ણપણે બદલો).")}
+        </p>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Police station name", "પોલીસ સ્ટેશનનું નામ")}</label>
+        <input
+          ref={inputRef} type="text" value={value} onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) onSubmit(value.trim()); }}
+          className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 15 }}
+        />
+        <button
+          onClick={() => canSubmit && onSubmit(value.trim())}
+          disabled={!canSubmit}
+          style={{ width: "100%", marginTop: 18, background: canSubmit ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: canSubmit ? "pointer" : "default" }} className="gu"
+        >{t("Continue →", "ચાલુ રાખો →")}</button>
+      </div>
+    </div>
+  );
+}
 // ===== Interactive spotlight tour =====
 // A guided walkthrough that highlights REAL elements on screen (via
 // data-tour="..." attributes sprinkled through Sidebar/AssignDutyView/
@@ -10662,6 +10925,8 @@ function SkipHistoryView({ data, initialSearch }) {
   const [month, setMonth] = useState(todayStr().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [showInfo, setShowInfo] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
 
   const entries = useMemo(() => {
     const list = [...(data.skipLog || [])].sort((a, b) => b.ts - a.ts);
@@ -10722,6 +10987,26 @@ function SkipHistoryView({ data, initialSearch }) {
     padding: "6px 12px", fontSize: 12, fontWeight: 600,
   });
 
+  // Shared row-builder for both Export CSV and Download PDF — exact same
+  // column order/values either way, so the two exports never drift apart.
+  const exportRows = useMemo(() => entries.map((e) => {
+    const dt = new Date(e.ts || 0);
+    const workType = e.scope === "category" ? (e.catLabel || "") : t("All work types", "બધા કામના પ્રકારો");
+    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
+  }), [entries, t]);
+
+  const handleDownloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      const pdf = await downloadSkipHistoryPdf(exportRows, data.stationName);
+      setPdfReady(pdf);
+    } catch (e) {
+      window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <React.Fragment>
       <div data-tour="nb-tour-skiphistory-content" style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
@@ -10754,16 +11039,19 @@ function SkipHistoryView({ data, initialSearch }) {
             <button
               onClick={() => downloadCsv(
                 "nokri-book-skip-history.csv",
-                [["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...entries.map((e) => {
-                  const dt = new Date(e.ts || 0);
-                  const workType = e.scope === "category" ? (e.catLabel || "") : t("All work types", "બધા કામના પ્રકારો");
-                  return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
-                })]
+                [...(data.stationName ? [[data.stationName], []] : []), ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...exportRows]
               )}
               disabled={entries.length === 0}
               style={{ background: "var(--bg-surface)", color: entries.length ? "var(--text-primary)" : "var(--text-tertiary)", border: "1px solid var(--border)", borderRadius: 6, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
             >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
+            <button
+              onClick={handleDownloadPdf}
+              disabled={entries.length === 0 || pdfBusy}
+              style={{ background: entries.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
+            >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
           </div>
+
+          {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
 
           <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ overflowX: "auto" }}>
@@ -11266,7 +11554,7 @@ function PublicCategoryView({ data, catId }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
