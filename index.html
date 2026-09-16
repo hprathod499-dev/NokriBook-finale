@@ -969,6 +969,24 @@ function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   const y = cell.y + (cell.height - targetH) / 2;
   doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
 }
+// Draws the station name centered horizontally across the page — used at
+// the top of every PDF export, right under the main title. Handles both
+// Gujarati (canvas-image, since jsPDF can't shape Gujarati text itself —
+// see the note above renderTextToImage) and plain-ASCII station names
+// (native jsPDF text, centered via its own {align:"center"} option).
+function drawCenteredStationName(doc, stationName, y, fontSizePt) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  if (needsImageRender(stationName)) {
+    const rendered = renderTextToImage(stationName, fontSizePt);
+    const targetH = fontSizePt * 1.3;
+    const scale = targetH / rendered.height;
+    const targetW = rendered.width * scale;
+    doc.addImage(rendered.dataUrl, "PNG", (pageWidth - targetW) / 2, y - targetH * 0.75, targetW, targetH);
+  } else {
+    doc.setFontSize(fontSizePt);
+    doc.text(stationName, pageWidth / 2, y, { align: "center" });
+  }
+}
 // ---------- Per-work-type ("duty type") PDF export ----------
 // Every work type (category) — WAPC, UHC, ULRD, "112", etc. — gets its own
 // "Roster + History" PDF, built with exactly the same Gujarati-safe
@@ -1044,6 +1062,43 @@ function FormatChoiceModal({ onChoose, onClose }) {
     </div>
   );
 }
+// A single "⬇ Export ▾" button that opens a tiny menu with "Export CSV"
+// and "Download PDF" as two rows — replaces having those as two separate
+// buttons side by side, everywhere the app offers both for the same data
+// (Manage staff, Skip history). Closes on outside click or Escape, same
+// as every other small popover menu in the app (e.g. the per-row "Manage
+// leave" menu in Manage staff).
+function ExportMenuButton({ disabled, pdfBusy, onExportCsv, onDownloadPdf }) {
+  const { t } = useLang();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  const itemStyle = { width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "9px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "var(--text-primary)", whiteSpace: "nowrap" };
+  return (
+    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        aria-haspopup="true" aria-expanded={open}
+        style={{ background: "var(--bg-surface)", color: disabled ? "var(--text-tertiary)" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 6, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", cursor: disabled ? "default" : "pointer" }} className="gu"
+      >⬇ {t("Export", "એક્સપોર્ટ")} ▾</button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 20, minWidth: 150 }}>
+          <button onClick={() => { setOpen(false); onExportCsv(); }} className="gu" style={{ ...itemStyle, borderBottom: "1px solid var(--border-soft)" }}>📄 {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
+          <button onClick={() => { setOpen(false); onDownloadPdf(); }} disabled={pdfBusy} className="gu" style={itemStyle}>📕 {pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -1061,14 +1116,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   // Station name is almost always typed in Gujarati, so it needs the same
   // canvas-image treatment as every Gujarati table cell — jsPDF's own
   // font (used by plain doc.text) has no Gujarati glyphs at all.
-  if (stationName) {
-    if (needsImageRender(stationName)) {
-      drawTextImageInCell(doc, { x: 14, y: 18, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
-    } else {
-      doc.setFontSize(10);
-      doc.text(stationName, 14, 23);
-    }
-  }
+  if (stationName) drawCenteredStationName(doc, stationName, 23, 11);
   doc.setFontSize(10);
   doc.text(periodLabelEn(period), 14, 30);
   doc.setFontSize(8.5);
@@ -1164,12 +1212,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName) {
   doc.text("Nokri Book — Staff Directory", 14, 16);
   let headerY = 23;
   if (stationName) {
-    if (needsImageRender(stationName)) {
-      drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
-    } else {
-      doc.setFontSize(10);
-      doc.text(stationName, 14, headerY);
-    }
+    drawCenteredStationName(doc, stationName, headerY, 11);
     headerY += 7;
   }
   doc.setFontSize(8.5);
@@ -1218,12 +1261,7 @@ async function downloadSkipHistoryPdf(rows, stationName) {
   doc.text("Nokri Book — Skip History", 14, 16);
   let headerY = 23;
   if (stationName) {
-    if (needsImageRender(stationName)) {
-      drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
-    } else {
-      doc.setFontSize(10);
-      doc.text(stationName, 14, headerY);
-    }
+    drawCenteredStationName(doc, stationName, headerY, 11);
     headerY += 7;
   }
   doc.setFontSize(8.5);
@@ -2251,12 +2289,14 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
   const [dataOpen, setDataOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [showImportStaff, setShowImportStaff] = useState(false);
-  // Local draft of the station-name field, right below the email — kept
-  // separate from the prop so typing doesn't fire a write on every
-  // keystroke; only committed (via onSaveStationName) on blur or Enter,
-  // same pattern as every other free-text field elsewhere in the app that
-  // saves on blur rather than per-keystroke.
+  // Local draft of the station-name field, kept separate from the prop so
+  // typing doesn't fire a write on every keystroke; only committed (via
+  // onSaveStationName) on blur or Enter, same pattern as every other
+  // free-text field elsewhere in the app that saves on blur rather than
+  // per-keystroke. Collapsed by default like Language/Theme/Data below —
+  // stationOpen controls that, separate from the draft itself.
   const [stationDraft, setStationDraft] = useState(stationName || "");
+  const [stationOpen, setStationOpen] = useState(false);
   useEffect(() => { setStationDraft(stationName || ""); }, [stationName]);
   const saveStationName = () => {
     const next = stationDraft.trim();
@@ -2292,14 +2332,27 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
           </div>
           {onSaveStationName && (
             <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 5 }} className="gu">🏢 {t("Police station", "પોલીસ સ્ટેશન")}</label>
-              <input
-                type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
-                onBlur={saveStationName}
-                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
-                className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
-              />
+              <button
+                onClick={() => setStationOpen((v) => !v)}
+                aria-expanded={stationOpen}
+                className="disp gu"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13,
+                  background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)",
+                }}
+              >
+                <span style={{ display: "inline-block", transform: stationOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                🏢 {t("Station name", "સ્ટેશનનું નામ")}
+              </button>
+              {stationOpen && (
+                <input
+                  type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
+                  onBlur={saveStationName}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
+                  className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 8 }}
+                />
+              )}
             </div>
           )}
           <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
@@ -8123,19 +8176,15 @@ function StaffView({
             border: "1px solid " + (showFairnessCompare ? "var(--accent-strong)" : "var(--border)"), borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
           }} className="gu"
         >⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
-        <button
-          onClick={() => downloadCsv(
+        <ExportMenuButton
+          disabled={filteredStaffList.length === 0}
+          pdfBusy={pdfBusy}
+          onExportCsv={() => downloadCsv(
             "nokri-book-staff-directory.csv",
             [...(data.stationName ? [[data.stationName], []] : []), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, s.phone || "", s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
           )}
-          disabled={filteredStaffList.length === 0}
-          style={{ background: "var(--bg-surface)", color: filteredStaffList.length ? "var(--text-primary)" : "var(--text-tertiary)", border: "1px solid var(--border)", borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
-        >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
-        <button
-          onClick={handleDownloadPdf}
-          disabled={filteredStaffList.length === 0 || pdfBusy}
-          style={{ background: filteredStaffList.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
-        >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+          onDownloadPdf={handleDownloadPdf}
+        />
       </div>
 
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
@@ -8582,12 +8631,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   }
   let y = 39;
   if (stationName) {
-    if (needsImageRender(stationName)) {
-      drawTextImageInCell(doc, { x: 14, y: y - 5, width: 180, height: 7 }, renderTextToImage(stationName, 10), 10);
-    } else {
-      doc.setFontSize(10);
-      doc.text(stationName, 14, y);
-    }
+    drawCenteredStationName(doc, stationName, y - 3, 10);
     y += 7;
   }
   doc.setFontSize(10);
@@ -9184,12 +9228,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       doc.text("Nokri Book — Leave / Outstation Calendar", 14, 16);
       let headerY = 23;
       if (data.stationName) {
-        if (needsImageRender(data.stationName)) {
-          drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(data.stationName, 10), 10);
-        } else {
-          doc.setFontSize(10);
-          doc.text(data.stationName, 14, headerY);
-        }
+        drawCenteredStationName(doc, data.stationName, headerY, 11);
         headerY += 7;
       }
       doc.setFontSize(10);
@@ -9604,12 +9643,7 @@ function ReportView({ data }) {
     doc.text("Nokri Book — Monthly Duty Report", 14, 16);
     let headerY = 23;
     if (data.stationName) {
-      if (needsImageRender(data.stationName)) {
-        drawTextImageInCell(doc, { x: 14, y: headerY - 5, width: 180, height: 7 }, renderTextToImage(data.stationName, 10), 10);
-      } else {
-        doc.setFontSize(10);
-        doc.text(data.stationName, 14, headerY);
-      }
+      drawCenteredStationName(doc, data.stationName, headerY, 11);
       headerY += 7;
     }
     doc.setFontSize(10);
@@ -10297,7 +10331,7 @@ function StationNameGateModal({ initialValue, onSubmit }) {
         <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 18px" }} className="gu">
           {t("This name appears at the top of every PDF and CSV export — the duty calendar, staff directory, skip history, and reports. Type your station's name in front of the pre-filled text below (or replace it entirely).", "આ નામ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે — ડ્યુટી કૅલેન્ડર, સ્ટાફ ડિરેક્ટરી, સ્કિપ ઇતિહાસ અને અહેવાલો. નીચે પહેલેથી ભરેલા લખાણની આગળ તમારા સ્ટેશનનું નામ ટાઈપ કરો (અથવા તેને સંપૂર્ણપણે બદલો).")}
         </p>
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Police station name", "પોલીસ સ્ટેશનનું નામ")}</label>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
         <input
           ref={inputRef} type="text" value={value} onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) onSubmit(value.trim()); }}
@@ -11036,19 +11070,15 @@ function SkipHistoryView({ data, initialSearch }) {
               placeholder={t("Search by બકલ નંબર, name, or note…", "બકલ નંબર, નામ અથવા નોંધ દ્વારા શોધો…")} className="gu"
               style={{ width: "100%", maxWidth: 340, boxSizing: "border-box" }}
             />
-            <button
-              onClick={() => downloadCsv(
+            <ExportMenuButton
+              disabled={entries.length === 0}
+              pdfBusy={pdfBusy}
+              onExportCsv={() => downloadCsv(
                 "nokri-book-skip-history.csv",
                 [...(data.stationName ? [[data.stationName], []] : []), ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...exportRows]
               )}
-              disabled={entries.length === 0}
-              style={{ background: "var(--bg-surface)", color: entries.length ? "var(--text-primary)" : "var(--text-tertiary)", border: "1px solid var(--border)", borderRadius: 6, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
-            >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
-            <button
-              onClick={handleDownloadPdf}
-              disabled={entries.length === 0 || pdfBusy}
-              style={{ background: entries.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
-            >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+              onDownloadPdf={handleDownloadPdf}
+            />
           </div>
 
           {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
