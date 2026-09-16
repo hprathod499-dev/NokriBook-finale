@@ -978,7 +978,12 @@ function drawCenteredStationName(doc, stationName, y, fontSizePt) {
   const pageWidth = doc.internal.pageSize.getWidth();
   if (needsImageRender(stationName)) {
     const rendered = renderTextToImage(stationName, fontSizePt);
-    const targetH = fontSizePt * 1.3;
+    // addImage's width/height are read in the document's unit (mm, the
+    // jsPDF default), but fontSizePt is in points — without converting
+    // pt → mm (1pt = 0.3528mm) here, an "11pt" station name was drawn at
+    // roughly 4x that size (mm treated as if it were points), which is
+    // why it rendered huge and overlapped the title next to it.
+    const targetH = fontSizePt * 0.3528 * 1.3;
     const scale = targetH / rendered.height;
     const targetW = rendered.width * scale;
     doc.addImage(rendered.dataUrl, "PNG", (pageWidth - targetW) / 2, y - targetH * 0.75, targetW, targetH);
@@ -1223,7 +1228,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName) {
   doc.autoTable({
     startY: headerY + 10,
     head: [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"]],
-    body: staffList.map((s) => [s.number, s.name, s.phone || "—", s.desgLabel || "—", s.statusLabel, s.dutiesThisMonth]),
+    body: staffList.map((s) => [s.number, s.name, displayPhone(s.phone) || "—", s.desgLabel || "—", s.statusLabel, s.dutiesThisMonth]),
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
@@ -1718,10 +1723,27 @@ function normalizePhoneForWhatsApp(phone) {
 // number, or edited around the pretyped prefix) so what gets saved is
 // always just the bare 10 digits, regardless of how it was entered.
 function normalizeStoredPhone(raw) {
-  const digits = String(raw || "").replace(/\D/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
-  if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+  let digits = String(raw || "").replace(/\D/g, "");
+  // A pretyped "+91 " sits in every phone field already — if it's typed
+  // over rather than cleared first, or a full number (with its own "+91")
+  // gets pasted in on top of it, the raw digits can carry one or more
+  // stray "91"/"0" prefixes ahead of the real 10-digit number. Strip
+  // those off one at a time...
+  while (digits.length > 10 && (digits.startsWith("91") || digits.startsWith("0"))) {
+    digits = digits.startsWith("91") ? digits.slice(2) : digits.slice(1);
+  }
+  // ...and if digits are still left over after that (e.g. two numbers
+  // run together), keep just the last 10 — that's where the actual
+  // mobile number ends up once everything ahead of it is a stray prefix.
+  if (digits.length > 10) digits = digits.slice(-10);
   return digits;
+}
+// The bare 10-digit form is what's stored (see normalizeStoredPhone above),
+// but every place the app SHOWS a number to a person — staff directory,
+// on-duty cards, CSV/PDF exports — prefixes it with "+91 " so it reads the
+// same way everywhere, matching the pretyped "+91 " in the edit fields.
+function displayPhone(phone) {
+  return phone ? "+91 " + phone : "";
 }
 // Opens WhatsApp with a pre-filled duty message. If the staff member has a
 // mobile number on file, it opens a chat with them directly; otherwise it
@@ -2526,7 +2548,7 @@ Be strict about "designation" — this is the part I most need double-checked:
 3. If a person's designation is clearly stated in the PDF/Word file but doesn't match any existing label, don't leave it null — add it as a new entry to the "designations" array in the .json file (shape: { "id": "<new-id>", "label": "<exact label as written>" }, with a new id that doesn't collide with any existing id) and use that new id for them. Reuse the same new designation entry (don't create duplicates) if multiple staff share that same new designation.
 4. Only leave "designation" as null if the PDF/Word file simply doesn't state a designation for that person — never guess, never pick the closest-sounding existing label instead of adding a new one.
 5. Before finalizing, go back through every person a second time and re-check each assigned designation id (existing or newly added) against what the PDF/Word file actually says for them — catch and fix any mismatch now, don't leave it for me to find.
-Be strict about "phone" too: it must be a genuine 10-digit Indian mobile number (exactly 10 digits, starting with 6, 7, 8, or 9). If what's written is the wrong length, starts with a different digit, or is otherwise clearly not a valid mobile number, leave "phone" as null rather than forcing it in.
+Be strict about "phone" too: mobile numbers in the મહેકમ પત્ર are often written with a leading "+91", "91", or "0" — strip that off first, then check what's left over. It must be a genuine 10-digit Indian mobile number (exactly 10 digits, starting with 6, 7, 8, or 9). If what's left (after stripping any such prefix) is still the wrong length, starts with a different digit, or is otherwise clearly not a valid mobile number, leave "phone" as null rather than forcing it in.
 At the end, tell me: how many staff got a designation assigned, how many were left null (with their buckle numbers), any brand-new designations you added, and how many phone numbers were left null for looking invalid.
 Give me back the complete, updated .json file to download.`;
   const promptGu = `હું Nokri Book એપની .json બેકઅપ ફાઈલ, અને પોલીસ સ્ટેશન સ્ટાફની વિગતો (બકલ નંબર, મોબાઈલ નંબર, નામ, હોદ્દો) વાળી "મહેકમ પત્ર" (PDF/Word ફાઈલ) મોકલું છું. કૃપા કરી મહેકમ પત્ર વાંચીને દરેક વ્યક્તિને .json ફાઈલના "staff" ઓબ્જેક્ટમાં નવી entry તરીકે ઉમેરો — બકલ નંબરને string key તરીકે વાપરીને — બરાબર આ જ ફોર્મેટમાં, અને .json ફાઈલનો બાકીનો ભાગ જેમનો તેમ જ રહેવા દો:
@@ -2538,7 +2560,7 @@ Give me back the complete, updated .json file to download.`;
 3. જો કોઈ વ્યક્તિનો હોદ્દો મહેકમ પત્રમાં સ્પષ્ટ લખેલો હોય પણ હાલના કોઈ label સાથે મેચ ન થાય, તો એને null ન રહેવા દેશો — .json ફાઈલની "designations" array માં નવી entry ઉમેરો (ફોર્મેટ: { "id": "<નવો id>", "label": "<જેમ લખેલું છે એમ જ label>" }, જે id હાલના કોઈ id સાથે ટકરાય નહીં) અને એ નવો id એ વ્યક્તિ માટે વાપરો. જો એક કરતાં વધુ સ્ટાફનો સરખો નવો હોદ્દો હોય તો એક જ નવી entry ફરીથી વાપરો, ડુપ્લિકેટ ન બનાવો.
 4. "designation" ને null ફક્ત ત્યારે જ રહેવા દો જ્યારે મહેકમ પત્રમાં એ વ્યક્તિ માટે કોઈ હોદ્દો લખેલો જ ન હોય — ક્યારેય અંદાજો ન લગાવો, અને નવો હોદ્દો ઉમેરવાને બદલે સૌથી નજીક લાગતું હાલનું label પણ ન પસંદ કરો.
 5. Final કરતા પહેલા, દરેક વ્યક્તિને બીજી વાર ફરીથી તપાસો — assign કરેલ designation id (હાલનું હોય કે નવું ઉમેરેલું), મહેકમ પત્રમાં ખરેખર શું લખ્યું છે એની સામે ફરીથી ચેક કરો — હમણાં જ કોઈ mismatch પકડીને સુધારો, મારા માટે શોધવા ન છોડો.
-"phone" બાબતે પણ કડક રહેજો: એ સાચો 10 અંકનો ભારતીય મોબાઈલ નંબર જ હોવો જોઈએ (બરાબર 10 અંક, અને શરૂઆત 6, 7, 8 કે 9 થી થતી હોય). જો લખેલો નંબર ખોટી લંબાઈનો હોય, બીજા અંકથી શરૂ થતો હોય, કે સ્પષ્ટપણે યોગ્ય મોબાઈલ નંબર ન લાગે, તો "phone" ને null જ રહેવા દો, બળજબરીથી ભરશો નહીં.
+"phone" બાબતે પણ કડક રહેજો: મહેકમ પત્રમાં મોબાઈલ નંબર ઘણી વાર આગળ "+91", "91", અથવા "0" સાથે લખેલા હોય છે — પહેલા એ કાઢી નાખો, પછી બાકી રહેલું ચેક કરો. એ સાચો 10 અંકનો ભારતીય મોબાઈલ નંબર જ હોવો જોઈએ (બરાબર 10 અંક, અને શરૂઆત 6, 7, 8 કે 9 થી થતી હોય). જો (આવો કોઈ પ્રિફિક્સ કાઢ્યા પછી પણ) બાકી રહેલો નંબર ખોટી લંબાઈનો હોય, બીજા અંકથી શરૂ થતો હોય, કે સ્પષ્ટપણે યોગ્ય મોબાઈલ નંબર ન લાગે, તો "phone" ને null જ રહેવા દો, બળજબરીથી ભરશો નહીં.
 છેલ્લે મને કહો: કેટલા સ્ટાફને designation મળ્યું, કેટલાને null રહ્યું (એમના બકલ નંબર સાથે), તમે કઈ-કઈ નવી designations ઉમેરી, અને અમાન્ય લાગવાથી કેટલા phone number null રહ્યા.
 મને સંપૂર્ણ, અપડેટેડ .json ફાઈલ download કરવા માટે પાછી આપો.`;
   const prompt = lang === "gu" ? promptGu : promptEn;
@@ -5016,6 +5038,7 @@ function DutyRoster() {
     const cleanName = (name || "").trim();
     const cleanPhone = normalizeStoredPhone(phone);
     if (!num || !cleanName) { showToast(t("Enter both number and name", "નંબર અને નામ બંને દાખલ કરો")); return; }
+    if (cleanPhone && cleanPhone.length !== 10) { showToast(t("Enter a valid 10-digit mobile number", "10 અંકનો માન્ય મોબાઇલ નંબર દાખલ કરો")); return; }
     if (data.staff[num]) { showToast(t("That number is already in use", "તે નંબર પહેલેથી જ ઉપયોગમાં છે")); return; }
     persist({ ...dataRef.current, staff: { ...data.staff, [num]: { number: num, name: cleanName, phone: cleanPhone || null, unavailable: null, designation: designation || null } } });
     showToast(t(`${cleanName} added to staff directory`, `${cleanName} સ્ટાફ ડિરેક્ટરીમાં ઉમેરાયું`));
@@ -5029,11 +5052,12 @@ function DutyRoster() {
     const desgByLabel = {};
     (data.designations || []).forEach((d) => { desgByLabel[d.label.trim().toLowerCase()] = d.id; });
     const nextStaff = { ...data.staff };
-    let added = 0, updated = 0, skipped = 0, unmatchedDesg = 0;
+    let added = 0, updated = 0, skipped = 0, unmatchedDesg = 0, invalidPhone = 0;
     entries.forEach((e) => {
       const num = (e.number || "").trim();
       const cleanName = (e.name || "").trim();
-      const cleanPhone = normalizeStoredPhone(e.phone);
+      let cleanPhone = normalizeStoredPhone(e.phone);
+      if (cleanPhone && cleanPhone.length !== 10) { invalidPhone++; cleanPhone = ""; }
       if (!num || !cleanName) { skipped++; return; }
       let desgId = null;
       const rawDesg = (e.designation || "").trim();
@@ -5053,6 +5077,7 @@ function DutyRoster() {
     let msg = t(`Imported: ${added} added, ${updated} updated`, `આયાત થયું: ${added} ઉમેરાયા, ${updated} અપડેટ થયા`);
     if (skipped) msg += t(`, ${skipped} skipped (missing number/name)`, `, ${skipped} છોડી દેવાયા (નંબર/નામ ખૂટે છે)`);
     if (unmatchedDesg) msg += t(`, ${unmatchedDesg} with unrecognized designation`, `, ${unmatchedDesg} અજાણ્યા હોદ્દા સાથે`);
+    if (invalidPhone) msg += t(`, ${invalidPhone} with an invalid phone number (left blank)`, `, ${invalidPhone} અમાન્ય મોબાઇલ નંબર સાથે (ખાલી રખાયા)`);
     showToast(msg);
   };
   const renameStaff = (number) => {
@@ -5066,7 +5091,7 @@ function DutyRoster() {
     const next = window.prompt(t("Mobile number (used for WhatsApp duty notices):", "મોબાઇલ નંબર (WhatsApp ડ્યુટી સૂચનાઓ માટે વપરાય છે):"), cur && cur.phone ? "+91 " + cur.phone : "+91 ");
     if (next === null) return; // cancelled
     const cleaned = normalizeStoredPhone(next);
-    if (cleaned && cleaned.length < 10) { showToast(t("Enter a valid mobile number", "માન્ય મોબાઇલ નંબર દાખલ કરો")); return; }
+    if (cleaned && cleaned.length !== 10) { showToast(t("Enter a valid 10-digit mobile number", "10 અંકનો માન્ય મોબાઇલ નંબર દાખલ કરો")); return; }
     persist({ ...dataRef.current, staff: { ...data.staff, [number]: { ...cur, phone: cleaned || null } } });
   };
   const deleteStaffGlobally = (number) => {
@@ -6070,7 +6095,7 @@ function HomeView({ data, goToCategory }) {
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                   {phone && (
-                    <a href={`tel:${phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
+                    <a href={`tel:+91${phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
                   )}
                   <button onClick={() => shareDutyOnWhatsApp({ lang, name: doneToday.name, number: doneToday.number, catLabel: cat.label, date: doneToday.lastDuty, phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
                 </div>
@@ -6154,7 +6179,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
                       {nextPhone && (
-                        <a href={`tel:${nextPhone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
+                        <a href={`tel:+91${nextPhone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
                       )}
                       <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat.label, phone: nextPhone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
                       <button onClick={() => setAssignTarget({ catId: cat.id, number: nextUp.number, name: nextUp.name })} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu">{t("Assign", "સોંપો")}</button>
@@ -6959,12 +6984,12 @@ function GroupDutyView({ data, assignGroupDuty }) {
                   <div style={{ minWidth: 0 }}>
                     <div className="gu" style={{ fontSize: 13 }}>{p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{p.number}</span></div>
                     <div className="mono" style={{ fontSize: 10.5, color: hasNumber ? "var(--status-success-text)" : "var(--status-warning-text)" }}>
-                      {hasNumber ? staffRec.phone : t("No number on file — you'll need to pick them manually", "કોઈ નંબર નથી — તમારે તેમને જાતે પસંદ કરવા પડશે")}
+                      {hasNumber ? displayPhone(staffRec.phone) : t("No number on file — you'll need to pick them manually", "કોઈ નંબર નથી — તમારે તેમને જાતે પસંદ કરવા પડશે")}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                     {hasNumber && (
-                      <a href={`tel:${staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "7px 10px", fontSize: 12, fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
+                      <a href={`tel:+91${staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "7px 10px", fontSize: 12, fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
                     )}
                     <button
                       onClick={() => shareDutyOnWhatsApp({ lang, name: p.name, number: p.number, catLabel: lastAssigned.catLabel, date: lastAssigned.dateFrom, dateTo: lastAssigned.dateTo, phone: staffRec && staffRec.phone, kind: "assigned", groupNames: others })}
@@ -7191,7 +7216,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               {nextUp.staffRec && nextUp.staffRec.phone && (
-                <a href={`tel:${nextUp.staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center" }} className="gu">📞 {t("Call", "કૉલ કરો")}</a>
+                <a href={`tel:+91${nextUp.staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center" }} className="gu">📞 {t("Call", "કૉલ કરો")}</a>
               )}
               <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat ? cat.label : "", phone: nextUp.staffRec && nextUp.staffRec.phone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600 }} className="gu">📲 {t("Share", "શેર કરો")}</button>
               <button onClick={() => setAssignTarget({ number: nextUp.number, name: nextUp.name })} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
@@ -7387,7 +7412,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                   </td>
                   <td style={{ ...td, textAlign: "left", whiteSpace: "nowrap" }}>
                     {p.staffRec && p.staffRec.phone && (
-                      <a href={`tel:${p.staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ ...iconBtn, textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>📞</a>
+                      <a href={`tel:+91${p.staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ ...iconBtn, textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>📞</a>
                     )}
                     <button onClick={() => shareDutyOnWhatsApp({ lang, name: p.name, number: p.number, catLabel: cat ? cat.label : "", date: p.lastDuty, phone: p.staffRec && p.staffRec.phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ ...iconBtn, marginLeft: 4 }}>📲</button>
                     <button onClick={() => setAssignTarget({ number: p.number, name: p.name })} title={t("Assign duty now", "હમણાં ડ્યુટી સોંપો")} aria-label={t("Assign duty now", "હમણાં ડ્યુટી સોંપો")} style={{ ...iconBtn, marginLeft: 4 }}>✓</button>
@@ -8196,7 +8221,7 @@ function StaffView({
           pdfBusy={pdfBusy}
           onExportCsv={() => downloadCsv(
             "nokri-book-staff-directory.csv",
-            [...(data.stationName ? [[data.stationName], []] : []), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, s.phone || "", s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
+            [...(data.stationName ? [[data.stationName], []] : []), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, displayPhone(s.phone), s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
           )}
           onDownloadPdf={handleDownloadPdf}
         />
@@ -8264,7 +8289,7 @@ function StaffView({
                   </td>
                   <td style={{ ...td, minWidth: 120 }} className="mono">
                     {s.phone ? (
-                      <span onClick={() => setStaffPhone(s.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{s.phone}</span>
+                      <span onClick={() => setStaffPhone(s.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{displayPhone(s.phone)}</span>
                     ) : (
                       <button onClick={() => setStaffPhone(s.number)} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "underline", padding: 0 }} className="gu">+ {t("Add number", "નંબર ઉમેરો")}</button>
                     )}
