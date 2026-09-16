@@ -989,6 +989,41 @@ function periodLabelEn(period) {
   if (period.key === "custom") return `${formatDMY(period.customFrom || todayStr())} – ${formatDMY(period.customTo || todayStr())}`;
   return { month: "This month", "2m": "Last 2 months", "3m": "Last 3 months", "6m": "Last 6 months" }[period.key] || "This month";
 }
+// Shown once a PDF has finished generating, instead of triggering the
+// download immediately — "View" opens it in a new tab (so a quick look
+// doesn't need a trip to the Files app afterward), "Download" is the
+// same doc.save() every PDF export used to do unconditionally. Every
+// PDF export in the app (work type, person history, calendar month,
+// monthly report) funnels through this one small modal so the choice
+// works the same way everywhere.
+function PdfReadyModal({ pdf, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const handleView = () => {
+    try {
+      const url = pdf.doc.output("bloburl");
+      window.open(url, "_blank");
+    } catch (e) {
+      window.alert(t("Could not open the PDF for viewing.", "PDF જોવા માટે ખોલી શકાયું નહીં."));
+    }
+    onClose();
+  };
+  const handleDownload = () => {
+    pdf.doc.save(pdf.filename);
+    onClose();
+  };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("PDF ready", "PDF તૈયાર છે")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 340, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, textAlign: "center" }}>{t("PDF ready", "PDF તૈયાર છે")}</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={handleView} className="gu" style={{ flex: 1, background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>👁 {t("View", "જુઓ")}</button>
+          <button onClick={handleDownload} className="gu" style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>⬇ {t("Download", "ડાઉનલોડ કરો")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -1070,7 +1105,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period) {
   });
 
   const slug = String(catLabel).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
-  doc.save(`nokri-book-${slug || "duty-type"}-report.pdf`);
+  return { doc, filename: `nokri-book-${slug || "duty-type"}-report.pdf` };
 }
 
 function buildInitialData() {
@@ -6625,6 +6660,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const [showDesignationFilter, setShowDesignationFilter] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
   const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const cat = data.categories.find((c) => c.id === catId);
   const membership = data.membership[catId] || [];
@@ -6719,7 +6755,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
+      setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
     } finally {
@@ -6729,6 +6766,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
 
   return (
     <React.Fragment>
+      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <h1 className="disp" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{cat ? cat.label : ""}</h1>
@@ -8233,7 +8271,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   });
 
   const slug = String(staffRec.name).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
-  doc.save(`nokri-book-${slug || number}-history.pdf`);
+  return { doc, filename: `nokri-book-${slug || number}-history.pdf` };
 }
 function PersonHistoryModal({ data, number, onClose }) {
   const { t } = useLang();
@@ -8243,6 +8281,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const [periodFrom, periodTo] = periodRangeOf(period);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
 
   const { groups, byCategory, totalLast3Months, totalThisMonth } = useMemo(() => {
     const allRows = [];
@@ -8284,7 +8323,8 @@ function PersonHistoryModal({ data, number, onClose }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period);
+      const pdf = await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period);
+      setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
     } finally {
@@ -8294,6 +8334,7 @@ function PersonHistoryModal({ data, number, onClose }) {
 
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Full duty history", "સંપૂર્ણ ડ્યુટી ઇતિહાસ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
+      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
       <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -8605,6 +8646,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
   const [month, setMonth] = useState(todayStr().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
   // Per-entry ✕ buttons stay hidden by default — a day with several
   // people on it otherwise ends up with a delete icon next to every
@@ -8820,7 +8862,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
           }
         },
       });
-      doc.save(`nokri-book-calendar-${month}.pdf`);
+      setPdfReady({ doc, filename: `nokri-book-calendar-${month}.pdf` });
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
     } finally {
@@ -8869,6 +8911,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
 
   return (
     <React.Fragment>
+      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</h1>
@@ -9133,6 +9176,7 @@ function ReportView({ data }) {
   const { t } = useLang();
   const [month, setMonth] = useState(todayStr().slice(0, 7));
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
   const [sortNames, setSortNames] = useState("name"); // name | duties
   const [showInfo, setShowInfo] = useState(false);
 
@@ -9279,11 +9323,12 @@ function ReportView({ data }) {
         }
       },
     });
-    doc.save(`nokri-book-report-${month}-gu.pdf`);
+    setPdfReady({ doc, filename: `nokri-book-report-${month}-gu.pdf` });
   };
 
   return (
     <React.Fragment>
+      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
       <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Monthly report", "માસિક અહેવાલ")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
@@ -11039,6 +11084,7 @@ function PublicCategoryView({ data, catId }) {
   const { t } = useLang();
   const [tab, setTab] = useState("roster");
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
   const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const cat = (data.categories || []).find((c) => c.id === catId);
   const membership = (data.membership && data.membership[catId]) || [];
@@ -11063,7 +11109,8 @@ function PublicCategoryView({ data, catId }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod);
+      setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
     } finally {
@@ -11073,6 +11120,7 @@ function PublicCategoryView({ data, catId }) {
 
   return (
     <React.Fragment>
+      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
         <h1 className="disp" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{cat ? cat.label : ""}</h1>
         <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{presentCount} {t("available", "ઉપલબ્ધ")}</div>
