@@ -2111,6 +2111,13 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
   const [dataOpen, setDataOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [showImportStaff, setShowImportStaff] = useState(false);
+  // Same pattern as the main toolbar's "Data ▸ Backup ▸" submenu — a
+  // small anchored popup (position:fixed, opening to the right of the
+  // row that triggered it) instead of firing the confirmation modal
+  // straight away, so there's a clear first choice between the two very
+  // different things "Format all data" can now mean before the 3-step
+  // guard even starts.
+  const [formatMenuPos, setFormatMenuPos] = useState(null);
   const activeTheme = THEME_OPTIONS.find((o) => o.value === (theme || "classic")) || THEME_OPTIONS[0];
   // Only the full admin panel (not the read-only shared-roster one, which
   // never passes formatAllData) gets this section at all — Import Staff
@@ -2220,7 +2227,17 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
                       simply layers on top (higher z-index) instead. */}
                   <button onClick={() => setShowImportStaff(true)} className="gu" style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}>📥 {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
                   {formatAllData && (
-                    <button onClick={() => { onClose(); formatAllData(); }} className="gu" title={t("Clears duty history older than 1 month — keeps staff, designations, work types, and the last month", "1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો મહિનો સચવાય છે")} style={{ ...rowBtn, color: "var(--status-warning-text)", fontWeight: 600, borderBottom: "1px solid var(--border-soft)" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</button>
+                    <button
+                      onClick={(e) => {
+                        if (formatMenuPos) { setFormatMenuPos(null); return; }
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const submenuWidth = 240;
+                        setFormatMenuPos({ top: rect.top, left: Math.max(8, Math.min(rect.right + 8, window.innerWidth - submenuWidth - 8)) });
+                      }}
+                      className="gu"
+                      title={t("Choose what to clear", "શું સાફ કરવું તે પસંદ કરો")}
+                      style={{ ...rowBtn, display: "flex", justifyContent: "space-between", alignItems: "center", color: "var(--status-warning-text)", fontWeight: 600, borderBottom: "1px solid var(--border-soft)", background: formatMenuPos ? "var(--bg-page)" : "transparent" }}
+                    ><span>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</span><span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>▸</span></button>
                   )}
                   {onChooseBackupFolder && (
                     <button onClick={() => { onClose(); onChooseBackupFolder(); }} className="gu"
@@ -2253,6 +2270,29 @@ function SettingsPanel({ user, signOutUser, formatAllData, onHelp, onSignIn, onC
           )}
         </div>
       </div>
+      {formatMenuPos && (
+        <React.Fragment>
+          <div onClick={() => setFormatMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 91 }} />
+          <div style={{
+            position: "fixed", top: formatMenuPos.top, left: formatMenuPos.left, zIndex: 92, minWidth: 240,
+            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8,
+            boxShadow: "0 8px 20px rgba(0,0,0,0.15)", overflow: "hidden",
+          }}>
+            <button
+              onClick={() => { setFormatMenuPos(null); onClose(); formatAllData("keep"); }}
+              className="gu"
+              title={t("Clears duty history older than 1 month — keeps staff, designations, work types, and the last month", "1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ સાફ કરે છે — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો મહિનો સચવાય છે")}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, color: "var(--text-primary)", cursor: "pointer" }}
+            >🗓️ {t("Delete all data — keep this month", "બધો ડેટા ડિલીટ કરો — આ મહિનો સાચવો")}</button>
+            <button
+              onClick={() => { setFormatMenuPos(null); onClose(); formatAllData("all"); }}
+              className="gu"
+              title={t("Erases everything — staff, designations, work types, and all duty history — with no exceptions", "બધું ભૂંસી નાખે છે — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને બધો ડ્યુટી ઇતિહાસ — કોઈ અપવાદ વગર")}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, color: "var(--status-error-text)", fontWeight: 600, cursor: "pointer" }}
+            >🗑️ {t("Delete all data", "બધો ડેટા ડિલીટ કરો")}</button>
+          </div>
+        </React.Fragment>
+      )}
       {showImportStaff && <ImportStaffModal onClose={() => setShowImportStaff(false)} exportBackup={exportBackup} />}
     </div>
   );
@@ -3482,6 +3522,13 @@ function DutyRoster() {
   const [showSpotlightTour, setShowSpotlightTour] = useState(false);
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
+  // Which of the two choices from Settings' "Format all data ▸" submenu is
+  // in progress — "keep" (the original behaviour: trims everything older
+  // than 1 month, keeps staff/work types/last month) or "all" (a full
+  // wipe, no exceptions). Read by both FormatAllDataModal (to show the
+  // right warning copy) and performFormatAllData (to decide which write
+  // to actually run).
+  const [formatMode, setFormatMode] = useState("keep");
   const shareUrl = accountUid ? `${window.location.origin}${window.location.pathname}?view=${accountUid}` : "";
   const toggleShare = () => {
     if (!data) return;
@@ -4157,7 +4204,10 @@ function DutyRoster() {
   // number of the person actually doing it — before anything is touched.
   // Opening that modal is all this entry point does now; the real wipe
   // happens in performFormatAllData once the modal's own confirm fires.
-  const formatAllData = () => { if (data) setShowFormatModal(true); };
+  // mode ("keep" | "all") comes from which option was tapped in Settings'
+  // submenu — stored so the modal and the actual wipe below both know
+  // which of the two this run is.
+  const formatAllData = (mode) => { if (data) { setFormatMode(mode || "keep"); setShowFormatModal(true); } };
 
   // Runs the actual wipe (see formatAllData above) once the modal's 3-step
   // confirmation has completed, then records who did it (by buckle number,
@@ -4202,61 +4252,91 @@ function DutyRoster() {
     }
     const personName = staffRec.name;
     const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-    // Everything dated ON or AFTER this stays; only what's strictly older
-    // gets cleared. String comparison works directly since every date here
-    // is "YYYY-MM-DD".
-    const cutoff = monthAgoStr();
-    const cleanStaff = {};
-    Object.values(data.staff || {}).forEach((s) => {
-      // A Leave/Outstation period is kept whenever any part of it could
-      // still matter going forward or within the retained month — i.e.
-      // unless it's indefinite-and-still-open (to === null, never drop
-      // those) it's only dropped once its own end date is older than the
-      // cutoff. currentUnavailablePeriod then re-derives which one (if
-      // any) of what's left counts as "the" current status, the same way
-      // it's derived everywhere else in the app.
-      const keptPeriods = (s.unavailableHistory || []).filter((p) => !p.to || p.to >= cutoff);
-      cleanStaff[s.number] = {
-        number: s.number, name: s.name, phone: s.phone || null, designation: s.designation || null,
-        unavailable: currentUnavailablePeriod(keptPeriods),
-        unavailableHistory: keptPeriods,
-      };
-    });
-    const cleanMembership = {};
-    Object.keys(data.membership || {}).forEach((catId) => {
-      cleanMembership[catId] = (data.membership[catId] || []).map((m) => {
-        const keptHistory = (m.history || []).filter((e) => historyDate(e) >= cutoff);
-        // lastDuty is re-derived from what's actually kept, rather than
-        // trusting the old value — so it can never point at an entry that
-        // just got cleared out from under it.
-        let newLastDuty = null;
-        keptHistory.forEach((e) => {
-          const d = historyDate(e);
-          if (!newLastDuty || d > newLastDuty) newLastDuty = d;
-        });
-        return { number: m.number, lastDuty: newLastDuty, history: keptHistory, skip: false };
+    const isFullWipe = formatMode === "all";
+    let subject, bodyLines, toastMsg;
+    if (isFullWipe) {
+      // Full wipe: nothing survives — staff, designations' assignments,
+      // work types, every duty record, Skip history, recycle bin, events.
+      // (Designation and leave-type LIST definitions themselves are config,
+      // not duty data, so those stay — same reasoning as the "keep" branch
+      // below never touching them.)
+      persist({
+        ...dataRef.current,
+        staff: {},
+        categories: [],
+        membership: {},
+        skipLog: [],
+        recycleBin: [],
+        events: [],
+        reminderAcks: {},
       });
-    });
-    persist({
-      ...dataRef.current,
-      staff: cleanStaff,
-      membership: cleanMembership,
-      skipLog: (data.skipLog || []).filter((e) => (e.date || "") >= cutoff),
-      recycleBin: (data.recycleBin || []).filter((e) => (e.deletedAt || "") >= cutoff),
-      events: (data.events || []).filter((e) => !e.end || e.end >= cutoff),
-      reminderAcks: {},
-    });
-    if (user && user.email) {
-      const subject = "Nokri Book — old duty data was formatted";
-      const performedByLine = `Performed by: ${personName} (buckle number ${buckleNumber})`;
-      const bodyLines = [
+      subject = "Nokri Book — all data was deleted";
+      bodyLines = [
+        "This confirms that ALL data in Nokri Book was deleted — every staff member, work type, and duty record, with no exceptions.",
+        "",
+        `Performed by: ${personName} (buckle number ${buckleNumber})`,
+        `Time: ${whenText}`,
+        "",
+        "A full backup of everything, as it stood right before this, was downloaded automatically to this device.",
+      ];
+      toastMsg = t("All data deleted — staff, work types, and every duty record are gone.", "બધો ડેટા ડિલીટ થયો — સ્ટાફ, કામના પ્રકારો અને બધા ડ્યુટી રેકોર્ડ જતા રહ્યા.");
+    } else {
+      // Everything dated ON or AFTER this stays; only what's strictly older
+      // gets cleared. String comparison works directly since every date here
+      // is "YYYY-MM-DD".
+      const cutoff = monthAgoStr();
+      const cleanStaff = {};
+      Object.values(data.staff || {}).forEach((s) => {
+        // A Leave/Outstation period is kept whenever any part of it could
+        // still matter going forward or within the retained month — i.e.
+        // unless it's indefinite-and-still-open (to === null, never drop
+        // those) it's only dropped once its own end date is older than the
+        // cutoff. currentUnavailablePeriod then re-derives which one (if
+        // any) of what's left counts as "the" current status, the same way
+        // it's derived everywhere else in the app.
+        const keptPeriods = (s.unavailableHistory || []).filter((p) => !p.to || p.to >= cutoff);
+        cleanStaff[s.number] = {
+          number: s.number, name: s.name, phone: s.phone || null, designation: s.designation || null,
+          unavailable: currentUnavailablePeriod(keptPeriods),
+          unavailableHistory: keptPeriods,
+        };
+      });
+      const cleanMembership = {};
+      Object.keys(data.membership || {}).forEach((catId) => {
+        cleanMembership[catId] = (data.membership[catId] || []).map((m) => {
+          const keptHistory = (m.history || []).filter((e) => historyDate(e) >= cutoff);
+          // lastDuty is re-derived from what's actually kept, rather than
+          // trusting the old value — so it can never point at an entry that
+          // just got cleared out from under it.
+          let newLastDuty = null;
+          keptHistory.forEach((e) => {
+            const d = historyDate(e);
+            if (!newLastDuty || d > newLastDuty) newLastDuty = d;
+          });
+          return { number: m.number, lastDuty: newLastDuty, history: keptHistory, skip: false };
+        });
+      });
+      persist({
+        ...dataRef.current,
+        staff: cleanStaff,
+        membership: cleanMembership,
+        skipLog: (data.skipLog || []).filter((e) => (e.date || "") >= cutoff),
+        recycleBin: (data.recycleBin || []).filter((e) => (e.deletedAt || "") >= cutoff),
+        events: (data.events || []).filter((e) => !e.end || e.end >= cutoff),
+        reminderAcks: {},
+      });
+      subject = "Nokri Book — old duty data was formatted";
+      bodyLines = [
         "This confirms that duty data older than 1 month in Nokri Book was cleared.",
         "",
-        performedByLine,
+        `Performed by: ${personName} (buckle number ${buckleNumber})`,
         `Time: ${whenText}`,
         "",
         "Staff names, designations, and work types were kept, along with the last 1 month of duty history, last-duty dates, Leave/Outstation records, Skip history, and recycle bin. Everything older than that was erased.",
       ];
+      toastMsg = t("Duty data older than 1 month cleared — staff, designations, work types, and the last month are kept.", "1 મહિનાથી જૂનો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો 1 મહિનો સચવાયા.");
+    }
+    if (user && user.email) {
       const messageText = bodyLines.join("\n");
       if (emailjsConfigured) {
         emailjs.send(window.EMAILJS_SERVICE_ID, window.EMAILJS_TEMPLATE_ID, {
@@ -4284,7 +4364,7 @@ function DutyRoster() {
         a.click();
       }
     }
-    showToastRaw(t("Duty data older than 1 month cleared — staff, designations, work types, and the last month are kept.", "1 મહિનાથી જૂનો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો 1 મહિનો સચવાયા."));
+    showToastRaw(toastMsg);
   };
 
 
@@ -5519,8 +5599,13 @@ function DutyRoster() {
       {showFormatModal && (
         <FormatAllDataModal
           data={data}
+          mode={formatMode}
           staffCount={Object.keys(data.staff || {}).length}
-          dutyCount={Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).filter((e) => historyDate(e) < monthAgoStr()).length, 0), 0)}
+          dutyCount={
+            formatMode === "all"
+              ? Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).length, 0), 0)
+              : Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).filter((e) => historyDate(e) < monthAgoStr()).length, 0), 0)
+          }
           onConfirm={(buckleNumber) => { setShowFormatModal(false); performFormatAllData(buckleNumber); }}
           onCancel={() => setShowFormatModal(false)}
         />
@@ -7178,14 +7263,18 @@ function InfoIconButton({ active, onClick, label }) {
 //      in the follow-up email (see performFormatAllData).
 // Only the very last button actually calls onConfirm; every step before
 // that just unlocks the next one.
-function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }) {
+function FormatAllDataModal({ data, mode, staffCount, dutyCount, onConfirm, onCancel }) {
   const { t } = useLang();
   useEscToClose(onCancel);
+  const isFullWipe = mode === "all";
   const [step, setStep] = useState(1); // 1 warning | 2 phrase | 3 backup-now | 4 buckle number
   const [phrase, setPhrase] = useState("");
   const [buckle, setBuckle] = useState("");
   const [backedUp, setBackedUp] = useState(false);
-  const REQUIRED_PHRASE = "format all data";
+  // The full wipe gets its own, harder-to-mistype phrase — "format all
+  // data" (the original, milder-sounding action) shouldn't also be what
+  // types out an irreversible full erase.
+  const REQUIRED_PHRASE = isFullWipe ? "delete all data" : "format all data";
   const phraseOk = phrase.trim().toLowerCase() === REQUIRED_PHRASE;
   const buckleStaff = buckle.trim() && data.staff[buckle.trim()] ? data.staff[buckle.trim()] : null;
   const labelStyle = { fontSize: 12, color: "var(--text-secondary)", display: "block", marginTop: 12, marginBottom: 5 };
@@ -7214,13 +7303,18 @@ function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }
   };
   return (
     <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-      <div role="dialog" aria-modal="true" aria-label={t("Format all data", "બધો ડેટા ફોર્મેટ કરો")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 380, maxWidth: "92vw" }}>
-        <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, color: "var(--status-error-text)" }}>🧹 {t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</div>
+      <div role="dialog" aria-modal="true" aria-label={isFullWipe ? t("Delete all data", "બધો ડેટા ડિલીટ કરો") : t("Format all data", "બધો ડેટા ફોર્મેટ કરો")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 380, maxWidth: "92vw" }}>
+        <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, color: "var(--status-error-text)" }}>
+          {isFullWipe ? "🗑️" : "🧹"} {isFullWipe ? t("Delete all data", "બધો ડેટા ડિલીટ કરો") : t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}
+        </div>
 
         {step === 1 && (
           <React.Fragment>
             <p className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", margin: "10px 0 0", lineHeight: 1.5 }}>
-              {t(
+              {isFullWipe ? t(
+                `This deletes EVERYTHING — all ${staffCount} staff members, every work type, and all ${dutyCount} duty entries — with no exceptions. Buckle numbers, phone numbers, designations, and work types are all erased too, not just duty history. This cannot be undone from here.`,
+                `આ બધું જ ડિલીટ કરે છે — બધા ${staffCount} સ્ટાફ સભ્યો, બધા કામના પ્રકારો, અને બધા ${dutyCount} ડ્યુટી એન્ટ્રીઓ — કોઈ અપવાદ વગર. બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને કામના પ્રકારો પણ ડ્યુટી ઇતિહાસની સાથે ભૂંસાઈ જશે. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
+              ) : t(
                 `This clears duty history, Skip history, recycle bin, and past Leave/Outstation records that are OLDER than 1 month, for every one of your ${staffCount} staff — that's ${dutyCount} duty entries gone for good. The last 1 month of duty history is kept, along with staff names, buckle numbers, phone numbers, designations, and your work types themselves. This cannot be undone from here.`,
                 `આ તમારા ${staffCount} સ્ટાફ માટેનો 1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ, સ્કિપ ઇતિહાસ, રિસાયકલ બિન અને જૂના રજા/બહારગામ રેકોર્ડ સાફ કરે છે — એટલે કે ${dutyCount} ડ્યુટી એન્ટ્રીઓ કાયમ માટે જતી રહેશે. છેલ્લો 1 મહિનાનો ડ્યુટી ઇતિહાસ સચવાશે, સાથે સ્ટાફના નામ, બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને તમારા કામના પ્રકારો પણ. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
               )}
@@ -7289,7 +7383,7 @@ function FormatAllDataModal({ data, staffCount, dutyCount, onConfirm, onCancel }
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
               <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
-              <button onClick={() => buckleStaff && onConfirm(buckle.trim())} disabled={!buckleStaff} style={{ background: buckleStaff ? "var(--btn-danger-solid)" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 700 }} className="gu">{t("OK — format all data", "OK — બધો ડેટા ફોર્મેટ કરો")}</button>
+              <button onClick={() => buckleStaff && onConfirm(buckle.trim())} disabled={!buckleStaff} style={{ background: buckleStaff ? "var(--btn-danger-solid)" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 700 }} className="gu">{isFullWipe ? t("OK — delete all data", "OK — બધો ડેટા ડિલીટ કરો") : t("OK — format all data", "OK — બધો ડેટા ફોર્મેટ કરો")}</button>
             </div>
           </React.Fragment>
         )}
