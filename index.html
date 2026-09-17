@@ -619,6 +619,19 @@ const NOISE_DATA_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACA
 // pre-created. Everyone builds their own list from scratch via "Add work
 // type" in the sidebar.
 const DEFAULT_CATEGORIES = [];
+// Used only by OrgSetupGateModal's first-time "Police" path below — State
+// → District → [Station names], everything in Gujarati script since
+// that's what these actually get saved and shown as everywhere else in
+// the app (Settings ▸ Station details, every PDF/CSV header). Deliberately
+// just one state and one district for now; adding a new state/district/
+// station later is exactly one new entry in this object, and Object.keys
+// order below always puts "ગુજરાત" first, so it stays the pre-selected
+// default even once other states exist.
+const POLICE_LOCATIONS_GU = {
+  "ગુજરાત": {
+    "અમરેલી": ["ધારી પોલીસ સ્ટેશન", "બગસરા પોલીસ સ્ટેશન"],
+  },
+};
 
 // One short, dismiss-once popup per major sidebar section — shown the
 // FIRST time that section is opened (after the welcome tour itself is
@@ -3911,7 +3924,7 @@ function DutyRoster() {
   const [showSpotlightTour, setShowSpotlightTour] = useState(false);
   // Compulsory gate shown right after a brand-new account clicks through
   // WelcomeModal, before the interactive tour starts — see
-  // StationNameGateModal below for why (every duty PDF/CSV export needs
+  // OrgSetupGateModal below for why (every duty PDF/CSV export needs
   // this to put the actual station's name on it instead of a generic
   // "Nokri Book" heading).
   const [showStationGate, setShowStationGate] = useState(false);
@@ -6027,10 +6040,10 @@ function DutyRoster() {
       )}
 
       {showStationGate && (
-        <StationNameGateModal
-          initialValue={data.stationName || "પોલીસ સ્ટેશન"}
-          onSubmit={(name) => {
-            persist({ ...dataRef.current, stationName: name });
+        <OrgSetupGateModal
+          initialStationName={data.stationName || "પોલીસ સ્ટેશન"}
+          onSubmit={({ stationName, state, district }) => {
+            persist({ ...dataRef.current, stationName, state: state, district: district });
             setShowStationGate(false);
             setShowSpotlightTour(true);
           }}
@@ -10512,36 +10525,136 @@ function WelcomeModal({ onStartTour }) {
 // else — the person normally just types their station's own name in
 // front of it (e.g. "ધારી પોલીસ સ્ટેશન"). Editable again anytime from
 // Settings, right next to the account email.
-function StationNameGateModal({ initialValue, onSubmit }) {
+// First-time setup gate — shown once, right after WelcomeModal, before the
+// interactive tour starts. Step 1 asks who's actually using this: "Police"
+// (pre-selected — the overwhelmingly common case this app was built for)
+// or "Other". Police leads to three dependent dropdowns (State → District
+// → Station, all from POLICE_LOCATIONS_GU above) that end by handing back
+// a ready-made Gujarati station name plus its state/district — no free
+// typing, no chance of a typo in an org that already has a fixed list of
+// real station names. "Other" needs its own confirmation step (typing the
+// word "other", same guarded-confirmation pattern as "format all data" in
+// FormatAllDataModal) before falling through to the old free-text station
+// name field, since almost every account really is a police station and
+// this makes picking "Other" by mistake genuinely hard to do.
+function OrgSetupGateModal({ initialStationName, onSubmit }) {
   const { t } = useLang();
-  const [value, setValue] = useState(initialValue);
-  const inputRef = useRef(null);
-  // Puts the cursor at the very start (before "પોલીસ સ્ટેશન") the moment
-  // this mounts, so the first thing typed lands in front of it rather
-  // than at the end — matching how the field is actually meant to be
-  // filled in.
+  const [step, setStep] = useState("who"); // "who" | "otherConfirm" | "otherName" | "police"
+  const [who, setWho] = useState("police");
+  const [otherPhrase, setOtherPhrase] = useState("");
+  const [otherName, setOtherName] = useState(initialStationName || "");
+  const otherInputRef = useRef(null);
+  const stateOptions = Object.keys(POLICE_LOCATIONS_GU);
+  const [selState, setSelState] = useState(stateOptions[0] || "");
+  const [selDistrict, setSelDistrict] = useState("");
+  const [selStation, setSelStation] = useState("");
+  const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
+  const stationOptions = (POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict]) || [];
+  useEffect(() => { setSelDistrict((d) => (districtOptions.includes(d) ? d : districtOptions[0] || "")); }, [selState]);
+  useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : stationOptions[0] || "")); }, [selState, selDistrict]);
   useEffect(() => {
-    if (inputRef.current) { inputRef.current.focus(); inputRef.current.setSelectionRange(0, 0); }
-  }, []);
-  const canSubmit = value.trim().length > 0;
+    if (step === "otherName" && otherInputRef.current) {
+      otherInputRef.current.focus();
+      otherInputRef.current.setSelectionRange(0, 0);
+    }
+  }, [step]);
+  const REQUIRED_OTHER_PHRASE = "other";
+  const otherPhraseOk = otherPhrase.trim().toLowerCase() === REQUIRED_OTHER_PHRASE;
+  const canSubmitOtherName = otherName.trim().length > 0;
+  const card = { background: "var(--bg-surface)", borderRadius: 14, width: 400, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)" };
+  const primaryBtn = (enabled) => ({ width: "100%", marginTop: 18, background: enabled ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: enabled ? "pointer" : "default" });
+  const backBtn = { width: "100%", marginTop: 8, background: "transparent", color: "var(--text-secondary)", border: "none", padding: "8px 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
+  const selectStyle = { width: "100%", boxSizing: "border-box", fontSize: 14, marginBottom: 12 };
+
+  if (step === "who") {
+    return (
+      <div role="dialog" aria-modal="true" aria-label={t("Who's using this app?", "આ એપ કોણ વાપરે છે?")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+        <div className="modal-card" style={card}>
+          <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>👋 {t("Who's using this app?", "આ એપ કોણ વાપરે છે?")}</div>
+          <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 16px" }} className="gu">
+            {t("This decides how you set up your station name.", "આના પરથી નક્કી થાય કે તમારું સ્ટેશનનું નામ કેવી રીતે સેટ થશે.")}
+          </p>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={() => setWho("police")}
+              className="gu"
+              style={{ flex: 1, padding: "16px 10px", borderRadius: 10, border: "2px solid " + (who === "police" ? "var(--accent-strong)" : "var(--border)"), background: who === "police" ? "var(--accent-light)" : "var(--bg-page)", color: "var(--text-primary)", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+            >👮 {t("Police", "પોલીસ")}</button>
+            <button
+              onClick={() => setWho("other")}
+              className="gu"
+              style={{ flex: 1, padding: "16px 10px", borderRadius: 10, border: "2px solid " + (who === "other" ? "var(--accent-strong)" : "var(--border)"), background: who === "other" ? "var(--accent-light)" : "var(--bg-page)", color: "var(--text-primary)", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+            >🏢 {t("Other", "બીજું કંઈક")}</button>
+          </div>
+          <button onClick={() => setStep(who === "police" ? "police" : "otherConfirm")} style={primaryBtn(true)} className="gu">{t("Continue →", "ચાલુ રાખો →")}</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "otherConfirm") {
+    return (
+      <div role="dialog" aria-modal="true" aria-label={t("Confirm", "પુષ્ટિ કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+        <div className="modal-card" style={card}>
+          <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>🏢 {t("Just checking", "ફક્ત ખાતરી કરી લઈએ")}</div>
+          <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 16px" }} className="gu">
+            {t('This app is mostly used by police stations, so we want to be sure — type "other" below to confirm this isn\'t one.', 'આ એપ મોટે ભાગે પોલીસ સ્ટેશનો વાપરે છે, એટલે ખાતરી કરવા માંગીએ છીએ — આ પોલીસ સ્ટેશન નથી એ પુષ્ટિ કરવા નીચે "other" ટાઈપ કરો.')}
+          </p>
+          <input
+            type="text" value={otherPhrase} onChange={(e) => setOtherPhrase(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && otherPhraseOk) setStep("otherName"); }}
+            placeholder="other" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }} autoFocus
+          />
+          <button onClick={() => otherPhraseOk && setStep("otherName")} disabled={!otherPhraseOk} style={primaryBtn(otherPhraseOk)} className="gu">{t("Continue →", "ચાલુ રાખો →")}</button>
+          <button onClick={() => setStep("who")} style={backBtn} className="gu">← {t("Back", "પાછળ")}</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "otherName") {
+    return (
+      <div role="dialog" aria-modal="true" aria-label={t("Your station/branch name", "તમારા સ્ટેશન/શાખાનું નામ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+        <div className="modal-card" style={card}>
+          <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>🏢 {t("Your station/branch name", "તમારા સ્ટેશન/શાખાનું નામ")}</div>
+          <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 18px" }} className="gu">
+            {t("This name appears at the top of every PDF and CSV export.", "આ નામ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે.")}
+          </p>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Name", "નામ")}</label>
+          <input
+            ref={otherInputRef} type="text" value={otherName} onChange={(e) => setOtherName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && canSubmitOtherName) onSubmit({ stationName: otherName.trim(), state: null, district: null }); }}
+            className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 15 }}
+          />
+          <button onClick={() => canSubmitOtherName && onSubmit({ stationName: otherName.trim(), state: null, district: null })} disabled={!canSubmitOtherName} style={primaryBtn(canSubmitOtherName)} className="gu">{t("Continue →", "ચાલુ રાખો →")}</button>
+          <button onClick={() => setStep("otherConfirm")} style={backBtn} className="gu">← {t("Back", "પાછળ")}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // step === "police"
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Your police station", "તમારું પોલીસ સ્ટેશન")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
-      <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 400, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)" }}>
-        <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>🏢 {t("Your police station", "તમારું પોલીસ સ્ટેશન")}</div>
+      <div className="modal-card" style={card}>
+        <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>👮 {t("Your police station", "તમારું પોલીસ સ્ટેશન")}</div>
         <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 18px" }} className="gu">
-          {t("This name appears at the top of every PDF and CSV export — the duty calendar, staff directory, skip history, and reports. Type your station's name in front of the pre-filled text below (or replace it entirely).", "આ નામ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે — ડ્યુટી કૅલેન્ડર, સ્ટાફ ડિરેક્ટરી, સ્કિપ ઇતિહાસ અને અહેવાલો. નીચે પહેલેથી ભરેલા લખાણની આગળ તમારા સ્ટેશનનું નામ ટાઈપ કરો (અથવા તેને સંપૂર્ણપણે બદલો).")}
+          {t("Pick your state, district, and station — this appears at the top of every PDF and CSV export.", "તમારું રાજ્ય, જિલ્લો અને સ્ટેશન પસંદ કરો — આ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે.")}
         </p>
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
-        <input
-          ref={inputRef} type="text" value={value} onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) onSubmit(value.trim()); }}
-          className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 15 }}
-        />
-        <button
-          onClick={() => canSubmit && onSubmit(value.trim())}
-          disabled={!canSubmit}
-          style={{ width: "100%", marginTop: 18, background: canSubmit ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: canSubmit ? "pointer" : "default" }} className="gu"
-        >{t("Continue →", "ચાલુ રાખો →")}</button>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("State", "રાજ્ય")}</label>
+        <select value={selState} onChange={(e) => setSelState(e.target.value)} className="gu" style={selectStyle}>
+          {stateOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("District", "જિલ્લો")}</label>
+        <select value={selDistrict} onChange={(e) => setSelDistrict(e.target.value)} className="gu" style={selectStyle}>
+          {districtOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Station", "સ્ટેશન")}</label>
+        <select value={selStation} onChange={(e) => setSelStation(e.target.value)} className="gu" style={{ ...selectStyle, marginBottom: 0 }}>
+          {stationOptions.map((st) => <option key={st} value={st}>{st}</option>)}
+        </select>
+        <button onClick={() => selStation && onSubmit({ stationName: selStation, state: selState, district: selDistrict })} disabled={!selStation} style={primaryBtn(!!selStation)} className="gu">{t("Continue →", "ચાલુ રાખો →")}</button>
+        <button onClick={() => setStep("who")} style={backBtn} className="gu">← {t("Back", "પાછળ")}</button>
       </div>
     </div>
   );
