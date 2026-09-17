@@ -1001,6 +1001,26 @@ function drawCenteredStationName(doc, stationName, y, fontSizePt) {
     doc.text(stationName, pageWidth / 2, y, { align: "center" });
   }
 }
+// Same Gujarati-safe image-vs-native-text approach and the same
+// pt → mm sizing math as drawCenteredStationName above, but left-aligned
+// at a given x instead of centered — for a Gujarati line (e.g. a staff
+// name) that needs to visually match the size of native-jsPDF-text lines
+// immediately above/below it. drawTextImageInCell exists for a different
+// job (fitting a table cell whose height is a real clipping constraint)
+// and its own maxH cap silently shrank a short, generously-sized cell far
+// below the font size actually requested — this skips that cap entirely.
+function drawLeftAlignedTextImage(doc, text, x, y, fontSizePt) {
+  if (needsImageRender(text)) {
+    const rendered = renderTextToImage(text, fontSizePt);
+    const targetH = fontSizePt * 0.3528 * 1.3;
+    const scale = targetH / rendered.height;
+    const targetW = rendered.width * scale;
+    doc.addImage(rendered.dataUrl, "PNG", x, y - targetH * 0.75, targetW, targetH);
+  } else {
+    doc.setFontSize(fontSizePt);
+    doc.text(text, x, y);
+  }
+}
 // ---------- Per-work-type ("duty type") PDF export ----------
 // Every work type (category) — WAPC, UHC, ULRD, "112", etc. — gets its own
 // "Roster + History" PDF, built with exactly the same Gujarati-safe
@@ -8695,13 +8715,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   // some lines than others — so the three read as one continuous block.
   const LINE_H = 5;
   headerY += LINE_H;
-  if (needsImageRender(staffRec.name)) {
-    const rendered = renderTextToImage(staffRec.name, 11);
-    drawTextImageInCell(doc, { x: 14, y: headerY - LINE_H, width: 300, height: LINE_H }, rendered, 11);
-  } else {
-    doc.setFontSize(11);
-    doc.text(staffRec.name, 14, headerY);
-  }
+  drawLeftAlignedTextImage(doc, staffRec.name, 14, headerY, 11);
   headerY += LINE_H;
   doc.setFontSize(11);
   doc.text(`#${number}`, 14, headerY);
