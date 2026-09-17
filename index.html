@@ -11917,10 +11917,12 @@ function DistrictAdminApp({ district, signOutUser }) {
   useEffect(() => { document.documentElement.setAttribute("data-theme", "light"); }, []);
 
   const [stations, setStations] = useState(undefined); // undefined = loading
+  const [stationsError, setStationsError] = useState(null);
   useEffect(() => {
+    setStationsError(null);
     const unsub = db.collection("districts").doc(district).collection("stations").onSnapshot(
       (snap) => setStations(snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => (a.stationName || "").localeCompare(b.stationName || ""))),
-      () => setStations([])
+      (err) => { setStations([]); setStationsError(err.message || String(err)); }
     );
     return () => unsub();
   }, [district]);
@@ -11959,7 +11961,18 @@ function DistrictAdminApp({ district, signOutUser }) {
           <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
             {stations === undefined && <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
             {stations && stations.length === 0 && (
-              <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }} className="gu">{t("No stations under this district yet.", "આ જિલ્લા હેઠળ હજુ કોઈ સ્ટેશન નથી.")}</div>
+              <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }} className="gu">
+                {t("No stations under this district yet.", "આ જિલ્લા હેઠળ હજુ કોઈ સ્ટેશન નથી.")}
+                {/* Temporary debug info — remove once this is confirmed
+                    working. Shows exactly what district string this query
+                    used and any read error, since the module scope means
+                    this can't be tested from the browser console directly. */}
+                <div className="mono" style={{ marginTop: 18, fontSize: 11, color: "var(--text-tertiary)", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, textAlign: "left", maxWidth: 500, marginLeft: "auto", marginRight: "auto" }}>
+                  DEBUG — district = "{district}" (length {district ? district.length : 0})<br />
+                  path = districts/{district}/stations<br />
+                  error = {stationsError || "(none — query returned 0 documents)"}
+                </div>
+              </div>
             )}
             {stations && stations.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
