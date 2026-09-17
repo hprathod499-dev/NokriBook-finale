@@ -629,9 +629,118 @@ const DEFAULT_CATEGORIES = [];
 // default even once other states exist.
 const POLICE_LOCATIONS_GU = {
   "ગુજરાત": {
-    "અમરેલી": ["ધારી પોલીસ સ્ટેશન", "બગસરા પોલીસ સ્ટેશન"],
+    "અમરેલી": [
+      "અમરેલી શહેર પોલીસ સ્ટેશન",
+      "અમરેલી ગ્રામ્ય પોલીસ સ્ટેશન",
+      "અમરેલી મહિલા પોલીસ સ્ટેશન",
+      "અમરેલી સાયબર ક્રાઇમ પોલીસ સ્ટેશન",
+      "લાઠી પોલીસ સ્ટેશન",
+      "દામનગર પોલીસ સ્ટેશન",
+      "લીલીયા પોલીસ સ્ટેશન",
+      "બાબરા પોલીસ સ્ટેશન",
+      "વડીયા પોલીસ સ્ટેશન",
+      "બગસરા પોલીસ સ્ટેશન",
+      "ધારી પોલીસ સ્ટેશન",
+      "ચલાલા પોલીસ સ્ટેશન",
+      "ખાંભા પોલીસ સ્ટેશન",
+      "રાજુલા પોલીસ સ્ટેશન",
+      "પીપાવાવ મરીન પોલીસ સ્ટેશન",
+      "જાફરાબાદ પોલીસ સ્ટેશન",
+      "જાફરાબાદ મરીન પોલીસ સ્ટેશન",
+      "નાગેશ્રી પોલીસ સ્ટેશન",
+      "ડુંગર પોલીસ સ્ટેશન",
+      "સાવરકુંડલા શહેર પોલીસ સ્ટેશન",
+      "સાવરકુંડલા ગ્રામ્ય પોલીસ સ્ટેશન",
+    ],
   },
 };
+// English-transliteration aliases for every station name above, keyed by
+// the exact Gujarati string used in POLICE_LOCATIONS_GU. Lets someone
+// type the station's name in plain English (e.g. "Dhari") in
+// StationSearchSelect below and still find "ધારી પોલીસ સ્ટેશન" — typing
+// the name in Gujarati already matches directly against the option text
+// itself, no alias needed for that half.
+const STATION_EN_ALIAS = {
+  "અમરેલી શહેર પોલીસ સ્ટેશન": "amreli city",
+  "અમરેલી ગ્રામ્ય પોલીસ સ્ટેશન": "amreli rural gramya",
+  "અમરેલી મહિલા પોલીસ સ્ટેશન": "amreli mahila women",
+  "અમરેલી સાયબર ક્રાઇમ પોલીસ સ્ટેશન": "amreli cyber crime",
+  "લાઠી પોલીસ સ્ટેશન": "lathi",
+  "દામનગર પોલીસ સ્ટેશન": "damnagar",
+  "લીલીયા પોલીસ સ્ટેશન": "liliya",
+  "બાબરા પોલીસ સ્ટેશન": "babra",
+  "વડીયા પોલીસ સ્ટેશન": "vadia",
+  "બગસરા પોલીસ સ્ટેશન": "bagasara",
+  "ધારી પોલીસ સ્ટેશન": "dhari",
+  "ચલાલા પોલીસ સ્ટેશન": "chalala",
+  "ખાંભા પોલીસ સ્ટેશન": "khambha",
+  "રાજુલા પોલીસ સ્ટેશન": "rajula",
+  "પીપાવાવ મરીન પોલીસ સ્ટેશન": "pipavav marine",
+  "જાફરાબાદ પોલીસ સ્ટેશન": "jafrabad",
+  "જાફરાબાદ મરીન પોલીસ સ્ટેશન": "jafrabad marine",
+  "નાગેશ્રી પોલીસ સ્ટેશન": "nageshri",
+  "ડુંગર પોલીસ સ્ટેશન": "dungar",
+  "સાવરકુંડલા શહેર પોલીસ સ્ટેશન": "savarkundla city",
+  "સાવરકુંડલા ગ્રામ્ય પોલીસ સ્ટેશન": "savarkundla rural gramya",
+};
+// Matches a typed query against a station's Gujarati name AND its English
+// alias, so "Dhari" and "ધારી" both find "ધારી પોલીસ સ્ટેશન".
+function stationMatchesQuery(option, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (option.toLowerCase().includes(q)) return true;
+  const alias = STATION_EN_ALIAS[option];
+  return !!alias && alias.includes(q);
+}
+// Searchable station-name combobox — a text input (typeable in English or
+// Gujarati) with a filtered dropdown of matches below it, used wherever a
+// district's fixed station list is shown (Settings' Station details, and
+// OrgSetupGateModal's first-time setup). Replaces a plain <select>, whose
+// browser-native type-to-jump only ever matches the visible (Gujarati)
+// label — someone typing "Dhari" in English would find nothing there.
+function StationSearchSelect({ options, value, onChange, placeholder }) {
+  const { t } = useLang();
+  const [query, setQuery] = useState(value || "");
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  useEffect(() => { setQuery(value || ""); }, [value]);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  const matches = options.filter((opt) => stationMatchesQuery(opt, query));
+  const pick = (opt) => { onChange(opt); setQuery(opt); setOpen(false); };
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        type="text" value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => { if (e.key === "Enter" && matches.length === 1) { pick(matches[0]); e.currentTarget.blur(); } }}
+        placeholder={placeholder || t("Type in English or Gujarati…", "અંગ્રેજી કે ગુજરાતીમાં ટાઈપ કરો…")}
+        className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
+      />
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 30, maxHeight: 220, overflowY: "auto" }}>
+          {matches.length === 0 ? (
+            <div className="gu" style={{ padding: "9px 14px", fontSize: 12.5, color: "var(--text-tertiary)" }}>{t("No match", "કોઈ મેળ નથી")}</div>
+          ) : (
+            matches.map((opt) => (
+              <button
+                key={opt} onClick={() => pick(opt)} className="gu"
+                style={{ display: "block", width: "100%", textAlign: "left", background: opt === value ? "var(--accent-light)" : "transparent", border: "none", padding: "9px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: "var(--text-primary)", whiteSpace: "nowrap" }}
+              >{opt}</button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // One short, dismiss-once popup per major sidebar section — shown the
 // FIRST time that section is opened (after the welcome tour itself is
@@ -2511,14 +2620,10 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
                   )}
                   <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
                   {stationOptions.length > 0 ? (
-                    <select
-                      value={stationDraft} onChange={(e) => { setStationDraft(e.target.value); onSaveStationName(e.target.value); }}
-                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
-                    >
-                      {!stationOptions.includes(stationDraft) && stationDraft && <option value={stationDraft}>{stationDraft}</option>}
-                      {!stationDraft && <option value="">{t("(not set)", "(સેટ નથી)")}</option>}
-                      {stationOptions.map((st) => <option key={st} value={st}>{st}</option>)}
-                    </select>
+                    <StationSearchSelect
+                      options={stationOptions} value={stationDraft}
+                      onChange={(v) => { setStationDraft(v); onSaveStationName(v); }}
+                    />
                   ) : (
                     <input
                       type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
@@ -10677,9 +10782,8 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
           {districtOptions.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Station", "સ્ટેશન")}</label>
-        <select value={selStation} onChange={(e) => setSelStation(e.target.value)} className="gu" style={{ ...selectStyle, marginBottom: 0 }}>
-          {stationOptions.map((st) => <option key={st} value={st}>{st}</option>)}
-        </select>
+        <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
+        <div style={{ marginBottom: 12 }} />
         <button onClick={() => selStation && onSubmit({ stationName: selStation, state: selState, district: selDistrict })} disabled={!selStation} style={primaryBtn(!!selStation)} className="gu">{t("Continue →", "ચાલુ રાખો →")}</button>
         <button onClick={() => setStep("who")} style={backBtn} className="gu">← {t("Back", "પાછળ")}</button>
       </div>
