@@ -8686,7 +8686,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   let headerY = 16;
   if (stationName) {
     drawCenteredStationName(doc, stationName, headerY, 16);
-    headerY += 11;
+    headerY += 6;
   }
   doc.setFontSize(12);
   doc.text("Nokri Book — Duty History", 14, headerY);
