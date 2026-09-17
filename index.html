@@ -3298,7 +3298,7 @@ function DutyRoster() {
     if (!user) { setAdminDistrict(user === null ? null : undefined); return; }
     let cancelled = false;
     db.collection("districtAdmins").doc(user.uid).get()
-      .then((snap) => { if (!cancelled) setAdminDistrict(snap.exists ? (snap.data().district || null) : null); })
+      .then((snap) => { if (!cancelled) setAdminDistrict(snap.exists ? ((snap.data().district || "").trim() || null) : null); })
       .catch(() => { if (!cancelled) setAdminDistrict(null); });
     return () => { cancelled = true; };
   }, [user]);
