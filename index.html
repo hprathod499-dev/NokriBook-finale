@@ -8682,29 +8682,30 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   // (10pt) off to the side next to the buckle number, which read as
   // oversized/cluttered and buried the station name. This mirrors every
   // other PDF's header order (station name, then the report title).
-  doc.setFontSize(12);
   let headerY = 16;
   if (stationName) {
     drawCenteredStationName(doc, stationName, headerY, 16);
     headerY += 6;
   }
-  doc.setFontSize(12);
+  doc.setFontSize(11);
   doc.text("Nokri Book — Duty History", 14, headerY);
-  headerY += 8;
-  // Title, name, and buckle number all left-aligned at x=14 and stacked
-  // as tight consecutive lines — no separate gap-per-line — so the block
-  // reads as one header, not three loosely related pieces of text.
+  // Title, name, and buckle number all left-aligned at x=14, same font
+  // size (11pt), and advanced by the exact same line height (LINE_H) —
+  // one uniform spacing used for every line here, not a bigger gap after
+  // some lines than others — so the three read as one continuous block.
+  const LINE_H = 5;
+  headerY += LINE_H;
   if (needsImageRender(staffRec.name)) {
     const rendered = renderTextToImage(staffRec.name, 11);
-    drawTextImageInCell(doc, { x: 14, y: headerY - 4, width: 300, height: 6 }, rendered, 11);
+    drawTextImageInCell(doc, { x: 14, y: headerY - LINE_H, width: 300, height: LINE_H }, rendered, 11);
   } else {
     doc.setFontSize(11);
     doc.text(staffRec.name, 14, headerY);
   }
-  headerY += 7;
-  doc.setFontSize(9.5);
+  headerY += LINE_H;
+  doc.setFontSize(11);
   doc.text(`#${number}`, 14, headerY);
-  headerY += 11;
+  headerY += LINE_H + 6;
   let y = headerY;
   doc.setFontSize(10);
   doc.text(periodLabelEn(period), 14, y);
