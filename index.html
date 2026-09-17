@@ -4148,11 +4148,15 @@ function DutyRoster() {
         return;
       }
     }
-    // Signed-out state (user === null) takes over from here automatically
-    // via onAuthStateChanged, same as a normal sign-out — landing
-    // straight on the sign-in screen (line ~5884's `if (user === null)
-    // return <SignInScreen />` below) since deletingAccountRef above kept
-    // `data` from ever being reset to a fresh blank account in between.
+    // Force a hard redirect straight to the sign-in screen rather than
+    // just letting onAuthStateChanged flip `user` to null and trusting
+    // React to re-render into it — that reactive path technically works,
+    // but leaves a window (further widened by any other effect still
+    // reacting to the just-deleted account) where the page can flash
+    // something other than sign-in first. A full reload of the bare
+    // origin (no ?view=... — see RootApp) is the one guaranteed way to
+    // land exactly on the sign-in screen immediately, every time.
+    window.location.href = window.location.origin + window.location.pathname;
   };
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
