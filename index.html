@@ -960,7 +960,16 @@ function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   // horizontally instead of shrinking them proportionally. Computing one
   // uniform scale factor from both limits keeps the text legible (just
   // smaller) instead of visually cluttered.
-  const maxH = Math.min(cell.height - 1.5, fontSizePt * 1.8);
+  // maxH compares against cell.height, which is in the document's unit
+  // (mm) — fontSizePt is in points, so it needs the same pt → mm
+  // conversion as drawCenteredStationName below before it's usable as a
+  // height ceiling in the same units. Went unnoticed here because inside
+  // autoTable, cell.height is already sized in mm to fit the row's own
+  // font, so it was almost always the tighter (correct) constraint
+  // regardless; a custom, non-autoTable cell with a generous height (as
+  // in the single-person duty history PDF) exposed it: the image rendered
+  // noticeably taller than its declared font size implied.
+  const maxH = Math.min(cell.height - 1.5, fontSizePt * 0.3528 * 1.8);
   const maxW = cell.width - 2;
   const scale = Math.min(maxH / rendered.height, maxW / rendered.width);
   const targetH = rendered.height * scale;
@@ -8676,28 +8685,27 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   doc.setFontSize(12);
   let headerY = 16;
   if (stationName) {
-    drawCenteredStationName(doc, stationName, headerY, 12);
-    headerY += 8;
+    drawCenteredStationName(doc, stationName, headerY, 16);
+    headerY += 11;
   }
   doc.setFontSize(12);
   doc.text("Nokri Book — Duty History", 14, headerY);
-  headerY += 9;
-  // The name needs the same canvas-image treatment as every Gujarati
-  // cell in the table below — jsPDF's own font (used by plain doc.text)
-  // has no Gujarati glyphs at all, which is exactly what garbled the
-  // title while the table itself rendered correctly.
+  headerY += 8;
+  // Title, name, and buckle number all left-aligned at x=14 and stacked
+  // as tight consecutive lines — no separate gap-per-line — so the block
+  // reads as one header, not three loosely related pieces of text.
   if (needsImageRender(staffRec.name)) {
     const rendered = renderTextToImage(staffRec.name, 11);
-    drawTextImageInCell(doc, { x: 14, y: headerY - 3, width: 300, height: 8 }, rendered, 11);
-    doc.setFontSize(9.5);
-    doc.text(`#${number}`, 14, headerY + 10);
-    headerY += 14;
+    drawTextImageInCell(doc, { x: 14, y: headerY - 4, width: 300, height: 6 }, rendered, 11);
   } else {
     doc.setFontSize(11);
-    doc.text(`${staffRec.name}  #${number}`, 14, headerY);
-    headerY += 8;
+    doc.text(staffRec.name, 14, headerY);
   }
-  let y = headerY + 6;
+  headerY += 7;
+  doc.setFontSize(9.5);
+  doc.text(`#${number}`, 14, headerY);
+  headerY += 11;
+  let y = headerY;
   doc.setFontSize(10);
   doc.text(periodLabelEn(period), 14, y);
   doc.setFontSize(8.5);
