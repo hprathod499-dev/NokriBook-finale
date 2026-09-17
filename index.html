@@ -3421,6 +3421,15 @@ function DutyRoster() {
   }, [theme]);
   const notifiedRef = useRef(new Set());
   const migratedRef = useRef(false);
+  // Set right before deleteMyAccountAndData below starts deleting this
+  // account's Firestore docs. Without this, the account listener a few
+  // lines down would see its own deletion arrive as a genuine,
+  // server-confirmed "this account doesn't exist" — indistinguishable
+  // from a real brand-new signup — and self-heal it by writing a fresh
+  // buildInitialData() right back, undoing the deletion and, worse,
+  // flashing a blank "new account" roster instead of going straight to
+  // the sign-in screen the moment Auth itself signs the user out.
+  const deletingAccountRef = useRef(false);
   const lastActionRef = useRef("");
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -3496,6 +3505,12 @@ function DutyRoster() {
     const unsub = ref.onSnapshot(
       { includeMetadataChanges: true },
       (snap) => {
+        // See deletingAccountRef's own comment above: once account
+        // deletion has started, ignore every further snapshot entirely
+        // (including the "doesn't exist" one the deletion itself causes)
+        // rather than let this self-healing account-sync logic race with
+        // it and write a fresh blank account back.
+        if (deletingAccountRef.current) return;
         setHasPendingWrites(snap.metadata.hasPendingWrites);
         setConnError(false);
         if (snap.exists) {
@@ -4092,6 +4107,12 @@ function DutyRoster() {
   const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
   const deleteMyAccountAndData = async () => {
     if (!user || !accountUid) return;
+    // Stop the account listener above from reacting to the deletions
+    // this function is about to make (see deletingAccountRef's own
+    // comment) — reset on every early-return/failure path below so a
+    // cancelled or failed deletion doesn't leave normal syncing
+    // permanently switched off.
+    deletingAccountRef.current = true;
     const cleanup = [db.doc(`accounts/${accountUid}`).delete().catch(() => {})];
     if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
     const districtId = (data && data.district || "").trim();
@@ -4111,22 +4132,27 @@ function DutyRoster() {
             await user.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
           } else {
             const pwd = window.prompt(t("Please re-enter your password to confirm account deletion:", "એકાઉન્ટ ડિલીટ કરવાની પુષ્ટિ માટે તમારો પાસવર્ડ ફરી દાખલ કરો:"));
-            if (!pwd) return;
+            if (!pwd) { deletingAccountRef.current = false; return; }
             const cred = firebase.auth.EmailAuthProvider.credential(user.email, pwd);
             await user.reauthenticateWithCredential(cred);
           }
           await doDelete();
         } catch (e2) {
+          deletingAccountRef.current = false;
           showToast(t("Couldn't verify your identity — account not deleted", "તમારી ઓળખ ચકાસી શકાઈ નહીં — એકાઉન્ટ ડિલીટ થયું નથી"), "error");
           return;
         }
       } else {
+        deletingAccountRef.current = false;
         showToast(t("Couldn't delete account — check your connection and try again", "એકાઉન્ટ ડિલીટ કરી શકાયું નથી — તમારું જોડાણ તપાસો અને ફરી પ્રયાસ કરો"), "error");
         return;
       }
     }
     // Signed-out state (user === null) takes over from here automatically
-    // via onAuthStateChanged, same as a normal sign-out.
+    // via onAuthStateChanged, same as a normal sign-out — landing
+    // straight on the sign-in screen (line ~5884's `if (user === null)
+    // return <SignInScreen />` below) since deletingAccountRef above kept
+    // `data` from ever being reset to a fresh blank account in between.
   };
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
