@@ -2416,6 +2416,13 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
     const next = stationDraft.trim();
     if (next !== (stationName || "")) onSaveStationName(next);
   };
+  // Same State → District → Station list OrgSetupGateModal's "police" step
+  // uses. When the current state/district match a known police district,
+  // the station field below becomes a dropdown of that district's real
+  // station names (like state/district already are) instead of free text —
+  // free typing stays available whenever there's no matching list (e.g. an
+  // "Other" account, or a state/district not yet in POLICE_LOCATIONS_GU).
+  const stationOptions = (POLICE_LOCATIONS_GU[stateDraft] && POLICE_LOCATIONS_GU[stateDraft][districtDraft]) || [];
   const saveState = () => {
     const next = stateDraft.trim();
     if (onSaveState && next !== (state || "")) onSaveState(next);
@@ -2476,29 +2483,49 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
               </button>
               {stationOpen && (
                 <React.Fragment>
-                  <input
-                    type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
-                    onBlur={saveStationName}
-                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                    placeholder={t("Station name — e.g. ધારી પોલીસ સ્ટેશન", "સ્ટેશનનું નામ — દા.ત. ધારી પોલીસ સ્ટેશન")}
-                    className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 8 }}
-                  />
-                  {onSaveDistrict && (
-                    <input
-                      type="text" value={districtDraft} onChange={(e) => setDistrictDraft(e.target.value)}
-                      onBlur={saveDistrict}
-                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                      placeholder={t("District", "જિલ્લો")}
-                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 6 }}
-                    />
-                  )}
                   {onSaveState && (
+                    <React.Fragment>
+                      <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 8, marginBottom: 3 }} className="gu">{t("State", "રાજ્ય")}</label>
+                      <select
+                        value={stateDraft} onChange={(e) => { setStateDraft(e.target.value); onSaveState(e.target.value); }}
+                        className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
+                      >
+                        {!POLICE_LOCATIONS_GU[stateDraft] && stateDraft && <option value={stateDraft}>{stateDraft}</option>}
+                        {!stateDraft && <option value="">{t("(not set)", "(સેટ નથી)")}</option>}
+                        {Object.keys(POLICE_LOCATIONS_GU).map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </React.Fragment>
+                  )}
+                  {onSaveDistrict && (
+                    <React.Fragment>
+                      <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("District", "જિલ્લો")}</label>
+                      <select
+                        value={districtDraft} onChange={(e) => { setDistrictDraft(e.target.value); onSaveDistrict(e.target.value); }}
+                        className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
+                      >
+                        {!(POLICE_LOCATIONS_GU[stateDraft] || {})[districtDraft] && districtDraft && <option value={districtDraft}>{districtDraft}</option>}
+                        {!districtDraft && <option value="">{t("(not set)", "(સેટ નથી)")}</option>}
+                        {Object.keys(POLICE_LOCATIONS_GU[stateDraft] || {}).map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </React.Fragment>
+                  )}
+                  <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
+                  {stationOptions.length > 0 ? (
+                    <select
+                      value={stationDraft} onChange={(e) => { setStationDraft(e.target.value); onSaveStationName(e.target.value); }}
+                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
+                    >
+                      {!stationOptions.includes(stationDraft) && stationDraft && <option value={stationDraft}>{stationDraft}</option>}
+                      {!stationDraft && <option value="">{t("(not set)", "(સેટ નથી)")}</option>}
+                      {stationOptions.map((st) => <option key={st} value={st}>{st}</option>)}
+                    </select>
+                  ) : (
                     <input
-                      type="text" value={stateDraft} onChange={(e) => setStateDraft(e.target.value)}
-                      onBlur={saveState}
+                      type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
+                      onBlur={saveStationName}
                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                      placeholder={t("State", "રાજ્ય")}
-                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 6 }}
+                      placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
+                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
                     />
                   )}
                   {onSaveDistrict && (
