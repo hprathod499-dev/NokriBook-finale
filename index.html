@@ -1188,21 +1188,21 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
 
   const [periodFrom, periodTo] = periodRangeOf(period);
 
-  doc.setFontSize(14);
-  doc.text(`Nokri Book — ${catLabel}`, 14, 16);
-  // Station name is almost always typed in Gujarati, so it needs the same
-  // canvas-image treatment as every Gujarati table cell — jsPDF's own
-  // font (used by plain doc.text) has no Gujarati glyphs at all.
-  if (stationName) drawCenteredStationName(doc, stationName, 23, 11);
+  // Station name first, always, same size/position as every other PDF —
+  // see drawPdfHeader's own comment for why this replaced each export's
+  // previous one-off header.
+  let headerY = drawPdfHeader(doc, `Nokri Book — ${catLabel}`, stationName);
   doc.setFontSize(10);
-  doc.text(periodLabelEn(period), 14, 30);
+  doc.text(periodLabelEn(period), 14, headerY);
+  headerY += 5;
   doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, 35);
+  doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
+  headerY += 8;
 
   doc.setFontSize(11);
-  doc.text("Roster", 14, 43);
+  doc.text("Roster", 14, headerY);
   doc.autoTable({
-    startY: 47,
+    startY: headerY + 4,
     head: [["Rank", "Number", "Name", "Last duty", "Waiting", "Duties", "Status"]],
     // p.history comes straight off the membership row computeRoster
     // spreads in — same source both CategoryView and PublicCategoryView
@@ -1285,13 +1285,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName) {
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  doc.setFontSize(14);
-  doc.text("Nokri Book — Staff Directory", 14, 16);
-  let headerY = 23;
-  if (stationName) {
-    drawCenteredStationName(doc, stationName, headerY, 11);
-    headerY += 7;
-  }
+  let headerY = drawPdfHeader(doc, "Nokri Book — Staff Directory", stationName);
   doc.setFontSize(8.5);
   doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
   doc.setFontSize(8.5);
@@ -1334,13 +1328,7 @@ async function downloadSkipHistoryPdf(rows, stationName) {
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  doc.setFontSize(14);
-  doc.text("Nokri Book — Skip History", 14, 16);
-  let headerY = 23;
-  if (stationName) {
-    drawCenteredStationName(doc, stationName, headerY, 11);
-    headerY += 7;
-  }
+  let headerY = drawPdfHeader(doc, "Nokri Book — Skip History", stationName);
   doc.setFontSize(8.5);
   doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
 
@@ -9354,13 +9342,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       await ensureGujaratiCanvasFont();
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
-      doc.setFontSize(14);
-      doc.text("Nokri Book — Leave / Outstation Calendar", 14, 16);
-      let headerY = 23;
-      if (data.stationName) {
-        drawCenteredStationName(doc, data.stationName, headerY, 11);
-        headerY += 7;
-      }
+      let headerY = drawPdfHeader(doc, "Nokri Book — Leave / Outstation Calendar", data.stationName);
       doc.setFontSize(10);
       doc.text(monthLabel, 14, headerY);
       doc.setFontSize(8.5);
@@ -9769,13 +9751,7 @@ function ReportView({ data }) {
     }
     setPdfBusy(false);
 
-    doc.setFontSize(14);
-    doc.text("Nokri Book — Monthly Duty Report", 14, 16);
-    let headerY = 23;
-    if (data.stationName) {
-      drawCenteredStationName(doc, data.stationName, headerY, 11);
-      headerY += 7;
-    }
+    let headerY = drawPdfHeader(doc, "Nokri Book — Monthly Duty Report", data.stationName);
     doc.setFontSize(10);
     doc.text(monthLabel, 14, headerY);
     doc.setFontSize(8.5);
