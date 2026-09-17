@@ -1302,6 +1302,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
+  const NOTE_FONT_PT = 11;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
@@ -1375,7 +1376,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     ]),
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 30 } },
+    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 30, fontSize: NOTE_FONT_PT } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
@@ -1384,7 +1385,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     didDrawCell: (hookData) => {
       if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
-        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, NOTE_FONT_PT), NOTE_FONT_PT);
       }
     },
   });
@@ -1401,6 +1402,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
+  const NOTE_FONT_PT = 11;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
@@ -1444,6 +1446,7 @@ async function downloadSkipHistoryPdf(rows, stationName) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 8;
+  const NOTE_FONT_PT = 11;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
@@ -1463,7 +1466,7 @@ async function downloadSkipHistoryPdf(rows, stationName) {
     body: rows,
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 } },
+    columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 }, 7: { fontSize: NOTE_FONT_PT } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
@@ -1472,7 +1475,7 @@ async function downloadSkipHistoryPdf(rows, stationName) {
     didDrawCell: (hookData) => {
       if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
-        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, NOTE_FONT_PT), NOTE_FONT_PT);
       }
     },
   });
@@ -9124,6 +9127,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
+  const NOTE_FONT_PT = 11;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
@@ -9173,7 +9177,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
     ]),
     styles: { fontSize: FONT_PT },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 1: { minCellWidth: 30 }, 3: { minCellWidth: 30 } },
+    columnStyles: { 1: { minCellWidth: 30 }, 3: { minCellWidth: 30, fontSize: NOTE_FONT_PT } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [1, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
@@ -9182,7 +9186,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
     didDrawCell: (hookData) => {
       if (hookData.section === "body" && [1, 3].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
-        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, NOTE_FONT_PT), NOTE_FONT_PT);
       }
     },
   });
@@ -10139,6 +10143,7 @@ function ReportView({ data }) {
     const doc = new jsPDF();
     const GU_FONT = "NotoSansGujarati";
     const FONT_PT = 9;
+    const NOTE_FONT_PT = 11;
 
     setPdfBusy(true);
     try {
@@ -10221,7 +10226,7 @@ function ReportView({ data }) {
       // (nothing), not from the name/word that actually gets drawn —
       // this table has 7 columns competing for the same page width, so
       // it needs this even more than the 4-column summary table does.
-      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 26 } },
+      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 26, fontSize: NOTE_FONT_PT } },
       // Name (1), Designation (2), Work type (3), and Note (6) can
       // contain Gujarati text, but each cell is only imaged if it
       // actually does (needsImageRender) — # (0), Dates (4), and Days
@@ -10234,7 +10239,7 @@ function ReportView({ data }) {
       didDrawCell: (hookData) => {
         if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index)) {
           const raw = hookData.cell.raw;
-          if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+          if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, NOTE_FONT_PT), NOTE_FONT_PT);
         }
       },
     });
