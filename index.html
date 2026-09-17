@@ -8668,26 +8668,36 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  doc.setFontSize(14);
-  doc.text("Nokri Book — Duty History", 14, 16);
+  // Station name first, same size as the title below it — previously the
+  // title rendered large (14pt) with the station name tucked in small
+  // (10pt) off to the side next to the buckle number, which read as
+  // oversized/cluttered and buried the station name. This mirrors every
+  // other PDF's header order (station name, then the report title).
+  doc.setFontSize(12);
+  let headerY = 16;
+  if (stationName) {
+    drawCenteredStationName(doc, stationName, headerY, 12);
+    headerY += 8;
+  }
+  doc.setFontSize(12);
+  doc.text("Nokri Book — Duty History", 14, headerY);
+  headerY += 9;
   // The name needs the same canvas-image treatment as every Gujarati
   // cell in the table below — jsPDF's own font (used by plain doc.text)
   // has no Gujarati glyphs at all, which is exactly what garbled the
   // title while the table itself rendered correctly.
   if (needsImageRender(staffRec.name)) {
-    const rendered = renderTextToImage(staffRec.name, 13);
-    drawTextImageInCell(doc, { x: 14, y: 19, width: 300, height: 9 }, rendered, 13);
-    doc.setFontSize(10);
-    doc.text(`#${number}`, 14, 32);
+    const rendered = renderTextToImage(staffRec.name, 11);
+    drawTextImageInCell(doc, { x: 14, y: headerY - 3, width: 300, height: 8 }, rendered, 11);
+    doc.setFontSize(9.5);
+    doc.text(`#${number}`, 14, headerY + 10);
+    headerY += 14;
   } else {
-    doc.setFontSize(13);
-    doc.text(`${staffRec.name}  #${number}`, 14, 25);
+    doc.setFontSize(11);
+    doc.text(`${staffRec.name}  #${number}`, 14, headerY);
+    headerY += 8;
   }
-  let y = 39;
-  if (stationName) {
-    drawCenteredStationName(doc, stationName, y - 3, 10);
-    y += 7;
-  }
+  let y = headerY + 6;
   doc.setFontSize(10);
   doc.text(periodLabelEn(period), 14, y);
   doc.setFontSize(8.5);
