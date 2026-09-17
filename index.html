@@ -2501,7 +2501,7 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -2759,7 +2759,10 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
             <a href={`mailto:${SUPPORT_EMAIL}`} style={{ fontSize: 12.5, color: "var(--accent-strong)", textDecoration: "none", wordBreak: "break-all" }}>{SUPPORT_EMAIL}</a>
           </div>
           {signOutUser && (
-            <button onClick={() => { onClose(); signOutUser(); }} className="gu" style={{ ...rowBtn, color: "var(--status-error-text)", fontWeight: 600, borderBottom: "none" }}>{t("Sign out", "સાઇન આઉટ")}</button>
+            <button onClick={() => { onClose(); signOutUser(); }} className="gu" style={{ ...rowBtn, color: "var(--status-error-text)", fontWeight: 600, borderBottom: onDeleteAccount ? DIVIDER : "none" }}>{t("Sign out", "સાઇન આઉટ")}</button>
+          )}
+          {onDeleteAccount && (
+            <button onClick={() => { onClose(); onDeleteAccount(); }} className="gu" style={{ ...rowBtn, color: "var(--status-error-text)", fontWeight: 600, borderBottom: "none" }}>🗑️ {t("Delete my account", "મારું એકાઉન્ટ ડિલીટ કરો")}</button>
           )}
           {onSignIn && (
             <button onClick={() => { onClose(); onSignIn(); }} className="gu" style={{ ...rowBtn, color: "var(--accent-strong)", fontWeight: 700, borderBottom: "none" }}>🔑 {t("Sign in to Nokri Book", "નોકરી બુકમાં સાઇન ઇન કરો")}</button>
@@ -4060,6 +4063,54 @@ function DutyRoster() {
   // this to put the actual station's name on it instead of a generic
   // "Nokri Book" heading).
   const [showStationGate, setShowStationGate] = useState(false);
+  // ---------- Delete my account (Auth account + every Firestore doc it
+  // owns — the accounts/{uid} document, publicRosters/{uid}, and this
+  // station's digest under districts/{district}/stations/{uid}, if any).
+  // Deleting the Auth user by itself, from the Firebase Console or
+  // otherwise, does NOT touch any of these Firestore documents — they're
+  // two separate systems, so without this, that data would just sit
+  // there orphaned forever. This does the Firestore cleanup FIRST (while
+  // still signed in and allowed by Security Rules to write to its own
+  // docs), then deletes the Auth account itself last.
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const deleteMyAccountAndData = async () => {
+    if (!user || !accountUid) return;
+    const cleanup = [db.doc(`accounts/${accountUid}`).delete().catch(() => {})];
+    if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
+    const districtId = (data && data.district || "").trim();
+    if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
+    await Promise.all(cleanup);
+    const doDelete = () => user.delete();
+    try {
+      await doDelete();
+    } catch (e) {
+      if (e.code === "auth/requires-recent-login") {
+        // Firebase only allows deleting an Auth account if the sign-in is
+        // "recent" — otherwise this re-proves identity right here (same
+        // provider the account actually uses) and retries once.
+        const isGoogle = (user.providerData[0] || {}).providerId === "google.com";
+        try {
+          if (isGoogle) {
+            await user.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
+          } else {
+            const pwd = window.prompt(t("Please re-enter your password to confirm account deletion:", "એકાઉન્ટ ડિલીટ કરવાની પુષ્ટિ માટે તમારો પાસવર્ડ ફરી દાખલ કરો:"));
+            if (!pwd) return;
+            const cred = firebase.auth.EmailAuthProvider.credential(user.email, pwd);
+            await user.reauthenticateWithCredential(cred);
+          }
+          await doDelete();
+        } catch (e2) {
+          showToast(t("Couldn't verify your identity — account not deleted", "તમારી ઓળખ ચકાસી શકાઈ નહીં — એકાઉન્ટ ડિલીટ થયું નથી"), "error");
+          return;
+        }
+      } else {
+        showToast(t("Couldn't delete account — check your connection and try again", "એકાઉન્ટ ડિલીટ કરી શકાયું નથી — તમારું જોડાણ તપાસો અને ફરી પ્રયાસ કરો"), "error");
+        return;
+      }
+    }
+    // Signed-out state (user === null) takes over from here automatically
+    // via onAuthStateChanged, same as a normal sign-out.
+  };
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
   // Which of the two choices from Settings' "Format all data ▸" submenu is
@@ -6130,6 +6181,7 @@ function DutyRoster() {
         <SettingsPanel
           user={user}
           signOutUser={signOutUser} formatAllData={formatAllData}
+          onDeleteAccount={() => setShowDeleteAccountModal(true)}
           stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
           state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s })}
           district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d })}
@@ -6139,6 +6191,14 @@ function DutyRoster() {
           theme={theme} setTheme={setTheme}
           onClose={() => setShowSettingsPanel(false)}
           exportBackup={exportBackup}
+        />
+      )}
+
+      {showDeleteAccountModal && (
+        <DeleteAccountModal
+          staffCount={Object.keys(data.staff || {}).length}
+          onConfirm={async () => { setShowDeleteAccountModal(false); await deleteMyAccountAndData(); }}
+          onCancel={() => setShowDeleteAccountModal(false)}
         />
       )}
 
@@ -7947,6 +8007,57 @@ function FormatAllDataModal({ data, mode, staffCount, dutyCount, onConfirm, onCa
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
               <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
               <button onClick={() => buckleStaff && onConfirm(buckle.trim())} disabled={!buckleStaff} style={{ background: buckleStaff ? "var(--btn-danger-solid)" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 700 }} className="gu">{isFullWipe ? t("OK — delete all data", "OK — બધો ડેટા ડિલીટ કરો") : t("OK — format all data", "OK — બધો ડેટા ફોર્મેટ કરો")}</button>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+// Guards the irreversible "delete my Auth account + every Firestore doc
+// it owns" action with the same two-part pattern as FormatAllDataModal
+// above: a plain warning, then typing an exact phrase — no buckle-number
+// step here since, unlike Format all data, there's no "who did this" to
+// log afterward (the account itself won't exist to look anyone up in).
+function DeleteAccountModal({ staffCount, onConfirm, onCancel }) {
+  const { t } = useLang();
+  useEscToClose(onCancel);
+  const [step, setStep] = useState(1); // 1 warning | 2 phrase
+  const [phrase, setPhrase] = useState("");
+  const REQUIRED_PHRASE = "delete my account";
+  const phraseOk = phrase.trim().toLowerCase() === REQUIRED_PHRASE;
+  return (
+    <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+      <div role="dialog" aria-modal="true" aria-label={t("Delete my account", "મારું એકાઉન્ટ ડિલીટ કરો")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 380, maxWidth: "92vw" }}>
+        <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, color: "var(--status-error-text)" }}>
+          🗑️ {t("Delete my account", "મારું એકાઉન્ટ ડિલીટ કરો")}
+        </div>
+        {step === 1 && (
+          <React.Fragment>
+            <p className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", margin: "10px 0 0", lineHeight: 1.5 }}>
+              {t(
+                `This permanently deletes your sign-in AND every bit of data behind it — all ${staffCount} staff members, every work type, all duty history, and your station's own record — with no exceptions. This is different from just signing out or deleting from the Authentication tab alone: those don't touch this data at all, and it would otherwise sit there forever. This cannot be undone from here.`,
+                `આ તમારું સાઇન-ઇન AND તેની પાછળનો બધો ડેટા કાયમ માટે ડિલીટ કરે છે — બધા ${staffCount} સ્ટાફ સભ્યો, બધા કામના પ્રકારો, બધો ડ્યુટી ઇતિહાસ, અને તમારા સ્ટેશનનો પોતાનો રેકોર્ડ — કોઈ અપવાદ વગર. ફક્ત સાઇન આઉટ કરવા કરતાં, કે ફક્ત Authentication ટેબમાંથી ડિલીટ કરવા કરતાં આ અલગ છે — તે બંને આ ડેટાને સ્પર્શતા જ નથી, અને તે નહીંતર કાયમ માટે ત્યાં જ પડ્યો રહેશે. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
+              )}
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
+              <button onClick={() => setStep(2)} style={{ background: "var(--btn-danger-solid)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("I understand — continue", "હું સમજુ છું — ચાલુ રાખો")}</button>
+            </div>
+          </React.Fragment>
+        )}
+        {step === 2 && (
+          <React.Fragment>
+            <p className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", margin: "10px 0 0", lineHeight: 1.5 }}>
+              {t('To confirm, type "delete my account" below.', 'પુષ્ટિ કરવા, નીચે "delete my account" ટાઈપ કરો.')}
+            </p>
+            <input
+              type="text" value={phrase} onChange={(e) => setPhrase(e.target.value)} autoFocus
+              placeholder="delete my account" style={{ width: "100%", boxSizing: "border-box", fontSize: 14, marginTop: 10 }}
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
+              <button onClick={() => phraseOk && onConfirm()} disabled={!phraseOk} style={{ background: phraseOk ? "var(--btn-danger-solid)" : "var(--border)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: phraseOk ? "pointer" : "default" }} className="gu">{t("Delete my account", "મારું એકાઉન્ટ ડિલીટ કરો")}</button>
             </div>
           </React.Fragment>
         )}
