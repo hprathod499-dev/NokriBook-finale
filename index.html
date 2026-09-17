@@ -11943,195 +11943,94 @@ function DistrictAdminApp({ district, signOutUser }) {
   return (
     <LangContext.Provider value={langCtxValue}>
       <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {selectedUid ? (
-              <button onClick={() => setSelectedUid(null)} className="gu" style={{ background: "transparent", border: "none", color: "var(--text-primary)", fontSize: 14, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>← {t("Districts stations", "જિલ્લાના સ્ટેશનો")}</button>
-            ) : (
-              <div className="disp gu" style={{ fontSize: 17, fontWeight: 700 }}>🏢 {district} <span style={{ fontWeight: 400, color: "var(--text-tertiary)", fontSize: 13 }} className="gu">— {t("district dashboard (view only)", "જિલ્લા ડેશબોર્ડ (ફક્ત જોવા માટે)")}</span></div>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={() => setLang(lang === "en" ? "gu" : "en")} style={{ background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{lang === "en" ? "ગુજરાતી" : "EN"}</button>
-            <button onClick={signOutUser} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--status-error-text)" }}>{t("Sign out", "સાઇન આઉટ")}</button>
-          </div>
-        </div>
-
+        {/* This whole top bar (district name / language toggle / sign out)
+            only makes sense for the station-picker screen. Once a station
+            is selected, RosterShellView below draws its own header
+            (including its own "← Districts stations" back button and its
+            own sign-out button, via onBack/onSignOut) — exactly the same
+            header a normal share-link visitor sees — so this one steps
+            aside entirely rather than stacking a second header above it. */}
         {!selectedUid && (
-          <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
-            {stations === undefined && <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
-            {stations && stations.length === 0 && (
-              <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }} className="gu">
-                {t("No stations under this district yet.", "આ જિલ્લા હેઠળ હજુ કોઈ સ્ટેશન નથી.")}
-                {/* Temporary debug info — remove once this is confirmed
-                    working. Shows exactly what district string this query
-                    used and any read error, since the module scope means
-                    this can't be tested from the browser console directly. */}
-                <div className="mono" style={{ marginTop: 18, fontSize: 11, color: "var(--text-tertiary)", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, textAlign: "left", maxWidth: 500, marginLeft: "auto", marginRight: "auto" }}>
-                  DEBUG — district = "{district}" (length {district ? district.length : 0})<br />
-                  path = districts/{district}/stations<br />
-                  error = {stationsError || "(none — query returned 0 documents)"}
+          <React.Fragment>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div className="disp gu" style={{ fontSize: 17, fontWeight: 700 }}>🏢 {district} <span style={{ fontWeight: 400, color: "var(--text-tertiary)", fontSize: 13 }} className="gu">— {t("district dashboard (view only)", "જિલ્લા ડેશબોર્ડ (ફક્ત જોવા માટે)")}</span></div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => setLang(lang === "en" ? "gu" : "en")} style={{ background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{lang === "en" ? "ગુજરાતી" : "EN"}</button>
+                <button onClick={signOutUser} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--status-error-text)" }}>{t("Sign out", "સાઇન આઉટ")}</button>
+              </div>
+            </div>
+
+            <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
+              {stations === undefined && <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
+              {stations && stations.length === 0 && (
+                <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }} className="gu">
+                  {t("No stations under this district yet.", "આ જિલ્લા હેઠળ હજુ કોઈ સ્ટેશન નથી.")}
+                  {/* Temporary debug info — remove once this is confirmed
+                      working. Shows exactly what district string this query
+                      used and any read error, since the module scope means
+                      this can't be tested from the browser console directly. */}
+                  <div className="mono" style={{ marginTop: 18, fontSize: 11, color: "var(--text-tertiary)", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, textAlign: "left", maxWidth: 500, marginLeft: "auto", marginRight: "auto" }}>
+                    DEBUG — district = "{district}" (length {district ? district.length : 0})<br />
+                    path = districts/{district}/stations<br />
+                    error = {stationsError || "(none — query returned 0 documents)"}
+                  </div>
                 </div>
-              </div>
-            )}
-            {stations && stations.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {stations.map((s) => (
-                  <button
-                    key={s.uid} onClick={() => setSelectedUid(s.uid)}
-                    className="gu"
-                    style={{ textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>{s.stationName || t("(unnamed station)", "(નામ વગરનું સ્ટેશન)")}</div>
-                      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 3 }}>
-                        {t(`${s.presentCount != null ? s.presentCount : "—"} / ${s.staffCount != null ? s.staffCount : "—"} present`, `${s.presentCount != null ? s.presentCount : "—"} / ${s.staffCount != null ? s.staffCount : "—"} હાજર`)}
-                        {" · "}{t(`${s.onDutyToday != null ? s.onDutyToday : "—"} on duty today`, `આજે ${s.onDutyToday != null ? s.onDutyToday : "—"} ડ્યુટી પર`)}
+              )}
+              {stations && stations.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {stations.map((s) => (
+                    <button
+                      key={s.uid} onClick={() => setSelectedUid(s.uid)}
+                      className="gu"
+                      style={{ textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>{s.stationName || t("(unnamed station)", "(નામ વગરનું સ્ટેશન)")}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 3 }}>
+                          {t(`${s.presentCount != null ? s.presentCount : "—"} / ${s.staffCount != null ? s.staffCount : "—"} present`, `${s.presentCount != null ? s.presentCount : "—"} / ${s.staffCount != null ? s.staffCount : "—"} હાજર`)}
+                          {" · "}{t(`${s.onDutyToday != null ? s.onDutyToday : "—"} on duty today`, `આજે ${s.onDutyToday != null ? s.onDutyToday : "—"} ડ્યુટી પર`)}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
+                          {t("App last used: ", "એપ છેલ્લે વપરાઈ: ")}{s.updatedAt ? new Date(s.updatedAt).toLocaleString() : t("never", "ક્યારેય નહીં")}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
-                        {t("App last used: ", "એપ છેલ્લે વપરાઈ: ")}{s.updatedAt ? new Date(s.updatedAt).toLocaleString() : t("never", "ક્યારેય નહીં")}
-                      </div>
-                    </div>
-                    <div style={{ color: "var(--text-tertiary)", fontSize: 18 }}>›</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+                      <div style={{ color: "var(--text-tertiary)", fontSize: 18 }}>›</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </React.Fragment>
         )}
 
-        {selectedUid && <DistrictStationDetail stationData={stationData} />}
+        {selectedUid && stationData === undefined && (
+          <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
+        )}
+        {selectedUid && stationData === null && (
+          <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }} className="gu">
+            <div style={{ marginBottom: 14 }}>{t("Could not open this station's roster.", "આ સ્ટેશનનું રોસ્ટર ખોલી શકાયું નથી.")}</div>
+            <button
+              onClick={() => setSelectedUid(null)}
+              className="gu"
+              style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer" }}
+            >← {t("Districts stations", "જિલ્લાના સ્ટેશનો")}</button>
+          </div>
+        )}
+        {/* The exact same view-only shell a normal share-link visitor gets
+            (PublicRosterView below) — Today's duty, every work type split
+            out separately with its own Roster/Fairness/History, Staff,
+            Duty calendar, Monthly report, Skip history — just fed the
+            real accounts/{uid} document (phone numbers included, hence
+            showPhone) instead of the sanitized public mirror. This
+            replaced a bespoke 3-tab "all designations merged together"
+            view that didn't match what Share actually produces. */}
+        {selectedUid && stationData && (
+          <RosterShellView data={stationData} onBack={() => setSelectedUid(null)} onSignOut={signOutUser} showPhone={true} />
+        )}
       </div>
     </LangContext.Provider>
-  );
-}
-
-// Read-only Roster / Fairness / History for one station, inside
-// DistrictAdminApp. Deliberately its own small component (not the full
-// Manage-staff/Fairness/History views the station itself sees, which
-// expect dozens of mutation callbacks) — same three tabs, same
-// information, no edit affordances at all.
-function DistrictStationDetail({ stationData }) {
-  const { t } = useLang();
-  const [tab, setTab] = useState("roster"); // roster | fairness | history
-
-  if (stationData === undefined) return <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>;
-  if (stationData === null) return <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }} className="gu">{t("Could not open this station's roster.", "આ સ્ટેશનનું રોસ્ટર ખોલી શકાયું નથી.")}</div>;
-
-  const data = stationData;
-  const currentMonth = todayStr().slice(0, 7);
-  const desgLabelById = {};
-  (data.designations || []).forEach((d) => { desgLabelById[d.id] = d.label; });
-  const dutyCountByNumber = {};
-  (data.categories || []).forEach((c) => (data.membership[c.id] || []).forEach((m) => {
-    const n = monthlyGroupedDutyCount(m.history, currentMonth);
-    dutyCountByNumber[m.number] = (dutyCountByNumber[m.number] || 0) + n;
-  }));
-  const staffList = Object.values(data.staff || {}).map((s) => {
-    const active = !!(s.unavailable && (!s.unavailable.to || s.unavailable.to >= todayStr()));
-    return {
-      ...s,
-      desgLabel: s.designation ? (desgLabelById[s.designation] || "") : "",
-      dutiesThisMonth: dutyCountByNumber[s.number] || 0,
-      statusLabel: active ? unavailLabel(data, s.unavailable) : t("Present", "હાજર"),
-      active,
-    };
-  }).sort((a, b) => a.name.localeCompare(b.name));
-
-  // Flattened, most-recent-first duty history across every work type, for
-  // the History tab — capped at 150 rows so a long-running station's admin
-  // view doesn't try to render its entire lifetime history at once.
-  const historyRows = [];
-  (data.categories || []).forEach((c) => (data.membership[c.id] || []).forEach((m) => {
-    (m.history || []).forEach((e) => {
-      const d = historyDate(e);
-      if (!d) return;
-      historyRows.push({ date: d, number: m.number, name: m.name, catLabel: c.label, note: e.note || "" });
-    });
-  }));
-  historyRows.sort((a, b) => b.date.localeCompare(a.date));
-  const trimmedHistory = historyRows.slice(0, 150);
-
-  return (
-    <div style={{ padding: 20, maxWidth: 1000, margin: "0 auto" }}>
-      <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 4 }}>{data.stationName || t("(unnamed station)", "(નામ વગરનું સ્ટેશન)")}</div>
-      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 16 }} className="gu">{t("View only — nothing here can be edited.", "ફક્ત જોવા માટે — અહીં કંઈ પણ સંપાદિત કરી શકાતું નથી.")}</div>
-
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-        {[["roster", t("Roster", "રોસ્ટર")], ["fairness", t("Fairness", "ન્યાયીપણું")], ["history", t("History", "ઇતિહાસ")]].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} className="gu" style={{
-            background: tab === key ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: tab === key ? "#fff" : "var(--text-primary)",
-            border: "1px solid " + (tab === key ? "var(--text-primary)" : "var(--border)"), borderRadius: 7, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}>{label}</button>
-        ))}
-      </div>
-
-      {tab === "roster" && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr style={{ background: "var(--bg-surface-2)" }} className="gu"><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th></tr></thead>
-              <tbody>
-                {staffList.map((s) => (
-                  <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                    <td style={{ ...td }} className="mono">{s.number}</td>
-                    <td style={{ ...td }} className="gu">{s.name}</td>
-                    <td style={{ ...td }} className="mono">{s.phone || "—"}</td>
-                    <td style={{ ...td }} className="gu">{s.desgLabel || "—"}</td>
-                    <td style={{ ...td }} className="gu"><span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 11.5, fontWeight: 600, background: s.active ? "var(--status-warning-bg)" : "var(--status-success-bg)", color: s.active ? "var(--status-warning-text)" : "var(--status-success-text)" }}>{s.statusLabel}</span></td>
-                  </tr>
-                ))}
-                {staffList.length === 0 && <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "24px 0" }} className="gu">{t("No staff on file.", "કોઈ સ્ટાફ નોંધાયેલ નથી.")}</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {tab === "fairness" && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr style={{ background: "var(--bg-surface-2)" }} className="gu"><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Duties this month", "આ મહિનાની ડ્યુટીઓ")}</th></tr></thead>
-              <tbody>
-                {[...staffList].sort((a, b) => b.dutiesThisMonth - a.dutiesThisMonth || a.name.localeCompare(b.name)).map((s) => (
-                  <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                    <td style={{ ...td }} className="mono">{s.number}</td>
-                    <td style={{ ...td }} className="gu">{s.name}</td>
-                    <td style={{ ...td }}>{s.dutiesThisMonth}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {tab === "history" && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr style={{ background: "var(--bg-surface-2)" }} className="gu"><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Note", "નોંધ")}</th></tr></thead>
-              <tbody>
-                {trimmedHistory.map((r, i) => (
-                  <tr key={i} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                    <td style={{ ...td }}>{formatDMY(r.date)}</td>
-                    <td style={{ ...td }} className="mono">{r.number}</td>
-                    <td style={{ ...td }} className="gu">{r.name}</td>
-                    <td style={{ ...td }} className="gu">{r.catLabel}</td>
-                    <td style={{ ...td }} className="gu">{r.note || "—"}</td>
-                  </tr>
-                ))}
-                {trimmedHistory.length === 0 && <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "24px 0" }} className="gu">{t("No duty history yet.", "હજુ કોઈ ડ્યુટી ઇતિહાસ નથી.")}</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          {historyRows.length > trimmedHistory.length && (
-            <div style={{ padding: "10px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderTop: "1px solid var(--border-soft)" }} className="gu">{t(`Showing the most recent ${trimmedHistory.length} of ${historyRows.length} entries.`, `${historyRows.length} માંથી છેલ્લી ${trimmedHistory.length} એન્ટ્રીઓ બતાવેલ છે.`)}</div>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -12142,25 +12041,6 @@ function PublicRosterView({ uid }) {
   const langCtxValue = useMemo(() => ({ lang, setLang, t }), [lang, t]);
 
   const [data, setData] = useState(undefined); // undefined = loading, null = not shared/not found
-  const [view, setView] = useState({ mode: "home" });
-  const [showAboutPanel, setShowAboutPanel] = useState(false);
-  const [showHelpPanel, setShowHelpPanel] = useState(false);
-  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
-  // Shared/view-only visitors get their own dark mode preference, kept
-  // separate from the admin's (different device/person in the common
-  // case) so toggling one never silently flips the other.
-  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("nb_public_dark_mode") === "1"; } catch (e) { return false; } });
-  useEffect(() => { try { localStorage.setItem("nb_public_dark_mode", darkMode ? "1" : "0"); } catch (e) {} }, [darkMode]);
-  // Same "force desktop layout regardless of screen size" toggle as the
-  // main roster's profile menu, kept under its own storage key so it
-  // never gets mixed up with the admin's own preference on a shared device.
-  const [desktopView, setDesktopView] = useState(() => { try { return localStorage.getItem("nb_public_force_desktop_view") === "1"; } catch (e) { return false; } });
-  useEffect(() => { try { localStorage.setItem("nb_public_force_desktop_view", desktopView ? "1" : "0"); } catch (e) {} }, [desktopView]);
-  // Same mobile-only sliding drawer as the manager app — starts closed,
-  // never persisted, closes itself whenever the current screen changes.
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
-  const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
   // Used both when the link stops working and from "Sign in" inside the
   // profile menu — drops the pinned share link (if any) and sends the
   // visitor to the normal sign-in screen at the app's base URL.
@@ -12168,25 +12048,6 @@ function PublicRosterView({ uid }) {
     try { localStorage.removeItem(PINNED_VIEW_KEY); } catch (e) {}
     window.location.href = window.location.origin + window.location.pathname;
   }, []);
-  // data-theme has to live on <html> itself (not just a wrapper div) so it
-  // reaches every CSS variable consumer on the page — same approach the
-  // main admin view uses.
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
-  }, [darkMode]);
-  // Same color theme system as the main admin view, sharing the same
-  // localStorage key — a deliberate choice so a person who uses both the
-  // manager app and a shared view-only link (e.g. on the same device)
-  // sees a consistent theme rather than two independently-remembered ones.
-  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("nokriBookTheme") || "classic"; } catch (e) { return "classic"; } });
-  useEffect(() => { try { localStorage.setItem("nokriBookTheme", theme); } catch (e) {} }, [theme]);
-  useEffect(() => {
-    if (theme && theme !== "classic") {
-      document.documentElement.setAttribute("data-color-theme", theme);
-    } else {
-      document.documentElement.removeAttribute("data-color-theme");
-    }
-  }, [theme]);
 
   useEffect(() => {
     // Reads publicRosters/{uid} — a separate, deliberately public-safe
@@ -12228,59 +12089,123 @@ function PublicRosterView({ uid }) {
           </div>
         )}
 
-        {data && (
-          <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
-            <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
-            {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
-            <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
-              <button
-                onClick={() => setMobileSidebarOpen(true)}
-                className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
-                style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
-              >☰</button>
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
-                <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
-                  ...undoRedoBtn(true),
-                  background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
-                  borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
-                  color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
-                }} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
-                <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
-                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
-                  width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
-                }}>⋮</button>
-                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} />
-              </div>
-
-              {view.mode === "home" && (
-                <PublicHomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
-              )}
-              {view.mode === "category" && view.catId && (
-                <PublicCategoryView data={data} catId={view.catId} />
-              )}
-              {view.mode === "staff" && <PublicStaffView data={data} />}
-              {view.mode === "calendar" && <CalendarView data={data} />}
-              {view.mode === "report" && <ReportView data={data} />}
-              {view.mode === "skipHistory" && <SkipHistoryView data={data} />}
-            </div>
-          </div>
-        )}
-
-        {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
-        {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} sections={PUBLIC_HELP_SECTIONS} />}
-        {showSettingsPanel && (
-          <SettingsPanel
-            onHelp={() => setShowHelpPanel(true)}
-            onSignIn={goToLogin}
-            theme={theme} setTheme={setTheme}
-            onClose={() => setShowSettingsPanel(false)}
-          />
-        )}
+        {data && <RosterShellView data={data} goToLogin={goToLogin} />}
       </div>
     </LangContext.Provider>
   );
 }
+
+// The actual view-only app shell (sidebar + Today's duty / work types /
+// Staff / Duty calendar / Monthly report / Skip history) — everything
+// AFTER the data has loaded. Shared by two very different callers:
+// PublicRosterView above (an unauthenticated "Share" link, fed the
+// sanitized publicRosters/{uid} mirror — phone numbers never present, so
+// showPhone should stay false there) and DistrictAdminApp above (a
+// signed-in district admin, fed the REAL accounts/{uid} document — phone
+// numbers included, so showPhone is true there). Neither caller can edit
+// anything through this shell; it's the same read-only components either
+// way, just with a different data source and a different phone-number
+// visibility rule.
+function RosterShellView({ data, goToLogin, showPhone, onBack, onSignOut }) {
+  const { t } = useLang();
+  const [view, setView] = useState({ mode: "home" });
+  const [showAboutPanel, setShowAboutPanel] = useState(false);
+  const [showHelpPanel, setShowHelpPanel] = useState(false);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  // Shared/view-only visitors get their own dark mode preference, kept
+  // separate from the admin's (different device/person in the common
+  // case) so toggling one never silently flips the other.
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("nb_public_dark_mode") === "1"; } catch (e) { return false; } });
+  useEffect(() => { try { localStorage.setItem("nb_public_dark_mode", darkMode ? "1" : "0"); } catch (e) {} }, [darkMode]);
+  // Same "force desktop layout regardless of screen size" toggle as the
+  // main roster's profile menu, kept under its own storage key so it
+  // never gets mixed up with the admin's own preference on a shared device.
+  const [desktopView, setDesktopView] = useState(() => { try { return localStorage.getItem("nb_public_force_desktop_view") === "1"; } catch (e) { return false; } });
+  useEffect(() => { try { localStorage.setItem("nb_public_force_desktop_view", desktopView ? "1" : "0"); } catch (e) {} }, [desktopView]);
+  // Same mobile-only sliding drawer as the manager app — starts closed,
+  // never persisted, closes itself whenever the current screen changes.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
+  const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
+  // data-theme has to live on <html> itself (not just a wrapper div) so it
+  // reaches every CSS variable consumer on the page — same approach the
+  // main admin view uses.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+  // Same color theme system as the main admin view, sharing the same
+  // localStorage key — a deliberate choice so a person who uses both the
+  // manager app and a shared view-only link (e.g. on the same device)
+  // sees a consistent theme rather than two independently-remembered ones.
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("nokriBookTheme") || "classic"; } catch (e) { return "classic"; } });
+  useEffect(() => { try { localStorage.setItem("nokriBookTheme", theme); } catch (e) {} }, [theme]);
+  useEffect(() => {
+    if (theme && theme !== "classic") {
+      document.documentElement.setAttribute("data-color-theme", theme);
+    } else {
+      document.documentElement.removeAttribute("data-color-theme");
+    }
+  }, [theme]);
+
+  return (
+    <React.Fragment>
+      <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
+        <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
+        {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
+        <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
+          >☰</button>
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
+            {onBack && (
+              <button onClick={onBack} className="gu" style={{ background: "transparent", border: "none", color: "var(--text-primary)", fontSize: 13, fontWeight: 600, cursor: "pointer", marginRight: "auto", display: "flex", alignItems: "center", gap: 4 }}>← {t("Districts stations", "જિલ્લાના સ્ટેશનો")}</button>
+            )}
+            <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
+            <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
+              ...undoRedoBtn(true),
+              background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
+              borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
+              color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
+            }} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
+            <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
+              background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
+              width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
+            }}>⋮</button>
+            <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} />
+            {onSignOut && (
+              <button onClick={onSignOut} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--status-error-text)" }}>{t("Sign out", "સાઇન આઉટ")}</button>
+            )}
+          </div>
+
+          {view.mode === "home" && (
+            <PublicHomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
+          )}
+          {view.mode === "category" && view.catId && (
+            <PublicCategoryView data={data} catId={view.catId} />
+          )}
+          {view.mode === "staff" && <PublicStaffView data={data} showPhone={showPhone} />}
+          {view.mode === "calendar" && <CalendarView data={data} />}
+          {view.mode === "report" && <ReportView data={data} />}
+          {view.mode === "skipHistory" && <SkipHistoryView data={data} />}
+        </div>
+      </div>
+
+      {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
+      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} sections={PUBLIC_HELP_SECTIONS} />}
+      {showSettingsPanel && (
+        <SettingsPanel
+          onHelp={() => setShowHelpPanel(true)}
+          onSignIn={goToLogin}
+          theme={theme} setTheme={setTheme}
+          onClose={() => setShowSettingsPanel(false)}
+        />
+      )}
+    </React.Fragment>
+  );
+}
+
 
 // Same nav items as the admin Sidebar, minus anything that edits
 // (no "+" add category, no rename/delete, no reminders/recycle bin).
