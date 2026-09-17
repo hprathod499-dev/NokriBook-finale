@@ -1367,7 +1367,7 @@ function buildInitialData() {
       ? seed112.map((p) => ({ number: p.number, lastDuty: p.lastDuty, history: [], skip: false }))
       : [];
   });
-  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {}, stationName: null, _rev: 0 };
+  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {}, stationName: null, state: null, district: null, _rev: 0 };
 }
 
 // Converts the old per-category schema (name/status stored directly on each
@@ -2379,25 +2379,37 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveStationName, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [showImportStaff, setShowImportStaff] = useState(false);
-  // Local draft of the station-name field, kept separate from the prop so
-  // typing doesn't fire a write on every keystroke; only committed (via
-  // onSaveStationName) on blur or Enter, same pattern as every other
-  // free-text field elsewhere in the app that saves on blur rather than
-  // per-keystroke. Collapsed by default like Language/Theme/Data below —
-  // stationOpen controls that, separate from the draft itself.
+  // Local drafts of the station-details fields, kept separate from props
+  // so typing doesn't fire a write on every keystroke; only committed
+  // (via onSaveX) on blur or Enter, same pattern as every other free-text
+  // field elsewhere in the app that saves on blur rather than per-
+  // keystroke. Collapsed by default like Language/Theme/Data below —
+  // stationOpen controls that, separate from the drafts themselves.
   const [stationDraft, setStationDraft] = useState(stationName || "");
+  const [stateDraft, setStateDraft] = useState(state || "");
+  const [districtDraft, setDistrictDraft] = useState(district || "");
   const [stationOpen, setStationOpen] = useState(false);
   useEffect(() => { setStationDraft(stationName || ""); }, [stationName]);
+  useEffect(() => { setStateDraft(state || ""); }, [state]);
+  useEffect(() => { setDistrictDraft(district || ""); }, [district]);
   const saveStationName = () => {
     const next = stationDraft.trim();
     if (next !== (stationName || "")) onSaveStationName(next);
+  };
+  const saveState = () => {
+    const next = stateDraft.trim();
+    if (onSaveState && next !== (state || "")) onSaveState(next);
+  };
+  const saveDistrict = () => {
+    const next = districtDraft.trim();
+    if (onSaveDistrict && next !== (district || "")) onSaveDistrict(next);
   };
   // Which of the two choices "Format all data" can now mean — shown as a
   // centered picker (same look as PdfReadyModal's View/Download card)
@@ -2439,7 +2451,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
                 }}
               >
                 <span style={{ display: "inline-block", transform: stationOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}>▸</span>
-                <span style={{ flexShrink: 0 }}>🏢 {t("Station name", "સ્ટેશનનું નામ")}</span>
+                <span style={{ flexShrink: 0 }}>🏢 {t("Station details", "સ્ટેશનની વિગતો")}</span>
                 {/* Shown collapsed too — otherwise the row gives no sign the
                     name set during onboarding (or anywhere else) actually
                     saved, which reads as "it didn't save" even when it did. */}
@@ -2450,13 +2462,38 @@ function SettingsPanel({ user, signOutUser, formatAllData, stationName, onSaveSt
                 )}
               </button>
               {stationOpen && (
-                <input
-                  type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
-                  onBlur={saveStationName}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                  placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
-                  className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 8 }}
-                />
+                <React.Fragment>
+                  <input
+                    type="text" value={stationDraft} onChange={(e) => setStationDraft(e.target.value)}
+                    onBlur={saveStationName}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                    placeholder={t("Station name — e.g. ધારી પોલીસ સ્ટેશન", "સ્ટેશનનું નામ — દા.ત. ધારી પોલીસ સ્ટેશન")}
+                    className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 8 }}
+                  />
+                  {onSaveDistrict && (
+                    <input
+                      type="text" value={districtDraft} onChange={(e) => setDistrictDraft(e.target.value)}
+                      onBlur={saveDistrict}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                      placeholder={t("District", "જિલ્લો")}
+                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 6 }}
+                    />
+                  )}
+                  {onSaveState && (
+                    <input
+                      type="text" value={stateDraft} onChange={(e) => setStateDraft(e.target.value)}
+                      onBlur={saveState}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                      placeholder={t("State", "રાજ્ય")}
+                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginTop: 6 }}
+                    />
+                  )}
+                  {onSaveDistrict && (
+                    <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.4 }}>
+                      {t("District is what lets your district/state office find this station in their dashboard — only summary numbers (staff count, today's duty coverage), never full names or phone numbers, are ever shared with them.", "જિલ્લો એ છે જેનાથી તમારી જિલ્લા/રાજ્ય કચેરી પોતાના dashboard માં આ સ્ટેશન શોધી શકે — ફક્ત summary numbers (સ્ટાફની સંખ્યા, આજની ડ્યુટી coverage) જ share થાય છે, ક્યારેય પૂરાં નામ કે ફોન નંબર નહીં.")}
+                    </div>
+                  )}
+                </React.Fragment>
               )}
             </div>
           )}
@@ -3626,6 +3663,60 @@ function DutyRoster() {
     trySync(false);
   };
 
+  // Keeps a small, non-sensitive "digest" of this station in sync under
+  // districts/{districtId}/stations/{uid} — staff count, today's duty
+  // coverage, this month's total duties, so a district or state office
+  // can browse every station under them without ever having read access
+  // to anyone's actual roster, names, or phone numbers. Same fire-and-
+  // forget, one-retry spirit as syncPublicRoster above: a transient
+  // failure here never blocks or retries the primary save. Tracks the
+  // last path it wrote to (districtDigestPathRef) purely so that if the
+  // person changes which district this station belongs to, the digest
+  // under the OLD district gets deleted instead of silently lingering as
+  // a stale, orphaned entry that district would still see.
+  const districtDigestPathRef = useRef(null);
+  const syncDistrictDigest = (next) => {
+    if (!accountUid) return;
+    const districtId = (next.district || "").trim();
+    const newPath = districtId ? `districts/${districtId}/stations/${accountUid}` : null;
+    const prevPath = districtDigestPathRef.current;
+    if (prevPath && prevPath !== newPath) {
+      db.doc(prevPath).delete().catch(() => {});
+    }
+    districtDigestPathRef.current = newPath;
+    if (!newPath) return;
+    const today = todayStr();
+    const monthPrefix = today.slice(0, 7);
+    let monthlyDutyCount = 0;
+    const onDutyTodaySet = new Set();
+    Object.values(next.membership || {}).forEach((list) => {
+      (list || []).forEach((m) => {
+        (m.history || []).forEach((e) => {
+          const d = historyDate(e);
+          if (!d) return;
+          if (d.slice(0, 7) === monthPrefix) monthlyDutyCount += 1;
+          if (d === today) onDutyTodaySet.add(m.number);
+        });
+      });
+    });
+    const digest = {
+      stationName: next.stationName || null,
+      state: (next.state || "").trim() || null,
+      district: districtId,
+      staffCount: Object.keys(next.staff || {}).length,
+      onDutyToday: onDutyTodaySet.size,
+      monthlyDutyCount,
+      updatedAt: Date.now(),
+    };
+    const trySync = (isRetry) => {
+      db.doc(newPath).set(digest).catch((e) => {
+        console.error("District digest sync failed:", e);
+        if (!isRetry) setTimeout(() => trySync(true), 4000);
+      });
+    };
+    trySync(false);
+  };
+
   const writeToFirestore = (next) => {
     // Stamped with the actual moment this change was made on THIS
     // device, not whenever it eventually reaches the server — used so
@@ -3638,6 +3729,7 @@ function DutyRoster() {
     dataRef.current = stamped;
     setData(stamped);
     syncPublicRoster(stamped);
+    syncDistrictDigest(stamped);
     if (!docRef) return;
 
     pendingWritesRef.current += 1;
@@ -5894,6 +5986,8 @@ function DutyRoster() {
           user={user}
           signOutUser={signOutUser} formatAllData={formatAllData}
           stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
+          state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s })}
+          district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d })}
           onHelp={() => setShowHelpPanel(true)}
           onChooseBackupFolder={chooseBackupFolder}
           onRecoverLocalBackup={recoverLocalBackup}
