@@ -2556,7 +2556,7 @@ Be strict about "designation" — this is the part I most need double-checked:
 3. If a person's designation is clearly stated in the PDF/Word file but doesn't match any existing label, don't leave it null — add it as a new entry to the "designations" array in the .json file (shape: { "id": "<new-id>", "label": "<exact label as written>" }, with a new id that doesn't collide with any existing id) and use that new id for them. Reuse the same new designation entry (don't create duplicates) if multiple staff share that same new designation.
 4. Only leave "designation" as null if the PDF/Word file simply doesn't state a designation for that person — never guess, never pick the closest-sounding existing label instead of adding a new one.
 5. Before finalizing, go back through every person a second time and re-check each assigned designation id (existing or newly added) against what the PDF/Word file actually says for them — catch and fix any mismatch now, don't leave it for me to find.
-Be strict about "phone" too: mobile numbers in the મહેકમ પત્ર are often written with a leading "+91", "91", or "0" — strip that off first, then check what's left over. It must be a genuine 10-digit Indian mobile number (exactly 10 digits, starting with 6, 7, 8, or 9). If what's left (after stripping any such prefix) is still the wrong length, starts with a different digit, or is otherwise clearly not a valid mobile number, leave "phone" as null rather than forcing it in.
+Be strict about "phone" too: mobile numbers in the મહેકમ પત્ર are often written with a leading "+91", "91", or "0" — but only strip that prefix when there are MORE than 10 digits to begin with (11 digits with a leading "0", or 12 with a leading "91"/"+91"). If a number already has exactly 10 digits, leave it exactly as written even if those 10 digits happen to start with "91" themselves (e.g. "9102345673") — that's a real number, not a country code, and stripping it would wrongly cut it down to 8 digits. After that adjustment, it must be a genuine 10-digit Indian mobile number (exactly 10 digits, starting with 6, 7, 8, or 9). If what's left is still the wrong length, starts with a different digit, or is otherwise clearly not a valid mobile number, leave "phone" as null rather than forcing it in.
 At the end, tell me: how many staff got a designation assigned, how many were left null (with their buckle numbers), any brand-new designations you added, and how many phone numbers were left null for looking invalid.
 Give me back the complete, updated .json file to download.`;
   const promptGu = `હું Nokri Book એપની .json બેકઅપ ફાઈલ, અને પોલીસ સ્ટેશન સ્ટાફની વિગતો (બકલ નંબર, મોબાઈલ નંબર, નામ, હોદ્દો) વાળી "મહેકમ પત્ર" (PDF/Word ફાઈલ) મોકલું છું. કૃપા કરી મહેકમ પત્ર વાંચીને દરેક વ્યક્તિને .json ફાઈલના "staff" ઓબ્જેક્ટમાં નવી entry તરીકે ઉમેરો — બકલ નંબરને string key તરીકે વાપરીને — બરાબર આ જ ફોર્મેટમાં, અને .json ફાઈલનો બાકીનો ભાગ જેમનો તેમ જ રહેવા દો:
@@ -2568,7 +2568,7 @@ Give me back the complete, updated .json file to download.`;
 3. જો કોઈ વ્યક્તિનો હોદ્દો મહેકમ પત્રમાં સ્પષ્ટ લખેલો હોય પણ હાલના કોઈ label સાથે મેચ ન થાય, તો એને null ન રહેવા દેશો — .json ફાઈલની "designations" array માં નવી entry ઉમેરો (ફોર્મેટ: { "id": "<નવો id>", "label": "<જેમ લખેલું છે એમ જ label>" }, જે id હાલના કોઈ id સાથે ટકરાય નહીં) અને એ નવો id એ વ્યક્તિ માટે વાપરો. જો એક કરતાં વધુ સ્ટાફનો સરખો નવો હોદ્દો હોય તો એક જ નવી entry ફરીથી વાપરો, ડુપ્લિકેટ ન બનાવો.
 4. "designation" ને null ફક્ત ત્યારે જ રહેવા દો જ્યારે મહેકમ પત્રમાં એ વ્યક્તિ માટે કોઈ હોદ્દો લખેલો જ ન હોય — ક્યારેય અંદાજો ન લગાવો, અને નવો હોદ્દો ઉમેરવાને બદલે સૌથી નજીક લાગતું હાલનું label પણ ન પસંદ કરો.
 5. Final કરતા પહેલા, દરેક વ્યક્તિને બીજી વાર ફરીથી તપાસો — assign કરેલ designation id (હાલનું હોય કે નવું ઉમેરેલું), મહેકમ પત્રમાં ખરેખર શું લખ્યું છે એની સામે ફરીથી ચેક કરો — હમણાં જ કોઈ mismatch પકડીને સુધારો, મારા માટે શોધવા ન છોડો.
-"phone" બાબતે પણ કડક રહેજો: મહેકમ પત્રમાં મોબાઈલ નંબર ઘણી વાર આગળ "+91", "91", અથવા "0" સાથે લખેલા હોય છે — પહેલા એ કાઢી નાખો, પછી બાકી રહેલું ચેક કરો. એ સાચો 10 અંકનો ભારતીય મોબાઈલ નંબર જ હોવો જોઈએ (બરાબર 10 અંક, અને શરૂઆત 6, 7, 8 કે 9 થી થતી હોય). જો (આવો કોઈ પ્રિફિક્સ કાઢ્યા પછી પણ) બાકી રહેલો નંબર ખોટી લંબાઈનો હોય, બીજા અંકથી શરૂ થતો હોય, કે સ્પષ્ટપણે યોગ્ય મોબાઈલ નંબર ન લાગે, તો "phone" ને null જ રહેવા દો, બળજબરીથી ભરશો નહીં.
+"phone" બાબતે પણ કડક રહેજો: મહેકમ પત્રમાં મોબાઈલ નંબર ઘણી વાર આગળ "+91", "91", અથવા "0" સાથે લખેલા હોય છે — પણ આ પ્રિફિક્સ ત્યારે જ કાઢો જ્યારે કુલ અંક 10 થી વધારે હોય (આગળ "0" સાથે 11 અંક, અથવા "91"/"+91" સાથે 12 અંક). જો નંબર પહેલેથી જ બરાબર 10 અંકનો હોય, તો એને એમ જ રહેવા દો — ભલે એ 10 અંક પોતે "91" થી શરૂ થતા હોય (દા.ત. "9102345673") — એ સાચો નંબર જ છે, country code નથી, અને કાઢી નાખવાથી ખોટી રીતે ફક્ત 8 અંક બચી જશે. આટલું કર્યા પછી, એ સાચો 10 અંકનો ભારતીય મોબાઈલ નંબર જ હોવો જોઈએ (બરાબર 10 અંક, અને શરૂઆત 6, 7, 8 કે 9 થી થતી હોય). જો બાકી રહેલો નંબર ખોટી લંબાઈનો હોય, બીજા અંકથી શરૂ થતો હોય, કે સ્પષ્ટપણે યોગ્ય મોબાઈલ નંબર ન લાગે, તો "phone" ને null જ રહેવા દો, બળજબરીથી ભરશો નહીં.
 છેલ્લે મને કહો: કેટલા સ્ટાફને designation મળ્યું, કેટલાને null રહ્યું (એમના બકલ નંબર સાથે), તમે કઈ-કઈ નવી designations ઉમેરી, અને અમાન્ય લાગવાથી કેટલા phone number null રહ્યા.
 મને સંપૂર્ણ, અપડેટેડ .json ફાઈલ download કરવા માટે પાછી આપો.`;
   const prompt = lang === "gu" ? promptGu : promptEn;
@@ -5887,7 +5887,13 @@ function DutyRoster() {
         <SpotlightTour
           data={data} view={view} setView={setView}
           mobileSidebarOpen={mobileSidebarOpen} setMobileSidebarOpen={setMobileSidebarOpen}
+          // Only the very first, brand-new-account run of this tour (the one
+          // chained straight from WelcomeModal, before hasSeenWelcome is
+          // ever set) is compulsory — every later run, launched by hand from
+          // Help → Interactive tour, is skippable.
+          compulsory={data.hasSeenWelcome === false}
           onFinish={() => { persist({ ...dataRef.current, hasSeenWelcome: true }); setShowSpotlightTour(false); setMobileSidebarOpen(false); }}
+          onSkip={() => { setShowSpotlightTour(false); setMobileSidebarOpen(false); }}
         />
       )}
 
@@ -10500,10 +10506,15 @@ const TOUR_STEPS = [
     bodyGu: "ટાઈપિંગ છોડો — Claude માટે તૈયાર prompt મેળવવા આના પર ટેપ કરો. તેને તમારી સ્ટાફ PDF/Word ફાઈલ અને આ એપની બેકઅપ મોકલો, અને તે બધા ઉમેરાયેલા સાથે અપડેટેડ બેકઅપ પાછી આપશે.",
   },
 ];
-// No ESC-dismiss and no "skip tour" affordance here on purpose — see the
-// note above WelcomeModal. onFinish only ever fires from the "Done ✓"
-// button on the last step, so the only way through is completing it.
-function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSidebarOpen, onFinish }) {
+// ESC-dismiss and a "Skip tour" affordance are only available when
+// `compulsory` is false (see the note above WelcomeModal for why the very
+// first, brand-new-account run stays locked: onFinish only ever firing from
+// "Done ✓" on the last step is what guarantees hasSeenWelcome can't be set
+// without the person actually seeing every step). Any later run — always
+// launched by hand from Help → Interactive tour, with hasSeenWelcome
+// already true — has nothing left to protect, so it's freely skippable,
+// same as closing any other modal.
+function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSidebarOpen, compulsory, onFinish, onSkip }) {
   const { t } = useLang();
   const [stepIdx, setStepIdx] = useState(0);
   const [rect, setRect] = useState(null);
@@ -10589,6 +10600,14 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
   }, [stepIdx]);
 
   const isLast = stepIdx === TOUR_STEPS.length - 1;
+
+  useEffect(() => {
+    if (compulsory) return;
+    const onKey = (e) => { if (e.key === "Escape") onSkip(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [compulsory, onSkip]);
+
   const pad = 8;
   // Tooltip placement: below the highlight if there's more room there,
   // else above — and clamped horizontally so it never runs off a
@@ -10621,7 +10640,7 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
     } else {
       tooltipBottom = Math.max(12, window.innerHeight - rect.top + pad + 10);
     }
-    tooltipLeft = Math.min(Math.max(12, rect.left), window.innerWidth - tooltipWidth - 12);
+    tooltipLeft = Math.min(Math.max(12, rect.left + rect.width / 2 - tooltipWidth / 2), window.innerWidth - tooltipWidth - 12);
   }
 
   return (
@@ -10652,6 +10671,16 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
           background: "var(--bg-surface)", border: "1px solid var(--border-soft)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
         }}
       >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
+          {!compulsory ? (
+            <button onClick={onSkip} className="gu" style={{ background: "transparent", border: "none", padding: 0, fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", cursor: "pointer", textDecoration: "underline", flexShrink: 0 }}>
+              {t("Skip tour ✕", "ટૂર છોડો ✕")}
+            </button>
+          ) : <span />}
+          <div style={{ transform: "scale(0.82)", transformOrigin: "right center", flexShrink: 0 }}>
+            <LangInlineToggle />
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
           {TOUR_STEPS.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= stepIdx ? "var(--accent-strong)" : "var(--border-soft)" }} />
