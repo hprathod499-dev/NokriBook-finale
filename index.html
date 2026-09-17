@@ -932,7 +932,8 @@ function renderTextToImage(text, fontSizePt) {
   const mctx = measureCanvas.getContext("2d");
   mctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
   const raw = text == null ? "" : String(text);
-  const width = Math.max(1, Math.ceil(mctx.measureText(raw || " ").width)) + Math.round(scale * 2);
+  const metrics = mctx.measureText(raw || " ");
+  const width = Math.max(1, Math.ceil(metrics.width)) + Math.round(scale * 2);
   const height = Math.round(fontPx * 1.5);
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -942,7 +943,14 @@ function renderTextToImage(text, fontSizePt) {
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#1a1a1a";
   ctx.fillText(raw, Math.round(scale), height / 2);
-  return { dataUrl: canvas.toDataURL("image/png"), width, height };
+  // The canvas itself is deliberately oversized (1.5x fontPx tall) for
+  // crisp scaling headroom — but that padding means "canvas height" is a
+  // poor stand-in for how tall the actual glyphs are. Callers that need
+  // to size this image to a specific point size accurately (matching
+  // adjacent native-jsPDF text at that same size) should scale against
+  // the real ink height below, not the padded canvas height.
+  const glyphHeight = (metrics.actualBoundingBoxAscent || 0) + (metrics.actualBoundingBoxDescent || 0);
+  return { dataUrl: canvas.toDataURL("image/png"), width, height, glyphHeight: glyphHeight || fontPx * 0.7 };
 }
 // Draws a pre-rendered text image into one autoTable cell, vertically
 // centered and left-aligned with a small left padding, scaled down from
@@ -1012,14 +1020,49 @@ function drawCenteredStationName(doc, stationName, y, fontSizePt) {
 function drawLeftAlignedTextImage(doc, text, x, y, fontSizePt) {
   if (needsImageRender(text)) {
     const rendered = renderTextToImage(text, fontSizePt);
-    const targetH = fontSizePt * 0.3528 * 1.3;
-    const scale = targetH / rendered.height;
+    // renderTextToImage's canvas is deliberately ~1.5x taller than the
+    // actual glyphs (for crisp downscaling headroom — see its own
+    // comment on `height` vs `glyphHeight`). Scaling against the padded
+    // canvas `height`, as the first version of this function did, meant
+    // the real ink came out ~1.5x smaller than the font size it was
+    // supposedly matching — invisible when this stood alone (e.g. a
+    // station name with nothing at the same declared size right next to
+    // it), but obvious once placed beside native jsPDF text at the same
+    // fontSizePt, which has no such padding to correct for. Scaling
+    // against `glyphHeight` (the real ink height) instead fixes that;
+    // the same scale factor is then applied to the full padded image so
+    // it isn't stretched out of proportion.
+    const targetInk = fontSizePt * 0.3528 * 0.95;
+    const scale = targetInk / (rendered.glyphHeight || rendered.height);
     const targetW = rendered.width * scale;
-    doc.addImage(rendered.dataUrl, "PNG", x, y - targetH * 0.75, targetW, targetH);
+    const targetHFull = rendered.height * scale;
+    doc.addImage(rendered.dataUrl, "PNG", x, y - targetHFull * 0.62, targetW, targetHFull);
   } else {
     doc.setFontSize(fontSizePt);
     doc.text(text, x, y);
   }
+}
+// Every PDF export's header, in one place: station name first (bigger,
+// 16pt — the size the person actually running the station cares about
+// most, and what should catch the eye first when a stack of these is
+// printed) then the report's own title (11pt), left-aligned right under
+// it. Previously each export function set its own title size (mostly
+// 14pt) and drew the station name — if given at all — small and AFTER
+// the title, in whatever position happened to be convenient for that
+// one function, so the two competed with the person's own name/report
+// title differently in every export instead of every export opening
+// with the one thing (which station this is) that matters across all of
+// them. Returns the y position immediately below the header, so the
+// caller can carry on from there instead of guessing a fixed offset.
+function drawPdfHeader(doc, title, stationName) {
+  let headerY = 16;
+  if (stationName) {
+    drawCenteredStationName(doc, stationName, headerY, 16);
+    headerY += 6;
+  }
+  doc.setFontSize(11);
+  doc.text(title, 14, headerY);
+  return headerY + 8;
 }
 // ---------- Per-work-type ("duty type") PDF export ----------
 // Every work type (category) — WAPC, UHC, ULRD, "112", etc. — gets its own
