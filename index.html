@@ -1485,7 +1485,12 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 30 } },
+    // Note gets a fixed cellWidth rather than minCellWidth — see the full
+    // explanation above downloadPersonHistoryPdf's own columnStyles below
+    // (a growing column's width differs between didParseCell's row-height
+    // reservation and didDrawCell's actual draw, leaving blank space
+    // under a note that fits on fewer lines than were reserved for it).
+    columnStyles: { 2: { minCellWidth: 42 }, 5: { cellWidth: 60 } },
     didParseCell: (hookData) => {
       if (hookData.section !== "body") return;
       if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
@@ -1699,6 +1704,14 @@ function derivePublicData(data) {
   });
   return {
     v: data.v,
+    // Missing here meant every PDF exported from a Share link or the
+    // District Admin dashboard silently skipped the station-name header
+    // (downloadCategoryPdf/downloadStaffDirectoryPdf/downloadSkipHistoryPdf
+    // etc. all guard on `if (stationName)`) even though the exact same
+    // export, run by the station's own owner from their signed-in
+    // account, showed it correctly — the owner's `data` always has it,
+    // this sanitized public mirror just never copied it over.
+    stationName: data.stationName || null,
     categories: data.categories || [],
     membership: data.membership || {},
     staff,
@@ -9300,7 +9313,20 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 1: { minCellWidth: 30 }, 3: { minCellWidth: 30 } },
+    // Note's own width is FIXED (cellWidth, not minCellWidth) rather than
+    // left to autoTable's normal auto-grow-to-fill-the-page sizing. The
+    // wrap in didParseCell below (which decides how many blank lines to
+    // reserve for row height) and the wrap in didDrawCell (which actually
+    // draws the image) both measure against the column's width — but
+    // autoTable settles on a column's final width only AFTER the parse
+    // pass every cell in it ran through, so a growing column measured
+    // narrower during parsing than it ends up at draw time. A short note
+    // that fit on one line at the real (wider) draw-time width had
+    // already reserved two lines' worth of row height from the narrower
+    // parse-time guess — exactly the extra blank space under a single
+    // line of text this fixes. A fixed cellWidth is identical at both
+    // moments, so the two wraps always agree on the same line count.
+    columnStyles: { 1: { minCellWidth: 30 }, 3: { cellWidth: 75 } },
     didParseCell: (hookData) => {
       if (hookData.section !== "body") return;
       if (hookData.column.index === 1 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
@@ -10377,7 +10403,13 @@ function ReportView({ data }) {
       // (nothing), not from the name/word that actually gets drawn —
       // this table has 7 columns competing for the same page width, so
       // it needs this even more than the 4-column summary table does.
-      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { minCellWidth: 26 } },
+      columnStyles: { 1: { minCellWidth: 40 }, 2: { minCellWidth: 22 }, 3: { minCellWidth: 26 }, 6: { cellWidth: 40 } },
+      // Note (6) gets a fixed cellWidth rather than minCellWidth like its
+      // neighbors — see the full explanation above downloadPersonHistoryPdf's
+      // own columnStyles (a growing column's width differs between
+      // didParseCell's row-height reservation and didDrawCell's actual
+      // draw, leaving blank space under a note that fits on fewer lines
+      // than were reserved for it).
       // Name (1), Designation (2), Work type (3), and Note (6) can
       // contain Gujarati text, but each cell is only imaged if it
       // actually does (needsImageRender) — # (0), Dates (4), and Days
