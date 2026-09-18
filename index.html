@@ -3390,7 +3390,19 @@ function DutyRoster() {
     if (!user) { setIsDistrictAdmin(undefined); setDistrictAdminDistrictId(null); return; }
     const unsub = db.collection("districtAdmins").doc(user.uid).onSnapshot(
       (snap) => {
-        if (snap.exists) { setDistrictAdminDistrictId(snap.data().districtId || null); setIsDistrictAdmin(true); }
+        if (snap.exists) {
+          // Field name changed from "district" to "districtId" at some
+          // point; a districtAdmins/{uid} doc created by hand (Firebase
+          // Console) before that change still has the OLD field, and
+          // this admin's district would silently read as null forever —
+          // which is exactly what "No stations found in this district
+          // yet." looks like, even though stations genuinely exist.
+          // Accepting either field name means an old hand-created doc
+          // keeps working without anyone having to notice and go edit it.
+          const d = snap.data();
+          setDistrictAdminDistrictId((d.districtId || d.district || "").trim() || null);
+          setIsDistrictAdmin(true);
+        }
         else { setDistrictAdminDistrictId(null); setIsDistrictAdmin(false); }
       },
       () => { setDistrictAdminDistrictId(null); setIsDistrictAdmin(false); }
@@ -12901,7 +12913,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("district dashboard (view only)", "જિલ્લા ડેશબોર્ડ (ફક્ત જોવા માટે)")}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("District Dashboard", "જિલ્લા ડેશબોર્ડ")}</div>
           <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} onSignOut={signOutUser} />
         </div>
         <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
