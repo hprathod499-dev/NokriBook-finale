@@ -8280,7 +8280,7 @@ function CategoryFairnessTable({ roster, catLabel }) {
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--border-soft)", overflow: "hidden", minWidth: 60 }}>
-                      <div style={{ width: `${Math.max(r.pct > 0 ? 3 : 0, r.pct)}%`, height: "100%", borderRadius: 3, background: "var(--accent)" }} />
+                      <div style={{ width: `${Math.max(r.pct > 0 ? 3 : 0, r.pct)}%`, height: "100%", borderRadius: 3, background: "var(--accent-strong)" }} />
                     </div>
                     <span className="mono" style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 42, textAlign: "right" }}>{r.pct.toFixed(1)}%</span>
                   </div>
@@ -9479,9 +9479,16 @@ function DutyFairnessCompare({ data, staffList }) {
   const compareNotFound = compareMatches.filter((m) => !m.person).map((m) => m.num);
   const maxCompare = Math.max(1, ...compareFound.map((p) => p.periodCount));
 
+  // Same var(--accent-strong) reasoning as CategoryFairnessTable's bar
+  // above: --accent itself is a deliberately pale fill color on
+  // Soft Blue/Light Green/Lavender (meant for buttons paired with
+  // --accent-text), so a bar filled with it barely stands out from its
+  // own var(--border-soft) track on those themes. --accent-strong is the
+  // vivid, always-legible version of the same hue, and is identical to
+  // --accent on Classic — no visual change there.
   const Bar = ({ pct, color }) => (
     <div style={{ flex: 1, height: 7, borderRadius: 4, background: "var(--border-soft)", overflow: "hidden" }}>
-      <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--accent)", borderRadius: 4 }} />
+      <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--accent-strong)", borderRadius: 4 }} />
     </div>
   );
   const barRow = (key, label, count, pct, color) => (
