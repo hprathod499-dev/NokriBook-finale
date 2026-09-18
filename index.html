@@ -1108,6 +1108,80 @@ function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   const y = cell.y + (cell.height - targetH) / 2;
   doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
 }
+// Same canvas-measurement font renderTextToImage uses, wrapped onto as
+// many lines as needed to fit maxWidthMm — used ONLY for free-text Note
+// columns (renderTextToImage/drawTextImageInCell above stay exactly as
+// they were for Name/Designation/Status, which are short fixed values).
+//
+// A Note can be anywhere from a couple of words to a full sentence, and
+// the old approach (render it as ONE line, then shrink that whole image
+// down until it fits the column's fixed width) meant the actual font
+// size shrank along with it — a short note stayed full-size while a
+// longer one in the very same column got visibly smaller, and side by
+// side that made the normal-size short notes look oversized by
+// comparison. Wrapping at a FIXED font size instead means every note
+// prints at the same size regardless of length; a long one just takes
+// more lines, the same way it would if someone were reading it in a
+// text box rather than squeezed onto a single line.
+function wrapCanvasTextToWidth(ctx, text, maxWidthPx) {
+  const words = String(text == null ? "" : text).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const test = current + " " + words[i];
+    if (ctx.measureText(test).width <= maxWidthPx) {
+      current = test;
+    } else {
+      lines.push(current);
+      current = words[i];
+    }
+  }
+  lines.push(current);
+  return lines;
+}
+function renderWrappedTextToImage(text, fontSizePt, maxWidthMm) {
+  const scale = 4;
+  const fontPx = Math.round(fontSizePt * 1.22 * scale * (96 / 72));
+  // Same pt→mm factor (0.3528) used everywhere else in this file, just
+  // inverted to go from an external mm constraint into this function's
+  // own canvas-pixel space instead of the other direction.
+  const maxWidthPx = Math.max(1, maxWidthMm) * (1 / 0.3528) * scale * (96 / 72);
+  const measureCanvas = document.createElement("canvas");
+  const mctx = measureCanvas.getContext("2d");
+  mctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
+  const lines = wrapCanvasTextToWidth(mctx, text, maxWidthPx);
+  const lineHeight = Math.round(fontPx * 1.35);
+  let maxLineWidth = 1;
+  lines.forEach((line) => { maxLineWidth = Math.max(maxLineWidth, mctx.measureText(line || " ").width); });
+  const width = Math.ceil(maxLineWidth) + Math.round(scale * 2);
+  const height = lineHeight * lines.length + Math.round(scale * 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#1a1a1a";
+  lines.forEach((line, i) => { ctx.fillText(line, Math.round(scale), lineHeight * i + lineHeight / 2); });
+  return { dataUrl: canvas.toDataURL("image/png"), width, height, lineCount: lines.length };
+}
+// Draws a renderWrappedTextToImage result at a FIXED per-line height
+// (derived straight from fontSizePt, the same way drawTextImageInCell's
+// single-line box was) — deliberately NOT scaled to fit cell.width like
+// drawTextImageInCell does, since wrapping already guaranteed the widest
+// line fits. That's the actual fix: no width-driven shrink means no
+// length-dependent font size.
+function drawWrappedTextImageInCell(doc, cell, rendered, fontSizePt) {
+  if (!rendered) return;
+  const mmPerLine = fontSizePt * 0.3528 * 1.35;
+  const scale = mmPerLine / (rendered.height / rendered.lineCount);
+  const targetH = rendered.height * scale;
+  const targetW = rendered.width * scale;
+  const x = cell.x + 1;
+  const y = cell.y + Math.max(0.3, (cell.height - targetH) / 2);
+  doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
+}
 // Draws the station name centered horizontally across the page — used at
 // the top of every PDF export, right under the main title. Handles both
 // Gujarati (canvas-image, since jsPDF can't shape Gujarati text itself —
@@ -1377,15 +1451,19 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
-        hookData.cell.text = [];
+      if (hookData.section !== "body") return;
+      if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
+      if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
+        const colWidthMm = (hookData.column.width || 30) - 2;
+        hookData.cell.text = new Array(renderWrappedTextToImage(hookData.cell.raw, FONT_PT, colWidthMm).lineCount).fill(" ");
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
-        const raw = hookData.cell.raw;
-        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-      }
+      if (hookData.section !== "body") return;
+      const raw = hookData.cell.raw;
+      if (raw == null || raw === "" || !needsImageRender(raw)) return;
+      if (hookData.column.index === 2) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      if (hookData.column.index === 5) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, hookData.cell.width - 2), FONT_PT);
     },
   });
 
@@ -3286,30 +3364,37 @@ function DutyRoster() {
     const unsub = auth.onAuthStateChanged(setUser);
     return () => unsub();
   }, []);
-  // A district admin is just a normal Firebase Auth account (email +
-  // password, same sign-in screen everyone uses) that ALSO has a doc at
-  // districtAdmins/{their uid} — created by hand in the Firebase Console,
-  // never through this app's own UI, specifying which district they
-  // administer. undefined = still checking; null = this signed-in
-  // person is a normal station, not an admin; a string = the district
-  // name they administer.
-  const [adminDistrict, setAdminDistrict] = useState(undefined);
-  useEffect(() => {
-    if (!user) { setAdminDistrict(user === null ? null : undefined); return; }
-    let cancelled = false;
-    db.collection("districtAdmins").doc(user.uid).get()
-      .then((snap) => { if (!cancelled) setAdminDistrict(snap.exists ? ((snap.data().district || "").trim() || null) : null); })
-      .catch(() => { if (!cancelled) setAdminDistrict(null); });
-    return () => { cancelled = true; };
-  }, [user]);
   // Sign-in itself (Google / email+password) is
   // handled inside SignInScreen, which calls `auth` directly — this
   // component only needs to react once `user` changes.
   const signOutUser = () => { auth.signOut(); };
+  // Checks — once per sign-in, live via onSnapshot so a revoked admin
+  // loses this view immediately — whether the signed-in uid is a
+  // district admin (districtAdmins/{uid}, assigned manually via the
+  // Firebase Console; see FIrestore Rules). undefined = still checking,
+  // false = an ordinary station account, true = show DistrictAdminApp
+  // instead of the normal app below. accountUid (right below) is
+  // deliberately held at null until this resolves to false — otherwise
+  // the very next effect down (which auto-creates a blank accounts/{uid}
+  // document for any signed-in uid with no existing one) would give a
+  // district admin their own empty "station" the moment they signed in.
+  const [isDistrictAdmin, setIsDistrictAdmin] = useState(undefined);
+  const [districtAdminDistrictId, setDistrictAdminDistrictId] = useState(null);
+  useEffect(() => {
+    if (!user) { setIsDistrictAdmin(undefined); setDistrictAdminDistrictId(null); return; }
+    const unsub = db.collection("districtAdmins").doc(user.uid).onSnapshot(
+      (snap) => {
+        if (snap.exists) { setDistrictAdminDistrictId(snap.data().districtId || null); setIsDistrictAdmin(true); }
+        else { setDistrictAdminDistrictId(null); setIsDistrictAdmin(false); }
+      },
+      () => { setDistrictAdminDistrictId(null); setIsDistrictAdmin(false); }
+    );
+    return () => unsub();
+  }, [user]);
   // Every signed-in person just works inside their own account with full
   // edit access — there's no per-member editor/viewer role system, so this
   // never looks anyone up in memberships/{uid}.
-  const accountUid = user ? user.uid : null;
+  const accountUid = (user && isDistrictAdmin === false) ? user.uid : null;
   const myRole = "owner";
   const canEdit = true;
   // Stable per signed-in session — recomputed each render but points at the
@@ -3421,15 +3506,6 @@ function DutyRoster() {
   }, [theme]);
   const notifiedRef = useRef(new Set());
   const migratedRef = useRef(false);
-  // Set right before deleteMyAccountAndData below starts deleting this
-  // account's Firestore docs. Without this, the account listener a few
-  // lines down would see its own deletion arrive as a genuine,
-  // server-confirmed "this account doesn't exist" — indistinguishable
-  // from a real brand-new signup — and self-heal it by writing a fresh
-  // buildInitialData() right back, undoing the deletion and, worse,
-  // flashing a blank "new account" roster instead of going straight to
-  // the sign-in screen the moment Auth itself signs the user out.
-  const deletingAccountRef = useRef(false);
   const lastActionRef = useRef("");
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -3505,12 +3581,6 @@ function DutyRoster() {
     const unsub = ref.onSnapshot(
       { includeMetadataChanges: true },
       (snap) => {
-        // See deletingAccountRef's own comment above: once account
-        // deletion has started, ignore every further snapshot entirely
-        // (including the "doesn't exist" one the deletion itself causes)
-        // rather than let this self-healing account-sync logic race with
-        // it and write a fresh blank account back.
-        if (deletingAccountRef.current) return;
         setHasPendingWrites(snap.metadata.hasPendingWrites);
         setConnError(false);
         if (snap.exists) {
@@ -3883,7 +3953,10 @@ function DutyRoster() {
       state: (next.state || "").trim() || null,
       district: districtId,
       staffCount: Object.keys(next.staff || {}).length,
-      presentCount: Object.values(next.staff || {}).filter((s) => !(s.unavailable && (!s.unavailable.to || s.unavailable.to >= today))).length,
+      presentCount: Object.values(next.staff || {}).filter((s) => {
+        const u = s.unavailable;
+        return !(u && u.from <= today && (!u.to || today <= u.to));
+      }).length,
       onDutyToday: onDutyTodaySet.size,
       monthlyDutyCount,
       updatedAt: Date.now(),
@@ -4107,12 +4180,6 @@ function DutyRoster() {
   const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
   const deleteMyAccountAndData = async () => {
     if (!user || !accountUid) return;
-    // Stop the account listener above from reacting to the deletions
-    // this function is about to make (see deletingAccountRef's own
-    // comment) — reset on every early-return/failure path below so a
-    // cancelled or failed deletion doesn't leave normal syncing
-    // permanently switched off.
-    deletingAccountRef.current = true;
     const cleanup = [db.doc(`accounts/${accountUid}`).delete().catch(() => {})];
     if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
     const districtId = (data && data.district || "").trim();
@@ -4132,31 +4199,22 @@ function DutyRoster() {
             await user.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
           } else {
             const pwd = window.prompt(t("Please re-enter your password to confirm account deletion:", "એકાઉન્ટ ડિલીટ કરવાની પુષ્ટિ માટે તમારો પાસવર્ડ ફરી દાખલ કરો:"));
-            if (!pwd) { deletingAccountRef.current = false; return; }
+            if (!pwd) return;
             const cred = firebase.auth.EmailAuthProvider.credential(user.email, pwd);
             await user.reauthenticateWithCredential(cred);
           }
           await doDelete();
         } catch (e2) {
-          deletingAccountRef.current = false;
           showToast(t("Couldn't verify your identity — account not deleted", "તમારી ઓળખ ચકાસી શકાઈ નહીં — એકાઉન્ટ ડિલીટ થયું નથી"), "error");
           return;
         }
       } else {
-        deletingAccountRef.current = false;
         showToast(t("Couldn't delete account — check your connection and try again", "એકાઉન્ટ ડિલીટ કરી શકાયું નથી — તમારું જોડાણ તપાસો અને ફરી પ્રયાસ કરો"), "error");
         return;
       }
     }
-    // Force a hard redirect straight to the sign-in screen rather than
-    // just letting onAuthStateChanged flip `user` to null and trusting
-    // React to re-render into it — that reactive path technically works,
-    // but leaves a window (further widened by any other effect still
-    // reacting to the just-deleted account) where the page can flash
-    // something other than sign-in first. A full reload of the bare
-    // origin (no ?view=... — see RootApp) is the one guaranteed way to
-    // land exactly on the sign-in screen immediately, every time.
-    window.location.href = window.location.origin + window.location.pathname;
+    // Signed-out state (user === null) takes over from here automatically
+    // via onAuthStateChanged, same as a normal sign-out.
   };
   // ---------- Format all data (guarded multi-step confirmation) ----------
   const [showFormatModal, setShowFormatModal] = useState(false);
@@ -5912,8 +5970,14 @@ function DutyRoster() {
 
   if (user === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
   if (user === null) return <LangContext.Provider value={langCtxValue}><SignInScreen /></LangContext.Provider>;
-  if (adminDistrict === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
-  if (adminDistrict) return <LangContext.Provider value={langCtxValue}><DistrictAdminApp district={adminDistrict} signOutUser={signOutUser} /></LangContext.Provider>;
+  if (isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
+  if (isDistrictAdmin) {
+    return (
+      <LangContext.Provider value={langCtxValue}>
+        <DistrictAdminApp districtId={districtAdminDistrictId} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} />
+      </LangContext.Provider>
+    );
+  }
   // Data hasn't loaded yet, for one of two very different reasons — genuinely
   // still loading (normal, resolves in a moment), or the connection actually
   // failed (connError, set by the listener's error handler above). Blocking
@@ -8198,7 +8262,7 @@ function CategoryFairnessTable({ roster, catLabel }) {
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--border-soft)", overflow: "hidden", minWidth: 60 }}>
-                      <div style={{ width: `${Math.max(r.pct > 0 ? 3 : 0, r.pct)}%`, height: "100%", borderRadius: 3, background: "var(--accent-strong)" }} />
+                      <div style={{ width: `${Math.max(r.pct > 0 ? 3 : 0, r.pct)}%`, height: "100%", borderRadius: 3, background: "var(--accent)" }} />
                     </div>
                     <span className="mono" style={{ fontSize: 12, color: "var(--text-secondary)", minWidth: 42, textAlign: "right" }}>{r.pct.toFixed(1)}%</span>
                   </div>
@@ -8786,7 +8850,7 @@ function StaffView({
                         <div style={{
                           width: maxDuties > 0 ? `${Math.max(6, (s.dutiesThisMonth / maxDuties) * 100)}%` : "0%",
                           height: "100%", borderRadius: 2,
-                          background: maxDuties > 0 && s.dutiesThisMonth === 0 ? "var(--border)" : "var(--accent-strong)",
+                          background: maxDuties > 0 && s.dutiesThisMonth === 0 ? "var(--border)" : "var(--accent)",
                         }} />
                       </div>
                     </div>
@@ -8899,10 +8963,7 @@ function StaffView({
       >
         <input type="text" inputMode="numeric" placeholder={t("Buckle number", "બકલ નંબર")} value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))} style={{ width: 150 }} className="mono" />
         <input type="text" placeholder={t("Full name", "પૂરું નામ")} value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} className="gu" />
-        <div style={{ display: "inline-flex", alignItems: "stretch", width: 160 }}>
-          <span className="mono" style={{ display: "flex", alignItems: "center", padding: "0 6px", background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRight: "none", borderRadius: "6px 0 0 6px", fontSize: 13, color: "var(--text-secondary)" }}>+91</span>
-          <input type="text" placeholder={t("Mobile number (optional)", "મોબાઇલ નંબર (વૈકલ્પિક)")} value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: "100%", borderRadius: "0 6px 6px 0", borderLeft: "none" }} className="mono" />
-        </div>
+        <input type="text" placeholder={t("Mobile number (optional)", "મોબાઇલ નંબર (વૈકલ્પિક)")} value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: 160 }} className="mono" />
         <select value={newStaffDesg} onChange={(e) => setNewStaffDesg(e.target.value)} style={{ width: 160, fontSize: 13 }} className="gu">
           <option value="">{t("Designation (optional)", "હોદ્દો (વૈકલ્પિક)")}</option>
           {(data.designations || []).map((d) => (
@@ -9175,15 +9236,19 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 1: { minCellWidth: 30 }, 3: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [1, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
-        hookData.cell.text = [];
+      if (hookData.section !== "body") return;
+      if (hookData.column.index === 1 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
+      if (hookData.column.index === 3 && needsImageRender(hookData.cell.raw)) {
+        const colWidthMm = (hookData.column.width || 30) - 2;
+        hookData.cell.text = new Array(renderWrappedTextToImage(hookData.cell.raw, FONT_PT, colWidthMm).lineCount).fill(" ");
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [1, 3].includes(hookData.column.index)) {
-        const raw = hookData.cell.raw;
-        if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-      }
+      if (hookData.section !== "body") return;
+      const raw = hookData.cell.raw;
+      if (raw == null || raw === "" || !needsImageRender(raw)) return;
+      if (hookData.column.index === 1) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      if (hookData.column.index === 3) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, hookData.cell.width - 2), FONT_PT);
     },
   });
 
@@ -9398,7 +9463,7 @@ function DutyFairnessCompare({ data, staffList }) {
 
   const Bar = ({ pct, color }) => (
     <div style={{ flex: 1, height: 7, borderRadius: 4, background: "var(--border-soft)", overflow: "hidden" }}>
-      <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--accent-strong)", borderRadius: 4 }} />
+      <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--accent)", borderRadius: 4 }} />
     </div>
   );
   const barRow = (key, label, count, pct, color) => (
@@ -10226,16 +10291,27 @@ function ReportView({ data }) {
       // contain Gujarati text, but each cell is only imaged if it
       // actually does (needsImageRender) — # (0), Dates (4), and Days
       // (5) are always plain numbers/ASCII so those never get imaged.
+      // Note (6) specifically uses the fixed-font-size word-wrap path
+      // (renderWrappedTextToImage/drawWrappedTextImageInCell) instead of
+      // the shrink-to-fit one the other three columns use — see the
+      // comment above those two functions for why: a free-text note's
+      // length varies far more than a name/designation/work-type ever
+      // does, and shrinking a long one to fit on one line made its font
+      // size visibly different from a short one right next to it.
       didParseCell: (hookData) => {
-        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
-          hookData.cell.text = [];
+        if (hookData.section !== "body") return;
+        if ([1, 2, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
+        if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
+          const colWidthMm = (hookData.column.width || 26) - 2;
+          hookData.cell.text = new Array(renderWrappedTextToImage(hookData.cell.raw, FONT_PT, colWidthMm).lineCount).fill(" ");
         }
       },
       didDrawCell: (hookData) => {
-        if (hookData.section === "body" && [1, 2, 3, 6].includes(hookData.column.index)) {
-          const raw = hookData.cell.raw;
-          if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-        }
+        if (hookData.section !== "body") return;
+        const raw = hookData.cell.raw;
+        if (raw == null || raw === "" || !needsImageRender(raw)) return;
+        if ([1, 2, 3].includes(hookData.column.index)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+        if (hookData.column.index === 6) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, hookData.cell.width - 2), FONT_PT);
       },
     });
     setPdfReady({ doc, filename: `nokri-book-report-${month}-gu.pdf` });
@@ -11926,144 +12002,6 @@ const dotStyle = { width: 3, height: 3, borderRadius: "50%", background: "curren
 // reminders, backups, settings) is simply not present here — this
 // component only ever reads `data`, it never calls persist/write.
 // ============================================================
-// ---------- District Admin ----------
-// A district admin is a special Firebase Auth account (created by hand in
-// the Firebase Console, never through this app's own sign-up) that has a
-// matching doc at districtAdmins/{their uid} naming which district they
-// administer. This view lists every station under that district (from the
-// non-sensitive digest each station keeps in sync at
-// districts/{district}/stations/{uid} — see syncDistrictDigest), and lets
-// the admin open any one of them read-only. Opening a station reads that
-// station's REAL accounts/{uid} document directly (not the public-safe
-// mirror PublicRosterView uses) so phone numbers are visible here, same as
-// they are to the station itself — this requires a Firestore Security
-// Rules exception (see the comment on accountDocRef reads) that only this
-// specific admin, for stations in their own district, is granted.
-function DistrictAdminApp({ district, signOutUser }) {
-  const [lang, setLang] = useState(() => { try { return localStorage.getItem("nb_lang") || "en"; } catch (e) { return "en"; } });
-  useEffect(() => { try { localStorage.setItem("nb_lang", lang); } catch (e) {} }, [lang]);
-  const t = useCallback((en, gu) => (lang === "gu" && gu ? gu : en), [lang]);
-  const langCtxValue = useMemo(() => ({ lang, setLang, t }), [lang, t]);
-  useEffect(() => { document.documentElement.setAttribute("data-theme", "light"); }, []);
-
-  const [stations, setStations] = useState(undefined); // undefined = loading
-  const [stationsError, setStationsError] = useState(null);
-  useEffect(() => {
-    setStationsError(null);
-    const unsub = db.collection("districts").doc(district).collection("stations").onSnapshot(
-      (snap) => setStations(snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => (a.stationName || "").localeCompare(b.stationName || ""))),
-      (err) => { setStations([]); setStationsError(err.message || String(err)); }
-    );
-    return () => unsub();
-  }, [district]);
-
-  const [selectedUid, setSelectedUid] = useState(null);
-  const [stationData, setStationData] = useState(undefined); // undefined = loading, null = failed/no access
-
-  useEffect(() => {
-    if (!selectedUid) { setStationData(undefined); return; }
-    setStationData(undefined);
-    const unsub = accountDocRef(selectedUid).onSnapshot(
-      (snap) => setStationData(snap.exists ? normalizeData(snap.data()) : null),
-      () => setStationData(null)
-    );
-    return () => unsub();
-  }, [selectedUid]);
-
-  return (
-    <LangContext.Provider value={langCtxValue}>
-      <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-        {/* This whole top bar (district name / language toggle / sign out)
-            only makes sense for the station-picker screen. Once a station
-            is selected, RosterShellView below draws its own header
-            (including its own "← Districts stations" back button and its
-            own sign-out button, via onBack/onSignOut) — exactly the same
-            header a normal share-link visitor sees — so this one steps
-            aside entirely rather than stacking a second header above it. */}
-        {!selectedUid && (
-          <React.Fragment>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div className="disp gu" style={{ fontSize: 17, fontWeight: 700 }}>🏢 {district} <span style={{ fontWeight: 400, color: "var(--text-tertiary)", fontSize: 13 }} className="gu">— {t("district dashboard (view only)", "જિલ્લા ડેશબોર્ડ (ફક્ત જોવા માટે)")}</span></div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button onClick={() => setLang(lang === "en" ? "gu" : "en")} style={{ background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{lang === "en" ? "ગુજરાતી" : "EN"}</button>
-                <button onClick={signOutUser} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--status-error-text)" }}>{t("Sign out", "સાઇન આઉટ")}</button>
-              </div>
-            </div>
-
-            <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
-              {stations === undefined && <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
-              {stations && stations.length === 0 && (
-                <div style={{ textAlign: "center", padding: "3rem", color: "var(--text-secondary)" }} className="gu">
-                  {t("No stations under this district yet.", "આ જિલ્લા હેઠળ હજુ કોઈ સ્ટેશન નથી.")}
-                  {/* Temporary debug info — remove once this is confirmed
-                      working. Shows exactly what district string this query
-                      used and any read error, since the module scope means
-                      this can't be tested from the browser console directly. */}
-                  <div className="mono" style={{ marginTop: 18, fontSize: 11, color: "var(--text-tertiary)", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, textAlign: "left", maxWidth: 500, marginLeft: "auto", marginRight: "auto" }}>
-                    DEBUG — district = "{district}" (length {district ? district.length : 0})<br />
-                    path = districts/{district}/stations<br />
-                    error = {stationsError || "(none — query returned 0 documents)"}
-                  </div>
-                </div>
-              )}
-              {stations && stations.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {stations.map((s) => (
-                    <button
-                      key={s.uid} onClick={() => setSelectedUid(s.uid)}
-                      className="gu"
-                      style={{ textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>{s.stationName || t("(unnamed station)", "(નામ વગરનું સ્ટેશન)")}</div>
-                        <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 3 }}>
-                          {t(`${s.presentCount != null ? s.presentCount : "—"} / ${s.staffCount != null ? s.staffCount : "—"} present`, `${s.presentCount != null ? s.presentCount : "—"} / ${s.staffCount != null ? s.staffCount : "—"} હાજર`)}
-                          {" · "}{t(`${s.onDutyToday != null ? s.onDutyToday : "—"} on duty today`, `આજે ${s.onDutyToday != null ? s.onDutyToday : "—"} ડ્યુટી પર`)}
-                        </div>
-                        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>
-                          {t("App last used: ", "એપ છેલ્લે વપરાઈ: ")}{s.updatedAt ? new Date(s.updatedAt).toLocaleString() : t("never", "ક્યારેય નહીં")}
-                        </div>
-                      </div>
-                      <div style={{ color: "var(--text-tertiary)", fontSize: 18 }}>›</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </React.Fragment>
-        )}
-
-        {selectedUid && stationData === undefined && (
-          <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
-        )}
-        {selectedUid && stationData === null && (
-          <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }} className="gu">
-            <div style={{ marginBottom: 14 }}>{t("Could not open this station's roster.", "આ સ્ટેશનનું રોસ્ટર ખોલી શકાયું નથી.")}</div>
-            <button
-              onClick={() => setSelectedUid(null)}
-              className="gu"
-              style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer" }}
-            >← {t("Districts stations", "જિલ્લાના સ્ટેશનો")}</button>
-          </div>
-        )}
-        {/* The exact same view-only shell a normal share-link visitor gets
-            (PublicRosterView below) — Today's duty, every work type split
-            out separately with its own Roster/Fairness/History, Staff,
-            Duty calendar, Monthly report, Skip history — just fed the
-            real accounts/{uid} document (phone numbers included, hence
-            showPhone) instead of the sanitized public mirror. This
-            replaced a bespoke 3-tab "all designations merged together"
-            view that didn't match what Share actually produces. */}
-        {selectedUid && stationData && (
-          <RosterShellView data={stationData} onBack={() => setSelectedUid(null)} onSignOut={signOutUser} showPhone={true} />
-        )}
-      </div>
-    </LangContext.Provider>
-  );
-}
-
 function PublicRosterView({ uid }) {
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("nb_lang") || "en"; } catch (e) { return "en"; } });
   useEffect(() => { try { localStorage.setItem("nb_lang", lang); } catch (e) {} }, [lang]);
@@ -12071,6 +12009,25 @@ function PublicRosterView({ uid }) {
   const langCtxValue = useMemo(() => ({ lang, setLang, t }), [lang, t]);
 
   const [data, setData] = useState(undefined); // undefined = loading, null = not shared/not found
+  const [view, setView] = useState({ mode: "home" });
+  const [showAboutPanel, setShowAboutPanel] = useState(false);
+  const [showHelpPanel, setShowHelpPanel] = useState(false);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  // Shared/view-only visitors get their own dark mode preference, kept
+  // separate from the admin's (different device/person in the common
+  // case) so toggling one never silently flips the other.
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("nb_public_dark_mode") === "1"; } catch (e) { return false; } });
+  useEffect(() => { try { localStorage.setItem("nb_public_dark_mode", darkMode ? "1" : "0"); } catch (e) {} }, [darkMode]);
+  // Same "force desktop layout regardless of screen size" toggle as the
+  // main roster's profile menu, kept under its own storage key so it
+  // never gets mixed up with the admin's own preference on a shared device.
+  const [desktopView, setDesktopView] = useState(() => { try { return localStorage.getItem("nb_public_force_desktop_view") === "1"; } catch (e) { return false; } });
+  useEffect(() => { try { localStorage.setItem("nb_public_force_desktop_view", desktopView ? "1" : "0"); } catch (e) {} }, [desktopView]);
+  // Same mobile-only sliding drawer as the manager app — starts closed,
+  // never persisted, closes itself whenever the current screen changes.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
+  const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
   // Used both when the link stops working and from "Sign in" inside the
   // profile menu — drops the pinned share link (if any) and sends the
   // visitor to the normal sign-in screen at the app's base URL.
@@ -12078,6 +12035,25 @@ function PublicRosterView({ uid }) {
     try { localStorage.removeItem(PINNED_VIEW_KEY); } catch (e) {}
     window.location.href = window.location.origin + window.location.pathname;
   }, []);
+  // data-theme has to live on <html> itself (not just a wrapper div) so it
+  // reaches every CSS variable consumer on the page — same approach the
+  // main admin view uses.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+  // Same color theme system as the main admin view, sharing the same
+  // localStorage key — a deliberate choice so a person who uses both the
+  // manager app and a shared view-only link (e.g. on the same device)
+  // sees a consistent theme rather than two independently-remembered ones.
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("nokriBookTheme") || "classic"; } catch (e) { return "classic"; } });
+  useEffect(() => { try { localStorage.setItem("nokriBookTheme", theme); } catch (e) {} }, [theme]);
+  useEffect(() => {
+    if (theme && theme !== "classic") {
+      document.documentElement.setAttribute("data-color-theme", theme);
+    } else {
+      document.documentElement.removeAttribute("data-color-theme");
+    }
+  }, [theme]);
 
   useEffect(() => {
     // Reads publicRosters/{uid} — a separate, deliberately public-safe
@@ -12119,123 +12095,59 @@ function PublicRosterView({ uid }) {
           </div>
         )}
 
-        {data && <RosterShellView data={data} goToLogin={goToLogin} />}
+        {data && (
+          <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
+            <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
+            {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
+            <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
+              <button
+                onClick={() => setMobileSidebarOpen(true)}
+                className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
+                style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
+              >☰</button>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
+                <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
+                  ...undoRedoBtn(true),
+                  background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
+                  borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
+                  color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
+                }} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
+                <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
+                  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
+                  width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
+                }}>⋮</button>
+                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} />
+              </div>
+
+              {view.mode === "home" && (
+                <PublicHomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
+              )}
+              {view.mode === "category" && view.catId && (
+                <PublicCategoryView data={data} catId={view.catId} />
+              )}
+              {view.mode === "staff" && <PublicStaffView data={data} />}
+              {view.mode === "calendar" && <CalendarView data={data} />}
+              {view.mode === "report" && <ReportView data={data} />}
+              {view.mode === "skipHistory" && <SkipHistoryView data={data} />}
+            </div>
+          </div>
+        )}
+
+        {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
+        {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} sections={PUBLIC_HELP_SECTIONS} />}
+        {showSettingsPanel && (
+          <SettingsPanel
+            onHelp={() => setShowHelpPanel(true)}
+            onSignIn={goToLogin}
+            theme={theme} setTheme={setTheme}
+            onClose={() => setShowSettingsPanel(false)}
+          />
+        )}
       </div>
     </LangContext.Provider>
   );
 }
-
-// The actual view-only app shell (sidebar + Today's duty / work types /
-// Staff / Duty calendar / Monthly report / Skip history) — everything
-// AFTER the data has loaded. Shared by two very different callers:
-// PublicRosterView above (an unauthenticated "Share" link, fed the
-// sanitized publicRosters/{uid} mirror — phone numbers never present, so
-// showPhone should stay false there) and DistrictAdminApp above (a
-// signed-in district admin, fed the REAL accounts/{uid} document — phone
-// numbers included, so showPhone is true there). Neither caller can edit
-// anything through this shell; it's the same read-only components either
-// way, just with a different data source and a different phone-number
-// visibility rule.
-function RosterShellView({ data, goToLogin, showPhone, onBack, onSignOut }) {
-  const { t } = useLang();
-  const [view, setView] = useState({ mode: "home" });
-  const [showAboutPanel, setShowAboutPanel] = useState(false);
-  const [showHelpPanel, setShowHelpPanel] = useState(false);
-  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
-  // Shared/view-only visitors get their own dark mode preference, kept
-  // separate from the admin's (different device/person in the common
-  // case) so toggling one never silently flips the other.
-  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("nb_public_dark_mode") === "1"; } catch (e) { return false; } });
-  useEffect(() => { try { localStorage.setItem("nb_public_dark_mode", darkMode ? "1" : "0"); } catch (e) {} }, [darkMode]);
-  // Same "force desktop layout regardless of screen size" toggle as the
-  // main roster's profile menu, kept under its own storage key so it
-  // never gets mixed up with the admin's own preference on a shared device.
-  const [desktopView, setDesktopView] = useState(() => { try { return localStorage.getItem("nb_public_force_desktop_view") === "1"; } catch (e) { return false; } });
-  useEffect(() => { try { localStorage.setItem("nb_public_force_desktop_view", desktopView ? "1" : "0"); } catch (e) {} }, [desktopView]);
-  // Same mobile-only sliding drawer as the manager app — starts closed,
-  // never persisted, closes itself whenever the current screen changes.
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
-  const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
-  // data-theme has to live on <html> itself (not just a wrapper div) so it
-  // reaches every CSS variable consumer on the page — same approach the
-  // main admin view uses.
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
-  }, [darkMode]);
-  // Same color theme system as the main admin view, sharing the same
-  // localStorage key — a deliberate choice so a person who uses both the
-  // manager app and a shared view-only link (e.g. on the same device)
-  // sees a consistent theme rather than two independently-remembered ones.
-  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("nokriBookTheme") || "classic"; } catch (e) { return "classic"; } });
-  useEffect(() => { try { localStorage.setItem("nokriBookTheme", theme); } catch (e) {} }, [theme]);
-  useEffect(() => {
-    if (theme && theme !== "classic") {
-      document.documentElement.setAttribute("data-color-theme", theme);
-    } else {
-      document.documentElement.removeAttribute("data-color-theme");
-    }
-  }, [theme]);
-
-  return (
-    <React.Fragment>
-      <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
-        <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
-        {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
-        <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
-          <button
-            onClick={() => setMobileSidebarOpen(true)}
-            className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
-          >☰</button>
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
-            {onBack && (
-              <button onClick={onBack} className="gu" style={{ background: "transparent", border: "none", color: "var(--text-primary)", fontSize: 13, fontWeight: 600, cursor: "pointer", marginRight: "auto", display: "flex", alignItems: "center", gap: 4 }}>← {t("Districts stations", "જિલ્લાના સ્ટેશનો")}</button>
-            )}
-            <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
-            <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
-              ...undoRedoBtn(true),
-              background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
-              borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
-              color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
-            }} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
-            <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
-              background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
-              width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
-            }}>⋮</button>
-            <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} />
-            {onSignOut && (
-              <button onClick={onSignOut} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 600, color: "var(--status-error-text)" }}>{t("Sign out", "સાઇન આઉટ")}</button>
-            )}
-          </div>
-
-          {view.mode === "home" && (
-            <PublicHomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
-          )}
-          {view.mode === "category" && view.catId && (
-            <PublicCategoryView data={data} catId={view.catId} />
-          )}
-          {view.mode === "staff" && <PublicStaffView data={data} showPhone={showPhone} />}
-          {view.mode === "calendar" && <CalendarView data={data} />}
-          {view.mode === "report" && <ReportView data={data} />}
-          {view.mode === "skipHistory" && <SkipHistoryView data={data} />}
-        </div>
-      </div>
-
-      {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
-      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} sections={PUBLIC_HELP_SECTIONS} />}
-      {showSettingsPanel && (
-        <SettingsPanel
-          onHelp={() => setShowHelpPanel(true)}
-          onSignIn={goToLogin}
-          theme={theme} setTheme={setTheme}
-          onClose={() => setShowSettingsPanel(false)}
-        />
-      )}
-    </React.Fragment>
-  );
-}
-
 
 // Same nav items as the admin Sidebar, minus anything that edits
 // (no "+" add category, no rename/delete, no reminders/recycle bin).
@@ -12621,6 +12533,159 @@ function PublicStaffView({ data }) {
               })}
               {rows.length === 0 && (
                 <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff found.", "કોઈ સ્ટાફ મળ્યો નથી.")}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {historyPersonNumber && data.staff[historyPersonNumber] && (
+        <PersonHistoryModal data={data} number={historyPersonNumber} onClose={() => setHistoryPersonNumber(null)} />
+      )}
+    </React.Fragment>
+  );
+}
+
+function DistrictStaffView({ data }) {
+  const { t } = useLang();
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
+  const [desgFilter, setDesgFilter] = useState("");
+  const [sortBy, setSortBy] = useState("name");
+  const [showFairnessCompare, setShowFairnessCompare] = useState(false);
+  const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
+
+  const currentMonth = todayStr().slice(0, 7);
+  const dutyCountByNumber = useMemo(() => {
+    const counts = {};
+    (data.categories || []).forEach((c) => (data.membership[c.id] || []).forEach((m) => {
+      const n = monthlyGroupedDutyCount(m.history, currentMonth);
+      counts[m.number] = (counts[m.number] || 0) + n;
+    }));
+    return counts;
+  }, [data, currentMonth]);
+
+  const rows = useMemo(() => {
+    let list = Object.values(data.staff || {}).map((s) => {
+      const status = effectiveStatus(s, null);
+      const statusLabel = (status === "Leave" || status === "Outstation") ? unavailLabel(data, s.unavailable) : status;
+      const desg = (data.designations || []).find((d) => d.id === s.designation);
+      // Same "currently active" check the sort/filter logic below relies
+      // on — matches the manager's StaffView exactly.
+      const activeUnavailable = !!(s.unavailable && (!s.unavailable.to || s.unavailable.to >= todayStr()));
+      return { ...s, status, statusLabel, desgLabel: desg ? desg.label : "", dutiesThisMonth: dutyCountByNumber[s.number] || 0, activeUnavailable };
+    });
+    const q = debouncedSearch.trim().toLowerCase();
+    if (q) list = list.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
+    if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
+    list = [...list];
+    // Same five sort/filter modes as the manager's StaffView — "present"
+    // and "unavailable" filter down to just that group (sorted by name)
+    // rather than merely re-ordering everyone, same reasoning as there.
+    if (sortBy === "present") {
+      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    } else if (sortBy === "unavailable") {
+      list = list.filter((s) => s.activeUnavailable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    } else if (sortBy === "designation") {
+      list.sort((a, b) => (a.desgLabel || "").localeCompare(b.desgLabel || "") || (a.name || "").localeCompare(b.name || ""));
+    } else if (sortBy === "heat") {
+      list.sort((a, b) => b.dutiesThisMonth - a.dutiesThisMonth || (a.name || "").localeCompare(b.name || ""));
+    } else {
+      list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+    return list;
+  }, [data, debouncedSearch, desgFilter, sortBy, dutyCountByNumber]);
+
+  const maxDuties = useMemo(() => rows.reduce((m, s) => Math.max(m, s.dutiesThisMonth), 0), [rows]);
+  const minDuties = useMemo(() => rows.length ? rows.reduce((m, s) => Math.min(m, s.dutiesThisMonth), Infinity) : 0, [rows]);
+
+  return (
+    <React.Fragment>
+      <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 16px" }}>{t("Staff", "સ્ટાફ")}</h1>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <input
+          type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("Search by name or number…", "નામ અથવા નંબર દ્વારા શોધો…")} className="gu"
+          style={{ width: "100%", maxWidth: 320, boxSizing: "border-box" }}
+        />
+        <select value={desgFilter} onChange={(e) => setDesgFilter(e.target.value)} style={{ fontSize: 13, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-surface)", color: "var(--text-primary)" }} className="gu">
+          <option value="">{t("All designations", "બધા હોદ્દા")}</option>
+          <option value="__none__">{t("No designation", "કોઈ હોદ્દો નથી")}</option>
+          {(data.designations || []).map((d) => (
+            <option key={d.id} value={d.id}>{d.label}</option>
+          ))}
+        </select>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ fontSize: 13, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-surface)", color: "var(--text-primary)" }} className="gu">
+          <option value="name">{t("Sort: Name", "ક્રમ: નામ")}</option>
+          <option value="designation">{t("Sort: Designation", "ક્રમ: હોદ્દો")}</option>
+          <option value="heat">{t("Sort: Duty meter (busiest first)", "ક્રમ: ડ્યુટી મીટર (સૌથી વ્યસ્ત પ્રથમ)")}</option>
+          <option value="present">{t("Show: Present only", "બતાવો: ફક્ત હાજર")}</option>
+          <option value="unavailable">{t("Show: Leave/Outstation only", "બતાવો: ફક્ત રજા/બહારગામ")}</option>
+        </select>
+        <button
+          onClick={() => setShowFairnessCompare((v) => !v)}
+          style={{
+            background: showFairnessCompare ? "var(--accent)" : "var(--bg-surface)", color: showFairnessCompare ? "var(--accent-text)" : "var(--text-primary)",
+            border: "1px solid " + (showFairnessCompare ? "var(--accent-strong)" : "var(--border)"), borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+          }} className="gu"
+        >⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
+      </div>
+
+      {showFairnessCompare && (
+        <DutyFairnessCompare data={data} staffList={rows} currentMonth={currentMonth} />
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10, fontSize: 11.5, color: "var(--text-secondary)", flexWrap: "wrap" }} className="gu">
+        <span style={{ fontWeight: 600 }}>{t("Duty meter:", "ડ્યુટી મીટર:")}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-error-text)", display: "inline-block" }} />{t("Busiest", "સૌથી વ્યસ્ત")}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-warning-text)", display: "inline-block" }} />{t("Moderate", "મધ્યમ")}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-success-text)", display: "inline-block" }} />{t("Least busy", "સૌથી ઓછું વ્યસ્ત")}</span>
+        <span style={{ color: "var(--text-tertiary)" }}>{t("— relative to everyone shown, this month", "— આ મહિને બતાવેલ બધાની સાપેક્ષે")}</span>
+      </div>
+
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
+                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Phone", "ફોન")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((s) => {
+                const sty = STATUS_STYLE[s.status] || STATUS_STYLE.Present;
+                const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
+                return (
+                  <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
+                    <td style={td} className="mono">{s.number}</td>
+                    <td style={{ ...td, minWidth: 160 }} className="gu">
+                      <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} />
+                      <span
+                        onClick={() => setHistoryPersonNumber(s.number)}
+                        title={t("View full duty history across every work type", "દરેક કામના પ્રકારમાં સંપૂર્ણ ડ્યુટી ઇતિહાસ જુઓ")}
+                        style={{ color: DUTY_HEAT_COLOR[heat], fontWeight: heat === "green" ? 400 : 600, cursor: "pointer", borderBottom: "1px dashed currentColor" }}
+                      >{s.name}</span>
+                    </td>
+                    <td style={td} className="mono">{s.phone ? ("+91 " + s.phone) : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                    <td style={td} className="gu">{s.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                    <td style={td}>
+                      <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{s.statusLabel}</span>
+                      {s.unavailable && (
+                        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }} className="gu">
+                          {s.unavailable.from > todayStr()
+                            ? `${t("starts", "શરૂ થાય છે")} ${formatDMY(s.unavailable.from)}${s.unavailable.to ? ` – ${formatDMY(s.unavailable.to)}` : ""}`
+                            : s.unavailable.to
+                              ? `${formatDMY(s.unavailable.from)} – ${formatDMY(s.unavailable.to)}`
+                              : `${t("from", "થી")} ${formatDMY(s.unavailable.from)} · ${t("no end date", "કોઈ અંતિમ તારીખ નથી")}`}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ ...td, textAlign: "center", fontSize: 12, color: "var(--text-secondary)" }} className="mono">{s.dutiesThisMonth}</td>
+                  </tr>
+                );
+              })}
+              {rows.length === 0 && (
+                <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff found.", "કોઈ સ્ટાફ મળ્યો નથી.")}</td></tr>
               )}
             </tbody>
           </table>
