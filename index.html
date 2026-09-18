@@ -12763,46 +12763,21 @@ function DistrictProfileMenu({ email, darkMode, setDarkMode, onSignOut }) {
 // full list is still one tap away without cluttering the default view.
 function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack, mobileOpen, onCloseMobile }) {
   const { t } = useLang();
-  const STAR_KEY = `nb_district_starred_${stationUid}`;
-  const [starred, setStarred] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(STAR_KEY) || "[]"); } catch (e) { return []; }
-  });
-  useEffect(() => {
-    try { setStarred(JSON.parse(localStorage.getItem(STAR_KEY) || "[]")); } catch (e) { setStarred([]); }
-  }, [STAR_KEY]);
-  useEffect(() => {
-    try { localStorage.setItem(STAR_KEY, JSON.stringify(starred)); } catch (e) {}
-  }, [starred, STAR_KEY]);
-  const [showAll, setShowAll] = useState(false);
-  useEffect(() => { setShowAll(false); }, [stationUid]);
-  const toggleStar = (id) => setStarred((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-
   const categories = (data && data.categories) || [];
-  const starredCats = categories.filter((c) => starred.includes(c.id));
-  const restCats = categories.filter((c) => !starred.includes(c.id));
 
   const renderCatRow = (c) => {
     const count = (data.membership && data.membership[c.id] ? data.membership[c.id].length : 0);
     const active = view.mode === "category" && c.id === view.catId;
-    const isStarred = starred.includes(c.id);
     return (
-      <div key={c.id} style={{ display: "flex", alignItems: "center" }}>
-        <button
-          onClick={() => toggleStar(c.id)}
-          title={isStarred ? t("Unstar — move back to the full list", "અનસ્ટાર કરો — સંપૂર્ણ યાદીમાં પાછું ખસેડો") : t("Star — keep this at the top", "સ્ટાર કરો — આને ટોચ પર રાખો")}
-          aria-label={isStarred ? t("Unstar", "અનસ્ટાર કરો") : t("Star", "સ્ટાર કરો")}
-          style={{ background: "transparent", border: "none", color: isStarred ? "#E8B33D" : "#4A5560", fontSize: 13, padding: "0 2px 0 12px", cursor: "pointer", lineHeight: 1 }}
-        >{isStarred ? "★" : "☆"}</button>
-        <button onClick={() => setView({ mode: "category", catId: c.id })} className="gu" style={{
-          flex: 1, textAlign: "left", background: active ? "#1B2733" : "transparent",
-          border: "none", borderLeft: active ? "3px solid var(--accent-strong)" : "3px solid transparent",
-          color: active ? "#fff" : "#B7C2CA", padding: "9px 16px 9px 6px", fontSize: 13,
-          fontWeight: active ? 600 : 400, display: "flex", justifyContent: "space-between", alignItems: "center",
-        }}>
-          <span>{c.label}</span>
-          <span className="mono" style={{ fontSize: 11, color: "#6B7A85" }}>{count}</span>
-        </button>
-      </div>
+      <button key={c.id} onClick={() => setView({ mode: "category", catId: c.id })} className="gu" style={{
+        width: "100%", textAlign: "left", background: active ? "#1B2733" : "transparent",
+        border: "none", borderLeft: active ? "3px solid var(--accent-strong)" : "3px solid transparent",
+        color: active ? "#fff" : "#B7C2CA", padding: "9px 16px 9px 13px", fontSize: 13,
+        fontWeight: active ? 600 : 400, display: "flex", justifyContent: "space-between", alignItems: "center",
+      }}>
+        <span>{c.label}</span>
+        <span className="mono" style={{ fontSize: 11, color: "#6B7A85" }}>{count}</span>
+      </button>
     );
   };
 
@@ -12825,13 +12800,7 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
       </div>
       <div style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
         <div style={{ padding: "4px 16px", fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, color: "#6B7A85", textTransform: "uppercase" }} className="gu">{t("Work types", "કામના પ્રકારો")}</div>
-        {starredCats.map(renderCatRow)}
-        {starredCats.length > 0 && restCats.length > 0 && (
-          <button onClick={() => setShowAll((v) => !v)} className="gu" style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#6B7A85", padding: "8px 16px", fontSize: 11.5, cursor: "pointer" }}>
-            {showAll ? "▾ " + t("Hide other work types", "બીજા કામના પ્રકારો છુપાવો") : "▸ " + t(`Show ${restCats.length} more work types`, `બીજા ${restCats.length} કામના પ્રકારો બતાવો`)}
-          </button>
-        )}
-        {(starredCats.length === 0 || showAll) && restCats.map(renderCatRow)}
+        {categories.map(renderCatRow)}
         {categories.length === 0 && <div className="gu" style={{ padding: "8px 16px", fontSize: 12, color: "#6B7A85" }}>{t("No work types yet.", "હજુ કોઈ કામનો પ્રકાર નથી.")}</div>}
       </div>
       <div style={{ borderTop: "1px solid #1B2733", padding: "8px 0" }}>
@@ -12858,6 +12827,26 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
 function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMode, theme }) {
   const { t } = useLang();
   const [stations, setStations] = useState(null); // null = loading
+  // Which of this district's stations the admin actually checks day to
+  // day — a district can run into 20+ stations, but a given Divisional
+  // officer typically only supervises a handful of them directly, so
+  // starring works the same as the manager's own work-type list: starred
+  // stations stay pinned at the top, everything else collapses behind a
+  // "show N more" toggle instead of always dumping the full district on
+  // screen. Kept in this browser only (localStorage), per district, so
+  // it doesn't need a Firestore write just to remember a preference.
+  const STATION_STAR_KEY = `nb_district_starred_stations_${districtId}`;
+  const [starredStations, setStarredStations] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(STATION_STAR_KEY) || "[]"); } catch (e) { return []; }
+  });
+  useEffect(() => {
+    try { setStarredStations(JSON.parse(localStorage.getItem(STATION_STAR_KEY) || "[]")); } catch (e) { setStarredStations([]); }
+  }, [STATION_STAR_KEY]);
+  useEffect(() => {
+    try { localStorage.setItem(STATION_STAR_KEY, JSON.stringify(starredStations)); } catch (e) {}
+  }, [starredStations, STATION_STAR_KEY]);
+  const toggleStationStar = (uid) => setStarredStations((prev) => (prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]));
+  const [showAllStations, setShowAllStations] = useState(false);
   const [selectedUid, setSelectedUid] = useState(null);
   const [selectedData, setSelectedData] = useState(undefined); // undefined = loading, null = couldn't load
   const [view, setView] = useState({ mode: "home" });
@@ -12923,23 +12912,49 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
           {stations !== null && stations.length === 0 && (
             <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("No stations found in this district yet.", "આ જિલ્લામાં હજુ કોઈ સ્ટેશન મળ્યું નથી.")}</div>
           )}
-          {(stations || []).map((s) => (
-            <button
-              key={s.uid} onClick={() => setSelectedUid(s.uid)} className="gu"
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 20px", marginBottom: 12, cursor: "pointer" }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{s.stationName || t("(unnamed station)", "(અનામી સ્ટેશન)")}</div>
-                <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                  {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {s.onDutyToday || 0} {t("on duty today", "આજે ડ્યુટી પર")}
+          {(() => {
+            const starredList = (stations || []).filter((s) => starredStations.includes(s.uid));
+            const restList = (stations || []).filter((s) => !starredStations.includes(s.uid));
+            const renderStationRow = (s) => {
+              const isStarred = starredStations.includes(s.uid);
+              return (
+                <div key={s.uid} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+                  <button
+                    onClick={() => toggleStationStar(s.uid)}
+                    title={isStarred ? t("Unstar — move back into the full list", "અનસ્ટાર કરો — સંપૂર્ણ યાદીમાં પાછું ખસેડો") : t("Star — keep this station at the top", "સ્ટાર કરો — આ સ્ટેશનને ટોચ પર રાખો")}
+                    aria-label={isStarred ? t("Unstar", "અનસ્ટાર કરો") : t("Star", "સ્ટાર કરો")}
+                    style={{ flexShrink: 0, background: "transparent", border: "none", color: isStarred ? "#E8B33D" : "var(--text-tertiary)", fontSize: 18, padding: "0 4px", cursor: "pointer", lineHeight: 1 }}
+                  >{isStarred ? "★" : "☆"}</button>
+                  <button
+                    onClick={() => setSelectedUid(s.uid)} className="gu"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 20px", cursor: "pointer" }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{s.stationName || t("(unnamed station)", "(અનામી સ્ટેશન)")}</div>
+                      <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+                        {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {s.onDutyToday || 0} {t("on duty today", "આજે ડ્યુટી પર")}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
+                        {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString() : "—"}
+                      </div>
+                    </div>
+                    <span style={{ color: "var(--text-tertiary)", fontSize: 20, flexShrink: 0, marginLeft: 12 }}>›</span>
+                  </button>
                 </div>
-                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
-                  {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString() : "—"}
-                </div>
-              </div>
-              <span style={{ color: "var(--text-tertiary)", fontSize: 20, flexShrink: 0, marginLeft: 12 }}>›</span>
-            </button>
-          ))}
+              );
+            };
+            return (
+              <React.Fragment>
+                {starredList.map(renderStationRow)}
+                {starredList.length > 0 && restList.length > 0 && (
+                  <button onClick={() => setShowAllStations((v) => !v)} className="gu" style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", color: "var(--text-tertiary)", padding: "4px 4px 16px", fontSize: 12.5, cursor: "pointer" }}>
+                    {showAllStations ? "▾ " + t("Hide other stations", "બીજા સ્ટેશનો છુપાવો") : "▸ " + t(`Show ${restList.length} more stations`, `બીજા ${restList.length} સ્ટેશનો બતાવો`)}
+                  </button>
+                )}
+                {(starredList.length === 0 || showAllStations) && restList.map(renderStationRow)}
+              </React.Fragment>
+            );
+          })()}
         </div>
       </div>
     );
