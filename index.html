@@ -1495,7 +1495,14 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       if (hookData.section !== "body") return;
       if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
       if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
-        const colWidthMm = (hookData.column.width || 30) - 2;
+        // Hardcoded to match columnStyles[5].cellWidth (60) exactly,
+        // rather than reading hookData.column.width here — that read
+        // returned a DIFFERENT number than hookData.cell.width does in
+        // didDrawCell below, so the line count reserved here (based on a
+        // too-narrow width) came out higher than the line count actually
+        // drawn there (based on the true, wider width) — doubling some
+        // rows' height with nothing under the extra space.
+        const colWidthMm = 60 - 2;
         hookData.cell.text = new Array(renderWrappedTextToImage(hookData.cell.raw, FONT_PT, colWidthMm).lineCount).fill(" ");
       }
     },
@@ -1504,7 +1511,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       const raw = hookData.cell.raw;
       if (raw == null || raw === "" || !needsImageRender(raw)) return;
       if (hookData.column.index === 2) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-      if (hookData.column.index === 5) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, hookData.cell.width - 2), FONT_PT);
+      if (hookData.column.index === 5) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 60 - 2), FONT_PT);
     },
   });
 
@@ -9331,7 +9338,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
       if (hookData.section !== "body") return;
       if (hookData.column.index === 1 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
       if (hookData.column.index === 3 && needsImageRender(hookData.cell.raw)) {
-        const colWidthMm = (hookData.column.width || 30) - 2;
+        const colWidthMm = 75 - 2;
         hookData.cell.text = new Array(renderWrappedTextToImage(hookData.cell.raw, FONT_PT, colWidthMm).lineCount).fill(" ");
       }
     },
@@ -9340,7 +9347,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
       const raw = hookData.cell.raw;
       if (raw == null || raw === "" || !needsImageRender(raw)) return;
       if (hookData.column.index === 1) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-      if (hookData.column.index === 3) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, hookData.cell.width - 2), FONT_PT);
+      if (hookData.column.index === 3) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 75 - 2), FONT_PT);
     },
   });
 
@@ -10425,7 +10432,7 @@ function ReportView({ data }) {
         if (hookData.section !== "body") return;
         if ([1, 2, 3].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
         if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
-          const colWidthMm = (hookData.column.width || 26) - 2;
+          const colWidthMm = 40 - 2;
           hookData.cell.text = new Array(renderWrappedTextToImage(hookData.cell.raw, FONT_PT, colWidthMm).lineCount).fill(" ");
         }
       },
@@ -10434,7 +10441,7 @@ function ReportView({ data }) {
         const raw = hookData.cell.raw;
         if (raw == null || raw === "" || !needsImageRender(raw)) return;
         if ([1, 2, 3].includes(hookData.column.index)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-        if (hookData.column.index === 6) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, hookData.cell.width - 2), FONT_PT);
+        if (hookData.column.index === 6) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 40 - 2), FONT_PT);
       },
     });
     setPdfReady({ doc, filename: `nokri-book-report-${month}-gu.pdf` });
