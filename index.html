@@ -1080,10 +1080,11 @@ function renderTextToImage(text, fontSizePt) {
   const glyphHeight = (metrics.actualBoundingBoxAscent || 0) + (metrics.actualBoundingBoxDescent || 0);
   return { dataUrl: canvas.toDataURL("image/png"), width, height, glyphHeight: glyphHeight || fontPx * 0.7 };
 }
-// Draws a pre-rendered text image into one autoTable cell, vertically
-// centered and left-aligned with a small left padding, scaled down from
-// its (deliberately oversized, for crispness) pixel dimensions to fit
-// the cell's actual height in PDF points.
+// Draws a pre-rendered text image into one autoTable cell, top-aligned
+// (matching valign:"top" on the table itself) and left-aligned with a
+// small left padding, scaled down from its (deliberately oversized, for
+// crispness) pixel dimensions to fit the cell's actual height in PDF
+// points.
 function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   if (!rendered) return;
   // Both the max height (based on font size, matching native text) and
@@ -1111,7 +1112,18 @@ function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   const targetH = rendered.height * scale;
   const targetW = rendered.width * scale;
   const x = cell.x + 1;
-  const y = cell.y + (cell.height - targetH) / 2;
+  // Top-aligned (matching the valign:"top" now set on every autoTable
+  // call) rather than vertically centered in the cell's full height —
+  // centering looked fine when every cell in a row was the same height,
+  // but a row made tall by a wrapped Note in another column left the
+  // short, single-line Name/Designation/Status image floating in the
+  // middle of that tall row instead of sitting level with the row's
+  // native-text cells (#, Number, Dates, Days), which autoTable itself
+  // now also top-aligns. cell.padding("top") matches autoTable's own
+  // top inset exactly (falling back to a close approximation on older
+  // autoTable builds without a padding() accessor on the cell).
+  const padTop = (cell.padding && typeof cell.padding === "function") ? cell.padding("top") : 1.3;
+  const y = cell.y + padTop;
   doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
 }
 // Same canvas-measurement font renderTextToImage uses, wrapped onto as
@@ -1185,7 +1197,13 @@ function drawWrappedTextImageInCell(doc, cell, rendered, fontSizePt) {
   const targetH = rendered.height * scale;
   const targetW = rendered.width * scale;
   const x = cell.x + 1;
-  const y = cell.y + Math.max(0.3, (cell.height - targetH) / 2);
+  // Same top-alignment reasoning as drawTextImageInCell above — this is
+  // the function actually drawing the multi-line Note image whose
+  // wrapping is what makes a row taller than the rest in the first
+  // place, so it especially needs to start flush with the row's top
+  // rather than centered in the extra height it itself created.
+  const padTop = (cell.padding && typeof cell.padding === "function") ? cell.padding("top") : 1.3;
+  const y = cell.y + padTop;
   doc.addImage(rendered.dataUrl, "PNG", x, y, targetW, targetH);
 }
 // Draws the station name centered horizontally across the page — used at
@@ -1404,6 +1422,12 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   doc.setFontSize(11);
   doc.text("Roster", 14, headerY);
   doc.autoTable({
+    // Never let a row (in particular one made tall by a wrapped
+    // Note column) get split across a page boundary — with the
+    // custom Gujarati image drawn once per row in didDrawCell,
+    // a split row meant the image got redrawn on its continuation
+    // fragment too, showing the row twice across the page break.
+    rowPageBreak: "avoid",
     startY: headerY + 4,
     head: [["Rank", "Number", "Name", "Last duty", "Waiting", "Duties", "Status"]],
     // p.history comes straight off the membership row computeRoster
@@ -1416,7 +1440,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       p.rank || "—", p.number, p.name, p.lastDuty ? formatDMY(p.lastDuty) : "—",
       p.waiting != null ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
-    styles: { fontSize: FONT_PT },
+    styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 2: { minCellWidth: 45 }, 6: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
@@ -1446,6 +1470,12 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     .filter((r) => r.from <= periodTo && r.to >= periodFrom)
     .sort((a, b) => a.from.localeCompare(b.from) || a.name.localeCompare(b.name));
   doc.autoTable({
+    // Never let a row (in particular one made tall by a wrapped
+    // Note column) get split across a page boundary — with the
+    // custom Gujarati image drawn once per row in didDrawCell,
+    // a split row meant the image got redrawn on its continuation
+    // fragment too, showing the row twice across the page break.
+    rowPageBreak: "avoid",
     startY: doc.lastAutoTable.finalY + 14,
     head: [["#", "Number", "Name", "Dates", "Days", "Note"]],
     body: filteredHistoryRows.map((r, i) => [
@@ -1453,7 +1483,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to),
       r.days, r.note || "",
     ]),
-    styles: { fontSize: FONT_PT },
+    styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 2: { minCellWidth: 42 }, 5: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
@@ -1498,10 +1528,16 @@ async function downloadStaffDirectoryPdf(staffList, stationName) {
   doc.text(`${staffList.length} staff`, 14, headerY + 5);
 
   doc.autoTable({
+    // Never let a row (in particular one made tall by a wrapped
+    // Note column) get split across a page boundary — with the
+    // custom Gujarati image drawn once per row in didDrawCell,
+    // a split row meant the image got redrawn on its continuation
+    // fragment too, showing the row twice across the page break.
+    rowPageBreak: "avoid",
     startY: headerY + 10,
     head: [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"]],
     body: staffList.map((s) => [s.number, s.name, displayPhone(s.phone) || "—", s.desgLabel || "—", s.statusLabel, s.dutiesThisMonth]),
-    styles: { fontSize: FONT_PT },
+    styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
@@ -1542,10 +1578,16 @@ async function downloadSkipHistoryPdf(rows, stationName) {
   // hold real Gujarati text — same image-cell treatment as every other
   // Gujarati-capable PDF table in the app.
   doc.autoTable({
+    // Never let a row (in particular one made tall by a wrapped
+    // Note column) get split across a page boundary — with the
+    // custom Gujarati image drawn once per row in didDrawCell,
+    // a split row meant the image got redrawn on its continuation
+    // fragment too, showing the row twice across the page break.
+    rowPageBreak: "avoid",
     startY: headerY + 5,
     head: [["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"]],
     body: rows,
-    styles: { fontSize: FONT_PT },
+    styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
@@ -5992,7 +6034,7 @@ function DutyRoster() {
   if (isDistrictAdmin) {
     return (
       <LangContext.Provider value={langCtxValue}>
-        <DistrictAdminApp districtId={districtAdminDistrictId} email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} />
+        <DistrictAdminApp districtId={districtAdminDistrictId} email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} />
       </LangContext.Provider>
     );
   }
@@ -9244,13 +9286,19 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   // just for this export; the modal's own on-screen order is untouched.
   const sortedGroups = [...filteredGroups].sort((a, b) => a.from.localeCompare(b.from));
   doc.autoTable({
+    // Never let a row (in particular one made tall by a wrapped
+    // Note column) get split across a page boundary — with the
+    // custom Gujarati image drawn once per row in didDrawCell,
+    // a split row meant the image got redrawn on its continuation
+    // fragment too, showing the row twice across the page break.
+    rowPageBreak: "avoid",
     startY: y + 13,
     head: [["Date", "Work type", "Days", "Note"]],
     body: sortedGroups.map((g) => [
       g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
       g.catLabel, g.days, g.note || "",
     ]),
-    styles: { fontSize: FONT_PT },
+    styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
     columnStyles: { 1: { minCellWidth: 30 }, 3: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
@@ -9840,10 +9888,16 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       doc.setFontSize(8.5);
       doc.text("Generated " + new Date().toLocaleString(), 14, headerY + 5);
       doc.autoTable({
+        // Never let a row (in particular one made tall by a wrapped
+        // Note column) get split across a page boundary — with the
+        // custom Gujarati image drawn once per row in didDrawCell,
+        // a split row meant the image got redrawn on its continuation
+        // fragment too, showing the row twice across the page break.
+        rowPageBreak: "avoid",
         startY: headerY + 10,
         head: [["#", "Name", "Number", "Type", "From", "To"]],
         body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
-        styles: { fontSize: CAL_FONT_PT },
+        styles: { fontSize: CAL_FONT_PT, valign: "top" },
         headStyles: { fillColor: [14, 22, 32] },
         // Same reasoning as the Monthly Report and per-work-type PDFs:
         // didParseCell blanks these cells' native text so the image can
@@ -10265,10 +10319,16 @@ function ReportView({ data }) {
     // normal auto-sizing untouched either way; didDrawCell then places
     // the pre-rendered image on top only for those same cells.
     doc.autoTable({
+      // Never let a row (in particular one made tall by a wrapped
+      // Note column) get split across a page boundary — with the
+      // custom Gujarati image drawn once per row in didDrawCell,
+      // a split row meant the image got redrawn on its continuation
+      // fragment too, showing the row twice across the page break.
+      rowPageBreak: "avoid",
       startY: headerY + 10,
       head: [["#", "Name", "Designation", "Total duties"]],
       body: summaryNames.map((name, i) => [i + 1, name, grouped[name][0].designation, grouped[name].length]),
-      styles: { fontSize: FONT_PT },
+      styles: { fontSize: FONT_PT, valign: "top" },
       headStyles: { fillColor: [14, 22, 32] },
       // autoTable sizes "auto" columns from each cell's text width — but
       // didParseCell (below) blanks the Name/Designation cell text for
@@ -10296,6 +10356,12 @@ function ReportView({ data }) {
     doc.text("Full detail", 14, doc.lastAutoTable.finalY + 10);
     const collapsedRows = collapseConsecutiveDutyRows(rows);
     doc.autoTable({
+      // Never let a row (in particular one made tall by a wrapped
+      // Note column) get split across a page boundary — with the
+      // custom Gujarati image drawn once per row in didDrawCell,
+      // a split row meant the image got redrawn on its continuation
+      // fragment too, showing the row twice across the page break.
+      rowPageBreak: "avoid",
       startY: doc.lastAutoTable.finalY + 14,
       head: [["#", "Name", "Designation", "Work type", "Dates", "Days", "Note"]],
       body: collapsedRows.map((r, i) => [
@@ -10303,7 +10369,7 @@ function ReportView({ data }) {
         r.from === r.to ? formatDMY(r.from) : `${formatDMY(r.from)} – ${formatDMY(r.to)}`,
         r.days, r.note || "",
       ]),
-      styles: { fontSize: FONT_PT },
+      styles: { fontSize: FONT_PT, valign: "top" },
       headStyles: { fillColor: [14, 22, 32] },
       // Same reasoning as the summary table above: didParseCell blanks
       // these cells' text for the image-render path, so without an
@@ -12728,9 +12794,11 @@ function DistrictStaffView({ data }) {
 // WHICH district-office account this is, since these are shared-purpose
 // logins rather than one-per-person), a language toggle, and Sign out,
 // all in one place instead of as separate standalone buttons.
-function DistrictProfileMenu({ email, darkMode, setDarkMode, onSignOut }) {
+function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, onSignOut }) {
   const { t, lang, setLang } = useLang();
   const [open, setOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const activeTheme = THEME_OPTIONS.find((o) => o.value === (theme || "classic")) || THEME_OPTIONS[0];
   const wrapRef = useRef(null);
   useEscToClose(() => setOpen(false));
   useEffect(() => {
@@ -12751,6 +12819,43 @@ function DistrictProfileMenu({ email, darkMode, setDarkMode, onSignOut }) {
           {email && <div style={{ padding: "10px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-soft)", wordBreak: "break-all" }}>{email}</div>}
           <button onClick={() => setLang(lang === "gu" ? "en" : "gu")} className="gu" style={{ ...pillBtn, borderBottom: "1px solid var(--border-soft)" }}>🌐 {lang === "gu" ? "English" : "ગુજરાતી"}</button>
           <button onClick={() => setDarkMode((d) => !d)} className="gu" style={{ ...pillBtn, borderBottom: "1px solid var(--border-soft)" }}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
+          {setTheme && (
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border-soft)" }}>
+              <button
+                onClick={() => setThemeOpen((v) => !v)}
+                aria-expanded={themeOpen}
+                className="gu"
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)", fontSize: 12.5 }}
+              >
+                <span style={{ display: "inline-block", transform: themeOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                🎨 {t("Theme", "થીમ")}
+              </button>
+              {themeOpen && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                  {THEME_OPTIONS.map((opt) => {
+                    const active = opt.value === activeTheme.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => setTheme(opt.value)}
+                        className="gu"
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                          padding: "6px 8px", borderRadius: 8, cursor: "pointer",
+                          border: "1px solid " + (active ? "var(--accent-strong)" : "transparent"),
+                          background: active ? "var(--accent-light)" : "transparent",
+                        }}
+                      >
+                        <ThemeSwatch sidebar={opt.sidebar} page={opt.page} accent={opt.accent} small />
+                        <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-primary)" }}>{t(...opt.label)}</span>
+                        {active && <span style={{ color: "var(--accent-strong)", fontWeight: 700 }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           <button onClick={onSignOut} className="gu" style={{ ...pillBtn, color: "var(--status-error-text)", fontWeight: 600 }}>{t("Sign out", "સાઇન આઉટ")}</button>
         </div>
       )}
@@ -12831,7 +12936,7 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
 // one deliberate difference is DistrictStaffView instead of
 // PublicStaffView, which additionally shows phone numbers, since this
 // is official district oversight rather than a public share link.
-function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMode, theme }) {
+function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
   const { t } = useLang();
   const [stations, setStations] = useState(null); // null = loading
   // Which of this district's stations the admin actually checks day to
@@ -12910,7 +13015,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
       <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
           <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("District Dashboard", "જિલ્લા ડેશબોર્ડ")}</div>
-          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} onSignOut={signOutUser} />
+          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
         </div>
         <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
           {stations === null && (
@@ -12990,7 +13095,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
             color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
           }} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
-          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} onSignOut={signOutUser} />
+          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
         </div>
 
         {selectedData === undefined && (
