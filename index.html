@@ -13203,6 +13203,48 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     return () => unsub();
   }, [districtId]);
 
+  // The digest doc's own onDutyToday (read above, per station) only gets
+  // rewritten when that STATION's own device makes a save — so a station
+  // that simply hasn't been opened since the calendar turned over to
+  // today would show a frozen, wrong count here no matter what that
+  // station's code does on its end; there's no way to fix that from the
+  // digest alone since nothing server-side ever recomputes it. So instead
+  // of trusting the stored number, this list also opens a live listener
+  // on each station's publicRosters/{uid} — the exact same document and
+  // the exact same lastDuty === today check DistrictOnDutyView already
+  // uses one screen deeper — and uses THAT wherever it's available,
+  // falling back to the (possibly stale) digest figure only for a
+  // station that has never turned Share on. A district with a few dozen
+  // stations means a few dozen small listeners, which is a perfectly
+  // reasonable cost for numbers that are otherwise structurally unable
+  // to self-correct.
+  const [liveOnDuty, setLiveOnDuty] = useState({});
+  const stationUidsKey = (stations || []).map((s) => s.uid).sort().join(",");
+  useEffect(() => {
+    const uids = stationUidsKey ? stationUidsKey.split(",") : [];
+    if (uids.length === 0) { setLiveOnDuty({}); return; }
+    const unsubs = uids.map((uid) =>
+      db.collection("publicRosters").doc(uid).onSnapshot(
+        (snap) => {
+          if (!snap.exists || snap.data().v !== 2) {
+            setLiveOnDuty((prev) => { const next = { ...prev }; delete next[uid]; return next; });
+            return;
+          }
+          const d = normalizeData(snap.data());
+          const today = todayStr();
+          let count = 0;
+          (d.categories || []).forEach((c) => {
+            const roster = computeRoster(d, c.id);
+            if (roster.find((p) => p.lastDuty === today)) count += 1;
+          });
+          setLiveOnDuty((prev) => ({ ...prev, [uid]: count }));
+        },
+        () => setLiveOnDuty((prev) => { const next = { ...prev }; delete next[uid]; return next; })
+      )
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [stationUidsKey]);
+
   useEffect(() => {
     if (!selectedUid) { setSelectedData(undefined); return; }
     setSelectedData(undefined);
@@ -13268,7 +13310,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{s.stationName || t("(unnamed station)", "(અનામી સ્ટેશન)")}</div>
                       <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                        {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {s.onDutyToday || 0} {t("on duty today", "આજે ડ્યુટી પર")}
+                        {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {(liveOnDuty[s.uid] != null ? liveOnDuty[s.uid] : (s.onDutyToday || 0))} {t("on duty today", "આજે ડ્યુટી પર")}
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
                         {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString() : "—"}
