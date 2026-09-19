@@ -4055,6 +4055,30 @@ function DutyRoster() {
     };
     trySync(false);
   };
+  // The digest above only gets rewritten when THIS station's own device
+  // makes a save — fine for staffCount (rarely changes), but "on duty
+  // today" and "this month's duties" are date-driven: a station that
+  // simply doesn't touch its roster on a given day leaves the district
+  // office staring at whatever those numbers happened to be at the last
+  // save, which can genuinely read "0 on duty today" even while people
+  // really are on duty (their lastDuty was set on an earlier day, for
+  // today's date, and nothing has re-saved since the calendar actually
+  // turned over to today) — not a miscount, just a frozen answer from a
+  // day that's already passed. Fixed the same way the reminders panel
+  // already handles a tab staying open across midnight: piggyback on
+  // its existing 5-minute tick to re-sync on its own, plus once right
+  // when this station's data first finishes loading, so the figures
+  // catch up even on a day with zero edits.
+  const digestInitRef = useRef(false);
+  useEffect(() => {
+    if (!digestInitRef.current && data) {
+      digestInitRef.current = true;
+      syncDistrictDigest(data);
+    }
+  }, [data]);
+  useEffect(() => {
+    if (dataRef.current) syncDistrictDigest(dataRef.current);
+  }, [tick]);
 
   const writeToFirestore = (next) => {
     // Stamped with the actual moment this change was made on THIS
