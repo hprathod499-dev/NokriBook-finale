@@ -8401,15 +8401,16 @@ function CategoryFairnessTable({ roster, catLabel }) {
 // kept separate per work type so it can be used as evidence for that
 // specific duty allocation without mixing in other work types.
 // Supports gallery-style multi-select (like Samsung Gallery/Google Photos):
-// tap the ✕ on any row to start selecting, tap rows to add/remove from the
-// selection, then delete just the picked entries — or clear everything at
-// once with the separate "Clear history" button.
+// tap the toolbar's "Select" button to start selecting, tap rows to
+// add/remove from the selection, then delete just the picked entries —
+// or clear everything at once with the separate "Clear history" button.
 // Lets the manager fix a typo or add missing detail to an already-saved
 // history entry's note (and, for Miscellaneous duty, its separate
 // optional extra-note) without deleting and re-creating the entry —
-// opened from CategoryHistoryTable's "Edit note" (✎) button, right next
-// to the existing "Select to delete" (✕) one. For a grouped multi-day
-// span, editing here corrects every underlying day in the span at once
+// opened from CategoryHistoryTable's per-row "Edit note" (✎) button.
+// For a grouped multi-day span, editing here corrects every underlying
+// day in the span at once (same idxs the row's own deletion already
+// groups together).
 // (same idxs the row's own ✕ button already deletes together).
 function EditHistoryNoteModal({ row, isMiscCategory, onSave, onClose }) {
   const { t } = useLang();
@@ -8489,7 +8490,6 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
     });
   };
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filteredRows.map(keyOf)));
-  const startSelect = (key) => { setSelectMode(true); setSelected(new Set([key])); };
   const cancelSelect = () => { setSelectMode(false); setSelected(new Set()); };
   const confirmDelete = () => {
     if (selected.size === 0) return;
@@ -8600,10 +8600,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
                         {r.extraNote && <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }} className="gu">{r.extraNote}</div>}
                       </span>
                       {!selectMode && (
-                        <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-                          <button onClick={(e) => { e.stopPropagation(); setEditingRow(r); }} title={t("Edit note", "નોંધ સંપાદિત કરો")} aria-label={t("Edit note", "નોંધ સંપાદિત કરો")} style={iconBtn}>✎</button>
-                          <button onClick={(e) => { e.stopPropagation(); startSelect(key); }} title={t("Select this entry to delete", "ડિલીટ કરવા માટે આ એન્ટ્રી પસંદ કરો")} aria-label={t("Select this entry to delete", "ડિલીટ કરવા માટે આ એન્ટ્રી પસંદ કરો")} style={iconBtn}>✕</button>
-                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); setEditingRow(r); }} title={t("Edit note", "નોંધ સંપાદિત કરો")} aria-label={t("Edit note", "નોંધ સંપાદિત કરો")} style={{ ...iconBtn, flexShrink: 0 }}>✎</button>
                       )}
                     </div>
                   </td>
