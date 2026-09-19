@@ -1481,7 +1481,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     body: filteredHistoryRows.map((r, i) => [
       i + 1, r.number, r.name,
       r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to),
-      r.days, r.note || "",
+      r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
@@ -5205,6 +5205,39 @@ function DutyRoster() {
     persist(recycled);
     showToast(t(`${count} history ${count === 1 ? "entry" : "entries"} deleted — moved to Recycle bin`, `${count} ઇતિહાસ ${count === 1 ? "એન્ટ્રી" : "એન્ટ્રીઓ"} ડિલીટ થઈ — રિસાયકલ બિનમાં ખસેડાયું`));
   };
+  // Corrects the note/extra-note text on one or more already-recorded
+  // history entries in place — the "Edit note" action next to the ✕
+  // (delete) button in CategoryHistoryTable. Unlike deleteHistoryEntries
+  // this never touches the Recycle bin, since nothing is removed, only
+  // fixed. idxs is a Set of that member's history-array positions (same
+  // idx numbering deleteHistoryEntries uses); a grouped multi-day span's
+  // several underlying per-day entries are all passed in together so the
+  // whole span gets the same corrected text instead of just its first day.
+  const editHistoryNote = (catId, number, idxs, newNote, newExtraNote) => {
+    if (!idxs || idxs.size === 0) return;
+    const cur = data.categories.find((c) => c.id === catId);
+    const label = cur ? cur.label : catId;
+    const list = data.membership[catId] || [];
+    const cleanNote = (newNote || "").trim() || null;
+    const cleanExtraNote = (newExtraNote || "").trim() || null;
+    const nextMembership = {
+      ...data.membership,
+      [catId]: list.map((m) => {
+        if (m.number !== number) return m;
+        const nextHistory = (m.history || []).map((entry, i) => {
+          if (!idxs.has(i)) return entry;
+          // A legacy plain-date-string entry has no object to spread —
+          // promote it to the normal {date, ts, note, ...} shape so it
+          // can carry the edited note just like every newer entry does.
+          const base = typeof entry === "string" ? { date: entry, ts: 0, batch: null } : entry;
+          return { ...base, note: cleanNote, extraNote: cleanExtraNote };
+        });
+        return { ...m, history: nextHistory };
+      }),
+    };
+    persist({ ...dataRef.current, membership: nextMembership });
+    showToast(t(`Note updated for "${label}"`, `"${label}" માટે નોંધ અપડેટ થઈ`));
+  };
   const removeFromCategory = (catId, number) => {
     const cur = data.categories.find((c) => c.id === catId);
     const label = cur ? cur.label : catId;
@@ -6291,6 +6324,7 @@ function DutyRoster() {
               setLastDuty={setLastDuty} assignDuty={assignDuty}
               clearCategoryHistory={clearCategoryHistory}
               deleteHistoryEntries={deleteHistoryEntries}
+              editHistoryNote={editHistoryNote}
               undo={undo} redo={redo} canUndo={undoStack.length > 0} canRedo={redoStack.length > 0}
             />
           )}
@@ -7579,7 +7613,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   );
 }
 
-function CategoryView({ data, catId, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, undo, redo, canUndo, canRedo }) {
+function CategoryView({ data, catId, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, editHistoryNote, undo, redo, canUndo, canRedo }) {
   const { t, lang } = useLang();
   const [newNumber, setNewNumber] = useState("");
   const [newName, setNewName] = useState("");
@@ -7760,7 +7794,12 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       </div>
 
       {tab === "history" ? (
-        <CategoryHistoryTable key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName} onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)} />
+        <CategoryHistoryTable
+          key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName}
+          onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)}
+          onEditNote={(number, idxs, note, extraNote) => editHistoryNote(catId, number, idxs, note, extraNote)}
+          isMiscCategory={catId === MISC_CATEGORY_ID}
+        />
       ) : tab === "fairness" ? (
         <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} />
       ) : (
@@ -8365,11 +8404,63 @@ function CategoryFairnessTable({ roster, catLabel }) {
 // tap the ✕ on any row to start selecting, tap rows to add/remove from the
 // selection, then delete just the picked entries — or clear everything at
 // once with the separate "Clear history" button.
-function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onDeleteSelected }) {
+// Lets the manager fix a typo or add missing detail to an already-saved
+// history entry's note (and, for Miscellaneous duty, its separate
+// optional extra-note) without deleting and re-creating the entry —
+// opened from CategoryHistoryTable's "Edit note" (✎) button, right next
+// to the existing "Select to delete" (✕) one. For a grouped multi-day
+// span, editing here corrects every underlying day in the span at once
+// (same idxs the row's own ✕ button already deletes together).
+function EditHistoryNoteModal({ row, isMiscCategory, onSave, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [note, setNote] = useState(row.note || "");
+  const [extraNote, setExtraNote] = useState(row.extraNote || "");
+  const noteInvalid = isMiscCategory && !note.trim();
+
+  const handleSave = () => {
+    if (noteInvalid) return;
+    onSave(note, extraNote);
+    onClose();
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Edit note", "નોંધ સંપાદિત કરો")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 420, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{t("Edit note", "નોંધ સંપાદિત કરો")}</div>
+        <div className="gu mono" style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 14 }}>
+          {row.name} · #{row.number} · {row.days > 1 ? `${formatDMY(row.from)} – ${formatDMY(row.to)}` : formatDMY(row.to)}
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">
+            {isMiscCategory ? t("What is this duty? (required)", "આ ડ્યુટી શું છે? (જરૂરી)") : t("Note (optional)", "નોંધ (વૈકલ્પિક)")}
+          </label>
+          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} autoFocus className="gu" style={{ width: "100%", boxSizing: "border-box" }} />
+          {noteInvalid && <div style={{ fontSize: 11, color: "var(--status-error-text)", marginTop: 4 }} className="gu">{t("This can't be empty for Miscellaneous duty.", "વિવિધ ડ્યુટી માટે આ ખાલી ન હોઈ શકે.")}</div>}
+        </div>
+
+        {isMiscCategory && (
+          <div style={{ marginBottom: 6 }}>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Note (optional)", "નોંધ (વૈકલ્પિક)")}</label>
+            <input type="text" value={extraNote} onChange={(e) => setExtraNote(e.target.value)} placeholder={t("Any extra detail beyond the duty description above", "ઉપરના ડ્યુટી વર્ણન ઉપરાંત કોઈ વધારાની વિગત")} className="gu" style={{ width: "100%", boxSizing: "border-box" }} />
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <button onClick={onClose} className="gu" style={{ flex: 1, background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>{t("Cancel", "રદ કરો")}</button>
+          <button onClick={handleSave} disabled={noteInvalid} className="gu" style={{ flex: 1, background: noteInvalid ? "var(--border)" : "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: noteInvalid ? "default" : "pointer" }}>{t("Save", "સાચવો")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory }) {
   const { t } = useLang();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState("");
+  const [editingRow, setEditingRow] = useState(null);
 
   const keyOf = (r) => `${r.number}#${r.idxs.join(",")}`;
 
@@ -8450,7 +8541,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
                 <button
                   onClick={() => downloadCsv(
                     `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.csv`,
-                    [...(stationName ? [[stationName], []] : []), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, r.note || ""])]
+                    [...(stationName ? [[stationName], []] : []), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
                   )}
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
                 >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
@@ -8509,7 +8600,10 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
                         {r.extraNote && <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }} className="gu">{r.extraNote}</div>}
                       </span>
                       {!selectMode && (
-                        <button onClick={(e) => { e.stopPropagation(); startSelect(key); }} title={t("Select this entry to delete", "ડિલીટ કરવા માટે આ એન્ટ્રી પસંદ કરો")} aria-label={t("Select this entry to delete", "ડિલીટ કરવા માટે આ એન્ટ્રી પસંદ કરો")} style={{ ...iconBtn, flexShrink: 0 }}>✕</button>
+                        <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                          <button onClick={(e) => { e.stopPropagation(); setEditingRow(r); }} title={t("Edit note", "નોંધ સંપાદિત કરો")} aria-label={t("Edit note", "નોંધ સંપાદિત કરો")} style={iconBtn}>✎</button>
+                          <button onClick={(e) => { e.stopPropagation(); startSelect(key); }} title={t("Select this entry to delete", "ડિલીટ કરવા માટે આ એન્ટ્રી પસંદ કરો")} aria-label={t("Select this entry to delete", "ડિલીટ કરવા માટે આ એન્ટ્રી પસંદ કરો")} style={iconBtn}>✕</button>
+                        </div>
                       )}
                     </div>
                   </td>
@@ -8526,6 +8620,14 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
         </table>
         </div>
       </div>
+      {editingRow && (
+        <EditHistoryNoteModal
+          row={editingRow}
+          isMiscCategory={isMiscCategory}
+          onSave={(note, extraNote) => onEditNote(editingRow.number, new Set(editingRow.idxs), note, extraNote)}
+          onClose={() => setEditingRow(null)}
+        />
+      )}
     </React.Fragment>
   );
 }
@@ -9316,7 +9418,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
     head: [["Date", "Work type", "Days", "Note"]],
     body: sortedGroups.map((g) => [
       g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
-      g.catLabel, g.days, g.note || "",
+      g.catLabel, g.days, [g.note, g.extraNote].filter(Boolean).join(" — "),
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
@@ -10400,7 +10502,7 @@ function ReportView({ data }) {
       body: collapsedRows.map((r, i) => [
         i + 1, r.name, r.designation, r.category,
         r.from === r.to ? formatDMY(r.from) : `${formatDMY(r.from)} – ${formatDMY(r.to)}`,
-        r.days, r.note || "",
+        r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
       ]),
       styles: { fontSize: FONT_PT, valign: "top" },
       headStyles: { fillColor: [14, 22, 32] },
