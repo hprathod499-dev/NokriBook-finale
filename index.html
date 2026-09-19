@@ -4017,14 +4017,20 @@ function DutyRoster() {
     const today = todayStr();
     const monthPrefix = today.slice(0, 7);
     let monthlyDutyCount = 0;
+    // Matches the exact same check HomeView uses to decide whether a
+    // category shows an "On duty today" card (roster.find(p =>
+    // p.lastDuty === today)) — NOT a scan of history entries dated
+    // today, which undercounts: lastDuty is set the moment a duty is
+    // assigned, while the corresponding history entry can lag behind it
+    // for some duty types, so scanning history alone showed 0 here even
+    // when the station's own screen was already showing people on duty.
     const onDutyTodaySet = new Set();
     Object.values(next.membership || {}).forEach((list) => {
       (list || []).forEach((m) => {
+        if (m.lastDuty === today) onDutyTodaySet.add(m.number);
         (m.history || []).forEach((e) => {
           const d = historyDate(e);
-          if (!d) return;
-          if (d.slice(0, 7) === monthPrefix) monthlyDutyCount += 1;
-          if (d === today) onDutyTodaySet.add(m.number);
+          if (d && d.slice(0, 7) === monthPrefix) monthlyDutyCount += 1;
         });
       });
     });
@@ -12781,7 +12787,6 @@ function DistrictStaffView({ data }) {
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
   const [sortBy, setSortBy] = useState("name");
-  const [showFairnessCompare, setShowFairnessCompare] = useState(false);
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
 
   const currentMonth = todayStr().slice(0, 7);
@@ -12851,18 +12856,7 @@ function DistrictStaffView({ data }) {
           <option value="present">{t("Show: Present only", "બતાવો: ફક્ત હાજર")}</option>
           <option value="unavailable">{t("Show: Leave/Outstation only", "બતાવો: ફક્ત રજા/બહારગામ")}</option>
         </select>
-        <button
-          onClick={() => setShowFairnessCompare((v) => !v)}
-          style={{
-            background: showFairnessCompare ? "var(--accent)" : "var(--bg-surface)", color: showFairnessCompare ? "var(--accent-text)" : "var(--text-primary)",
-            border: "1px solid " + (showFairnessCompare ? "var(--accent-strong)" : "var(--border)"), borderRadius: 6, padding: "7px 12px", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
-          }} className="gu"
-        >⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
       </div>
-
-      {showFairnessCompare && (
-        <DutyFairnessCompare data={data} staffList={rows} currentMonth={currentMonth} />
-      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10, fontSize: 11.5, color: "var(--text-secondary)", flexWrap: "wrap" }} className="gu">
         <span style={{ fontWeight: 600 }}>{t("Duty meter:", "ડ્યુટી મીટર:")}</span>
@@ -12924,6 +12918,72 @@ function DistrictStaffView({ data }) {
       {historyPersonNumber && data.staff[historyPersonNumber] && (
         <PersonHistoryModal data={data} number={historyPersonNumber} onClose={() => setHistoryPersonNumber(null)} />
       )}
+    </React.Fragment>
+  );
+}
+// Duty Fairness as its own sidebar screen for the district admin — it
+// used to be a toggle tucked inside Staff (see the manager's own
+// StaffView and the shared-link PublicStaffView, which both still work
+// that way); here it gets a permanent spot of its own instead, since an
+// admin comparing workload across a station is at least as common a
+// reason to open this view as looking someone up by name.
+function DistrictFairnessView({ data }) {
+  const { t } = useLang();
+  const staffList = useMemo(() => Object.values(data.staff || {}).map((s) => {
+    const desg = (data.designations || []).find((d) => d.id === s.designation);
+    return { ...s, desgLabel: desg ? desg.label : "" };
+  }), [data]);
+  return (
+    <React.Fragment>
+      <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 16px" }}>{t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</h1>
+      <DutyFairnessCompare data={data} staffList={staffList} />
+    </React.Fragment>
+  );
+}
+// A flat, cross-work-type list of exactly who is on duty today — the
+// same "on duty today" check HomeView's cards use (lastDuty === today),
+// just laid out as one table across every work type at once instead of
+// one card per work type, for a quicker scan than paging through
+// Today's Duty's cards one work type at a time.
+function DistrictOnDutyView({ data }) {
+  const { t } = useLang();
+  const today = todayStr();
+  const rows = useMemo(() => {
+    const list = [];
+    (data.categories || []).forEach((c) => {
+      const roster = computeRoster(data, c.id);
+      const onDuty = roster.find((p) => p.lastDuty === today);
+      if (onDuty) list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number });
+    });
+    return list;
+  }, [data, today]);
+  return (
+    <React.Fragment>
+      <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>{t("On duty today", "આજે ડ્યુટી પર")}</h1>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 16px" }} className="gu">{new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(today)}</p>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
+                <th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} style={{ borderTop: "1px solid var(--border-soft)" }}>
+                  <td style={td} className="gu">{r.catLabel}</td>
+                  <td style={td} className="mono">{r.number}</td>
+                  <td style={td} className="gu">{r.name}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr><td colSpan={3} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No one is on duty today.", "આજે કોઈ ડ્યુટી પર નથી.")}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </React.Fragment>
   );
 }
@@ -13047,6 +13107,9 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
       </div>
       <div style={{ padding: "8px 0" }}>
         <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
+        <button onClick={() => setView({ mode: "onDuty" })} style={navBtn(view.mode === "onDuty")} className="gu">🟢 {t("On duty", "ડ્યુટી પર")}</button>
+        <button onClick={() => setView({ mode: "fairness" })} style={navBtn(view.mode === "fairness")} className="gu">⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
+        <button onClick={() => setView({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Staff", "સ્ટાફ")}</button>
       </div>
       <div style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
         <div style={{ padding: "4px 16px", fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, color: "#6B7A85", textTransform: "uppercase" }} className="gu">{t("Work types", "કામના પ્રકારો")}</div>
@@ -13054,7 +13117,6 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
         {categories.length === 0 && <div className="gu" style={{ padding: "8px 16px", fontSize: 12, color: "#6B7A85" }}>{t("No work types yet.", "હજુ કોઈ કામનો પ્રકાર નથી.")}</div>}
       </div>
       <div style={{ borderTop: "1px solid #1B2733", padding: "8px 0" }}>
-        <button onClick={() => setView({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Staff", "સ્ટાફ")}</button>
         <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
         <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
         <button onClick={() => setView({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
@@ -13246,6 +13308,8 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
           <React.Fragment>
             {view.mode === "home" && <PublicHomeView data={selectedData} goToCategory={(catId) => setView({ mode: "category", catId })} />}
             {view.mode === "category" && view.catId && <PublicCategoryView data={selectedData} catId={view.catId} />}
+            {view.mode === "onDuty" && <DistrictOnDutyView data={selectedData} />}
+            {view.mode === "fairness" && <DistrictFairnessView data={selectedData} />}
             {view.mode === "staff" && <DistrictStaffView data={selectedData} />}
             {view.mode === "calendar" && <CalendarView data={selectedData} />}
             {view.mode === "report" && <ReportView data={selectedData} />}
