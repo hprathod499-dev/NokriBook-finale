@@ -7658,6 +7658,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const [removeMode, setRemoveMode] = useState(false);
   const [tab, setTab] = useState("roster"); // roster | history
   const [assignTarget, setAssignTarget] = useState(null); // { number, name }
+  const [skipTarget, setSkipTarget] = useState(null); // { number, name }
   // "rank" = normal fair-rotation order (default). "duties" = sorted by how
   // many times each person has done this work type, most first — lets you
   // spot at a glance who's carrying the load in this specific work type.
@@ -8034,7 +8035,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                       <span title={`${formatDMY(p.staffRec.unavailable.from)} → ${p.staffRec.unavailable.to ? formatDMY(p.staffRec.unavailable.to) : t("ongoing", "ચાલુ")}`} style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{p.statusLabel}</span>
                     ) : (
                       <select value={p.status} onChange={(e) => {
-                        if (e.target.value === "Skip") { skipInCategoryWithLog(catId, cat ? cat.label : catId, p.number, p.name, "", "", ""); }
+                        if (e.target.value === "Skip") { setSkipTarget({ number: p.number, name: p.name }); }
                         else { setPresentInCategory(catId, p.number); }
                       }} style={{
                         fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border,
@@ -8100,7 +8101,50 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           onCancel={() => setAssignTarget(null)}
         />
       )}
+      {skipTarget && (
+        <SkipNoteModal
+          name={skipTarget.name}
+          onConfirm={(note) => { skipInCategoryWithLog(catId, cat ? cat.label : catId, skipTarget.number, skipTarget.name, note, "", ""); setSkipTarget(null); }}
+          onCancel={() => setSkipTarget(null)}
+        />
+      )}
     </React.Fragment>
+  );
+}
+// Shown whenever someone is marked "Skip" on a work type's roster — the
+// note is mandatory here (unlike AssignDutyModal's optional one above),
+// matching what the app's own help text already promises ("A note is
+// required, and it's logged in Skip history") but what the roster's
+// status dropdown previously didn't actually enforce, since it called
+// skipInCategoryWithLog directly with an empty note.
+function SkipNoteModal({ name, onConfirm, onCancel }) {
+  const { t } = useLang();
+  useEscToClose(onCancel);
+  const [note, setNote] = useState("");
+  const trimmed = note.trim();
+  return (
+    <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
+      <div role="dialog" aria-modal="true" aria-label={t("Skip", "સ્કિપ")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 340 }}>
+        <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t("Mark Skip:", "સ્કિપ તરીકે માર્ક કરો:")} {name}</div>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "6px 0 10px" }} className="gu">{t("This takes them out of this work type's rotation without touching their waiting time. A note explaining why is required, and it's logged in Skip history.", "આ તેમને આ કામના પ્રકારના રોટેશનમાંથી બહાર કરે છે, તેમના રાહ જોવાના સમયને અસર કર્યા વગર. શા માટે તે સમજાવતી નોંધ જરૂરી છે, અને તે સ્કિપ ઇતિહાસમાં નોંધાય છે.")}</p>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={t("Note (required) — e.g. injured, on court leave, at hospital…", "નોંધ (જરૂરી) — દા.ત. ઘાયલ, કોર્ટ રજા પર, હોસ્પિટલમાં…")}
+          className="gu" autoFocus
+          rows={3}
+          style={{ width: "100%", boxSizing: "border-box", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "inherit", resize: "vertical", marginBottom: 16 }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
+          <button
+            onClick={() => trimmed && onConfirm(trimmed)}
+            disabled={!trimmed}
+            style={{ background: trimmed ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: trimmed ? "pointer" : "default" }} className="gu"
+          >{t("Mark Skip", "સ્કિપ કરો")}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 function catTabBtn(active) {
