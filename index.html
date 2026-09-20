@@ -124,6 +124,19 @@
   a, .clickable, [role="button"] { transition: color 0.15s ease, background-color 0.15s ease; }
   table { transition: opacity 0.15s ease; }
   tr { transition: background-color 0.12s ease; }
+  /* A neutral gray overlay rather than a theme color, so this reads
+     correctly across all 4 color themes and both light/dark mode
+     without needing its own per-theme variable — just enough to say
+     "this row" on hover, not a strong highlight. An inline background
+     already set on a specific <tr> (e.g. the roster's rank-1 "Next up"
+     row) wins over this automatically, since inline styles beat a
+     plain class rule — so this never fights an existing highlight. */
+  tbody tr:hover { background-color: rgba(127, 127, 127, 0.07); }
+  @keyframes starPop { 0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  .star-pop { animation: starPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); display: inline-block; }
+  @media (prefers-reduced-motion: reduce) {
+    .star-pop { animation: none !important; }
+  }
   @media (max-width: 860px) {
     /* Off-canvas sliding drawer instead of stacking the sidebar above the
        content: the sidebar sits fixed and pushed off-screen to the left
@@ -13335,7 +13348,9 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                     title={isStarred ? t("Unstar — move back into the full list", "અનસ્ટાર કરો — સંપૂર્ણ યાદીમાં પાછું ખસેડો") : t("Star — keep this station at the top", "સ્ટાર કરો — આ સ્ટેશનને ટોચ પર રાખો")}
                     aria-label={isStarred ? t("Unstar", "અનસ્ટાર કરો") : t("Star", "સ્ટાર કરો")}
                     style={{ flexShrink: 0, background: "transparent", border: "none", color: isStarred ? "#E8B33D" : "var(--text-tertiary)", fontSize: 18, padding: "0 4px", cursor: "pointer", lineHeight: 1 }}
-                  >{isStarred ? "★" : "☆"}</button>
+                  >
+                    <span key={isStarred ? "on" : "off"} className="star-pop">{isStarred ? "★" : "☆"}</span>
+                  </button>
                   <button
                     onClick={() => setSelectedUid(s.uid)} className="gu"
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 20px", cursor: "pointer" }}
