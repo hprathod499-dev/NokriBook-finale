@@ -12053,7 +12053,7 @@ function SkipHistoryView({ data, initialSearch }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                  <th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Time", "સમય")}</th><th style={th}>{t("Skipped person", "સ્કિપ થયેલ વ્યક્તિ")}</th><th style={th}>બકલ નંબર</th><th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Skipped by", "સ્કિપ કરનાર")}</th><th style={th}>{t("Note", "નોંધ")}</th>
+                  <th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Time", "સમય")}</th><th style={th}>{t("Skipped person", "સ્કિપ થયેલ વ્યક્તિ")}</th><th style={th}>બકલ નંબર</th><th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Note", "નોંધ")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -12071,19 +12071,12 @@ function SkipHistoryView({ data, initialSearch }) {
                           ? (e.catLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>)
                           : <span style={{ color: "var(--text-tertiary)" }}>{t("All work types", "બધા કામના પ્રકારો")}</span>}
                       </td>
-                      <td style={{ ...td, minWidth: 160 }} className="gu">
-                        {e.byName ? (
-                          <React.Fragment>{e.byName} <span className="mono" style={{ color: "var(--text-tertiary)" }}>({e.byNumber})</span></React.Fragment>
-                        ) : (
-                          <span style={{ color: "var(--text-tertiary)" }}>–</span>
-                        )}
-                      </td>
                       <td style={{ ...td, minWidth: 220 }} className="gu">{e.note || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                     </tr>
                   );
                 })}
                 {entries.length === 0 && (
-                  <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">
+                  <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">
                     {(data.skipLog || []).length === 0 ? t("No one has been marked Skip yet.", "હજુ સુધી કોઈને સ્કિપ તરીકે માર્ક કરવામાં આવ્યું નથી.") : t("No entries match your search.", "તમારી શોધ સાથે કોઈ પ્રવેશ મેળ ખાતું નથી.")}
                   </td></tr>
                 )}
