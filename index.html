@@ -8112,25 +8112,21 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   );
 }
 // Shown whenever someone is marked "Skip" on a work type's roster — the
-// note is mandatory here (unlike AssignDutyModal's optional one above),
-// matching what the app's own help text already promises ("A note is
-// required, and it's logged in Skip history") but what the roster's
-// status dropdown previously didn't actually enforce, since it called
-// skipInCategoryWithLog directly with an empty note.
+// note here is optional, same as AssignDutyModal's above, so "Mark Skip"
+// is always clickable regardless of whether anything's typed.
 function SkipNoteModal({ name, onConfirm, onCancel }) {
   const { t } = useLang();
   useEscToClose(onCancel);
   const [note, setNote] = useState("");
-  const trimmed = note.trim();
   return (
     <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20 }}>
       <div role="dialog" aria-modal="true" aria-label={t("Skip", "સ્કિપ")} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 10, padding: 22, width: 340 }}>
         <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t("Mark Skip:", "સ્કિપ તરીકે માર્ક કરો:")} {name}</div>
-        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "6px 0 10px" }} className="gu">{t("This takes them out of this work type's rotation without touching their waiting time. A note explaining why is required, and it's logged in Skip history.", "આ તેમને આ કામના પ્રકારના રોટેશનમાંથી બહાર કરે છે, તેમના રાહ જોવાના સમયને અસર કર્યા વગર. શા માટે તે સમજાવતી નોંધ જરૂરી છે, અને તે સ્કિપ ઇતિહાસમાં નોંધાય છે.")}</p>
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "6px 0 10px" }} className="gu">{t("This takes them out of this work type's rotation without touching their waiting time. Add a note if it needs a reason on record — optional, it's logged in Skip history either way.", "આ તેમને આ કામના પ્રકારના રોટેશનમાંથી બહાર કરે છે, તેમના રાહ જોવાના સમયને અસર કર્યા વગર. કારણ નોંધવું જરૂરી હોય તો નોંધ ઉમેરો — વૈકલ્પિક, બંને રીતે તે સ્કિપ ઇતિહાસમાં નોંધાય છે.")}</p>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder={t("Note (required) — e.g. injured, on court leave, at hospital…", "નોંધ (જરૂરી) — દા.ત. ઘાયલ, કોર્ટ રજા પર, હોસ્પિટલમાં…")}
+          placeholder={t("Note (optional) — e.g. injured, on court leave, at hospital…", "નોંધ (વૈકલ્પિક) — દા.ત. ઘાયલ, કોર્ટ રજા પર, હોસ્પિટલમાં…")}
           className="gu" autoFocus
           rows={3}
           style={{ width: "100%", boxSizing: "border-box", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: "inherit", resize: "vertical", marginBottom: 16 }}
@@ -8138,9 +8134,8 @@ function SkipNoteModal({ name, onConfirm, onCancel }) {
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
           <button
-            onClick={() => trimmed && onConfirm(trimmed)}
-            disabled={!trimmed}
-            style={{ background: trimmed ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: trimmed ? "pointer" : "default" }} className="gu"
+            onClick={() => onConfirm(note.trim())}
+            style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }} className="gu"
           >{t("Mark Skip", "સ્કિપ કરો")}</button>
         </div>
       </div>
@@ -13225,6 +13220,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   const [view, setView] = useState({ mode: "home" });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId, selectedUid]);
+  const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
 
   useEffect(() => {
     if (!districtId) { setStations([]); return; }
@@ -13376,7 +13372,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   }
 
   return (
-    <div className="app-shell" style={{ display: "flex", minHeight: "100vh", background: "var(--bg-page)" }}>
+    <div className="app-shell" style={{ display: "flex", minHeight: "100vh", background: "var(--bg-page)" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
       <DistrictSidebar
         data={selectedData || { categories: [], membership: {} }} view={view} setView={setView}
         stationName={selectedStation && selectedStation.stationName} stationUid={selectedUid}
