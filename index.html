@@ -11495,7 +11495,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   const [otherName, setOtherName] = useState(initialStationName || "");
   const otherInputRef = useRef(null);
   const stateOptions = Object.keys(POLICE_LOCATIONS_GU);
-  const [selState, setSelState] = useState(stateOptions[0] || "");
+  const [selState, setSelState] = useState("");
   const [selDistrict, setSelDistrict] = useState("");
   // A district can be a flat station array (every district so far except
   // Ahmedabad) or { groups: {...} } — Ahmedabad's three wings, City/
@@ -11606,6 +11606,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
         </p>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("State", "રાજ્ય")}</label>
         <select value={selState} onChange={(e) => setSelState(e.target.value)} className="gu" style={selectStyle}>
+          <option value="">{t("Select a state…", "રાજ્ય પસંદ કરો…")}</option>
           {stateOptions.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("District", "જિલ્લો")}</label>
