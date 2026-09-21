@@ -11635,6 +11635,12 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
       manualStationRef.current.setSelectionRange(0, 0);
     }
   }, [manualStation]);
+  // Manual entry is scoped to whichever district it was turned on for —
+  // if the district changes (including back to unselected), the toggle
+  // itself disappears (see selDistrict && below), so manual mode needs
+  // to drop with it or the input would keep showing with no way back to
+  // the list.
+  useEffect(() => { setManualStation(false); }, [selDistrict]);
   const canSubmitManualStation = manualStationName.trim().length > 0 && manualStationName.trim() !== "પોલીસ સ્ટેશન";
   const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
   const districtEntry = POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict];
@@ -11758,25 +11764,32 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
             </select>
           </React.Fragment>
         )}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }} className="gu">{t("Station", "સ્ટેશન")}</label>
-          <button
-            type="button"
-            onClick={() => setManualStation((v) => { const next = !v; if (next) setManualStationName("પોલીસ સ્ટેશન"); return next; })}
-            className="gu"
-            style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, border: "1px solid var(--accent-strong)", background: manualStation ? "var(--accent)" : "transparent", color: manualStation ? "var(--accent-text)" : "var(--accent-strong)", cursor: "pointer" }}
-          >{manualStation ? t("← Pick from list", "← યાદીમાંથી પસંદ કરો") : t("Not in the list? Add it manually", "યાદીમાં નથી? જાતે ઉમેરો")}</button>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Station", "સ્ટેશન")}</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {manualStation ? (
+              <input
+                ref={manualStationRef}
+                type="text" value={manualStationName} onChange={(e) => setManualStationName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }}
+                className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }}
+              />
+            ) : (
+              <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
+            )}
+          </div>
+          {/* Only once a district is actually picked — before that there's
+              no district to file a manually-typed station under, so the
+              toggle would just be a dead end. */}
+          {selDistrict && (
+            <button
+              type="button"
+              onClick={() => setManualStation((v) => { const next = !v; if (next) setManualStationName("પોલીસ સ્ટેશન"); return next; })}
+              className="gu"
+              style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--accent-strong)", background: manualStation ? "var(--accent)" : "transparent", color: manualStation ? "var(--accent-text)" : "var(--accent-strong)", cursor: "pointer" }}
+            >{manualStation ? t("← List", "← યાદી") : t("Not in the list?", "યાદીમાં નથી?")}</button>
+          )}
         </div>
-        {manualStation ? (
-          <input
-            ref={manualStationRef}
-            type="text" value={manualStationName} onChange={(e) => setManualStationName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }}
-            className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }}
-          />
-        ) : (
-          <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
-        )}
         <div style={{ marginBottom: 12 }} />
         <button
           onClick={() => {
