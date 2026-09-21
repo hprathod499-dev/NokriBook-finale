@@ -3410,6 +3410,33 @@ function EyeToggle({ open, onClick }) {
   );
 }
 
+// Shown once, right after "Delete my account" actually succeeds — see
+// the long comment near deleteMyAccountAndData for why this exists
+// instead of dropping straight to SignInScreen (a lingering Google
+// session or an autofilled password can otherwise sign someone right
+// back in before they ever see a signed-out screen at all, silently
+// creating a brand-new blank account that looks exactly like deletion
+// did nothing). Requires an explicit tap to continue, which is what
+// breaks that auto-resubmit.
+function AccountDeletedScreen({ onContinue }) {
+  const { t, lang, setLang } = useLang();
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--bg-page)" }}>
+      <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 400, maxWidth: "100%", padding: "28px 26px", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", textAlign: "center" }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 18 }}>
+          <button onClick={() => setLang("en")} style={{ background: lang === "en" ? "var(--btn-dark-bg)" : "var(--bg-surface-2)", color: lang === "en" ? "#fff" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700 }}>EN</button>
+          <button onClick={() => setLang("gu")} className="gu" style={{ background: lang === "gu" ? "var(--btn-dark-bg)" : "var(--bg-surface-2)", color: lang === "gu" ? "#fff" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700 }}>ગુજરાતી</button>
+        </div>
+        <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+        <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>{t("Account deleted", "એકાઉન્ટ ડિલીટ થયું")}</div>
+        <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 20px" }} className="gu">
+          {t("Your account and its data have been permanently deleted. To use Nokri Book again, you'll need to sign in as a new account.", "તમારું એકાઉન્ટ અને તેનો ડેટા કાયમ માટે ડિલીટ થઈ ગયો છે. Nokri Book ફરી વાપરવા, તમારે નવા એકાઉન્ટ તરીકે સાઇન ઇન કરવું પડશે.")}
+        </p>
+        <button onClick={onContinue} className="gu" style={{ width: "100%", background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>{t("Continue to sign in →", "સાઇન ઇન પર જાઓ →")}</button>
+      </div>
+    </div>
+  );
+}
 function SignInScreen() {
   const { t } = useLang();
   const [authAction, setAuthAction] = useState("signin"); // signin | signup
@@ -3703,6 +3730,14 @@ function DutyRoster() {
   // undefined = still checking whether someone's already signed in;
   // null = signed out; object = signed-in Firebase user.
   const [user, setUser] = useState(undefined);
+  // See the account-deletion comment near deleteMyAccountAndData for why
+  // this exists — starts true whenever the flag deleteMyAccountAndData
+  // set is still there from before this page loaded, and flips false the
+  // moment AccountDeletedScreen's "Continue to sign in" button is
+  // pressed, without needing a page reload to notice the flag is gone.
+  const [showAccountDeletedScreen, setShowAccountDeletedScreen] = useState(() => {
+    try { return localStorage.getItem("nb_account_deleted") === "1"; } catch (e) { return false; }
+  });
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(setUser);
     return () => unsub();
@@ -4598,6 +4633,18 @@ function DutyRoster() {
         return;
       }
     }
+    // Deleting the Auth user signs it out too, but a browser holding a
+    // still-valid Google session cookie (or a saved/autofilled password)
+    // can silently sign right back in through the normal sign-in screen
+    // before the person ever sees it — instantly creating a brand-new
+    // blank account and dropping them straight into onboarding, which
+    // looks exactly like "delete did nothing." Setting this flag (and
+    // calling signOut() again, belt-and-suspenders) makes the NEXT
+    // signed-out screen a dedicated "account deleted" confirmation
+    // instead of the normal sign-in screen — see the user===null branch
+    // below — so nothing can auto-submit through it.
+    try { localStorage.setItem("nb_account_deleted", "1"); } catch (e) {}
+    auth.signOut().catch(() => {});
     // Signed-out state (user === null) takes over from here automatically
     // via onAuthStateChanged, same as a normal sign-out.
   };
@@ -6387,7 +6434,12 @@ function DutyRoster() {
   };
 
   if (user === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
-  if (user === null) return <LangContext.Provider value={langCtxValue}><SignInScreen /></LangContext.Provider>;
+  if (user === null) {
+    if (showAccountDeletedScreen) {
+      return <LangContext.Provider value={langCtxValue}><AccountDeletedScreen onContinue={() => { try { localStorage.removeItem("nb_account_deleted"); } catch (e) {} setShowAccountDeletedScreen(false); }} /></LangContext.Provider>;
+    }
+    return <LangContext.Provider value={langCtxValue}><SignInScreen /></LangContext.Provider>;
+  }
   if (isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
   if (isDistrictAdmin) {
     return (
