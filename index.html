@@ -6831,12 +6831,16 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
                 {total === 0 ? (
                   <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</div>
                 ) : doneTodayList.length > 0 ? (
-                  doneTodayList.map((doneToday) => (
-                    <div key={doneToday.number} style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
-                      <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
-                      <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
-                    </div>
-                  ))
+                  // Assign duty only ever needs to show that this work
+                  // type is already spoken for today, whether that's 1
+                  // person or (rarely) several — the full names-of-
+                  // everyone-on-duty view is Today's duty's job, not
+                  // this screen's, so this stays a single line same as
+                  // it always was, regardless of doneTodayList's length.
+                  <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
+                    <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
+                    <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneTodayList[0].name}</div>
+                  </div>
                 ) : nextUp ? (
                   <div style={{ background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <div>
