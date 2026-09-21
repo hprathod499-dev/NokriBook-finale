@@ -11641,7 +11641,14 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   // to drop with it or the input would keep showing with no way back to
   // the list.
   useEffect(() => { setManualStation(false); }, [selDistrict]);
-  const canSubmitManualStation = manualStationName.trim().length > 0 && manualStationName.trim() !== "પોલીસ સ્ટેશન";
+  // A handful of real station names carry a short English abbreviation
+  // (A/B Division, DCB, SOG, EOW…) rather than a full English word — up
+  // to 3 English letters total is allowed for that; beyond that it reads
+  // as an actual English word/phrase rather than a short code, so it's
+  // blocked.
+  const englishLetterCount = (manualStationName.match(/[a-zA-Z]/g) || []).length;
+  const manualStationTooMuchEnglish = englishLetterCount > 3;
+  const canSubmitManualStation = manualStationName.trim().length > 0 && manualStationName.trim() !== "પોલીસ સ્ટેશન" && !manualStationTooMuchEnglish;
   const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
   const districtEntry = POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict];
   const groupOptions = districtEntry && districtEntry.groups ? Object.keys(districtEntry.groups) : null;
@@ -11768,12 +11775,28 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {manualStation ? (
-              <input
-                ref={manualStationRef}
-                type="text" value={manualStationName} onChange={(e) => setManualStationName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }}
-                className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }}
-              />
+              <React.Fragment>
+                <input
+                  ref={manualStationRef}
+                  type="text" value={manualStationName}
+                  // Police station names go in Gujarati everywhere else in
+                  // the app (every dropdown, every PDF/CSV header). Typing
+                  // is left free rather than stripping English letters as
+                  // they're typed — some real station names do mix in an
+                  // English word or two (e.g. "A Division", "DCB"), so
+                  // silently eating letters as someone types would be
+                  // confusing there. Continue is blocked below instead,
+                  // with a visible reason, until it's Gujarati-only.
+                  onChange={(e) => setManualStationName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }}
+                  className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }}
+                />
+                {manualStationTooMuchEnglish && (
+                  <div className="gu" style={{ fontSize: 11, color: "var(--danger, #c0392b)", marginTop: 4 }}>
+                    {t("Too many English letters — a short code (like A, B, DCB) is fine, but not a full English word.", "વધારે પડતા English અક્ષરો — ટૂંકો કોડ (જેમ કે A, B, DCB) ચાલે, પણ પૂરો English શબ્દ નહીં.")}
+                  </div>
+                )}
+              </React.Fragment>
             ) : (
               <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
             )}
