@@ -968,7 +968,7 @@ function StationSearchSelect({ options, value, onChange, placeholder }) {
     <div ref={wrapRef} style={{ position: "relative" }}>
       <input
         type="text" value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); onChange(e.target.value); }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => { if (e.key === "Enter" && matches.length === 1) { pick(matches[0]); e.currentTarget.blur(); } }}
         placeholder={placeholder || t("Type in English or Gujarati…", "અંગ્રેજી કે ગુજરાતીમાં ટાઈપ કરો…")}
@@ -11495,7 +11495,13 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   const [otherName, setOtherName] = useState(initialStationName || "");
   const otherInputRef = useRef(null);
   const stateOptions = Object.keys(POLICE_LOCATIONS_GU);
-  const [selState, setSelState] = useState("");
+  // State alone starts pre-selected to Gujarat (first in the list — this
+  // app is built for Gujarat police stations, so almost everyone wants
+  // it) — but nothing below that should ever auto-pick itself. District,
+  // Division and Station all start blank and stay blank until the person
+  // actually chooses one themselves, even after picking a state/district
+  // that only has one option.
+  const [selState, setSelState] = useState(stateOptions[0] || "");
   const [selDistrict, setSelDistrict] = useState("");
   // A district can be a flat station array (every district so far except
   // Ahmedabad) or { groups: {...} } — Ahmedabad's three wings, City/
@@ -11508,13 +11514,17 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   const districtEntry = POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict];
   const groupOptions = districtEntry && districtEntry.groups ? Object.keys(districtEntry.groups) : null;
   const stationOptions = groupOptions ? (districtEntry.groups[selGroup] || []) : flatStationsOf(districtEntry);
-  useEffect(() => { setSelDistrict((d) => (districtOptions.includes(d) ? d : districtOptions[0] || "")); }, [selState]);
+  // Clears (never auto-fills) whenever the choice above it changes, so a
+  // stale District from a previous State — or a stale Station from a
+  // previous District/Division — never lingers on screen looking chosen
+  // when it isn't anymore.
+  useEffect(() => { setSelDistrict((d) => (districtOptions.includes(d) ? d : "")); }, [selState]);
   useEffect(() => {
     const opts = (POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict] && POLICE_LOCATIONS_GU[selState][selDistrict].groups)
       ? Object.keys(POLICE_LOCATIONS_GU[selState][selDistrict].groups) : null;
-    setSelGroup((g) => (opts && opts.includes(g) ? g : (opts ? opts[0] : "")));
+    setSelGroup((g) => (opts && opts.includes(g) ? g : ""));
   }, [selState, selDistrict]);
-  useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : stationOptions[0] || "")); }, [selState, selDistrict, selGroup]);
+  useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : "")); }, [selState, selDistrict, selGroup]);
   useEffect(() => {
     if (step === "otherName" && otherInputRef.current) {
       otherInputRef.current.focus();
@@ -11606,17 +11616,18 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
         </p>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("State", "રાજ્ય")}</label>
         <select value={selState} onChange={(e) => setSelState(e.target.value)} className="gu" style={selectStyle}>
-          <option value="">{t("Select a state…", "રાજ્ય પસંદ કરો…")}</option>
           {stateOptions.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("District", "જિલ્લો")}</label>
         <select value={selDistrict} onChange={(e) => setSelDistrict(e.target.value)} className="gu" style={selectStyle}>
+          <option value="">{t("Select a district…", "જિલ્લો પસંદ કરો…")}</option>
           {districtOptions.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
         {groupOptions && (
           <React.Fragment>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Division", "વિભાગ")}</label>
             <select value={selGroup} onChange={(e) => setSelGroup(e.target.value)} className="gu" style={selectStyle}>
+              <option value="">{t("Select a division…", "વિભાગ પસંદ કરો…")}</option>
               {groupOptions.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
           </React.Fragment>
