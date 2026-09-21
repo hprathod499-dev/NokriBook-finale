@@ -1562,11 +1562,18 @@ function drawLeftAlignedTextImage(doc, text, x, y, fontSizePt) {
 // with the one thing (which station this is) that matters across all of
 // them. Returns the y position immediately below the header, so the
 // caller can carry on from there instead of guessing a fixed offset.
-function drawPdfHeader(doc, title, stationName) {
+function drawPdfHeader(doc, title, stationName, district) {
   let headerY = 16;
   if (stationName) {
     drawCenteredStationName(doc, stationName, headerY, 16);
     headerY += 6;
+    // District, centered on its own line right under the station name —
+    // only meaningful alongside a station name, so it's skipped when
+    // there isn't one (an "Other" org has no district at all).
+    if (district) {
+      drawCenteredStationName(doc, district, headerY, 10);
+      headerY += 5;
+    }
   }
   doc.setFontSize(11);
   doc.text(title, 14, headerY);
@@ -1684,7 +1691,7 @@ function ExportMenuButton({ disabled, pdfBusy, onExportCsv, onDownloadPdf }) {
   );
 }
 
-async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName) {
+async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName, district) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
@@ -1699,7 +1706,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   // Station name first, always, same size/position as every other PDF —
   // see drawPdfHeader's own comment for why this replaced each export's
   // previous one-off header.
-  let headerY = drawPdfHeader(doc, `Nokri Book — ${catLabel}`, stationName);
+  let headerY = drawPdfHeader(doc, `Nokri Book — ${catLabel}`, stationName, district);
   doc.setFontSize(10);
   doc.text(periodLabelEn(period), 14, headerY);
   headerY += 5;
@@ -1811,7 +1818,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
 // jsPDF text for the header/numbers, canvas-rendered images (via
 // renderTextToImage/drawTextImageInCell) for any autoTable cell holding
 // real Gujarati text (Name, Designation, Status can all be Gujarati).
-async function downloadStaffDirectoryPdf(staffList, stationName) {
+async function downloadStaffDirectoryPdf(staffList, stationName, district) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
@@ -1821,7 +1828,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName) {
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  let headerY = drawPdfHeader(doc, "Nokri Book — Staff Directory", stationName);
+  let headerY = drawPdfHeader(doc, "Nokri Book — Staff Directory", stationName, district);
   doc.setFontSize(8.5);
   doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
   doc.setFontSize(8.5);
@@ -1860,7 +1867,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName) {
 // CSV export (Date, Time, Skipped person, Number, Work type, Skipped by,
 // By number, Note) — built once by the caller and reused for both exports,
 // same pattern as Manage Staff's exportRows.
-async function downloadSkipHistoryPdf(rows, stationName) {
+async function downloadSkipHistoryPdf(rows, stationName, district) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 8;
@@ -1870,7 +1877,7 @@ async function downloadSkipHistoryPdf(rows, stationName) {
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  let headerY = drawPdfHeader(doc, "Nokri Book — Skip History", stationName);
+  let headerY = drawPdfHeader(doc, "Nokri Book — Skip History", stationName, district);
   doc.setFontSize(8.5);
   doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
 
@@ -8158,7 +8165,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName, data.district);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -9287,7 +9294,7 @@ function StaffView({
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadStaffDirectoryPdf(exportRows, data.stationName);
+      const pdf = await downloadStaffDirectoryPdf(exportRows, data.stationName, data.district);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -9806,7 +9813,7 @@ function StaffView({
 // table. Uses the same Gujarati-safe canvas-image pipeline as every
 // other PDF in the app (native jsPDF text for headers/dates, rendered
 // images only for cells that actually contain Gujarati).
-async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, stationName) {
+async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, stationName, district) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
@@ -9825,6 +9832,12 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   if (stationName) {
     drawCenteredStationName(doc, stationName, headerY, 16);
     headerY += 6;
+    // District, centered right under the station name — same as every
+    // other PDF's header (see drawPdfHeader).
+    if (district) {
+      drawCenteredStationName(doc, district, headerY, 10);
+      headerY += 5;
+    }
   }
   doc.setFontSize(11);
   doc.text("Nokri Book — Duty History", 14, headerY);
@@ -9949,7 +9962,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, data.stationName);
+      const pdf = await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, data.stationName, data.district);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -10460,7 +10473,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       await ensureGujaratiCanvasFont();
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
-      let headerY = drawPdfHeader(doc, "Nokri Book — Leave / Outstation Calendar", data.stationName);
+      let headerY = drawPdfHeader(doc, "Nokri Book — Leave / Outstation Calendar", data.stationName, data.district);
       doc.setFontSize(10);
       doc.text(monthLabel, 14, headerY);
       doc.setFontSize(8.5);
@@ -10875,7 +10888,7 @@ function ReportView({ data }) {
     }
     setPdfBusy(false);
 
-    let headerY = drawPdfHeader(doc, "Nokri Book — Monthly Duty Report", data.stationName);
+    let headerY = drawPdfHeader(doc, "Nokri Book — Monthly Duty Report", data.stationName, data.district);
     doc.setFontSize(10);
     doc.text(monthLabel, 14, headerY);
     doc.setFontSize(8.5);
@@ -11606,6 +11619,23 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   // exactly as before this existed.
   const [selGroup, setSelGroup] = useState("");
   const [selStation, setSelStation] = useState("");
+  // "Not in the list? Add it manually" — swaps StationSearchSelect for a
+  // plain text field, pretyped with "પોલીસ સ્ટેશન" and the cursor parked
+  // at its start (same trick as the "otherName" step below), so the
+  // person only has to type their station's specific name in front of
+  // it rather than the whole suffix themselves. State/District stay
+  // whatever was already picked above — only the Station step itself
+  // becomes free text.
+  const [manualStation, setManualStation] = useState(false);
+  const [manualStationName, setManualStationName] = useState("પોલીસ સ્ટેશન");
+  const manualStationRef = useRef(null);
+  useEffect(() => {
+    if (manualStation && manualStationRef.current) {
+      manualStationRef.current.focus();
+      manualStationRef.current.setSelectionRange(0, 0);
+    }
+  }, [manualStation]);
+  const canSubmitManualStation = manualStationName.trim().length > 0 && manualStationName.trim() !== "પોલીસ સ્ટેશન";
   const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
   const districtEntry = POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict];
   const groupOptions = districtEntry && districtEntry.groups ? Object.keys(districtEntry.groups) : null;
@@ -11728,10 +11758,34 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
             </select>
           </React.Fragment>
         )}
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Station", "સ્ટેશન")}</label>
-        <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }} className="gu">{t("Station", "સ્ટેશન")}</label>
+          <button
+            type="button"
+            onClick={() => setManualStation((v) => { const next = !v; if (next) setManualStationName("પોલીસ સ્ટેશન"); return next; })}
+            className="gu"
+            style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20, border: "1px solid var(--accent-strong)", background: manualStation ? "var(--accent)" : "transparent", color: manualStation ? "var(--accent-text)" : "var(--accent-strong)", cursor: "pointer" }}
+          >{manualStation ? t("← Pick from list", "← યાદીમાંથી પસંદ કરો") : t("Not in the list? Add it manually", "યાદીમાં નથી? જાતે ઉમેરો")}</button>
+        </div>
+        {manualStation ? (
+          <input
+            ref={manualStationRef}
+            type="text" value={manualStationName} onChange={(e) => setManualStationName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }}
+            className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }}
+          />
+        ) : (
+          <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
+        )}
         <div style={{ marginBottom: 12 }} />
-        <button onClick={() => selStation && onSubmit({ stationName: selStation, state: selState, district: selDistrict })} disabled={!selStation} style={primaryBtn(!!selStation)} className="gu">{t("Continue →", "ચાલુ રાખો →")}</button>
+        <button
+          onClick={() => {
+            if (manualStation) { if (canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }
+            else if (selStation) onSubmit({ stationName: selStation, state: selState, district: selDistrict });
+          }}
+          disabled={manualStation ? !canSubmitManualStation : !selStation}
+          style={primaryBtn(manualStation ? canSubmitManualStation : !!selStation)} className="gu"
+        >{t("Continue →", "ચાલુ રાખો →")}</button>
         <button onClick={() => setStep("who")} style={backBtn} className="gu">← {t("Back", "પાછળ")}</button>
       </div>
     </div>
@@ -12446,7 +12500,7 @@ function SkipHistoryView({ data, initialSearch }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadSkipHistoryPdf(exportRows, data.stationName);
+      const pdf = await downloadSkipHistoryPdf(exportRows, data.stationName, data.district);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -13000,7 +13054,7 @@ function PublicCategoryView({ data, catId }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName, data.district);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
