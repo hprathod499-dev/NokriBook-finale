@@ -681,6 +681,22 @@ const POLICE_LOCATIONS_GU = {
     ],
   },
 };
+// A district's value above is normally a flat array of station names
+// (every district so far). A district with real internal structure —
+// Ahmedabad City's Zone → Division → Station, Rural's Sub-Division →
+// Station, plus flat groups like Special Units or Traffic Police that
+// don't have a zone/division at all — can instead be an object shaped
+// { groups: { "Zone 1 › Division 1": [...], "Traffic Police": [...] } },
+// group label first, station list second. Every call site reads
+// through flatStationsOf() below rather than touching a district's
+// value directly, so plain districts (Amreli) need no changes at all,
+// and StationSearchSelect (a search box, not a native <select>) never
+// needs to know grouping exists — it only ever sees the flat result.
+function flatStationsOf(districtEntry) {
+  if (Array.isArray(districtEntry)) return districtEntry;
+  if (districtEntry && districtEntry.groups) return Object.values(districtEntry.groups).flat();
+  return [];
+}
 // English-transliteration aliases for every station name above, keyed by
 // the exact Gujarati string used in POLICE_LOCATIONS_GU. Lets someone
 // type the station's name in plain English (e.g. "Dhari") in
@@ -2698,7 +2714,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
   // station names (like state/district already are) instead of free text —
   // free typing stays available whenever there's no matching list (e.g. an
   // "Other" account, or a state/district not yet in POLICE_LOCATIONS_GU).
-  const stationOptions = (POLICE_LOCATIONS_GU[stateDraft] && POLICE_LOCATIONS_GU[stateDraft][districtDraft]) || [];
+  const stationOptions = flatStationsOf(POLICE_LOCATIONS_GU[stateDraft] && POLICE_LOCATIONS_GU[stateDraft][districtDraft]);
   const saveState = () => {
     const next = stateDraft.trim();
     if (onSaveState && next !== (state || "")) onSaveState(next);
@@ -11245,7 +11261,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   const [selDistrict, setSelDistrict] = useState("");
   const [selStation, setSelStation] = useState("");
   const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
-  const stationOptions = (POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict]) || [];
+  const stationOptions = flatStationsOf(POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict]);
   useEffect(() => { setSelDistrict((d) => (districtOptions.includes(d) ? d : districtOptions[0] || "")); }, [selState]);
   useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : stationOptions[0] || "")); }, [selState, selDistrict]);
   useEffect(() => {
