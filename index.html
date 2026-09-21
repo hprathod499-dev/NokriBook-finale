@@ -6712,9 +6712,12 @@ function HomeView({ data, goToCategory }) {
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
-    const doneToday = roster.find((p) => p.lastDuty === today);
-    return { cat: c, doneToday };
-  }).filter((x) => x.doneToday), [data]);
+    // A work type can have more than one person on duty the same day
+    // (e.g. a work type needing two) — keep every match, not just the
+    // first, or the card silently drops whoever else is on duty.
+    const doneTodayList = roster.filter((p) => p.lastDuty === today);
+    return { cat: c, doneTodayList };
+  }).filter((x) => x.doneTodayList.length > 0), [data]);
 
   return (
     <React.Fragment>
@@ -6728,36 +6731,38 @@ function HomeView({ data, goToCategory }) {
         </p>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
-        {cards.map(({ cat, doneToday }) => {
-          const phone = doneToday.staffRec && doneToday.staffRec.phone;
-          return (
-            <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {cards.map(({ cat, doneTodayList }) => (
+          <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                 <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
               </div>
 
-              <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
-                  <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
-                  {(doneToday.status === "Leave" || doneToday.status === "Outstation") && (
-                    <div className="gu" style={{ fontSize: 11, color: "var(--status-error-text)", fontWeight: 700, marginTop: 3 }}>
-                      ⚠ {t(`Also marked ${doneToday.statusLabel} today`, `આજે ${doneToday.statusLabel} તરીકે પણ નોંધાયેલ`)}
+              {doneTodayList.map((doneToday) => {
+                const phone = doneToday.staffRec && doneToday.staffRec.phone;
+                return (
+                  <div key={doneToday.number} style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
+                      <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
+                      {(doneToday.status === "Leave" || doneToday.status === "Outstation") && (
+                        <div className="gu" style={{ fontSize: 11, color: "var(--status-error-text)", fontWeight: 700, marginTop: 3 }}>
+                          ⚠ {t(`Also marked ${doneToday.statusLabel} today`, `આજે ${doneToday.statusLabel} તરીકે પણ નોંધાયેલ`)}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                  {phone && (
-                    <a href={`tel:+91${phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
-                  )}
-                  <button onClick={() => shareDutyOnWhatsApp({ lang, name: doneToday.name, number: doneToday.number, catLabel: cat.label, date: doneToday.lastDuty, phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
-                </div>
-              </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      {phone && (
+                        <a href={`tel:+91${phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
+                      )}
+                      <button onClick={() => shareDutyOnWhatsApp({ lang, name: doneToday.name, number: doneToday.number, catLabel: cat.label, date: doneToday.lastDuty, phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
+                    </div>
+                  </div>
+                );
+              })}
 
               <button onClick={() => goToCategory(cat.id)} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 12, textAlign: "left", padding: 0, textDecoration: "underline", alignSelf: "flex-start" }} className="gu">{t("View full roster →", "સંપૂર્ણ રોસ્ટર જુઓ →")}</button>
             </div>
-          );
-        })}
+        ))}
         {cards.length === 0 && <div style={{ color: "var(--text-tertiary)", fontSize: 13 }} className="gu">{t("No duties assigned yet today — use Assign duty.", "આજે હજુ કોઈ ડ્યુટી સોંપાયેલી નથી — Assign duty વાપરો.")}</div>}
       </div>
     </React.Fragment>
@@ -6775,9 +6780,14 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
-    const doneToday = roster.find((p) => p.lastDuty === today);
+    // A work type can have more than one person on duty the same day
+    // (e.g. a work type needing two, or a Group duty that happened to
+    // land two different people in the same work type) — keep every
+    // match, not just the first, or the card silently drops whoever
+    // else is on duty, same fix as HomeView/PublicHomeView above.
+    const doneTodayList = roster.filter((p) => p.lastDuty === today);
     const nextUp = roster.find((p) => p.rank === 1);
-    return { cat: c, doneToday, nextUp, total: roster.length };
+    return { cat: c, doneTodayList, nextUp, total: roster.length };
   }), [data]);
 
   return (
@@ -6809,7 +6819,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
       ) : (
         <React.Fragment>
           <div data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
-            {cards.map(({ cat, doneToday, nextUp, total }) => {
+            {cards.map(({ cat, doneTodayList, nextUp, total }) => {
               const nextPhone = nextUp && nextUp.staffRec && nextUp.staffRec.phone;
               return (
               <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -6820,11 +6830,13 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
 
                 {total === 0 ? (
                   <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</div>
-                ) : doneToday ? (
-                  <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
-                    <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
-                    <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
-                  </div>
+                ) : doneTodayList.length > 0 ? (
+                  doneTodayList.map((doneToday) => (
+                    <div key={doneToday.number} style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
+                      <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
+                      <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
+                    </div>
+                  ))
                 ) : nextUp ? (
                   <div style={{ background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <div>
@@ -12530,9 +12542,12 @@ function PublicHomeView({ data, goToCategory }) {
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
-    const doneToday = roster.find((p) => p.lastDuty === today);
+    // A work type can have more than one person on duty the same day
+    // (e.g. a work type needing two) — keep every match, not just the
+    // first, or the card silently drops whoever else is on duty.
+    const doneTodayList = roster.filter((p) => p.lastDuty === today);
     const nextUp = roster.find((p) => p.rank === 1);
-    return { cat: c, doneToday, nextUp, total: roster.length };
+    return { cat: c, doneTodayList, nextUp, total: roster.length };
   }), [data]);
 
   return (
@@ -12547,7 +12562,7 @@ function PublicHomeView({ data, goToCategory }) {
         </p>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
-        {cards.map(({ cat, doneToday, nextUp, total }) => (
+        {cards.map(({ cat, doneTodayList, nextUp, total }) => (
           <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
@@ -12556,11 +12571,13 @@ function PublicHomeView({ data, goToCategory }) {
 
             {total === 0 ? (
               <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</div>
-            ) : doneToday ? (
-              <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
-                <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
-                <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
-              </div>
+            ) : doneTodayList.length > 0 ? (
+              doneTodayList.map((doneToday) => (
+                <div key={doneToday.number} style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
+                  <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
+                  <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
+                </div>
+              ))
             ) : nextUp ? (
               <div style={{ background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 8, padding: "9px 12px" }}>
                 <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-warning-text)", fontWeight: 700 }} className="gu">{t("Not assigned yet · next up", "હજુ સોંપાયું નથી · આગળ")}</div>
@@ -13041,8 +13058,14 @@ function DistrictOnDutyView({ data }) {
     const list = [];
     (data.categories || []).forEach((c) => {
       const roster = computeRoster(data, c.id);
-      const onDuty = roster.find((p) => p.lastDuty === today);
-      if (onDuty) list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number });
+      // A work type can have more than one person on duty the same day
+      // (e.g. High Court needing two) — .find() only ever grabbed the
+      // first, silently dropping the rest from this table even though
+      // the Duty calendar tab (built differently) already showed all of
+      // them, which is exactly why the two disagreed on here.
+      roster.filter((p) => p.lastDuty === today).forEach((onDuty) => {
+        list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number });
+      });
     });
     return list;
   }, [data, today]);
@@ -13298,12 +13321,18 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
           }
           const d = normalizeData(snap.data());
           const today = todayStr();
-          let count = 0;
+          // Count actual PEOPLE on duty (matching what the digest's own
+          // onDutyToday field means — see syncDistrictDigest), not work
+          // types with someone on duty — a work type needing two people
+          // both on duty today would otherwise get counted as only 1
+          // here, same undercount bug as the per-station "on duty today"
+          // list had.
+          const onDutySet = new Set();
           (d.categories || []).forEach((c) => {
             const roster = computeRoster(d, c.id);
-            if (roster.find((p) => p.lastDuty === today)) count += 1;
+            roster.filter((p) => p.lastDuty === today).forEach((p) => onDutySet.add(p.number));
           });
-          setLiveOnDuty((prev) => ({ ...prev, [uid]: count }));
+          setLiveOnDuty((prev) => ({ ...prev, [uid]: onDutySet.size }));
         },
         () => setLiveOnDuty((prev) => { const next = { ...prev }; delete next[uid]; return next; })
       )
