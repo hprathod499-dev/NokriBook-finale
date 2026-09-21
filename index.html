@@ -6712,12 +6712,9 @@ function HomeView({ data, goToCategory }) {
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
-    // A work type can have more than one person on duty the same day
-    // (e.g. a work type needing two) — keep every match, not just the
-    // first, or the card silently drops whoever else is on duty.
-    const doneTodayList = roster.filter((p) => p.lastDuty === today);
-    return { cat: c, doneTodayList };
-  }).filter((x) => x.doneTodayList.length > 0), [data]);
+    const doneToday = roster.find((p) => p.lastDuty === today);
+    return { cat: c, doneToday };
+  }).filter((x) => x.doneToday), [data]);
 
   return (
     <React.Fragment>
@@ -6730,39 +6727,37 @@ function HomeView({ data, goToCategory }) {
           {new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(todayStr())} — {t("only work types with a duty assigned today are shown here.", "ફક્ત જેમાં આજે ડ્યુટી સોંપાયેલી છે તે કામના પ્રકારો અહીં બતાવાય છે.")}
         </p>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
-        {cards.map(({ cat, doneTodayList }) => (
-          <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
+        {cards.map(({ cat, doneToday }) => {
+          const phone = doneToday.staffRec && doneToday.staffRec.phone;
+          return (
+            <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                 <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
               </div>
 
-              {doneTodayList.map((doneToday) => {
-                const phone = doneToday.staffRec && doneToday.staffRec.phone;
-                return (
-                  <div key={doneToday.number} style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
-                      <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
-                      {(doneToday.status === "Leave" || doneToday.status === "Outstation") && (
-                        <div className="gu" style={{ fontSize: 11, color: "var(--status-error-text)", fontWeight: 700, marginTop: 3 }}>
-                          ⚠ {t(`Also marked ${doneToday.statusLabel} today`, `આજે ${doneToday.statusLabel} તરીકે પણ નોંધાયેલ`)}
-                        </div>
-                      )}
+              <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
+                  <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
+                  {(doneToday.status === "Leave" || doneToday.status === "Outstation") && (
+                    <div className="gu" style={{ fontSize: 11, color: "var(--status-error-text)", fontWeight: 700, marginTop: 3 }}>
+                      ⚠ {t(`Also marked ${doneToday.statusLabel} today`, `આજે ${doneToday.statusLabel} તરીકે પણ નોંધાયેલ`)}
                     </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      {phone && (
-                        <a href={`tel:+91${phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
-                      )}
-                      <button onClick={() => shareDutyOnWhatsApp({ lang, name: doneToday.name, number: doneToday.number, catLabel: cat.label, date: doneToday.lastDuty, phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
-                    </div>
-                  </div>
-                );
-              })}
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  {phone && (
+                    <a href={`tel:+91${phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
+                  )}
+                  <button onClick={() => shareDutyOnWhatsApp({ lang, name: doneToday.name, number: doneToday.number, catLabel: cat.label, date: doneToday.lastDuty, phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
+                </div>
+              </div>
 
               <button onClick={() => goToCategory(cat.id)} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 12, textAlign: "left", padding: 0, textDecoration: "underline", alignSelf: "flex-start" }} className="gu">{t("View full roster →", "સંપૂર્ણ રોસ્ટર જુઓ →")}</button>
             </div>
-        ))}
+          );
+        })}
         {cards.length === 0 && <div style={{ color: "var(--text-tertiary)", fontSize: 13 }} className="gu">{t("No duties assigned yet today — use Assign duty.", "આજે હજુ કોઈ ડ્યુટી સોંપાયેલી નથી — Assign duty વાપરો.")}</div>}
       </div>
     </React.Fragment>
@@ -6780,14 +6775,9 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
-    // A work type can have more than one person on duty the same day
-    // (e.g. a work type needing two, or a Group duty that happened to
-    // land two different people in the same work type) — keep every
-    // match, not just the first, or the card silently drops whoever
-    // else is on duty, same fix as HomeView/PublicHomeView above.
-    const doneTodayList = roster.filter((p) => p.lastDuty === today);
+    const doneToday = roster.find((p) => p.lastDuty === today);
     const nextUp = roster.find((p) => p.rank === 1);
-    return { cat: c, doneTodayList, nextUp, total: roster.length };
+    return { cat: c, doneToday, nextUp, total: roster.length };
   }), [data]);
 
   return (
@@ -6818,8 +6808,8 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
         <RecordLeaveView data={data} setUnavailable={setUnavailable} showToast={showToast} />
       ) : (
         <React.Fragment>
-          <div data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
-            {cards.map(({ cat, doneTodayList, nextUp, total }) => {
+          <div data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
+            {cards.map(({ cat, doneToday, nextUp, total }) => {
               const nextPhone = nextUp && nextUp.staffRec && nextUp.staffRec.phone;
               return (
               <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -6830,16 +6820,10 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
 
                 {total === 0 ? (
                   <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</div>
-                ) : doneTodayList.length > 0 ? (
-                  // Assign duty only ever needs to show that this work
-                  // type is already spoken for today, whether that's 1
-                  // person or (rarely) several — the full names-of-
-                  // everyone-on-duty view is Today's duty's job, not
-                  // this screen's, so this stays a single line same as
-                  // it always was, regardless of doneTodayList's length.
+                ) : doneToday ? (
                   <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
                     <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
-                    <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneTodayList[0].name}</div>
+                    <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
                   </div>
                 ) : nextUp ? (
                   <div style={{ background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
