@@ -738,8 +738,10 @@ const POLICE_LOCATIONS_GU = {
           "વટવા પોલીસ સ્ટેશન",
           "વેજલપુર પોલીસ સ્ટેશન",
           "વાડજ પોલીસ સ્ટેશન",
-        ],
-        "અમદાવાદ શહેર પોલીસ — વિશેષ શાખાઓ": [
+          // Special units, folded into the same City group rather than
+          // their own — keeps exactly three top-level wings (City/Rural/
+          // Traffic) for the Division dropdown below to show, matching
+          // what was actually asked for.
           "મહિલા પૂર્વ પોલીસ સ્ટેશન",
           "મહિલા પશ્ચિમ પોલીસ સ્ટેશન",
           "ક્રાઈમ બ્રાન્ચ",
@@ -2913,13 +2915,33 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
     const next = stationDraft.trim();
     if (next !== (stationName || "")) onSaveStationName(next);
   };
-  // Same State → District → Station list OrgSetupGateModal's "police" step
-  // uses. When the current state/district match a known police district,
-  // the station field below becomes a dropdown of that district's real
-  // station names (like state/district already are) instead of free text —
-  // free typing stays available whenever there's no matching list (e.g. an
-  // "Other" account, or a state/district not yet in POLICE_LOCATIONS_GU).
-  const stationOptions = flatStationsOf(POLICE_LOCATIONS_GU[stateDraft] && POLICE_LOCATIONS_GU[stateDraft][districtDraft]);
+  // Same State → District → Division → Station list OrgSetupGateModal's
+  // "police" step uses. A district can be a flat station array (every
+  // district so far except Ahmedabad) or { groups: {...} } — Ahmedabad's
+  // three wings, City/Rural/Traffic — in which case a Division dropdown
+  // appears too, narrowing the station list to just that wing. Free
+  // typing stays available whenever there's no matching list at all (e.g.
+  // an "Other" account, or a state/district not yet in
+  // POLICE_LOCATIONS_GU).
+  const districtEntry = POLICE_LOCATIONS_GU[stateDraft] && POLICE_LOCATIONS_GU[stateDraft][districtDraft];
+  const groupOptions = districtEntry && districtEntry.groups ? Object.keys(districtEntry.groups) : null;
+  // Defaults to whichever division the already-saved station actually
+  // belongs to (so re-opening this panel doesn't silently jump back to
+  // the first division and hide the real one) — falls back to the first
+  // division for a brand-new pick.
+  const [groupDraft, setGroupDraft] = useState(() => {
+    if (!groupOptions) return "";
+    const found = groupOptions.find((g) => (districtEntry.groups[g] || []).includes(stationName));
+    return found || groupOptions[0] || "";
+  });
+  useEffect(() => {
+    if (!groupOptions) { setGroupDraft(""); return; }
+    setGroupDraft((g) => {
+      if (groupOptions.includes(g)) return g;
+      return groupOptions.find((gr) => (districtEntry.groups[gr] || []).includes(stationName)) || groupOptions[0] || "";
+    });
+  }, [stateDraft, districtDraft]);
+  const stationOptions = groupOptions ? (districtEntry.groups[groupDraft] || []) : flatStationsOf(districtEntry);
   const saveState = () => {
     const next = stateDraft.trim();
     if (onSaveState && next !== (state || "")) onSaveState(next);
@@ -3003,6 +3025,17 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                         {!(POLICE_LOCATIONS_GU[stateDraft] || {})[districtDraft] && districtDraft && <option value={districtDraft}>{districtDraft}</option>}
                         {!districtDraft && <option value="">{t("(not set)", "(સેટ નથી)")}</option>}
                         {Object.keys(POLICE_LOCATIONS_GU[stateDraft] || {}).map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </React.Fragment>
+                  )}
+                  {groupOptions && (
+                    <React.Fragment>
+                      <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Division", "વિભાગ")}</label>
+                      <select
+                        value={groupDraft} onChange={(e) => setGroupDraft(e.target.value)}
+                        className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
+                      >
+                        {groupOptions.map((g) => <option key={g} value={g}>{g}</option>)}
                       </select>
                     </React.Fragment>
                   )}
@@ -11464,11 +11497,24 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   const stateOptions = Object.keys(POLICE_LOCATIONS_GU);
   const [selState, setSelState] = useState(stateOptions[0] || "");
   const [selDistrict, setSelDistrict] = useState("");
+  // A district can be a flat station array (every district so far except
+  // Ahmedabad) or { groups: {...} } — Ahmedabad's three wings, City/
+  // Rural/Traffic. Only the latter shape gets a Division dropdown at
+  // all; a plain district skips straight from District to Station,
+  // exactly as before this existed.
+  const [selGroup, setSelGroup] = useState("");
   const [selStation, setSelStation] = useState("");
   const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
-  const stationOptions = flatStationsOf(POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict]);
+  const districtEntry = POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict];
+  const groupOptions = districtEntry && districtEntry.groups ? Object.keys(districtEntry.groups) : null;
+  const stationOptions = groupOptions ? (districtEntry.groups[selGroup] || []) : flatStationsOf(districtEntry);
   useEffect(() => { setSelDistrict((d) => (districtOptions.includes(d) ? d : districtOptions[0] || "")); }, [selState]);
-  useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : stationOptions[0] || "")); }, [selState, selDistrict]);
+  useEffect(() => {
+    const opts = (POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict] && POLICE_LOCATIONS_GU[selState][selDistrict].groups)
+      ? Object.keys(POLICE_LOCATIONS_GU[selState][selDistrict].groups) : null;
+    setSelGroup((g) => (opts && opts.includes(g) ? g : (opts ? opts[0] : "")));
+  }, [selState, selDistrict]);
+  useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : stationOptions[0] || "")); }, [selState, selDistrict, selGroup]);
   useEffect(() => {
     if (step === "otherName" && otherInputRef.current) {
       otherInputRef.current.focus();
@@ -11566,6 +11612,14 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
         <select value={selDistrict} onChange={(e) => setSelDistrict(e.target.value)} className="gu" style={selectStyle}>
           {districtOptions.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
+        {groupOptions && (
+          <React.Fragment>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Division", "વિભાગ")}</label>
+            <select value={selGroup} onChange={(e) => setSelGroup(e.target.value)} className="gu" style={selectStyle}>
+              {groupOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </React.Fragment>
+        )}
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Station", "સ્ટેશન")}</label>
         <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
         <div style={{ marginBottom: 12 }} />
