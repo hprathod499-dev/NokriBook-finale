@@ -132,6 +132,11 @@
      row) wins over this automatically, since inline styles beat a
      plain class rule — so this never fights an existing highlight. */
   tbody tr:hover { background-color: rgba(127, 127, 127, 0.07); }
+  @keyframes viewFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .view-fade-in { animation: viewFadeIn 0.18s ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .view-fade-in { animation: none !important; }
+  }
   @keyframes starPop { 0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); } }
   .star-pop { animation: starPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); display: inline-block; }
   @media (prefers-reduced-motion: reduce) {
@@ -195,10 +200,13 @@
      for it to make sense, and "Desktop view" being on keeps it off even
      at a narrow width via the :not(.force-desktop) scoping there. */
   .mobile-menu-btn { display: none; }
-  /* Scrolls normally, just without a visible track/thumb — used where a
-     scrollbar would otherwise show up as a stray line across an
-     otherwise clean surface (e.g. the sign-in screen's card wrapper,
-     which only needs to scroll on short screens in the first place). */
+  /* Every scrollable area in the app scrolls normally, just without a
+     visible track/thumb — a plain OS scrollbar reads as a stray gray
+     line cutting across an otherwise clean surface (sidebar, calendar,
+     modals, the works), so instead of opting each container in one at a
+     time this applies to every element at once. */
+  * { scrollbar-width: none; -ms-overflow-style: none; }
+  *::-webkit-scrollbar { display: none; width: 0; height: 0; }
   .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
   .hide-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
   /* Printing a tab (Ctrl/Cmd+P) shows just that screen's data — no sidebar,
@@ -6352,6 +6360,7 @@ function DutyRoster() {
               onDismiss={() => persist({ ...dataRef.current, seenSections: { ...(dataRef.current.seenSections || {}), [view.mode]: true } })}
             />
           )}
+          <div key={view.mode + (view.catId || "")} className="view-fade-in">
           {view.mode === "home" && (
             <HomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
@@ -6406,6 +6415,7 @@ function DutyRoster() {
               onDeleteForever={deleteFromRecycleBinForever} onEmpty={emptyRecycleBin}
             />
           )}
+          </div>
         </div>
       </div>
 
@@ -6789,6 +6799,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
         <button onClick={() => setSubTab("leave")} style={catTabBtn(subTab === "leave")} className="gu">🌴 {t("Record Leave", "રજા નોંધો")}</button>
       </div>
 
+      <div key={subTab} className="view-fade-in">
       {subTab === "group" ? (
         <GroupDutyView data={data} assignGroupDuty={assignGroupDuty} />
       ) : subTab === "misc" ? (
@@ -6847,6 +6858,7 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
           )}
         </React.Fragment>
       )}
+      </div>
     </React.Fragment>
   );
 }
@@ -7837,6 +7849,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         </div>
       </div>
 
+      <div key={tab} className="view-fade-in">
       {tab === "history" ? (
         <CategoryHistoryTable
           key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName}
@@ -8106,6 +8119,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       </form>
       </React.Fragment>
       )}
+      </div>
 
       {assignTarget && (
         <AssignDutyModal
@@ -12078,6 +12092,7 @@ function SkipHistoryView({ data, initialSearch }) {
         <button onClick={() => setViewMode("calendar")} style={segBtn(viewMode === "calendar")} className="gu">{t("Calendar", "કૅલેન્ડર")}</button>
       </div>
 
+      <div key={viewMode} className="view-fade-in">
       {viewMode === "list" ? (
         <React.Fragment>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
@@ -12222,6 +12237,7 @@ function SkipHistoryView({ data, initialSearch }) {
           </div>
         </React.Fragment>
       )}
+      </div>
     </React.Fragment>
   );
 }
@@ -12424,6 +12440,7 @@ function PublicRosterView({ uid }) {
                 <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} />
               </div>
 
+              <div key={view.mode + (view.catId || "")} className="view-fade-in">
               {view.mode === "home" && (
                 <PublicHomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
               )}
@@ -12434,6 +12451,7 @@ function PublicRosterView({ uid }) {
               {view.mode === "calendar" && <CalendarView data={data} />}
               {view.mode === "report" && <ReportView data={data} />}
               {view.mode === "skipHistory" && <SkipHistoryView data={data} />}
+              </div>
             </div>
           </div>
         )}
@@ -12627,6 +12645,7 @@ function PublicCategoryView({ data, catId }) {
         </div>
       </div>
 
+      <div key={tab} className="view-fade-in">
       {tab === "fairness" ? (
         <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} />
       ) : tab === "history" ? (
@@ -12692,6 +12711,7 @@ function PublicCategoryView({ data, catId }) {
           </div>
         </div>
       )}
+      </div>
     </React.Fragment>
   );
 }
@@ -13419,7 +13439,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
           <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Couldn't load this station's data — Share may not be turned on for this station yet.", "આ સ્ટેશનનો ડેટા લોડ કરી શકાયો નથી — આ સ્ટેશન માટે Share હજુ ચાલુ ન હોઈ શકે.")}</div>
         )}
         {selectedData && (
-          <React.Fragment>
+          <div key={view.mode + (view.catId || "")} className="view-fade-in">
             {view.mode === "home" && <PublicHomeView data={selectedData} goToCategory={(catId) => setView({ mode: "category", catId })} />}
             {view.mode === "category" && view.catId && <PublicCategoryView data={selectedData} catId={view.catId} />}
             {view.mode === "onDuty" && <DistrictOnDutyView data={selectedData} />}
@@ -13428,7 +13448,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             {view.mode === "calendar" && <CalendarView data={selectedData} />}
             {view.mode === "report" && <ReportView data={selectedData} />}
             {view.mode === "skipHistory" && <SkipHistoryView data={selectedData} />}
-          </React.Fragment>
+          </div>
         )}
       </div>
     </div>
