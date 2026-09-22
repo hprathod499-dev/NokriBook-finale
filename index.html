@@ -8344,7 +8344,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           isMiscCategory={catId === MISC_CATEGORY_ID}
         />
       ) : tab === "fairness" ? (
-        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} />
+        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
       ) : (
       <React.Fragment>
       <div data-tour="nb-tour-roster-nextup" style={{
@@ -8931,9 +8931,8 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
 // percentage — so someone can point at a number ("Rakesh has done 42% of
 // all High Court duty") instead of eyeballing a roster table. Shared by
 // the authenticated and public read-only views, same as the history table.
-function CategoryFairnessTable({ roster, catLabel, onSelectPerson }) {
+function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
   const { t } = useLang();
-  const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const [periodFrom, periodTo] = periodRangeOf(period);
   const rows = useMemo(() => {
     const withCounts = roster.map((p) => ({ number: p.number, name: p.name, count: groupedDutyCountInRange(p.history, periodFrom, periodTo) }));
@@ -8945,9 +8944,6 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson }) {
 
   return (
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 16px 0" }}>
-        <PeriodFilterSelect period={period} setPeriod={setPeriod} />
-      </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
@@ -13406,7 +13402,7 @@ function PublicCategoryView({ data, catId }) {
 
       <div key={tab} className="view-fade-in">
       {tab === "fairness" ? (
-        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} />
+        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
       ) : tab === "history" ? (
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
