@@ -10251,7 +10251,7 @@ function DutyFairnessCompare({ data, staffList, onSelectPerson }) {
       onMouseLeave={onClick ? (e) => { e.currentTarget.style.background = "transparent"; } : undefined}
       title={onClick ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
     >
-      <span className="gu" style={{ flex: 1, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: onClick ? "underline" : "none", textDecorationStyle: "dotted", textDecorationColor: "var(--text-tertiary)" }} title={label}>{label}</span>
+      <span className="gu" style={{ flex: 1, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={label}>{label}</span>
       <span className="mono" style={{ width: 66, fontSize: 11.5, color: "var(--text-secondary)", textAlign: "right", flexShrink: 0 }}>{count} ({pct}%)</span>
     </div>
   );
