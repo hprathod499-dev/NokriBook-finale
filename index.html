@@ -10236,29 +10236,22 @@ function DutyFairnessCompare({ data, staffList, onSelectPerson }) {
   const compareNotFound = compareMatches.filter((m) => !m.person).map((m) => m.num);
   const maxCompare = Math.max(1, ...compareFound.map((p) => p.periodCount));
 
-  // Same var(--accent-strong) reasoning as CategoryFairnessTable's bar
-  // above: --accent itself is a deliberately pale fill color on
-  // Soft Blue/Light Green/Lavender (meant for buttons paired with
-  // --accent-text), so a bar filled with it barely stands out from its
-  // own var(--border-soft) track on those themes. --accent-strong is the
-  // vivid, always-legible version of the same hue, and is identical to
-  // --accent on Classic — no visual change there.
-  const Bar = ({ pct, color }) => (
-    <div style={{ flex: 1, height: 7, borderRadius: 4, background: "var(--border-soft)", overflow: "hidden" }}>
-      <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--accent-strong)", borderRadius: 4 }} />
-    </div>
-  );
+  // Each row is just the name/label and its count/percentage as text —
+  // no progress bar. `color` is accepted here (used by the designation
+  // and work-type views to tint... nothing anymore, but kept as an
+  // unused param rather than touching every barRow(...) call site's
+  // argument order) for exactly that reason: it doesn't do anything, on
+  // purpose, now that there's no bar left to color.
   const barRow = (key, label, count, pct, color, onClick) => (
     <div
       key={key}
       onClick={onClick}
-      style={{ display: "flex", alignItems: "center", gap: 10, cursor: onClick ? "pointer" : "default", borderRadius: 6, padding: onClick ? "2px 4px" : 0, margin: onClick ? "-2px -4px" : 0 }}
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: onClick ? "pointer" : "default", borderRadius: 6, padding: onClick ? "2px 4px" : 0, margin: onClick ? "-2px -4px" : 0 }}
       onMouseEnter={onClick ? (e) => { e.currentTarget.style.background = "var(--bg-surface-2)"; } : undefined}
       onMouseLeave={onClick ? (e) => { e.currentTarget.style.background = "transparent"; } : undefined}
       title={onClick ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
     >
-      <span className="gu" style={{ width: 150, fontSize: 12.5, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: onClick ? "underline" : "none", textDecorationStyle: "dotted", textDecorationColor: "var(--text-tertiary)" }} title={label}>{label}</span>
-      <Bar pct={pct} color={color} />
+      <span className="gu" style={{ flex: 1, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: onClick ? "underline" : "none", textDecorationStyle: "dotted", textDecorationColor: "var(--text-tertiary)" }} title={label}>{label}</span>
       <span className="mono" style={{ width: 66, fontSize: 11.5, color: "var(--text-secondary)", textAlign: "right", flexShrink: 0 }}>{count} ({pct}%)</span>
     </div>
   );
