@@ -2942,7 +2942,7 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -3042,6 +3042,9 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
               >
                 <span style={{ display: "inline-block", transform: stationOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}>▸</span>
                 <span style={{ flexShrink: 0 }}>🏢 {t("Station details", "સ્ટેશનની વિગતો")}</span>
+                {stationApprovalStatus === "pending" && (
+                  <span className="gu" style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: "var(--accent-strong)", border: "1px solid var(--accent-strong)", borderRadius: 20, padding: "1px 7px" }}>⏳ {t("Pending", "બાકી")}</span>
+                )}
                 {/* Shown collapsed too — otherwise the row gives no sign the
                     name set during onboarding (or anywhere else) actually
                     saved, which reads as "it didn't save" even when it did. */}
@@ -3051,6 +3054,11 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                   </span>
                 )}
               </button>
+              {stationOpen && stationApprovalStatus === "pending" && (
+                <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.5 }}>
+                  ⏳ {t("This station is waiting for your district admin to approve it — it keeps working normally in the meantime, but gets blocked if it's not approved within 7 days of the request.", "આ સ્ટેશન તમારા district admin ની મંજૂરીની રાહ જોઈ રહ્યું છે — એ દરમિયાન સામાન્ય રીતે કામ કરતું રહેશે, પણ વિનંતીના 7 દિવસમાં મંજૂર ન થાય તો બ્લોક થઈ જશે.")}
+                </div>
+              )}
               {stationOpen && (
                 <React.Fragment>
                   {onSaveState && (
@@ -3832,10 +3840,25 @@ function DutyRoster() {
     );
     return () => unsub();
   }, [user]);
+  // Same pattern as districtAdmins above, one level up: a superAdmins/{uid}
+  // doc (also assigned by hand via the Firebase Console — there's no
+  // in-app way to grant this, on purpose) sees every district's pending
+  // station requests in one place, not just one district's. Mainly a
+  // fallback for a district with no districtAdmins/{uid} assigned yet, so
+  // a "Request new station" from there still has somewhere to land.
+  const [isSuperAdmin, setIsSuperAdmin] = useState(undefined);
+  useEffect(() => {
+    if (!user) { setIsSuperAdmin(undefined); return; }
+    const unsub = db.collection("superAdmins").doc(user.uid).onSnapshot(
+      (snap) => setIsSuperAdmin(snap.exists),
+      () => setIsSuperAdmin(false)
+    );
+    return () => unsub();
+  }, [user]);
   // Every signed-in person just works inside their own account with full
   // edit access — there's no per-member editor/viewer role system, so this
   // never looks anyone up in memberships/{uid}.
-  const accountUid = (user && isDistrictAdmin === false) ? user.uid : null;
+  const accountUid = (user && isDistrictAdmin === false && isSuperAdmin === false) ? user.uid : null;
   const myRole = "owner";
   const canEdit = true;
   // Stable per signed-in session — recomputed each render but points at the
@@ -4406,6 +4429,13 @@ function DutyRoster() {
       }).length,
       onDutyToday: onDutyTodaySet.size,
       monthlyDutyCount,
+      // "pending" until the district admin approves it (see
+      // OrgSetupGateModal's "Request new station" flow and the 7-day
+      // auto-block effect below) — null for a normal, already-listed
+      // station, which never needed approval in the first place.
+      stationApprovalStatus: next.stationApprovalStatus || null,
+      stationRequestedAt: next.stationRequestedAt || null,
+      blocked: !!next.blocked,
       updatedAt: Date.now(),
     };
     const trySync = (isRetry) => {
@@ -4550,7 +4580,28 @@ function DutyRoster() {
     writeToFirestore(next);
   };
 
-  // A native "are you sure?" browser prompt — the one guarantee that
+  // "Request new station" (OrgSetupGateModal) starts life pending — usable
+  // right away, but if 7 days pass with no district/super admin approval,
+  // the station gets locked out (see the `data.blocked` check further
+  // down, which renders a full lockout screen instead of the app). There's
+  // no server-side scheduler here (no Cloud Functions in this project), so
+  // this can only check "has it been 7 days?" whenever SOMEONE actually
+  // opens the app — a station nobody opens for 7+ days doesn't get
+  // blocked until the next time it's opened, which is fine, since nothing
+  // is happening on it in the meantime anyway. Writes straight to
+  // Firestore (not through persist/the undo stack) — this is a system
+  // state flip the person didn't take an action to cause, not something
+  // they'd ever want to "undo".
+  useEffect(() => {
+    if (!data || !accountUid) return;
+    if (data.stationApprovalStatus !== "pending" || data.blocked) return;
+    const requestedAt = data.stationRequestedAt ? new Date(data.stationRequestedAt).getTime() : null;
+    if (requestedAt && (Date.now() - requestedAt) > 7 * 24 * 60 * 60 * 1000) {
+      writeToFirestore({ ...dataRef.current, blocked: true });
+    }
+  }, [data, accountUid]);
+
+
   // actually works even if someone closes the tab without reading any
   // in-app banner. Only fires while a save is genuinely unresolved
   // (mid-retry after a failure, or a write still in flight), so it never
@@ -6491,7 +6542,14 @@ function DutyRoster() {
     }
     return <LangContext.Provider value={langCtxValue}><SignInScreen /></LangContext.Provider>;
   }
-  if (isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
+  if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
+  if (isSuperAdmin) {
+    return (
+      <LangContext.Provider value={langCtxValue}>
+        <SuperAdminApp email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} />
+      </LangContext.Provider>
+    );
+  }
   if (isDistrictAdmin) {
     return (
       <LangContext.Provider value={langCtxValue}>
@@ -6544,6 +6602,31 @@ function DutyRoster() {
       );
     }
     return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading roster…</div>;
+  }
+  // A "Request new station" (OrgSetupGateModal) that went unapproved for
+  // 7 days (see the auto-block effect above) — full lockout, no access to
+  // anything else, until a district/super admin approves it (which clears
+  // `blocked` server-side; the next snapshot here picks that up and this
+  // screen goes away on its own, no action needed from this end).
+  if (data.blocked) {
+    return (
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "var(--bg-page)" }}>
+        <div style={{ maxWidth: 440, textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 14 }}>🚫</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", marginBottom: 10 }} className="gu">
+            {t("Your account is blocked", "તમારું એકાઉન્ટ બ્લોક છે")}
+          </div>
+          <div style={{ fontSize: 13.5, color: "var(--text-secondary)", marginBottom: 20, lineHeight: 1.6 }} className="gu">
+            {t("Ask your district admin to approve your request from their panel.", "તમારા district admin ને તેમના panel માંથી તમારી વિનંતી મંજૂર કરવાનું કહો.")}
+          </div>
+          <button
+            onClick={signOutUser}
+            style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
+            className="gu"
+          >{t("Sign out", "સાઇન આઉટ")}</button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -6822,6 +6905,7 @@ function DutyRoster() {
           stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
           state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s })}
           district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d })}
+          stationApprovalStatus={data.stationApprovalStatus}
           onHelp={() => setShowHelpPanel(true)}
           onChooseBackupFolder={chooseBackupFolder}
           onRecoverLocalBackup={recoverLocalBackup}
@@ -6871,8 +6955,21 @@ function DutyRoster() {
       {showStationGate && (
         <OrgSetupGateModal
           initialStationName={data.stationName || "પોલીસ સ્ટેશન"}
-          onSubmit={({ stationName, state, district }) => {
-            persist({ ...dataRef.current, stationName, state: state, district: district });
+          onSubmit={({ stationName, state, district, isRequest }) => {
+            persist({
+              ...dataRef.current,
+              stationName, state: state, district: district,
+              // A "Request new station" submission starts life pending —
+              // the station is usable immediately (nothing below gates
+              // access on this), but Settings ▸ Station details shows
+              // "Approval pending" and the district admin's dashboard
+              // lists it until they approve it. A normal list pick or
+              // manual-back-to-list resubmission clears any pending
+              // state instead, since it's no longer an unlisted station
+              // needing review.
+              stationApprovalStatus: isRequest ? "pending" : null,
+              stationRequestedAt: isRequest ? new Date().toISOString() : null,
+            });
             setShowStationGate(false);
             setShowSpotlightTour(true);
           }}
@@ -11788,7 +11885,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
                   // confusing there. Continue is blocked below instead,
                   // with a visible reason, until it's Gujarati-only.
                   onChange={(e) => setManualStationName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict, isRequest: true }); }}
                   className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }}
                 />
                 {manualStationTooMuchEnglish && (
@@ -11796,6 +11893,9 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
                     {t("Too many English letters — a short code (like A, B, DCB) is fine, but not a full English word.", "વધારે પડતા English અક્ષરો — ટૂંકો કોડ (જેમ કે A, B, DCB) ચાલે, પણ પૂરો English શબ્દ નહીં.")}
                   </div>
                 )}
+                <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+                  {t("You can start using it right away — it just needs your district admin to approve it within 7 days.", "તમે તરત જ ઉપયોગ શરૂ કરી શકો છો — તમારા district admin એ 7 દિવસમાં માન્ય કરવાનું છે.")}
+                </div>
               </React.Fragment>
             ) : (
               <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
@@ -11810,18 +11910,18 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
               onClick={() => setManualStation((v) => { const next = !v; if (next) setManualStationName("પોલીસ સ્ટેશન"); return next; })}
               className="gu"
               style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--accent-strong)", background: manualStation ? "var(--accent)" : "transparent", color: manualStation ? "var(--accent-text)" : "var(--accent-strong)", cursor: "pointer" }}
-            >{manualStation ? t("← List", "← યાદી") : t("Not in the list?", "યાદીમાં નથી?")}</button>
+            >{manualStation ? t("← List", "← યાદી") : t("Request new station", "નવું સ્ટેશન વિનંતી કરો")}</button>
           )}
         </div>
         <div style={{ marginBottom: 12 }} />
         <button
           onClick={() => {
-            if (manualStation) { if (canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict }); }
+            if (manualStation) { if (canSubmitManualStation) onSubmit({ stationName: manualStationName.trim(), state: selState, district: selDistrict, isRequest: true }); }
             else if (selStation) onSubmit({ stationName: selStation, state: selState, district: selDistrict });
           }}
           disabled={manualStation ? !canSubmitManualStation : !selStation}
           style={primaryBtn(manualStation ? canSubmitManualStation : !!selStation)} className="gu"
-        >{t("Continue →", "ચાલુ રાખો →")}</button>
+        >{manualStation ? t("Send request →", "વિનંતી મોકલો →") : t("Continue →", "ચાલુ રાખો →")}</button>
         <button onClick={() => setStep("who")} style={backBtn} className="gu">← {t("Back", "પાછળ")}</button>
       </div>
     </div>
@@ -13709,6 +13809,102 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
 // one deliberate difference is DistrictStaffView instead of
 // PublicStaffView, which additionally shows phone numbers, since this
 // is official district oversight rather than a public share link.
+// The owner's own oversight view — sees every district's pending "Request
+// new station" submissions in one place (superAdmins/{uid}, assigned by
+// hand via the Firebase Console; see the note above isSuperAdmin in the
+// root component). Mainly the fallback for a district that has no
+// districtAdmins/{uid} assigned yet, so a request from there still has
+// somewhere to land, but works the same regardless of whether a district
+// admin also exists for it. Uses a Firestore collection-group query
+// across every districts/*/stations subcollection — Firestore prompts to
+// create the matching index the first time this runs in a project that's
+// never run one before (a direct link appears in the browser console
+// error; click it, then reload).
+function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
+  const { t } = useLang();
+  const [pending, setPending] = useState(null); // null = loading
+  const [approvingUid, setApprovingUid] = useState(null);
+
+  useEffect(() => {
+    const unsub = db.collectionGroup("stations").where("stationApprovalStatus", "==", "pending").onSnapshot(
+      (snap) => {
+        const list = [];
+        snap.forEach((docSnap) => {
+          // The district is the collection's own parent doc id (…/districts/
+          // {districtId}/stations/{uid}) — not stored redundantly on the
+          // digest itself before this, since a per-district view (like
+          // DistrictAdminApp) already knows it from context.
+          const districtId = docSnap.ref.parent.parent ? docSnap.ref.parent.parent.id : null;
+          list.push({ uid: docSnap.id, districtId, ...docSnap.data() });
+        });
+        list.sort((a, b) => (a.stationRequestedAt || "").localeCompare(b.stationRequestedAt || ""));
+        setPending(list);
+      },
+      (e) => { console.error("Super admin pending-requests query failed:", e); setPending([]); }
+    );
+    return () => unsub();
+  }, []);
+
+  // Same write as DistrictAdminApp's approveStation — see the comment
+  // there for why this has to land on accounts/{uid} itself rather than
+  // just the digest.
+  const approveStation = (uid) => {
+    setApprovingUid(uid);
+    db.collection("accounts").doc(uid).update({ stationApprovalStatus: "approved", blocked: false })
+      .catch((e) => {
+        console.error("Approve failed:", e);
+        window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+      })
+      .finally(() => setApprovingUid(null));
+  };
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+  useEffect(() => {
+    if (theme && theme !== "classic") document.documentElement.setAttribute("data-color-theme", theme);
+    else document.documentElement.removeAttribute("data-color-theme");
+  }, [theme]);
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🛡️ {t("Super Admin — Pending station requests", "સુપર એડમિન — બાકી સ્ટેશન વિનંતીઓ")}</div>
+        <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
+      </div>
+      <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
+        {pending === null && (
+          <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
+        )}
+        {pending !== null && pending.length === 0 && (
+          <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("No pending station requests right now.", "હાલમાં કોઈ બાકી સ્ટેશન વિનંતી નથી.")}</div>
+        )}
+        {(pending || []).map((s) => {
+          const requestedAt = s.stationRequestedAt ? new Date(s.stationRequestedAt) : null;
+          const daysLeft = requestedAt ? Math.max(0, 7 - Math.floor((Date.now() - requestedAt.getTime()) / 86400000)) : null;
+          return (
+            <div key={s.uid} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", marginBottom: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }} className="gu">{s.stationName || "—"}</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{s.districtId || "—"}{s.state ? ` · ${s.state}` : ""}</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }} className="gu">
+                  {requestedAt ? t(`Requested ${requestedAt.toLocaleDateString()}`, `વિનંતી ${requestedAt.toLocaleDateString()}`) : ""}
+                  {daysLeft != null && (daysLeft > 0 ? ` · ${daysLeft}${t("d left", " દિવસ બાકી")}` : ` · ${t("overdue", "મોડું")}`)}
+                </div>
+              </div>
+              <button
+                onClick={() => approveStation(s.uid)}
+                disabled={approvingUid === s.uid}
+                className="gu"
+                style={{ flexShrink: 0, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
+              >{approvingUid === s.uid ? t("Approving…", "મંજૂર થઈ રહ્યું છે…") : t("✓ Approve", "✓ મંજૂર કરો")}</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
   const { t } = useLang();
   const [stations, setStations] = useState(null); // null = loading
@@ -13738,6 +13934,24 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId, selectedUid]);
   const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
+  // Approving a "Request new station" (see OrgSetupGateModal) writes
+  // straight to that station's OWN accounts/{uid} doc — the digest under
+  // districts/{districtId}/stations/{uid} is only a read-only mirror that
+  // station's own client rewrites on every save, so updating the digest
+  // alone would just get overwritten the next time that station's app
+  // syncs. Requires a Firestore Security Rules clause letting a district
+  // admin update exactly these two fields on an accounts/{uid} doc whose
+  // district matches their own districtAdmins/{uid} assignment.
+  const [approvingUid, setApprovingUid] = useState(null);
+  const approveStation = (uid) => {
+    setApprovingUid(uid);
+    db.collection("accounts").doc(uid).update({ stationApprovalStatus: "approved", blocked: false })
+      .catch((e) => {
+        console.error("Approve failed:", e);
+        window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+      })
+      .finally(() => setApprovingUid(null));
+  };
 
   useEffect(() => {
     if (!districtId) { setStations([]); return; }
@@ -13847,6 +14061,39 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("No stations found in this district yet.", "આ જિલ્લામાં હજુ કોઈ સ્ટેશન મળ્યું નથી.")}</div>
           )}
           {(() => {
+            const pendingList = (stations || []).filter((s) => s.stationApprovalStatus === "pending");
+            if (pendingList.length === 0) return null;
+            return (
+              <div style={{ marginBottom: 24, background: "var(--bg-surface)", border: "1px solid var(--accent-strong)", borderRadius: 10, padding: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }} className="gu">⏳ {t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ")} ({pendingList.length})</div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 10 }} className="gu">
+                  {t("Unapproved after 7 days, a station gets blocked until approved.", "7 દિવસમાં મંજૂર ન થાય તો સ્ટેશન બ્લોક થઈ જાય છે, જ્યાં સુધી મંજૂર ન થાય.")}
+                </div>
+                {pendingList.map((s) => {
+                  const requestedAt = s.stationRequestedAt ? new Date(s.stationRequestedAt) : null;
+                  const daysLeft = requestedAt ? Math.max(0, 7 - Math.floor((Date.now() - requestedAt.getTime()) / 86400000)) : null;
+                  return (
+                    <div key={s.uid} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 600 }} className="gu">{s.stationName || "—"}</div>
+                        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="gu">
+                          {requestedAt ? t(`Requested ${requestedAt.toLocaleDateString()}`, `વિનંતી ${requestedAt.toLocaleDateString()}`) : ""}
+                          {daysLeft != null && (daysLeft > 0 ? ` · ${daysLeft}${t("d left", " દિવસ બાકી")}` : ` · ${t("overdue", "મોડું")}`)}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => approveStation(s.uid)}
+                        disabled={approvingUid === s.uid}
+                        className="gu"
+                        style={{ flexShrink: 0, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
+                      >{approvingUid === s.uid ? t("Approving…", "મંજૂર થઈ રહ્યું છે…") : t("✓ Approve", "✓ મંજૂર કરો")}</button>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          {(() => {
             const starredList = (stations || []).filter((s) => starredStations.includes(s.uid));
             const restList = (stations || []).filter((s) => !starredStations.includes(s.uid));
             const renderStationRow = (s) => {
@@ -13866,7 +14113,15 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 20px", cursor: "pointer" }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{s.stationName || t("(unnamed station)", "(અનામી સ્ટેશન)")}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+                        {s.stationName || t("(unnamed station)", "(અનામી સ્ટેશન)")}
+                        {s.stationApprovalStatus === "pending" && (
+                          <span className="gu" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: "var(--accent-strong)", border: "1px solid var(--accent-strong)", borderRadius: 20, padding: "1px 7px" }}>⏳ {t("Pending", "બાકી")}</span>
+                        )}
+                        {s.blocked && (
+                          <span className="gu" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: "#c0392b", border: "1px solid #c0392b", borderRadius: 20, padding: "1px 7px" }}>🚫 {t("Blocked", "બ્લોક")}</span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
                         {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {(liveOnDuty[s.uid] != null ? liveOnDuty[s.uid] : (s.onDutyToday || 0))} {t("on duty today", "આજે ડ્યુટી પર")}
                       </div>
