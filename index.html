@@ -496,6 +496,21 @@
   [data-color-theme="soft-blue"] option, [data-color-theme="light-green"] option, [data-color-theme="lavender"] option {
     background: var(--bg-surface); color: var(--text-primary);
   }
+  /* Highlighting a sentence to read it carefully (e.g. the "X total
+     duties logged…" summary line) shouldn't paint it in the browser's
+     harsh default blue — it should look like it belongs to the app's own
+     palette instead. Applies everywhere except the district-admin
+     dashboard, which keeps the plain native blue (that surface is its
+     own separate, simpler shell — no need for it to match the main
+     app's theme colors). */
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+  .district-admin-app ::selection {
+    background: Highlight;
+    color: HighlightText;
+  }
 </style>
 </head>
 <body>
@@ -7238,8 +7253,9 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
     const doneToday = roster.find((p) => p.lastDuty === today);
+    const onDutyToday = roster.filter((p) => p.lastDuty === today).length;
     const nextUp = roster.find((p) => p.rank === 1);
-    return { cat: c, doneToday, nextUp, total: roster.length };
+    return { cat: c, doneToday, onDutyToday, nextUp, total: roster.length };
   }), [data]);
 
   return (
@@ -7271,13 +7287,20 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
       ) : (
         <React.Fragment>
           <div data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
-            {cards.map(({ cat, doneToday, nextUp, total }) => {
+            {cards.map(({ cat, doneToday, onDutyToday, nextUp, total }) => {
               const nextPhone = nextUp && nextUp.staffRec && nextUp.staffRec.phone;
               return (
               <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
-                  <div className="mono gu" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{total} {t("staff", "સ્ટાફ")}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 7, minWidth: 0 }}>
+                    <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
+                    {onDutyToday > 0 && (
+                      <span className="gu" style={{ fontSize: 11, fontWeight: 700, color: "var(--status-success-text)", whiteSpace: "nowrap" }}>
+                        · {onDutyToday} {t(onDutyToday === 1 ? "on duty" : "on duty", onDutyToday === 1 ? "ડ્યુટી પર" : "ડ્યુટી પર")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mono gu" style={{ fontSize: 11, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{total} {t("staff", "સ્ટાફ")}</div>
                 </div>
 
                 {total === 0 ? (
@@ -8919,16 +8942,10 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson }) {
       .map((p) => ({ ...p, pct: total > 0 ? (p.count / total) * 100 : 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [roster, periodFrom, periodTo]);
-  const totalDuties = rows.reduce((sum, r) => sum + r.count, 0);
 
   return (
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">
-          {totalDuties > 0
-            ? t(`${totalDuties} total ${totalDuties === 1 ? "duty" : "duties"} logged for ${catLabel} in ${periodLabel(t, period)} — each person's share of that.`, `${catLabel} માટે ${periodLabel(t, period)} કુલ ${totalDuties} ડ્યુટી નોંધાયેલ — દરેક વ્યક્તિનો હિસ્સો.`)
-            : t(`No duties logged for this work type in ${periodLabel(t, period)}.`, `આ કામના પ્રકાર માટે ${periodLabel(t, period)} કોઈ ડ્યુટી નોંધાયેલ નથી.`)}
-        </div>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <PeriodFilterSelect period={period} setPeriod={setPeriod} />
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -14272,7 +14289,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
 
   if (!selectedUid) {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
+      <div className="district-admin-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
           <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("District Dashboard", "જિલ્લા ડેશબોર્ડ")}</div>
           <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
@@ -14384,7 +14401,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   }
 
   return (
-    <div className="app-shell" style={{ display: "flex", minHeight: "100vh", background: "var(--bg-page)" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
+    <div className="app-shell district-admin-app" style={{ display: "flex", minHeight: "100vh", background: "var(--bg-page)" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
       <DistrictSidebar
         data={selectedData || { categories: [], membership: {} }} view={view} setView={setView}
         stationName={selectedStation && selectedStation.stationName} stationUid={selectedUid}
