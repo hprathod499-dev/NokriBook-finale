@@ -8146,6 +8146,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const [tab, setTab] = useState("roster"); // roster | history
   const [assignTarget, setAssignTarget] = useState(null); // { number, name }
   const [skipTarget, setSkipTarget] = useState(null); // { number, name }
+  const [historyPersonNumber, setHistoryPersonNumber] = useState(null); // person shown in the Fairness tab's full-history modal
   // "rank" = normal fair-rotation order (default). "duties" = sorted by how
   // many times each person has done this work type, most first — lets you
   // spot at a glance who's carrying the load in this specific work type.
@@ -8320,7 +8321,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           isMiscCategory={catId === MISC_CATEGORY_ID}
         />
       ) : tab === "fairness" ? (
-        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} />
+        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} />
       ) : (
       <React.Fragment>
       <div data-tour="nb-tour-roster-nextup" style={{
@@ -8600,6 +8601,9 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           onConfirm={(note) => { skipInCategoryWithLog(catId, cat ? cat.label : catId, skipTarget.number, skipTarget.name, note, "", ""); setSkipTarget(null); }}
           onCancel={() => setSkipTarget(null)}
         />
+      )}
+      {historyPersonNumber && data.staff[historyPersonNumber] && (
+        <PersonHistoryModal data={data} number={historyPersonNumber} onClose={() => setHistoryPersonNumber(null)} />
       )}
     </React.Fragment>
   );
@@ -8904,7 +8908,7 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
 // percentage — so someone can point at a number ("Rakesh has done 42% of
 // all High Court duty") instead of eyeballing a roster table. Shared by
 // the authenticated and public read-only views, same as the history table.
-function CategoryFairnessTable({ roster, catLabel }) {
+function CategoryFairnessTable({ roster, catLabel, onSelectPerson }) {
   const { t } = useLang();
   const [period, setPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
   const [periodFrom, periodTo] = periodRangeOf(period);
@@ -8936,8 +8940,13 @@ function CategoryFairnessTable({ roster, catLabel }) {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                <td style={{ ...td, minWidth: 140 }} className="gu">{r.name}</td>
+              <tr
+                key={r.number}
+                onClick={onSelectPerson ? () => onSelectPerson(r.number) : undefined}
+                style={{ borderTop: "1px solid var(--border-soft)", cursor: onSelectPerson ? "pointer" : "default" }}
+                title={onSelectPerson ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
+              >
+                <td style={{ ...td, minWidth: 140, textDecoration: onSelectPerson ? "underline" : "none", textDecorationStyle: "dotted", textDecorationColor: "var(--text-tertiary)" }} className="gu">{r.name}</td>
                 <td style={td} className="mono">{r.number}</td>
                 <td style={{ ...td, textAlign: "center" }} className="mono">{r.count}</td>
                 <td style={td}>
@@ -9508,7 +9517,7 @@ function StaffView({
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
 
       {showFairnessCompare && (
-        <DutyFairnessCompare data={data} staffList={staffList} currentMonth={currentMonth} />
+        <DutyFairnessCompare data={data} staffList={staffList} currentMonth={currentMonth} onSelectPerson={setHistoryPersonNumber} />
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10, fontSize: 11.5, color: "var(--text-secondary)" }} className="gu">
@@ -10161,7 +10170,7 @@ function PersonHistoryModal({ data, number, onClose }) {
 // / work type) on this month's Duty meter counts, all shown as % bars
 // relative to whoever/whatever is busiest in that lens, plus a two-person
 // side-by-side compare tool with a per-work-type breakdown for each.
-function DutyFairnessCompare({ data, staffList }) {
+function DutyFairnessCompare({ data, staffList, onSelectPerson }) {
   const { t } = useLang();
   const [view, setView] = useState("person"); // person | designation | worktype
   const [compareInput, setCompareInput] = useState("");
@@ -10239,9 +10248,16 @@ function DutyFairnessCompare({ data, staffList }) {
       <div style={{ width: `${pct}%`, height: "100%", background: color || "var(--accent-strong)", borderRadius: 4 }} />
     </div>
   );
-  const barRow = (key, label, count, pct, color) => (
-    <div key={key} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span className="gu" style={{ width: 150, fontSize: 12.5, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={label}>{label}</span>
+  const barRow = (key, label, count, pct, color, onClick) => (
+    <div
+      key={key}
+      onClick={onClick}
+      style={{ display: "flex", alignItems: "center", gap: 10, cursor: onClick ? "pointer" : "default", borderRadius: 6, padding: onClick ? "2px 4px" : 0, margin: onClick ? "-2px -4px" : 0 }}
+      onMouseEnter={onClick ? (e) => { e.currentTarget.style.background = "var(--bg-surface-2)"; } : undefined}
+      onMouseLeave={onClick ? (e) => { e.currentTarget.style.background = "transparent"; } : undefined}
+      title={onClick ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
+    >
+      <span className="gu" style={{ width: 150, fontSize: 12.5, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: onClick ? "underline" : "none", textDecorationStyle: "dotted", textDecorationColor: "var(--text-tertiary)" }} title={label}>{label}</span>
       <Bar pct={pct} color={color} />
       <span className="mono" style={{ width: 66, fontSize: 11.5, color: "var(--text-secondary)", textAlign: "right", flexShrink: 0 }}>{count} ({pct}%)</span>
     </div>
@@ -10270,7 +10286,7 @@ function DutyFairnessCompare({ data, staffList }) {
       {view === "person" && (
         <React.Fragment>
           <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 18 }}>
-            {personRows.map((s) => barRow(s.number, s.name, s.periodCount, maxPerson > 0 ? Math.round((s.periodCount / maxPerson) * 100) : 0))}
+            {personRows.map((s) => barRow(s.number, s.name, s.periodCount, maxPerson > 0 ? Math.round((s.periodCount / maxPerson) * 100) : 0, undefined, onSelectPerson ? () => onSelectPerson(s.number) : undefined))}
             {personRows.length === 0 && <div style={{ fontSize: 12, color: "var(--text-tertiary)" }} className="gu">{t("No staff yet.", "હજુ કોઈ સ્ટાફ નથી.")}</div>}
           </div>
 
@@ -10299,7 +10315,12 @@ function DutyFairnessCompare({ data, staffList }) {
                   const breakdown = personCatBreakdown(p.number);
                   return (
                     <div key={p.number} style={{ flex: "1 1 220px", background: "var(--bg-surface-2)", borderRadius: 8, padding: 12 }}>
-                      <div className="gu" style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{p.name} <span className="mono" style={{ fontWeight: 400, fontSize: 11, color: "var(--text-tertiary)" }}>#{p.number}</span></div>
+                      <div
+                        className="gu"
+                        onClick={onSelectPerson ? () => onSelectPerson(p.number) : undefined}
+                        style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, cursor: onSelectPerson ? "pointer" : "default" }}
+                        title={onSelectPerson ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
+                      >{p.name} <span className="mono" style={{ fontWeight: 400, fontSize: 11, color: "var(--text-tertiary)" }}>#{p.number}</span></div>
                       <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "var(--accent-strong)" }}>{p.periodCount}</div>
                       <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 8 }}>{t(`duties in ${periodLabel(t, period)}`, `${periodLabel(t, period)} ડ્યુટીઓ`)} · {pct}% {t("of the busiest in this comparison", "આ સરખામણીમાં સૌથી વ્યસ્તની સાપેક્ષે")}</div>
                       {breakdown.length > 0 ? breakdown.map((b) => (
@@ -13290,6 +13311,7 @@ function PublicCategoryView({ data, catId }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
+  const [historyPersonNumber, setHistoryPersonNumber] = useState(null); // person shown in the Fairness tab's full-history modal
   const cat = (data.categories || []).find((c) => c.id === catId);
   const membership = (data.membership && data.membership[catId]) || [];
   const roster = useMemo(() => computeRoster(data, catId), [data, catId]);
@@ -13348,7 +13370,7 @@ function PublicCategoryView({ data, catId }) {
 
       <div key={tab} className="view-fade-in">
       {tab === "fairness" ? (
-        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} />
+        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} />
       ) : tab === "history" ? (
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
@@ -13417,6 +13439,9 @@ function PublicCategoryView({ data, catId }) {
         </div>
       )}
       </div>
+      {historyPersonNumber && data.staff[historyPersonNumber] && (
+        <PersonHistoryModal data={data} number={historyPersonNumber} onClose={() => setHistoryPersonNumber(null)} />
+      )}
     </React.Fragment>
   );
 }
@@ -13509,7 +13534,7 @@ function PublicStaffView({ data }) {
       </div>
 
       {showFairnessCompare && (
-        <DutyFairnessCompare data={data} staffList={rows} currentMonth={currentMonth} />
+        <DutyFairnessCompare data={data} staffList={rows} currentMonth={currentMonth} onSelectPerson={setHistoryPersonNumber} />
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10, fontSize: 11.5, color: "var(--text-secondary)", flexWrap: "wrap" }} className="gu">
@@ -13723,6 +13748,7 @@ function DistrictStaffView({ data }) {
 // reason to open this view as looking someone up by name.
 function DistrictFairnessView({ data }) {
   const { t } = useLang();
+  const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
   const staffList = useMemo(() => Object.values(data.staff || {}).map((s) => {
     const desg = (data.designations || []).find((d) => d.id === s.designation);
     return { ...s, desgLabel: desg ? desg.label : "" };
@@ -13730,7 +13756,10 @@ function DistrictFairnessView({ data }) {
   return (
     <React.Fragment>
       <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 16px" }}>{t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</h1>
-      <DutyFairnessCompare data={data} staffList={staffList} />
+      <DutyFairnessCompare data={data} staffList={staffList} onSelectPerson={setHistoryPersonNumber} />
+      {historyPersonNumber && data.staff[historyPersonNumber] && (
+        <PersonHistoryModal data={data} number={historyPersonNumber} onClose={() => setHistoryPersonNumber(null)} />
+      )}
     </React.Fragment>
   );
 }
