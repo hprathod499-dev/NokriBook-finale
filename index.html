@@ -13846,14 +13846,37 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
   }, []);
 
   // Same write as DistrictAdminApp's approveStation — see the comment
-  // there for why this has to land on accounts/{uid} itself rather than
-  // just the digest.
-  const approveStation = (uid) => {
+  // there for why this now also touches the digest doc directly instead
+  // of relying only on accounts/{uid} and waiting for that station's own
+  // client to resync it.
+  const approveStation = (uid, districtId) => {
     setApprovingUid(uid);
-    db.collection("accounts").doc(uid).update({ stationApprovalStatus: "approved", blocked: false })
+    const batch = db.batch();
+    batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
+    if (districtId) batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
+    batch.commit()
       .catch((e) => {
         console.error("Approve failed:", e);
         window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+      })
+      .finally(() => setApprovingUid(null));
+  };
+  // Denying a "Request new station" submission deletes the request's
+  // Firestore data entirely (the accounts/{uid} doc and its digest) —
+  // this can't also delete the underlying Firebase Auth login itself
+  // (that needs the Admin SDK / a Cloud Function, not available from a
+  // plain client), so if that same person signs in again afterward,
+  // they'll land on a fresh blank account and can submit a new request.
+  const denyStation = (uid, districtId, stationName) => {
+    if (!window.confirm(t(`Deny and delete the request for "${stationName || uid}"? This cannot be undone.`, `"${stationName || uid}" ની વિનંતી નકારો અને ડિલીટ કરો? આ પૂર્વવત્ કરી શકાશે નહીં.`))) return;
+    setApprovingUid(uid);
+    const batch = db.batch();
+    batch.delete(db.collection("accounts").doc(uid));
+    if (districtId) batch.delete(db.collection("districts").doc(districtId).collection("stations").doc(uid));
+    batch.commit()
+      .catch((e) => {
+        console.error("Deny failed:", e);
+        window.alert(t("Could not deny — check your connection and try again.", "નકારી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
       })
       .finally(() => setApprovingUid(null));
   };
@@ -13892,12 +13915,20 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
                   {daysLeft != null && (daysLeft > 0 ? ` · ${daysLeft}${t("d left", " દિવસ બાકી")}` : ` · ${t("overdue", "મોડું")}`)}
                 </div>
               </div>
-              <button
-                onClick={() => approveStation(s.uid)}
-                disabled={approvingUid === s.uid}
-                className="gu"
-                style={{ flexShrink: 0, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
-              >{approvingUid === s.uid ? t("Approving…", "મંજૂર થઈ રહ્યું છે…") : t("✓ Approve", "✓ મંજૂર કરો")}</button>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => denyStation(s.uid, s.districtId, s.stationName)}
+                  disabled={approvingUid === s.uid}
+                  className="gu"
+                  style={{ background: "transparent", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
+                >{t("✕ Deny", "✕ નકારો")}</button>
+                <button
+                  onClick={() => approveStation(s.uid, s.districtId)}
+                  disabled={approvingUid === s.uid}
+                  className="gu"
+                  style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
+                >{approvingUid === s.uid ? t("Approving…", "મંજૂર થઈ રહ્યું છે…") : t("✓ Approve", "✓ મંજૂર કરો")}</button>
+              </div>
             </div>
           );
         })}
@@ -13945,10 +13976,28 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   const [approvingUid, setApprovingUid] = useState(null);
   const approveStation = (uid) => {
     setApprovingUid(uid);
-    db.collection("accounts").doc(uid).update({ stationApprovalStatus: "approved", blocked: false })
+    const batch = db.batch();
+    batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
+    batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
+    batch.commit()
       .catch((e) => {
         console.error("Approve failed:", e);
         window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
+      })
+      .finally(() => setApprovingUid(null));
+  };
+  // See SuperAdminApp's identical denyStation for why this can only ever
+  // delete the request's Firestore data, not the underlying Auth login.
+  const denyStation = (uid, stationName) => {
+    if (!window.confirm(t(`Deny and delete the request for "${stationName || uid}"? This cannot be undone.`, `"${stationName || uid}" ની વિનંતી નકારો અને ડિલીટ કરો? આ પૂર્વવત્ કરી શકાશે નહીં.`))) return;
+    setApprovingUid(uid);
+    const batch = db.batch();
+    batch.delete(db.collection("accounts").doc(uid));
+    batch.delete(db.collection("districts").doc(districtId).collection("stations").doc(uid));
+    batch.commit()
+      .catch((e) => {
+        console.error("Deny failed:", e);
+        window.alert(t("Could not deny — check your connection and try again.", "નકારી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
       })
       .finally(() => setApprovingUid(null));
   };
@@ -14081,12 +14130,20 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                           {daysLeft != null && (daysLeft > 0 ? ` · ${daysLeft}${t("d left", " દિવસ બાકી")}` : ` · ${t("overdue", "મોડું")}`)}
                         </div>
                       </div>
-                      <button
-                        onClick={() => approveStation(s.uid)}
-                        disabled={approvingUid === s.uid}
-                        className="gu"
-                        style={{ flexShrink: 0, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
-                      >{approvingUid === s.uid ? t("Approving…", "મંજૂર થઈ રહ્યું છે…") : t("✓ Approve", "✓ મંજૂર કરો")}</button>
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                        <button
+                          onClick={() => denyStation(s.uid, s.stationName)}
+                          disabled={approvingUid === s.uid}
+                          className="gu"
+                          style={{ background: "transparent", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
+                        >{t("✕ Deny", "✕ નકારો")}</button>
+                        <button
+                          onClick={() => approveStation(s.uid)}
+                          disabled={approvingUid === s.uid}
+                          className="gu"
+                          style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, cursor: approvingUid === s.uid ? "default" : "pointer" }}
+                        >{approvingUid === s.uid ? t("Approving…", "મંજૂર થઈ રહ્યું છે…") : t("✓ Approve", "✓ મંજૂર કરો")}</button>
+                      </div>
                     </div>
                   );
                 })}
