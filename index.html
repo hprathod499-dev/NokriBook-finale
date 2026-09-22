@@ -1691,7 +1691,7 @@ function ExportMenuButton({ disabled, pdfBusy, onExportCsv, onDownloadPdf }) {
   );
 }
 
-async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName, district) {
+async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName, district, designations) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = 9;
@@ -1702,6 +1702,14 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   await ensureGujaratiCanvasFont();
 
   const [periodFrom, periodTo] = periodRangeOf(period);
+  // "Rank, Name, Number, Designation, ..." — same left-to-right order used
+  // by both on-screen roster tables (CategoryView and PublicCategoryView),
+  // so the PDF export reads the same as what's on screen.
+  const desgLabelOfPdf = (id) => {
+    if (!id || !designations) return "—";
+    const d = designations.find((x) => x.id === id);
+    return (d && d.label) || "—";
+  };
 
   // Station name first, always, same size/position as every other PDF —
   // see drawPdfHeader's own comment for why this replaced each export's
@@ -1724,7 +1732,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: headerY + 4,
-    head: [["Rank", "Number", "Name", "Last duty", "Waiting", "Duties", "Status"]],
+    head: [["Rank", "Name", "Number", "Designation", "Last duty", "Waiting", "Duties", "Status"]],
     // p.history comes straight off the membership row computeRoster
     // spreads in — same source both CategoryView and PublicCategoryView
     // already use for their own roster tables. The Duties column is
@@ -1732,19 +1740,19 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // used by every other period-aware duty count in the app) rather than
     // an unconditional all-time count.
     body: roster.map((p) => [
-      p.rank || "—", p.number, p.name, p.lastDuty ? formatDMY(p.lastDuty) : "—",
+      p.rank || "—", p.name, p.number, desgLabelOfPdf(p.staffRec && p.staffRec.designation), p.lastDuty ? formatDMY(p.lastDuty) : "—",
       p.waiting != null ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 45 }, 6: { minCellWidth: 26 } },
+    columnStyles: { 1: { minCellWidth: 45 }, 7: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [2, 6].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [2, 6].includes(hookData.column.index)) {
+      if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
         if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -8262,7 +8270,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName, data.district);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName, data.district, data.designations);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -8484,23 +8492,27 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
+              <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
               <th style={th}>{t("Waiting", "રાહ")}</th><th style={th}>{t("Duties", "ડ્યુટીની સંખ્યા")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
             </tr>
           </thead>
           <tbody>
             {displayRoster.map((p) => {
               const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
+              const desigLabel = p.staffRec && p.staffRec.designation && data.designations
+                ? (data.designations.find((d) => d.id === p.staffRec.designation) || {}).label
+                : "";
               return (
                 <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                   <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
-                  <td style={td} className="mono">{p.number}</td>
                   <td
                     style={{ ...td, minWidth: 160, cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
                     className="gu"
                     onClick={() => setAssignTarget({ number: p.number, name: p.name })}
                     title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")}
                   >{p.name}</td>
+                  <td style={td} className="mono">{p.number}</td>
+                  <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td}>
                     {editingDate === p.number ? (
                       <input type="date" defaultValue={p.lastDuty} autoFocus onBlur={(e) => { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); }} onKeyDown={(e) => { if (e.key === "Enter") { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); } }} />
@@ -8540,7 +8552,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
               );
             })}
             {displayRoster.length === 0 && (
-              <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{roster.length === 0 ? t("No staff added to this work type yet.", "હજુ કોઈ સ્ટાફ આ કામના પ્રકારમાં ઉમેર્યો નથી.") : t("No staff match your search.", "તમારી શોધ સાથે કોઈ સ્ટાફ મેળ ખાતો નથી.")}</td></tr>
+              <tr><td colSpan={9} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{roster.length === 0 ? t("No staff added to this work type yet.", "હજુ કોઈ સ્ટાફ આ કામના પ્રકારમાં ઉમેર્યો નથી.") : t("No staff match your search.", "તમારી શોધ સાથે કોઈ સ્ટાફ મેળ ખાતો નથી.")}</td></tr>
             )}
           </tbody>
         </table>
@@ -10397,6 +10409,16 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
   // One "Delete entry" toggle next to the date reveals them all together
   // when actually needed, same pattern as Manage Staff's own Edit toggle.
   const [deleteMode, setDeleteMode] = useState(false);
+  // Gallery-style multi-select for the day panel's duty rows, same pattern
+  // as CategoryHistoryTable's own "Select" flow — lets several entries on
+  // the same day be picked and removed in one action instead of clicking
+  // the per-row ✕ one at a time. Keyed by "catId|number|idx" so a day with
+  // the same buckle number on duty under two different work types (rare,
+  // but not impossible) still disambiguates correctly. Cleared whenever
+  // the selected date changes or delete mode is turned off, so a stale
+  // selection can never carry over to a different day's rows.
+  const [entrySelectMode, setEntrySelectMode] = useState(false);
+  const [selectedEntryKeys, setSelectedEntryKeys] = useState(new Set());
   const [exportKind, setExportKind] = useState("both"); // both | leave | outstation
   // Which duty entry's note is currently shown in the popup — null when
   // closed. Only ever set from a click on a name that HAS a note (see
@@ -10482,6 +10504,59 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
     const spans = dutySpansByKey[catId + "|" + number] || [];
     const span = spans.find((g) => date >= g.from && date <= g.to);
     return span ? span.idxs : [];
+  };
+
+  // A selection made for one day (or while delete mode was on) should
+  // never silently carry over to a different day or linger once delete
+  // mode is switched off — that's how you'd end up deleting entries you
+  // can no longer even see selected on screen.
+  useEffect(() => {
+    setEntrySelectMode(false);
+    setSelectedEntryKeys(new Set());
+  }, [selectedDate]);
+  useEffect(() => {
+    if (!deleteMode) {
+      setEntrySelectMode(false);
+      setSelectedEntryKeys(new Set());
+    }
+  }, [deleteMode]);
+  const toggleEntrySelected = (key) => {
+    setSelectedEntryKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  // Expands the selected rows (one per person/work-type on this day) back
+  // into real history-array positions, exactly like the single ✕ button
+  // already does for one row (see dutySpanIdxs above) — a selected row
+  // that's part of a multi-day span deletes every day of that span, not
+  // just the one being looked at. Grouped by catId since deleteHistoryEntries
+  // only ever removes entries from one work type's membership list at a
+  // time, so a selection spanning several work types fires one call per
+  // work type.
+  const deleteSelectedEntries = () => {
+    if (!selectedEntryKeys.size || !deleteHistoryEntries) return;
+    const byCat = new Map();
+    let spanCount = 0;
+    let dayCount = 0;
+    selectedEntryKeys.forEach((key) => {
+      const [catId, number] = key.split("|");
+      const idxs = dutySpanIdxs(catId, number, selectedDate);
+      const spanIdxs = idxs.length ? idxs : [Number(key.split("|")[2])];
+      spanCount += 1;
+      dayCount += spanIdxs.length;
+      if (!byCat.has(catId)) byCat.set(catId, new Set());
+      const set = byCat.get(catId);
+      spanIdxs.forEach((idx) => set.add(`${number}#${idx}`));
+    });
+    const confirmMsg = dayCount !== spanCount
+      ? t(`Delete ${spanCount} selected duty ${spanCount === 1 ? "entry" : "entries"} (${dayCount} duty-days total)? They move to the Recycle bin, so they can still be restored.`, `પસંદ કરેલી ${spanCount} ડ્યુટી ${spanCount === 1 ? "એન્ટ્રી" : "એન્ટ્રીઓ"} (કુલ ${dayCount} દિવસ) ડિલીટ કરવી છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`)
+      : t(`Delete ${spanCount} selected duty ${spanCount === 1 ? "entry" : "entries"}? They move to the Recycle bin, so they can still be restored.`, `પસંદ કરેલી ${spanCount} ડ્યુટી ${spanCount === 1 ? "એન્ટ્રી" : "એન્ટ્રીઓ"} ડિલીટ કરવી છે? તે રિસાયકલ બિનમાં ખસેડાય છે, જેથી પુનઃસ્થાપિત કરી શકાય.`);
+    if (!window.confirm(confirmMsg)) return;
+    byCat.forEach((set, catId) => deleteHistoryEntries(catId, set));
+    setSelectedEntryKeys(new Set());
+    setEntrySelectMode(false);
   };
 
   // A person can be marked away either from "Events & reminders" (a dated
@@ -10746,7 +10821,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         <div style={{ flex: "1 1 380px", minWidth: 300 }}>
           <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <div className="disp" style={{ fontWeight: 700, fontSize: 15 }}>{formatDMY(selectedDate)}</div>
                 {canDelete && (
                   <button
@@ -10760,9 +10835,37 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                     }} className="gu"
                   >{t("Delete entry", "નોંધ ડીલીટ કરો")}</button>
                 )}
+                {canDelete && deleteMode && selDuties.length > 1 && !entrySelectMode && (
+                  <button
+                    onClick={() => setEntrySelectMode(true)}
+                    title={t("Pick several duty entries on this day to delete together", "આ દિવસની અનેક ડ્યુટી એન્ટ્રીઓ પસંદ કરીને સાથે ડિલીટ કરો")}
+                    style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }} className="gu"
+                  >{t("Select", "પસંદ કરો")}</button>
+                )}
               </div>
               <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setMonth(e.target.value.slice(0, 7)); }} style={{ fontSize: 12 }} />
             </div>
+            {entrySelectMode && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", background: "var(--bg-surface-2)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
+                <span className="gu" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                  {t(`${selectedEntryKeys.size} selected — tap a row to toggle it.`, `${selectedEntryKeys.size} પસંદ કરેલ — ટોગલ કરવા માટે પંક્તિ પર ટેપ કરો.`)}
+                </span>
+                <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => setSelectedEntryKeys(new Set(selDuties.map((r) => `${r.catId}|${r.number}|${r.idx}`)))}
+                    style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 10px", fontSize: 11.5, fontWeight: 600 }} className="gu"
+                  >{t("Select all", "બધું પસંદ કરો")}</button>
+                  <button
+                    onClick={() => { setEntrySelectMode(false); setSelectedEntryKeys(new Set()); }}
+                    style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 7, padding: "5px 10px", fontSize: 11.5, fontWeight: 600 }} className="gu"
+                  >{t("Cancel", "રદ કરો")}</button>
+                  <button
+                    onClick={deleteSelectedEntries} disabled={selectedEntryKeys.size === 0}
+                    style={{ background: selectedEntryKeys.size ? "var(--btn-danger-solid)" : "var(--status-error-border)", color: "#fff", border: "none", borderRadius: 7, padding: "5px 10px", fontSize: 11.5, fontWeight: 600 }} className="gu"
+                  >{t("Delete selected", "પસંદ કરેલ ડિલીટ કરો")}{selectedEntryKeys.size ? ` (${selectedEntryKeys.size})` : ""}</button>
+                </span>
+              </div>
+            )}
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10, fontSize: 11, color: "var(--text-tertiary)" }} className="gu">
               <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--status-purple-text)", display: "inline-block" }} />{t("Outstation", "બહારગામ")}</span>
               <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--status-info-text)", display: "inline-block" }} />{t("Leave", "રજા")}</span>
@@ -10780,19 +10883,38 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                   {selGrouped[cat].map((r, i) => {
                     const remaining = dutyDaysRemaining(r.catId, r.number, selectedDate);
                     const range = dutySpanRange(r.catId, r.number, selectedDate);
+                    const rowKey = `${r.catId}|${r.number}|${r.idx}`;
+                    const isSelected = selectedEntryKeys.has(rowKey);
                     return (
-                      <div key={i} className="gu" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 0", borderTop: i ? "1px solid var(--border-soft)" : "none", gap: 8 }}>
-                        <span>
-                          {r.note ? (
-                            <span
-                              onClick={() => setNoteFor(r)}
-                              style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
-                              title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
-                            >{r.name}</span>
-                          ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
-                          {range && (
-                            <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
+                      <div
+                        key={i} className="gu"
+                        onClick={entrySelectMode ? () => toggleEntrySelected(rowKey) : undefined}
+                        style={{
+                          display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 4px",
+                          borderTop: i ? "1px solid var(--border-soft)" : "none", gap: 8, cursor: entrySelectMode ? "pointer" : "default",
+                          borderRadius: entrySelectMode ? 6 : 0, background: isSelected ? "var(--status-warning-bg)" : "transparent",
+                        }}
+                      >
+                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {entrySelectMode && (
+                            <input
+                              type="checkbox" checked={isSelected} onChange={() => toggleEntrySelected(rowKey)}
+                              onClick={(e) => e.stopPropagation()} style={{ flexShrink: 0 }}
+                              aria-label={t("Select this entry", "આ એન્ટ્રી પસંદ કરો")}
+                            />
                           )}
+                          <span>
+                            {r.note ? (
+                              <span
+                                onClick={(e) => { if (entrySelectMode) return; e.stopPropagation(); setNoteFor(r); }}
+                                style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
+                                title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
+                              >{r.name}</span>
+                            ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
+                            {range && (
+                              <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
+                            )}
+                          </span>
                         </span>
                         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                           {remaining !== null && (
@@ -10800,16 +10922,17 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                               {remaining === 0 ? t("last day", "છેલ્લો દિવસ") : t(`${remaining} day${remaining === 1 ? "" : "s"} left`, `${remaining} દિવસ બાકી`)}
                             </span>
                           )}
-                          {r.note && (
+                          {r.note && !entrySelectMode && (
                             <span
-                              onClick={() => setNoteFor(r)}
+                              onClick={(e) => { e.stopPropagation(); setNoteFor(r); }}
                               style={{ fontSize: 11.5, color: "var(--text-tertiary)", cursor: "pointer" }}
                               title={t("Tap to see the note for this duty", "આ ડ્યુટીની નોંધ જોવા ટેપ કરો")}
                             >📝</span>
                           )}
-                          {deleteMode && deleteHistoryEntries && (
+                          {deleteMode && deleteHistoryEntries && !entrySelectMode && (
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 const idxs = dutySpanIdxs(r.catId, r.number, selectedDate);
                                 const spanIdxs = idxs.length ? idxs : [r.idx];
                                 const confirmMsg = spanIdxs.length > 1
@@ -13190,7 +13313,7 @@ function PublicCategoryView({ data, catId }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName, data.district);
+      const pdf = await downloadCategoryPdf(cat ? cat.label : catId, roster, historyRows, pdfPeriod, data.stationName, data.district, data.designations);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -13261,18 +13384,22 @@ function PublicCategoryView({ data, catId }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                  <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
+                  <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
                   <th style={th}>{t("Waiting", "રાહ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th>
                 </tr>
               </thead>
               <tbody>
                 {roster.map((p) => {
                   const sty = STATUS_STYLE[p.status] || STATUS_STYLE.Present;
+                  const desigLabel = p.staffRec && p.staffRec.designation && data.designations
+                    ? (data.designations.find((d) => d.id === p.staffRec.designation) || {}).label
+                    : "";
                   return (
                     <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                       <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
-                      <td style={td} className="mono">{p.number}</td>
                       <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
+                      <td style={td} className="mono">{p.number}</td>
+                      <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{formatDMY(p.lastDuty)}</td>
                       <td style={td} className="mono">{p.waiting}d</td>
                       <td style={td}>
@@ -13282,7 +13409,7 @@ function PublicCategoryView({ data, catId }) {
                   );
                 })}
                 {roster.length === 0 && (
-                  <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</td></tr>
+                  <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</td></tr>
                 )}
               </tbody>
             </table>
