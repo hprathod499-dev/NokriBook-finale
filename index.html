@@ -8946,7 +8946,7 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson }) {
                 style={{ borderTop: "1px solid var(--border-soft)", cursor: onSelectPerson ? "pointer" : "default" }}
                 title={onSelectPerson ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
               >
-                <td style={{ ...td, minWidth: 140, textDecoration: onSelectPerson ? "underline" : "none", textDecorationStyle: "dotted", textDecorationColor: "var(--text-tertiary)" }} className="gu">{r.name}</td>
+                <td style={{ ...td, minWidth: 140 }} className="gu">{r.name}</td>
                 <td style={td} className="mono">{r.number}</td>
                 <td style={{ ...td, textAlign: "center" }} className="mono">{r.count}</td>
                 <td style={td}>
@@ -9227,6 +9227,15 @@ function StaffView({
   const [sortBy, setSortBy] = useState("name"); // name | designation | duties
   const [modalFor, setModalFor] = useState(null); // staff number currently editing leave/outstation
   const [modalKind, setModalKind] = useState("Leave");
+  // True only when this modal was opened via the plain "Set outstation"
+  // button below (someone with no current Leave/Outstation record) —
+  // hides the Leave/Outstation toggle entirely so a fresh period can
+  // only ever be logged as Outstation from Manage Staff. "Log another
+  // leave"/"Log another outstation" (reached from an EXISTING record's
+  // own Manage menu) and "Change duration" leave this false, keeping
+  // their normal toggle — this only restricts starting something new
+  // from scratch, not managing a leave that already exists.
+  const [modalKindLocked, setModalKindLocked] = useState(false);
   const [modalTypeId, setModalTypeId] = useState("");
   const [modalFrom, setModalFrom] = useState(todayStr());
   const [modalTo, setModalTo] = useState(todayStr());
@@ -9380,7 +9389,14 @@ function StaffView({
     });
   }, [staffList, t]);
 
-  const openModal = (s) => { setModalFor(s.number); setModalMode("new"); setModalKind("Leave"); setModalTypeId(leaveTypes[0] ? leaveTypes[0].id : ""); setModalFrom(todayStr()); setModalTo(todayStr()); setManageLeaveMenuFor(null); setManageLeaveMenuPos(null); };
+  const openModal = (s, opts) => {
+    const kind = (opts && opts.kind) || "Leave";
+    setModalFor(s.number); setModalMode("new"); setModalKind(kind);
+    setModalKindLocked(!!(opts && opts.lockKind));
+    setModalTypeId(kind === "Outstation" ? (outstationTypes[0] ? outstationTypes[0].id : "") : (leaveTypes[0] ? leaveTypes[0].id : ""));
+    setModalFrom(todayStr()); setModalTo(todayStr());
+    setManageLeaveMenuFor(null); setManageLeaveMenuPos(null);
+  };
   // "Change duration" from the Manage leave menu — same modal as above,
   // but pre-filled with the CURRENTLY ACTIVE period's own kind/type/dates
   // instead of blank defaults, and modalMode "edit" so the Save button
@@ -9393,6 +9409,7 @@ function StaffView({
     setModalFor(s.number);
     setModalMode("edit");
     setModalKind(cur.kind || "Leave");
+    setModalKindLocked(false);
     setModalTypeId(cur.typeId || "");
     setModalFrom(cur.from || todayStr());
     setModalTo(cur.to || todayStr());
@@ -9649,7 +9666,7 @@ function StaffView({
                                 className="gu"
                               >{t("Change duration", "સમયગાળો બદલો")}</button>
                               <button
-                                onClick={() => openModal(s)}
+                                onClick={() => openModal(s, { kind })}
                                 style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }}
                                 className="gu"
                               >{kind === "Outstation" ? t("Log another outstation", "બીજું બહારગામ નોંધો") : t("Log another leave", "બીજી રજા નોંધો")}</button>
@@ -9658,7 +9675,7 @@ function StaffView({
                         )}
                       </React.Fragment>
                     ) : (
-                      <button onClick={() => openModal(s)} style={{ ...iconBtnWide, minWidth: 150 }} className="gu">{t("Set leave/outstation", "રજા/બહારગામ સેટ કરો")}</button>
+                      <button onClick={() => openModal(s, { kind: "Outstation", lockKind: true })} style={{ ...iconBtnWide, minWidth: 150 }} className="gu">{t("Set outstation", "બહારગામ સેટ કરો")}</button>
                     )}
                     {s.skip && (
                       // Skip is a separate flag from Leave/Outstation, set
@@ -9873,10 +9890,12 @@ function StaffView({
             <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
               {modalMode === "edit" ? t("Change duration for", "માટે સમયગાળો બદલો") : t("Mark", "માર્ક કરો")} {data.staff[modalFor].name}
             </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              <button onClick={() => { setModalKind("Leave"); setModalTypeId(leaveTypes[0] ? leaveTypes[0].id : ""); }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid var(--border)", background: modalKind === "Leave" ? "var(--status-info-bg)" : "var(--bg-surface)", fontWeight: 600, fontSize: 12 }} className="gu">{t("Leave", "રજા")}</button>
-              <button onClick={() => { setModalKind("Outstation"); setModalTypeId(outstationTypes[0] ? outstationTypes[0].id : ""); }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid var(--border)", background: modalKind === "Outstation" ? "var(--status-purple-bg)" : "var(--bg-surface)", fontWeight: 600, fontSize: 12 }} className="gu">{t("Outstation", "બહારગામ")}</button>
-            </div>
+            {!modalKindLocked && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                <button onClick={() => { setModalKind("Leave"); setModalTypeId(leaveTypes[0] ? leaveTypes[0].id : ""); }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid var(--border)", background: modalKind === "Leave" ? "var(--status-info-bg)" : "var(--bg-surface)", fontWeight: 600, fontSize: 12 }} className="gu">{t("Leave", "રજા")}</button>
+                <button onClick={() => { setModalKind("Outstation"); setModalTypeId(outstationTypes[0] ? outstationTypes[0].id : ""); }} style={{ flex: 1, padding: "7px 0", borderRadius: 6, border: "1px solid var(--border)", background: modalKind === "Outstation" ? "var(--status-purple-bg)" : "var(--bg-surface)", fontWeight: 600, fontSize: 12 }} className="gu">{t("Outstation", "બહારગામ")}</button>
+              </div>
+            )}
             <label style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t("Type", "પ્રકાર")}</label>
             <select value={modalTypeId} onChange={(e) => setModalTypeId(e.target.value)} style={{ width: "100%", marginBottom: 8, marginTop: 3, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, background: "var(--bg-surface)" }} className="gu">
               {modalTypeList.map((mt) => (
