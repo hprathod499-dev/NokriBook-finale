@@ -4218,10 +4218,12 @@ function DutyRoster() {
             // there's old-schema data here to migrate.
             migratedRef.current = true;
             const migrated = normalizeData(migrateOldRoster(d.roster));
-            ref.set(migrated).catch(() => {});
-            setData(migrated);
-            confirmedRevRef.current = migrated._rev || 0;
+            // Same fix as the "brand new account" branch below: route
+            // through writeToFirestore instead of a fire-and-forget
+            // ref.set(...).catch(() => {}) that silently drops a genuine
+            // failure to write the migrated document.
             syncPublicRoster(migrated);
+            writeToFirestore(migrated);
           }
         } else if (!snap.metadata.fromCache) {
           // Brand new account, GENUINELY confirmed by the server (not
@@ -4245,9 +4247,23 @@ function DutyRoster() {
           // by this code within the first second of loading, before the
           // real snapshot could even render once.
           const initial = buildInitialData();
-          ref.set(initial).catch(() => {});
-          setData(initial);
-          confirmedRevRef.current = initial._rev || 0;
+          // Was: `ref.set(initial).catch(() => {})` — a fire-and-forget
+          // write with its failure silently swallowed. If that write
+          // failed (a network hiccup, a brief outage — anything genuinely
+          // transient), nothing told the person: the app just carried on
+          // showing the blank roster locally, and the failure only
+          // resurfaced, confusingly, the moment they made their first
+          // real edit and THAT write also failed against a document that
+          // still didn't exist on the server. Routing this through the
+          // same writeToFirestore every other change in the app already
+          // uses gives a brand-new account the exact same retry-with-
+          // backoff behavior and the same visible "Not saved —
+          // retrying…" banner (see its own comment above) instead of a
+          // failure with nothing to show for it. confirmedRevRef already
+          // starts at 0 here (its own useRef default, from data being
+          // null up to this point), matching a document that doesn't
+          // exist on the server yet, so this needs no extra setup.
+          writeToFirestore(initial);
         }
         // else: fromCache && !exists — genuinely don't know yet whether
         // this account exists on the server. Deliberately do nothing
