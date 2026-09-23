@@ -1945,7 +1945,20 @@ function buildInitialData() {
       ? seed112.map((p) => ({ number: p.number, lastDuty: p.lastDuty, history: [], skip: false }))
       : [];
   });
-  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {}, stationName: null, state: null, district: null, _rev: 0 };
+  // stationApprovalStatus/blocked are set explicitly (not just left
+  // absent) even though null/false is the "nothing going on" state for
+  // both — the Firestore security rule that lets an owner freely edit
+  // their own account has to read these two fields on every single
+  // update (to make sure nobody quietly grants themselves "approved" or
+  // clears their own "blocked" flag), and reading a field that's
+  // entirely missing from a Firestore document — not just null, actually
+  // absent — is a rule-evaluation ERROR, not a false/undefined value.
+  // That error fails the whole rule closed, which is exactly what was
+  // silently breaking every save on a brand-new account: the document
+  // this function used to hand back never had these two keys at all, so
+  // the very first real edit after signup already had nothing left to
+  // check against and was permission-denied before it could apply.
+  return { v: 2, staff, categories: DEFAULT_CATEGORIES, membership, leaveTypes: DEFAULT_LEAVE_TYPES, outstationTypes: DEFAULT_OUTSTATION_TYPES, designations: DEFAULT_DESIGNATIONS, recycleBin: [], events: [], reminderAcks: {}, skipLog: [], hasSeenWelcome: false, seenSections: {}, stationName: null, state: null, district: null, stationApprovalStatus: null, blocked: false, _rev: 0 };
 }
 
 // Converts the old per-category schema (name/status stored directly on each
@@ -2080,6 +2093,16 @@ function normalizeData(d) {
     // (see writeToFirestore) — an account predating this feature simply
     // starts counting from 0, same as brand new.
     _rev: d._rev || 0,
+    // Same reasoning as buildInitialData's own comment on these two
+    // fields: an account that predates them being written explicitly
+    // (or one created by the older version of buildInitialData that
+    // never set them at all) needs them backfilled here too, or the
+    // owner-update security rule keeps erroring out on every field it
+    // can't find — which is a permission error, not a missing default,
+    // so it can't just be handled with `|| null` at the point of use the
+    // way every other field on this object is.
+    stationApprovalStatus: d.stationApprovalStatus !== undefined ? d.stationApprovalStatus : null,
+    blocked: !!d.blocked,
   };
   const staff = {};
   Object.keys(withDefaults.staff || {}).forEach((num) => {
