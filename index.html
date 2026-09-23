@@ -3519,6 +3519,59 @@ function AccountDeletedScreen({ onContinue }) {
     </div>
   );
 }
+// Shown instead of the app to a signed-in user whose email/password
+// account was created on or after EMAIL_VERIFICATION_CUTOFF (see
+// DutyRoster) and who hasn't clicked their verification link yet.
+// Existing accounts from before that date are never shown this — see
+// the cutoff check at the call site for why.
+function VerifyEmailScreen({ user, signOutUser }) {
+  const { t } = useLang();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+
+  const resend = () => {
+    setBusy(true); setNotice(""); setError("");
+    user.sendEmailVerification()
+      .then(() => setNotice(t("Verification email sent again — check your inbox (and Spam folder).", "વેરિફિકેશન ઇમેઇલ ફરીથી મોકલાયો — તમારું ઇનબોક્સ (અને સ્પામ ફોલ્ડર) તપાસો.")))
+      .catch((err) => { console.error(err); setError(mapAuthError(err, t)); })
+      .finally(() => setBusy(false));
+  };
+
+  const iveClicked = () => {
+    setBusy(true); setError("");
+    // reload() pulls the latest emailVerified status from Firebase —
+    // needed because the SDK's cached copy of `user` doesn't update on
+    // its own just because the person clicked a link in another tab.
+    user.reload()
+      .then(() => { if (!auth.currentUser.emailVerified) setError(t("Still not verified yet — click the link in the email first.", "હજુ વેરિફાય નથી થયું — પહેલા ઇમેઇલમાંની લિંક પર ક્લિક કરો.")); })
+      .catch((err) => { console.error(err); setError(mapAuthError(err, t)); })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0E1620", padding: 24 }}>
+      <div style={{ maxWidth: 420, width: "100%", background: "#fff", borderRadius: 14, padding: "32px 28px", textAlign: "center" }}>
+        <div style={{ fontSize: 34, marginBottom: 10 }}>📧</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: "#16202B", marginBottom: 8 }}>{t("Verify your email", "તમારો ઇમેઇલ વેરિફાય કરો")}</div>
+        <div style={{ fontSize: 13.5, color: "#5B6672", marginBottom: 20 }} className="gu">
+          {t(`We sent a link to ${user.email}. Click it, then come back and press the button below.`, `અમે ${user.email} પર એક લિંક મોકલી છે. તેના પર ક્લિક કરો, પછી પાછા આવીને નીચેનું બટન દબાવો.`)}
+        </div>
+        {notice && <div style={{ fontSize: 12.5, color: "#1a7f4a", marginBottom: 12 }} className="gu">{notice}</div>}
+        {error && <div style={{ fontSize: 12.5, color: "#c0392b", marginBottom: 12 }} className="gu">{error}</div>}
+        <button onClick={iveClicked} disabled={busy} className="gu" style={{ width: "100%", background: "#16202B", color: "#fff", border: "none", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}>
+          {t("I've verified — continue", "મેં વેરિફાય કરી લીધું — ચાલુ રાખો")}
+        </button>
+        <button onClick={resend} disabled={busy} className="gu" style={{ width: "100%", background: "#fff", color: "#16202B", border: "1px solid #ddd", borderRadius: 8, padding: "11px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>
+          {t("Resend the email", "ઇમેઇલ ફરીથી મોકલો")}
+        </button>
+        <button onClick={signOutUser} className="gu" style={{ background: "none", border: "none", color: "#8b95a1", fontSize: 12.5, cursor: "pointer" }}>
+          {t("Sign out", "સાઇન આઉટ")}
+        </button>
+      </div>
+    </div>
+  );
+}
 function SignInScreen() {
   const { t } = useLang();
   const [authAction, setAuthAction] = useState("signin"); // signin | signup
@@ -3600,6 +3653,21 @@ function SignInScreen() {
       ? auth.createUserWithEmailAndPassword(email.trim(), password)
       : auth.signInWithEmailAndPassword(email.trim(), password);
     action
+      // Fires only right after a brand-new signup (not on ordinary
+      // sign-in) — sends Firebase's built-in verification link email.
+      // The actual "you must verify before using the app" gate lives in
+      // DutyRoster (see EMAIL_VERIFICATION_CUTOFF), not here — this step
+      // only sends the email and shows the person a heads-up about it.
+      .then((cred) => {
+        if (authAction === "signup" && cred && cred.user) {
+          return cred.user.sendEmailVerification().then(() => {
+            setNotice(t(
+              "Account created! We've sent a verification link to your email — please click it, then come back and sign in here.",
+              "એકાઉન્ટ બની ગયું! અમે તમારા ઇમેઇલ પર વેરિફિકેશન લિંક મોકલી છે — કૃપા કરી તેના પર ક્લિક કરો, પછી અહીં પાછા આવીને સાઇન ઇન કરો."
+            ));
+          });
+        }
+      })
       .catch((err) => { console.error(err); setError(mapAuthError(err, t)); })
       .finally(() => setBusy(false));
   };
@@ -6564,6 +6632,21 @@ function DutyRoster() {
       return <LangContext.Provider value={langCtxValue}><AccountDeletedScreen onContinue={() => { try { localStorage.removeItem("nb_account_deleted"); } catch (e) {} setShowAccountDeletedScreen(false); }} /></LangContext.Provider>;
     }
     return <LangContext.Provider value={langCtxValue}><SignInScreen /></LangContext.Provider>;
+  }
+  // Only require verification for email/password accounts CREATED ON OR
+  // AFTER this date — every account that already existed before this
+  // feature shipped is left alone, so nobody currently using the app
+  // gets locked out. Google sign-in accounts are always skipped too:
+  // Google has already confirmed those emails, so user.emailVerified is
+  // already true for them and this check is a no-op in that case anyway.
+  // Change this date only if you deliberately want to move the cutoff.
+  const EMAIL_VERIFICATION_CUTOFF = new Date("2026-09-23T00:00:00Z");
+  const isPasswordAccount = user.providerData.some((p) => p.providerId === "password");
+  const createdAfterCutoff = user.metadata && user.metadata.creationTime
+    ? new Date(user.metadata.creationTime) >= EMAIL_VERIFICATION_CUTOFF
+    : false;
+  if (isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
+    return <LangContext.Provider value={langCtxValue}><VerifyEmailScreen user={user} signOutUser={signOutUser} /></LangContext.Provider>;
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
   if (isSuperAdmin) {
