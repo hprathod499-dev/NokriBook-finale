@@ -1274,6 +1274,22 @@ function historyNote(entry) { return typeof entry === "string" ? "" : (entry.not
 // Miscellaneous duty's optional second field — see assignMiscDuty. Empty
 // for every other kind of history entry, which never set this field.
 function historyExtraNote(entry) { return typeof entry === "string" ? "" : (entry.extraNote || ""); }
+// True if this membership record actually has a duty on the given date —
+// checked two ways at once: the fast m.lastDuty === date match (kept for
+// single-day assignments, since some duty types' history entry can lag a
+// beat behind lastDuty being set), OR a real history entry dated that day.
+// The second check is what a multi-day Group Duty needs: its lastDuty is
+// only ever the FINAL day of the span (e.g. day 5 of a 21–25 Sept stint),
+// so a plain lastDuty === date check alone only ever recognized someone as
+// "on duty" on that last day — every earlier day of the very same,
+// currently-ongoing stint silently read as "not on duty" even though the
+// person genuinely was, because a history entry was written for every one
+// of those days at assignment time (see assignGroupDuty).
+function isOnDutyOn(m, date) {
+  if (!date) return false;
+  if (m.lastDuty === date) return true;
+  return (m.history || []).some((e) => historyDate(e) === date);
+}
 // A shared id stamped on every day of ONE multi-day Group Duty save (see
 // assignGroupDuty), so those days can always be regrouped back into a
 // single span reliably — instead of the old approach of inferring "these
@@ -1756,7 +1772,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // an unconditional all-time count.
     body: roster.map((p) => [
       p.rank || "—", p.name, p.number, desgLabelOfPdf(p.staffRec && p.staffRec.designation), p.lastDuty ? formatDMY(p.lastDuty) : "—",
-      p.waiting != null ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
+      p.lastDuty ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
@@ -2704,9 +2720,24 @@ function computeRoster(data, catId) {
     const staffRec = data.staff[m.number] || { number: m.number, name: "(unknown)", unavailable: null };
     const status = effectiveStatus(staffRec, m);
     const statusLabel = (status === "Leave" || status === "Outstation") ? unavailLabel(data, staffRec.unavailable) : status;
-    return { ...m, name: staffRec.name, staffRec, waiting: daysBetween(m.lastDuty, today), status, statusLabel };
+    // A person who has never had a duty (lastDuty null) has genuinely
+    // waited the longest of anyone — treated as a very large number of
+    // days instead of daysBetween(null, today), which built an invalid
+    // Date and returned NaN. A single NaN in this list broke the sort
+    // comparator's assumptions for the WHOLE array (not just this one
+    // person), which is what let someone with a low, real waiting value
+    // end up ranked #1 ahead of people who'd waited far longer.
+    const waiting = m.lastDuty ? daysBetween(m.lastDuty, today) : 99999;
+    return { ...m, name: staffRec.name, staffRec, waiting, onDutyToday: isOnDutyOn(m, today), status, statusLabel };
   });
-  const eligible = withInfo.filter((p) => p.status === "Present").sort((a, b) => b.waiting - a.waiting);
+  // Someone still on today's part of an ongoing multi-day Group Duty is
+  // never "next up" no matter what their waiting number computes to —
+  // they're mid-duty right now. Sorted to the very back of the eligible
+  // line first, then everyone else by longest-waiting-first as before.
+  const eligible = withInfo.filter((p) => p.status === "Present").sort((a, b) => {
+    if (a.onDutyToday !== b.onDutyToday) return a.onDutyToday ? 1 : -1;
+    return b.waiting - a.waiting;
+  });
   const rankMap = {};
   eligible.forEach((p, i) => (rankMap[p.number] = i + 1));
   return withInfo.map((p) => ({ ...p, rank: rankMap[p.number] || null })).sort((a, b) => {
@@ -4531,17 +4562,15 @@ function DutyRoster() {
     const today = todayStr();
     const monthPrefix = today.slice(0, 7);
     let monthlyDutyCount = 0;
-    // Matches the exact same check HomeView uses to decide whether a
-    // category shows an "On duty today" card (roster.find(p =>
-    // p.lastDuty === today)) — NOT a scan of history entries dated
-    // today, which undercounts: lastDuty is set the moment a duty is
-    // assigned, while the corresponding history entry can lag behind it
-    // for some duty types, so scanning history alone showed 0 here even
-    // when the station's own screen was already showing people on duty.
+    // Matches the exact same isOnDutyOn() check HomeView's cards use to
+    // decide who's "On duty today" — true on lastDuty === today (a duty
+    // type whose history entry can lag a beat behind lastDuty being set)
+    // OR a real history entry dated today, which is what correctly counts
+    // every day of an ongoing multi-day Group Duty, not just its final day.
     const onDutyTodaySet = new Set();
     Object.values(next.membership || {}).forEach((list) => {
       (list || []).forEach((m) => {
-        if (m.lastDuty === today) onDutyTodaySet.add(m.number);
+        if (isOnDutyOn(m, today)) onDutyTodaySet.add(m.number);
         (m.history || []).forEach((e) => {
           const d = historyDate(e);
           if (d && d.slice(0, 7) === monthPrefix) monthlyDutyCount += 1;
@@ -7311,7 +7340,7 @@ function HomeView({ data, goToCategory }) {
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
-    const doneToday = roster.find((p) => p.lastDuty === today);
+    const doneToday = roster.find((p) => p.onDutyToday);
     return { cat: c, doneToday };
   }).filter((x) => x.doneToday), [data]);
 
@@ -7374,8 +7403,8 @@ function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, ass
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
-    const doneToday = roster.find((p) => p.lastDuty === today);
-    const onDutyToday = roster.filter((p) => p.lastDuty === today).length;
+    const doneToday = roster.find((p) => p.onDutyToday);
+    const onDutyToday = roster.filter((p) => p.onDutyToday).length;
     const nextUp = roster.find((p) => p.rank === 1);
     return { cat: c, doneToday, onDutyToday, nextUp, total: roster.length };
   }), [data]);
@@ -8481,7 +8510,11 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
               <div>
                 <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--status-warning-text)", fontWeight: 600, marginBottom: 2 }} className="gu">{t("Next up", "આગળ")}</div>
                 <div className="gu" onClick={() => setAssignTarget({ number: nextUp.number, name: nextUp.name })} title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")} style={{ fontSize: 16, fontWeight: 600, cursor: "pointer" }}>{nextUp.name}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }} className="gu">{t("Waiting", "રાહ જોઈ રહ્યા છે")} {nextUp.waiting} {nextUp.waiting === 1 ? t("day", "દિવસ") : t("days", "દિવસો")} · {t("last duty", "છેલ્લી ડ્યુટી")} {formatDMY(nextUp.lastDuty)}</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }} className="gu">
+                  {nextUp.lastDuty
+                    ? <React.Fragment>{t("Waiting", "રાહ જોઈ રહ્યા છે")} {nextUp.waiting} {nextUp.waiting === 1 ? t("day", "દિવસ") : t("days", "દિવસો")} · {t("last duty", "છેલ્લી ડ્યુટી")} {formatDMY(nextUp.lastDuty)}</React.Fragment>
+                    : t("Never been on duty yet", "હજુ સુધી ક્યારેય ડ્યુટી પર ગયા નથી")}
+                </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -8666,7 +8699,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                       <span className="mono" onClick={() => setEditingDate(p.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{formatDMY(p.lastDuty)}</span>
                     )}
                   </td>
-                  <td style={td} className="mono">{p.waiting}d</td>
+                  <td style={td} className="mono">{p.lastDuty ? `${p.waiting}d` : "—"}</td>
                   <td className="mono" style={{ ...td, fontWeight: sortMode === "duties" ? 700 : 500, color: sortMode === "duties" ? "var(--status-warning-text)" : "var(--text-primary)" }}>{p.dutyCount}</td>
                   <td style={td}>
                     {p.status === "Leave" || p.status === "Outstation" ? (
@@ -13404,7 +13437,7 @@ function PublicHomeView({ data, goToCategory }) {
     // A work type can have more than one person on duty the same day
     // (e.g. a work type needing two) — keep every match, not just the
     // first, or the card silently drops whoever else is on duty.
-    const doneTodayList = roster.filter((p) => p.lastDuty === today);
+    const doneTodayList = roster.filter((p) => p.onDutyToday);
     const nextUp = roster.find((p) => p.rank === 1);
     return { cat: c, doneTodayList, nextUp, total: roster.length };
   }), [data]);
@@ -13577,7 +13610,7 @@ function PublicCategoryView({ data, catId }) {
                       <td style={td} className="mono">{p.number}</td>
                       <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{formatDMY(p.lastDuty)}</td>
-                      <td style={td} className="mono">{p.waiting}d</td>
+                      <td style={td} className="mono">{p.lastDuty ? `${p.waiting}d` : "—"}</td>
                       <td style={td}>
                         <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{p.statusLabel}</span>
                       </td>
@@ -13918,8 +13951,8 @@ function DistrictFairnessView({ data }) {
   );
 }
 // A flat, cross-work-type list of exactly who is on duty today — the
-// same "on duty today" check HomeView's cards use (lastDuty === today),
-// just laid out as one table across every work type at once instead of
+// same isOnDutyOn() check HomeView's cards use, just laid out as one
+// table across every work type at once instead of
 // one card per work type, for a quicker scan than paging through
 // Today's Duty's cards one work type at a time.
 function DistrictOnDutyView({ data }) {
@@ -13934,7 +13967,7 @@ function DistrictOnDutyView({ data }) {
       // first, silently dropping the rest from this table even though
       // the Duty calendar tab (built differently) already showed all of
       // them, which is exactly why the two disagreed on here.
-      roster.filter((p) => p.lastDuty === today).forEach((onDuty) => {
+      roster.filter((p) => p.onDutyToday).forEach((onDuty) => {
         list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number });
       });
     });
@@ -14272,6 +14305,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   const [selectedUid, setSelectedUid] = useState(null);
   const [selectedData, setSelectedData] = useState(undefined); // undefined = loading, null = couldn't load
   const [view, setView] = useState({ mode: "home" });
+  const [showAboutPanel, setShowAboutPanel] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId, selectedUid]);
   const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
@@ -14334,8 +14368,8 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   // digest alone since nothing server-side ever recomputes it. So instead
   // of trusting the stored number, this list also opens a live listener
   // on each station's publicRosters/{uid} — the exact same document and
-  // the exact same lastDuty === today check DistrictOnDutyView already
-  // uses one screen deeper — and uses THAT wherever it's available,
+  // the exact same isOnDutyOn() check DistrictOnDutyView already uses
+  // one screen deeper — and uses THAT wherever it's available,
   // falling back to the (possibly stale) digest figure only for a
   // station that has never turned Share on. A district with a few dozen
   // stations means a few dozen small listeners, which is a perfectly
@@ -14364,7 +14398,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
           const onDutySet = new Set();
           (d.categories || []).forEach((c) => {
             const roster = computeRoster(d, c.id);
-            roster.filter((p) => p.lastDuty === today).forEach((p) => onDutySet.add(p.number));
+            roster.filter((p) => p.onDutyToday).forEach((p) => onDutySet.add(p.number));
           });
           setLiveOnDuty((prev) => ({ ...prev, [uid]: onDutySet.size }));
         },
@@ -14541,6 +14575,10 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             borderColor: view.mode === "calendar" ? "var(--accent-strong)" : "var(--border)",
             color: view.mode === "calendar" ? "var(--accent-strong)" : "var(--text-primary)",
           }} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
+          <button onClick={() => setShowAboutPanel(true)} title={t("About this app", "આ એપ વિશે")} aria-label={t("About this app", "આ એપ વિશે")} style={{
+            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
+            width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
+          }}>⋮</button>
           <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
         </div>
 
@@ -14563,6 +14601,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
           </div>
         )}
       </div>
+      {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
     </div>
   );
 }
