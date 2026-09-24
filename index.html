@@ -2298,6 +2298,21 @@ function monthlyGroupedDutyCount(history, monthStr) {
   const [monthStart, monthEnd] = monthBounds(monthStr);
   return groupedDutyCountInRange(history, monthStart, monthEnd);
 }
+// Total distinct duty SPANS across a person's entire history for one work
+// type, with no date restriction — same span-grouping as
+// groupedDutyCountInRange above, just without a from/to filter. Used by
+// the Roster tab's own "Duties" column and its "Fewest duties first"
+// sort, so both agree with how Fairness already counts (one multi-day
+// Group Duty assignment counts once, not once per day it spans) instead
+// of the raw history-entry count, which inflated anyone with a long
+// multi-day assignment.
+function groupedDutyCountTotal(history) {
+  if (!history || !history.length) return 0;
+  const rows = history
+    .map((entry, idx) => ({ number: "x", idx, date: historyDate(entry), ts: historyTs(entry), note: historyNote(entry), batch: historyBatch(entry) }))
+    .sort((a, b) => (b.date === a.date ? b.ts - a.ts : b.date.localeCompare(a.date)));
+  return groupHistoryRows(rows).length;
+}
 // The one "how far back" period picker shared by every duty-count/fairness
 // view in the app — a person's full duty history modal, the global Duty
 // fairness panel, and every work type's own Fairness tab. Same five
@@ -8380,8 +8395,12 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   // to sort "fewest duties first" so whoever's been under-rostered for
   // THIS specific work type stands out immediately. Independent of the
   // fairness rank on the default tab, which only reflects waiting time.
+  // groupedDutyCountTotal (not raw history.length) so a single multi-day
+  // assignment counts once here too, matching the Fairness tab right next
+  // to it rather than counting one of Kalpeshbhai's 11-day Inter District
+  // Bandobast postings as 11 separate duties.
   const rosterWithCounts = useMemo(
-    () => roster.map((p) => ({ ...p, dutyCount: (p.history || []).length })),
+    () => roster.map((p) => ({ ...p, dutyCount: groupedDutyCountTotal(p.history) })),
     [roster]
   );
 
