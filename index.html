@@ -6993,6 +6993,8 @@ function DutyRoster() {
           {view.mode === "home" && (
             <HomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
+          {view.mode === "onDuty" && <DistrictOnDutyView data={data} />}
+          {view.mode === "fairness" && <DistrictFairnessView data={data} />}
           {view.mode === "assignDuty" && (
             <AssignDutyView data={data} assignDuty={assignDuty} assignGroupDuty={assignGroupDuty} assignMiscDuty={assignMiscDuty} assignMiscDutyRange={assignMiscDutyRange} setUnavailable={setUnavailable} showToast={showToast} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
@@ -7257,6 +7259,8 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
       <div style={{ padding: "8px 0", borderBottom: "1px solid #1B2733" }}>
         <button data-tour="nb-tour-nav-assign" onClick={() => setView({ mode: "assignDuty" })} style={navBtn(view.mode === "assignDuty")} className="gu">📝 {t("Assign duty", "ડ્યુટી સોંપો")}</button>
         <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
+        <button onClick={() => setView({ mode: "onDuty" })} style={navBtn(view.mode === "onDuty")} className="gu">🟢 {t("On duty", "ડ્યુટી પર")}</button>
+        <button onClick={() => setView({ mode: "fairness" })} style={navBtn(view.mode === "fairness")} className="gu">⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
         <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
       </div>
 
@@ -13367,6 +13371,8 @@ function PublicRosterView({ uid }) {
               {view.mode === "home" && (
                 <PublicHomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
               )}
+              {view.mode === "onDuty" && <DistrictOnDutyView data={data} />}
+              {view.mode === "fairness" && <DistrictFairnessView data={data} />}
               {view.mode === "category" && view.catId && (
                 <PublicCategoryView data={data} catId={view.catId} />
               )}
@@ -13431,6 +13437,8 @@ function PublicSidebar({ data, view, setView, mobileOpen, onCloseMobile }) {
         >{mobileOpen ? "✕" : "◂"}</button>
       </div>
       <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
+      <button onClick={() => setView({ mode: "onDuty" })} style={navBtn(view.mode === "onDuty")} className="gu">🟢 {t("On duty", "ડ્યુટી પર")}</button>
+      <button onClick={() => setView({ mode: "fairness" })} style={navBtn(view.mode === "fairness")} className="gu">⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
       <div style={{ padding: "14px 16px 6px", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "#7C8891" }} className="gu">{t("Work types", "કામના પ્રકારો")}</div>
       {(data.categories || []).map((cat) => (
         <button key={cat.id} onClick={() => setView({ mode: "category", catId: cat.id })} style={navBtn(view.mode === "category" && view.catId === cat.id)} className="gu">{cat.label}</button>
@@ -13946,12 +13954,15 @@ function DistrictStaffView({ data }) {
     </React.Fragment>
   );
 }
-// Duty Fairness as its own sidebar screen for the district admin — it
-// used to be a toggle tucked inside Staff (see the manager's own
-// StaffView and the shared-link PublicStaffView, which both still work
-// that way); here it gets a permanent spot of its own instead, since an
-// admin comparing workload across a station is at least as common a
-// reason to open this view as looking someone up by name.
+// Duty Fairness as its own sidebar screen (name kept from when this was
+// district-admin-only, but it's now used the exact same way by the
+// manager's own Sidebar and the public PublicSidebar too — same reusable
+// { data } component everywhere, not a district-specific one) — it used
+// to be a toggle tucked inside Staff (see the manager's own StaffView,
+// still built that way for its own "Duty fairness" button today) and the
+// shared-link PublicStaffView; it gets a permanent nav item of its own
+// instead now, since comparing workload across a station is at least as
+// common a reason to open this view as looking someone up by name.
 function DistrictFairnessView({ data }) {
   const { t } = useLang();
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
@@ -13971,9 +13982,11 @@ function DistrictFairnessView({ data }) {
 }
 // A flat, cross-work-type list of exactly who is on duty today — the
 // same isOnDutyOn() check HomeView's cards use, just laid out as one
-// table across every work type at once instead of
-// one card per work type, for a quicker scan than paging through
-// Today's Duty's cards one work type at a time.
+// table across every work type at once instead of one card per work
+// type, for a quicker scan than paging through Today's Duty's cards one
+// work type at a time. Name kept from when this was district-admin-only,
+// but it's the same reusable { data } component behind the manager's own
+// Sidebar and the public PublicSidebar's "On duty" nav items too.
 function DistrictOnDutyView({ data }) {
   const { t } = useLang();
   const today = todayStr();
@@ -14167,9 +14180,11 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
 // admin (see the districtAdmins/{uid} + districts/{districtId}/stations
 // rules). Everything rendered here reuses the exact same read-only view
 // components PublicRosterView uses for a shared link (PublicHomeView,
-// PublicCategoryView, CalendarView, ReportView, SkipHistoryView) — the
-// one deliberate difference is DistrictStaffView instead of
-// PublicStaffView, which additionally shows phone numbers, since this
+// PublicCategoryView, CalendarView, ReportView, SkipHistoryView,
+// DistrictOnDutyView, DistrictFairnessView — the last two despite their
+// name are shared with the manager's own Sidebar too, see their own
+// comments) — the one deliberate difference is DistrictStaffView instead
+// of PublicStaffView, which additionally shows phone numbers, since this
 // is official district oversight rather than a public share link.
 // The owner's own oversight view — sees every district's pending "Request
 // new station" submissions in one place (superAdmins/{uid}, assigned by
