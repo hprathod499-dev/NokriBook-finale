@@ -13447,20 +13447,8 @@ function PublicSidebar({ data, view, setView, mobileOpen, onCloseMobile }) {
 // Mirrors HomeView's cards (work type, who's on duty today / next up,
 // total staff) — same computeRoster() call the admin's Home screen uses —
 // just without the "Assign" button or modal.
-//
-// desktopView is optional and only ever passed by DistrictAdminApp: a
-// real visitor on a real public share link always gets the plain
-// responsive grid below (more columns as the browser gets wider, one
-// column on an actual phone — ordinary CSS, no JS involved), so the card
-// design itself — the one thing that's supposed to look identical for
-// every kind of viewer — never differs by who's looking. A district
-// admin instead gets an explicit true/false from their own persisted
-// preference (see DistrictAdminApp), which forces the arrangement one
-// way or the other regardless of their own screen size, because that
-// preference is about how THEY want to browse a district full of
-// stations, not about what their device happens to be.
-function PublicHomeView({ data, goToCategory, desktopView }) {
-  const { t, lang } = useLang();
+function PublicHomeView({ data, goToCategory }) {
+  const { t } = useLang();
   const today = todayStr();
   const [showInfo, setShowInfo] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
@@ -13484,21 +13472,12 @@ function PublicHomeView({ data, goToCategory, desktopView }) {
           {new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
         </p>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: desktopView === false ? "1fr" : "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
-        {cards.map(({ cat, doneTodayList, nextUp, total }) => {
-          const nextPhone = nextUp && nextUp.staffRec && nextUp.staffRec.phone;
-          return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
+        {cards.map(({ cat, doneTodayList, nextUp, total }) => (
           <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 7, minWidth: 0 }}>
-                <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
-                {doneTodayList.length > 0 && (
-                  <span className="gu" style={{ fontSize: 11, fontWeight: 700, color: "var(--status-success-text)", whiteSpace: "nowrap" }}>
-                    · {doneTodayList.length} {t("on duty", "ડ્યુટી પર")}
-                  </span>
-                )}
-              </div>
-              <div className="mono gu" style={{ fontSize: 11, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{total} {t("staff", "સ્ટાફ")}</div>
+              <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
+              <div className="mono gu" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{total} {t("staff", "સ્ટાફ")}</div>
             </div>
 
             {total === 0 ? (
@@ -13511,19 +13490,9 @@ function PublicHomeView({ data, goToCategory, desktopView }) {
                 </div>
               ))
             ) : nextUp ? (
-              <div style={{ background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 8, padding: "9px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-warning-text)", fontWeight: 700 }} className="gu">{t("Not assigned yet · next up", "હજુ સોંપાયું નથી · આગળ")}</div>
-                  <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{nextUp.name}</div>
-                </div>
-                {/* Call/WhatsApp only — no Assign button here, since this
-                    whole view is read-only for a district admin. */}
-                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                  {nextPhone && (
-                    <a href={`tel:+91${nextPhone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
-                  )}
-                  <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat.label, phone: nextPhone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
-                </div>
+              <div style={{ background: "var(--highlight-bg)", border: "1px solid var(--highlight-border)", borderRadius: 8, padding: "9px 12px" }}>
+                <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-warning-text)", fontWeight: 700 }} className="gu">{t("Not assigned yet · next up", "હજુ સોંપાયું નથી · આગળ")}</div>
+                <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{nextUp.name}</div>
               </div>
             ) : (
               <div style={{ background: "var(--status-error-bg)", border: "1px solid var(--status-error-border)", borderRadius: 8, padding: "9px 12px", fontSize: 12.5, color: "var(--status-error-text)" }} className="gu">{t("No one available — all on leave, outstation, or skip.", "કોઈ ઉપલબ્ધ નથી — બધા રજા, બહારગામ અથવા સ્કિપ પર.")}</div>
@@ -13531,7 +13500,7 @@ function PublicHomeView({ data, goToCategory, desktopView }) {
 
             <button onClick={() => goToCategory(cat.id)} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 12, textAlign: "left", padding: 0, textDecoration: "underline", alignSelf: "flex-start" }} className="gu">{t("View full roster →", "સંપૂર્ણ રોસ્ટર જુઓ →")}</button>
           </div>
-        );})}
+        ))}
         {cards.length === 0 && <div style={{ color: "var(--text-tertiary)", fontSize: 13 }} className="gu">{t("No work types yet.", "હજુ કોઈ કામનો પ્રકાર નથી.")}</div>}
       </div>
     </React.Fragment>
@@ -14058,7 +14027,7 @@ function DistrictOnDutyView({ data }) {
 // WHICH district-office account this is, since these are shared-purpose
 // logins rather than one-per-person), a language toggle, and Sign out,
 // all in one place instead of as separate standalone buttons.
-function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, onSignOut, desktopView, setDesktopView }) {
+function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, onSignOut }) {
   const { t, lang, setLang } = useLang();
   const [open, setOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -14083,14 +14052,6 @@ function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, on
           {email && <div style={{ padding: "10px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-soft)", wordBreak: "break-all" }}>{email}</div>}
           <button onClick={() => setLang(lang === "gu" ? "en" : "gu")} className="gu" style={{ ...pillBtn, borderBottom: "1px solid var(--border-soft)" }}>🌐 {lang === "gu" ? "English" : "ગુજરાતી"}</button>
           <button onClick={() => setDarkMode((d) => !d)} className="gu" style={{ ...pillBtn, borderBottom: "1px solid var(--border-soft)" }}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
-          {setDesktopView && (
-            <button
-              onClick={() => setDesktopView(!desktopView)}
-              className="gu"
-              title={t("Changes how \"Today's duty\" arranges its cards — a personal display choice, separate from your actual screen size.", "\"આજની ડ્યુટી\" ના કાર્ડ કેવી રીતે ગોઠવાય તે બદલે છે — તમારી પોતાની પસંદગી, તમારી સ્ક્રીનના કદથી અલગ.")}
-              style={{ ...pillBtn, borderBottom: "1px solid var(--border-soft)" }}
-            >{desktopView ? "📱 " + t("Mobile view", "મોબાઇલ વ્યૂ") : "🖥️ " + t("Desktop view", "ડેસ્કટોપ વ્યૂ")}</button>
-          )}
           {setTheme && (
             <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border-soft)" }}>
               <button
@@ -14359,28 +14320,6 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     try { localStorage.setItem(STATION_STAR_KEY, JSON.stringify(starredStations)); } catch (e) {}
   }, [starredStations, STATION_STAR_KEY]);
   const toggleStationStar = (uid) => setStarredStations((prev) => (prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]));
-  // A manual, persisted display preference for how "Today's duty"'s cards
-  // are arranged (see PublicHomeView's own comment on the desktopView
-  // prop) — separate from, and not a substitute for, the app's normal
-  // responsive behavior on an actual phone or tablet. Defaults to true
-  // (desktop) so it's already set to something sensible the very first
-  // time this dashboard is opened on any given browser, rather than only
-  // taking on a value after the admin has visited the toggle at least
-  // once. Read once via localStorage's own synchronous getItem() rather
-  // than the read-then-effect dance starredStations uses just above,
-  // since a single boolean has no shape to validate against corrupted
-  // JSON the way that array does.
-  const DESKTOP_VIEW_KEY = "nb_district_desktop_view";
-  const [desktopView, setDesktopViewState] = useState(() => {
-    try {
-      const stored = localStorage.getItem(DESKTOP_VIEW_KEY);
-      return stored === null ? true : stored === "1";
-    } catch (e) { return true; }
-  });
-  const setDesktopView = (next) => {
-    setDesktopViewState(next);
-    try { localStorage.setItem(DESKTOP_VIEW_KEY, next ? "1" : "0"); } catch (e) {}
-  };
   const [showAllStations, setShowAllStations] = useState(false);
   const [selectedUid, setSelectedUid] = useState(null);
   const [selectedData, setSelectedData] = useState(undefined); // undefined = loading, null = couldn't load
@@ -14524,7 +14463,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
       <div className="district-admin-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
           <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("District Dashboard", "જિલ્લા ડેશબોર્ડ")}</div>
-          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} desktopView={desktopView} setDesktopView={setDesktopView} />
+          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
         </div>
         <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
           {stations === null && (
@@ -14659,7 +14598,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
             width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
           }}>⋮</button>
-          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} desktopView={desktopView} setDesktopView={setDesktopView} />
+          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
         </div>
 
         {selectedData === undefined && (
@@ -14670,7 +14609,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
         )}
         {selectedData && (
           <div key={view.mode + (view.catId || "")} className="view-fade-in">
-            {view.mode === "home" && <PublicHomeView data={selectedData} goToCategory={(catId) => setView({ mode: "category", catId })} desktopView={desktopView} />}
+            {view.mode === "home" && <PublicHomeView data={selectedData} goToCategory={(catId) => setView({ mode: "category", catId })} />}
             {view.mode === "category" && view.catId && <PublicCategoryView data={selectedData} catId={view.catId} />}
             {view.mode === "onDuty" && <DistrictOnDutyView data={selectedData} />}
             {view.mode === "fairness" && <DistrictFairnessView data={selectedData} />}
