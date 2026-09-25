@@ -2262,6 +2262,17 @@ function groupHistoryRows(rows) {
       open.firstTs = r.ts;
       open.idxs.push(r.idx);
       open.days += 1;
+      // Merging two rows into one span (whether via a shared batch id or
+      // the legacy same-note/adjacent-ts fallback) is itself only ever
+      // possible for a multi-day assignGroupDuty save — assignDuty and
+      // assignMiscDuty each only ever write a single day. So a span that
+      // just grew past 1 day is provably Group-Duty-origin even when the
+      // individual entries themselves predate the viaGroupDuty flag
+      // being stamped at all (accounts with history from before this
+      // field existed) — without this, "Mark as Outstation" stayed
+      // invisible for every multi-day duty logged before the flag
+      // shipped, even though it plainly was one.
+      open.viaGroupDuty = true;
     } else {
       const g = { number: r.number, name: r.name, from: r.date, to: r.date, note: r.note, extraNote: r.extraNote, ts: r.ts, firstTs: r.ts, batch: r.batch, viaGroupDuty: !!r.viaGroupDuty, idxs: [r.idx], days: 1, catLabel: r.catLabel };
       groups.push(g);
