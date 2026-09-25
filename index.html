@@ -1298,6 +1298,14 @@ function isOnDutyOn(m, date) {
 // even Undo/Redo) landed between them. Absent on single-day assignDuty
 // entries and on any entry saved before this existed.
 function historyBatch(entry) { return typeof entry === "string" ? null : (entry.batch || null); }
+// True only for an entry created by assignGroupDuty (see the `batch` field
+// there) — every other assignment path (single-person assignDuty,
+// assignMiscDuty) also stamps a `batch` id of its own for grouping
+// purposes, so `batch` alone can't tell the two apart; this dedicated flag
+// can. Used to gate the History tab's "Mark as Outstation" action (below)
+// so it only ever offers to touch a duty that genuinely came from Group
+// Duty, never a single manually-assigned entry.
+function historyViaGroupDuty(entry) { return typeof entry === "string" ? false : !!entry.viaGroupDuty; }
 
 // ---------- Gujarati font for PDF export ----------
 // jsPDF's built-in fonts can't render Gujarati script (names show as boxes/blank).
@@ -2255,7 +2263,7 @@ function groupHistoryRows(rows) {
       open.idxs.push(r.idx);
       open.days += 1;
     } else {
-      const g = { number: r.number, name: r.name, from: r.date, to: r.date, note: r.note, extraNote: r.extraNote, ts: r.ts, firstTs: r.ts, batch: r.batch, idxs: [r.idx], days: 1, catLabel: r.catLabel };
+      const g = { number: r.number, name: r.name, from: r.date, to: r.date, note: r.note, extraNote: r.extraNote, ts: r.ts, firstTs: r.ts, batch: r.batch, viaGroupDuty: !!r.viaGroupDuty, idxs: [r.idx], days: 1, catLabel: r.catLabel };
       groups.push(g);
       openByNumber.set(r.number, g);
     }
@@ -2297,21 +2305,6 @@ function groupedDutyCountInRange(history, fromDate, toDate) {
 function monthlyGroupedDutyCount(history, monthStr) {
   const [monthStart, monthEnd] = monthBounds(monthStr);
   return groupedDutyCountInRange(history, monthStart, monthEnd);
-}
-// Total distinct duty SPANS across a person's entire history for one work
-// type, with no date restriction — same span-grouping as
-// groupedDutyCountInRange above, just without a from/to filter. Used by
-// the Roster tab's own "Duties" column and its "Fewest duties first"
-// sort, so both agree with how Fairness already counts (one multi-day
-// Group Duty assignment counts once, not once per day it spans) instead
-// of the raw history-entry count, which inflated anyone with a long
-// multi-day assignment.
-function groupedDutyCountTotal(history) {
-  if (!history || !history.length) return 0;
-  const rows = history
-    .map((entry, idx) => ({ number: "x", idx, date: historyDate(entry), ts: historyTs(entry), note: historyNote(entry), batch: historyBatch(entry) }))
-    .sort((a, b) => (b.date === a.date ? b.ts - a.ts : b.date.localeCompare(a.date)));
-  return groupHistoryRows(rows).length;
 }
 // The one "how far back" period picker shared by every duty-count/fairness
 // view in the app — a person's full duty history modal, the global Duty
@@ -5866,6 +5859,32 @@ function DutyRoster() {
     persist({ ...dataRef.current, membership: nextMembership });
     showToast(t(`Note updated for "${label}"`, `"${label}" માટે નોંધ અપડેટ થઈ`));
   };
+  // Retroactively marks Outstation for one or more already-recorded duty
+  // spans, from a work type's History tab — the "Mark as Outstation"
+  // action next to "Delete selected" in CategoryHistoryTable, for anyone
+  // who was assigned via Group Duty but wasn't also marked Outstation at
+  // the time (the "Also mark everyone Outstation" toggle wasn't ticked).
+  // Same underlying update (unavailablePeriodUpdate) assignGroupDuty
+  // itself uses for that toggle — this is just that same action, applied
+  // after the fact to an already-existing entry instead of at assign time.
+  // `entries` is [{ number, from, to }, …], one per selected span.
+  const markHistoryOutstation = (entries, outstationTypeId) => {
+    if (!entries || !entries.length || !outstationTypeId) return;
+    const nextStaff = { ...dataRef.current.staff };
+    let applied = 0;
+    entries.forEach(({ number, from, to }) => {
+      const rec = nextStaff[number];
+      if (!rec) return;
+      nextStaff[number] = { ...rec, ...unavailablePeriodUpdate(rec, "Outstation", outstationTypeId, from, to) };
+      applied += 1;
+    });
+    if (!applied) return;
+    persist({ ...dataRef.current, staff: nextStaff });
+    showToast(t(
+      `Marked ${applied} ${applied === 1 ? "entry" : "entries"} as Outstation`,
+      `${applied} ${applied === 1 ? "એન્ટ્રી" : "એન્ટ્રીઓ"} ને બહારગામ તરીકે માર્ક કરી`
+    ));
+  };
   const removeFromCategory = (catId, number) => {
     const cur = data.categories.find((c) => c.id === catId);
     const label = cur ? cur.label : catId;
@@ -6187,7 +6206,7 @@ function DutyRoster() {
     const noteText = (note || "").trim() || null;
     const baseTs = Date.now();
     const batch = uid();
-    const entries = dutyDates.map((d, i) => ({ date: d, ts: baseTs + i, note: noteText, batch }));
+    const entries = dutyDates.map((d, i) => ({ date: d, ts: baseTs + i, note: noteText, batch, viaGroupDuty: true }));
     const nextStaff = { ...data.staff };
     const existingList = data.membership[catId] || [];
     const existingNumbers = new Set(existingList.map((m) => m.number));
@@ -7006,6 +7025,7 @@ function DutyRoster() {
               clearCategoryHistory={clearCategoryHistory}
               deleteHistoryEntries={deleteHistoryEntries}
               editHistoryNote={editHistoryNote}
+              markHistoryOutstation={markHistoryOutstation}
               undo={undo} redo={redo} canUndo={undoStack.length > 0} canRedo={redoStack.length > 0}
             />
           )}
@@ -8319,7 +8339,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   );
 }
 
-function CategoryView({ data, catId, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, editHistoryNote, undo, redo, canUndo, canRedo }) {
+function CategoryView({ data, catId, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, editHistoryNote, markHistoryOutstation, undo, redo, canUndo, canRedo }) {
   const { t, lang } = useLang();
   const [newNumber, setNewNumber] = useState("");
   const [newName, setNewName] = useState("");
@@ -8395,12 +8415,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   // to sort "fewest duties first" so whoever's been under-rostered for
   // THIS specific work type stands out immediately. Independent of the
   // fairness rank on the default tab, which only reflects waiting time.
-  // groupedDutyCountTotal (not raw history.length) so a single multi-day
-  // assignment counts once here too, matching the Fairness tab right next
-  // to it rather than counting one of Kalpeshbhai's 11-day Inter District
-  // Bandobast postings as 11 separate duties.
   const rosterWithCounts = useMemo(
-    () => roster.map((p) => ({ ...p, dutyCount: groupedDutyCountTotal(p.history) })),
+    () => roster.map((p) => ({ ...p, dutyCount: (p.history || []).length })),
     [roster]
   );
 
@@ -8444,6 +8460,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           note: historyNote(entry),
           extraNote: historyExtraNote(entry),
           batch: historyBatch(entry),
+          viaGroupDuty: historyViaGroupDuty(entry),
         });
       });
     });
@@ -8512,6 +8529,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)}
           onEditNote={(number, idxs, note, extraNote) => editHistoryNote(catId, number, idxs, note, extraNote)}
           isMiscCategory={catId === MISC_CATEGORY_ID}
+          outstationTypes={data.outstationTypes || DEFAULT_OUTSTATION_TYPES}
+          onMarkOutstation={markHistoryOutstation}
         />
       ) : tab === "fairness" ? (
         <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
@@ -9214,12 +9233,19 @@ function EditHistoryNoteModal({ row, isMiscCategory, onSave, onClose }) {
     </div>
   );
 }
-function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory }) {
+function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory, outstationTypes, onMarkOutstation }) {
   const { t } = useLang();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
   const [search, setSearch] = useState("");
   const [editingRow, setEditingRow] = useState(null);
+  // "Mark as Outstation" (below) only ever touches a duty span that came
+  // from Group Duty in the first place (see historyViaGroupDuty) — a
+  // single manually-assigned entry never gets this option, since marking
+  // it Outstation after the fact wouldn't correspond to anything that
+  // actually happened.
+  const [showOutstationPicker, setShowOutstationPicker] = useState(false);
+  const [outstationTypeId, setOutstationTypeId] = useState("");
 
   const keyOf = (r) => `${r.number}#${r.idxs.join(",")}`;
 
@@ -9248,7 +9274,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
     });
   };
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filteredRows.map(keyOf)));
-  const cancelSelect = () => { setSelectMode(false); setSelected(new Set()); };
+  const cancelSelect = () => { setSelectMode(false); setSelected(new Set()); setShowOutstationPicker(false); setOutstationTypeId(""); };
   const confirmDelete = () => {
     if (selected.size === 0) return;
     // A selected row may represent several underlying per-day entries (a
@@ -9267,6 +9293,32 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
     onDeleteSelected(expanded);
     setSelected(new Set());
     setSelectMode(false);
+  };
+
+  // The button only appears once every currently-selected row qualifies
+  // (came from Group Duty) — a mixed selection just hides it rather than
+  // silently marking only some of what's ticked, so it's always obvious
+  // from the selection alone whether the action is available.
+  const selectedRows = rows.filter((r) => selected.has(keyOf(r)));
+  const canMarkOutstation = !!onMarkOutstation && selectedRows.length > 0 && selectedRows.every((r) => r.viaGroupDuty);
+  const effectiveOutstationTypeId = outstationTypeId || ((outstationTypes || [])[0] ? outstationTypes[0].id : "");
+  const cancelOutstationPicker = () => { setShowOutstationPicker(false); setOutstationTypeId(""); };
+  // Selection can change (rows ticked/unticked, or "Cancel" hit) while the
+  // picker is open — close it the moment that selection no longer
+  // qualifies, rather than leaving a stale picker open for a selection
+  // it can no longer act on.
+  useEffect(() => { if (showOutstationPicker && !canMarkOutstation) cancelOutstationPicker(); }, [canMarkOutstation]);
+  const confirmMarkOutstation = () => {
+    if (!effectiveOutstationTypeId || selectedRows.length === 0) return;
+    const entries = selectedRows.map((r) => ({ number: r.number, from: r.from, to: r.to }));
+    if (!window.confirm(t(
+      `Mark ${entries.length} selected ${entries.length === 1 ? "entry" : "entries"} as Outstation, for the exact dates already logged for each? This updates their Leave/Outstation record in Manage staff.`,
+      `પસંદ કરેલ ${entries.length} ${entries.length === 1 ? "એન્ટ્રી" : "એન્ટ્રીઓ"} ને, દરેક માટે પહેલેથી નોંધાયેલી તારીખો માટે, બહારગામ તરીકે માર્ક કરવી છે? આ મેનેજ સ્ટાફમાં તેમનો રજા/બહારગામ રેકોર્ડ અપડેટ કરે છે.`
+    ))) return;
+    onMarkOutstation(entries, effectiveOutstationTypeId);
+    setSelected(new Set());
+    setSelectMode(false);
+    cancelOutstationPicker();
   };
 
   return (
@@ -9290,6 +9342,13 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
             <React.Fragment>
               <button onClick={toggleAll} style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu">{allSelected ? t("Deselect all", "બધું અનસિલેક્ટ કરો") : t("Select all", "બધું પસંદ કરો")}</button>
               <button onClick={cancelSelect} style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu">{t("Cancel", "રદ કરો")}</button>
+              {canMarkOutstation && !showOutstationPicker && (
+                <button
+                  onClick={() => setShowOutstationPicker(true)}
+                  title={t("These entries were assigned via Group Duty — mark them Outstation for the same dates too", "આ એન્ટ્રીઓ જૂથ ડ્યુટી દ્વારા સોંપાયેલી છે — તે જ તારીખો માટે તેમને બહારગામ તરીકે પણ માર્ક કરો")}
+                  style={{ background: "var(--status-purple-bg)", color: "var(--status-purple-text)", border: "1px solid var(--status-purple-border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu"
+                >🧳 {t("Mark as Outstation", "બહારગામ તરીકે માર્ક કરો")}{selected.size ? ` (${selected.size})` : ""}</button>
+              )}
               <button onClick={confirmDelete} disabled={selected.size === 0} style={{ background: selected.size ? "var(--btn-danger-solid)" : "var(--status-error-border)", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu">{t("Delete selected", "પસંદ કરેલ ડિલીટ કરો")}{selected.size ? ` (${selected.size})` : ""}</button>
             </React.Fragment>
           ) : (
@@ -9311,6 +9370,16 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
           )}
         </div>
       </div>
+      {showOutstationPicker && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "var(--status-purple-bg)", border: "1px solid var(--status-purple-border)", borderRadius: 8, padding: "8px 10px", margin: "-6px 0 14px" }}>
+          <span className="gu" style={{ fontSize: 12, fontWeight: 600, color: "var(--status-purple-text)" }}>{t("Outstation type:", "બહારગામનો પ્રકાર:")}</span>
+          <select value={effectiveOutstationTypeId} onChange={(e) => setOutstationTypeId(e.target.value)} className="gu" style={{ fontSize: 12.5, padding: "5px 8px" }}>
+            {(outstationTypes || []).map((ot) => <option key={ot.id} value={ot.id}>{ot.label}</option>)}
+          </select>
+          <button onClick={confirmMarkOutstation} disabled={!effectiveOutstationTypeId} style={{ background: "var(--status-purple-text)", color: "#fff", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu">{t("Confirm", "પુષ્ટિ કરો")}</button>
+          <button onClick={cancelOutstationPicker} style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu">{t("Cancel", "રદ કરો")}</button>
+        </div>
+      )}
       {search.trim() && (
         <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", margin: "-8px 0 10px" }} className="gu">
           {t(`${filteredRows.length} match${filteredRows.length === 1 ? "" : "es"} for "${search.trim()}"`, `"${search.trim()}" માટે ${filteredRows.length} મેળ`)}
@@ -10952,7 +11021,24 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
   };
 
   const selDuties = dutyByDate[selectedDate] || [];
-  const selAway = awayForDate(selectedDate);
+  // Number -> that day's away record, so a duty row below can tell
+  // whether the person it names is ALSO on Outstation that same day (see
+  // the Group Duty "Also mark everyone Outstation" toggle) and show that
+  // instead of a plain duty-progress badge.
+  const selAwayAll = awayForDate(selectedDate);
+  const selAwayMap = useMemo(() => {
+    const map = {};
+    selAwayAll.forEach((a) => { if (a.number) map[a.number] = a; });
+    return map;
+  }, [selAwayAll]);
+  const selDutyNumbers = useMemo(() => new Set(selDuties.map((r) => r.number)), [selDuties]);
+  // Someone whose Outstation coincides with a duty entry shown above
+  // (the Group Duty case) is already accounted for there — showing them
+  // AGAIN down here under "Not present that day" would be a confusing
+  // duplicate (they're literally show as present, just away on this
+  // Outstation duty). A plain Leave, or an Outstation with no matching
+  // duty that day, still shows here as before.
+  const selAway = selAwayAll.filter((a) => !(a.type === "Outstation" && selDutyNumbers.has(a.number)));
   const selGrouped = useMemo(() => {
     const g = {};
     selDuties.forEach((r) => { (g[r.catLabel] = g[r.catLabel] || []).push(r); });
@@ -11112,6 +11198,17 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                     const range = dutySpanRange(r.catId, r.number, selectedDate);
                     const rowKey = `${r.catId}|${r.number}|${r.idx}`;
                     const isSelected = selectedEntryKeys.has(rowKey);
+                    // This person is ALSO on Outstation for this exact date
+                    // (set via Group Duty's "Also mark everyone Outstation"
+                    // toggle, or retroactively from History's "Mark as
+                    // Outstation") — show that instead of the normal
+                    // duty-progress badge, since "last day"/"X days left"
+                    // describes the DUTY span, not the fact that this
+                    // particular duty is an out-of-town one.
+                    const awayInfo = selAwayMap[r.number];
+                    const isOutstationHere = awayInfo && awayInfo.type === "Outstation";
+                    const awayStyle = isOutstationHere ? (EVENT_TYPE_STYLE[awayInfo.type] || {}) : null;
+                    const awayRemaining = isOutstationHere && awayInfo.to ? daysBetween(selectedDate, awayInfo.to) : null;
                     return (
                       <div
                         key={i} className="gu"
@@ -11144,10 +11241,21 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
                           </span>
                         </span>
                         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                          {remaining !== null && (
-                            <span style={{ fontSize: 10.5, fontWeight: 700, background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)", borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap" }} className="gu">
-                              {remaining === 0 ? t("last day", "છેલ્લો દિવસ") : t(`${remaining} day${remaining === 1 ? "" : "s"} left`, `${remaining} દિવસ બાકી`)}
-                            </span>
+                          {isOutstationHere ? (
+                            <React.Fragment>
+                              {awayRemaining !== null && (
+                                <span style={{ fontSize: 10.5, fontWeight: 700, background: "var(--bg-surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap" }} className="gu">
+                                  {awayRemaining === 0 ? t("returns tomorrow", "આવતીકાલે પાછા ફરશે") : t(`${awayRemaining} day${awayRemaining === 1 ? "" : "s"} until return`, `${awayRemaining} દિવસમાં પાછા ફરશે`)}
+                                </span>
+                              )}
+                              <span style={{ fontSize: 10.5, fontWeight: 700, background: awayStyle.bg, color: awayStyle.fg, border: "1px solid " + awayStyle.border, borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap" }}>{awayInfo.label}</span>
+                            </React.Fragment>
+                          ) : (
+                            remaining !== null && (
+                              <span style={{ fontSize: 10.5, fontWeight: 700, background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)", borderRadius: 10, padding: "2px 8px", whiteSpace: "nowrap" }} className="gu">
+                                {remaining === 0 ? t("last day", "છેલ્લો દિવસ") : t(`${remaining} day${remaining === 1 ? "" : "s"} left`, `${remaining} દિવસ બાકી`)}
+                              </span>
+                            )
                           )}
                           {r.note && !entrySelectMode && (
                             <span
