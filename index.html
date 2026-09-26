@@ -2389,6 +2389,23 @@ function formatDMY(dateStr) {
 // spec) so names/notes with commas don't corrupt the columns. Used by every
 // "Export CSV" button across the app (staff directory, skip log, duty
 // history) so the format stays identical everywhere.
+// Shared by every "Export CSV" button in the app (work-type history, staff
+// directory, skip log) so a CSV's opening lines always match what the PDF
+// version of the same export already shows: station name, then district
+// right under it (skipped when there isn't one — an "Other" org has no
+// district), then a blank spacer line before the real header row. Kept as
+// one function instead of each export inlining its own "[stationName],
+// []" so the two can't quietly drift apart — e.g. one export gaining a
+// district line while another is edited without it.
+function csvHeaderRows(stationName, district) {
+  const rows = [];
+  if (stationName) {
+    rows.push([stationName]);
+    if (district) rows.push([district]);
+    rows.push([]);
+  }
+  return rows;
+}
 function downloadCsv(filename, rows) {
   const escapeCell = (v) => {
     const s = v === null || v === undefined ? "" : String(v);
@@ -8536,7 +8553,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       <div key={tab} className="view-fade-in">
       {tab === "history" ? (
         <CategoryHistoryTable
-          key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName}
+          key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName} district={data.district}
           onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)}
           onEditNote={(number, idxs, note, extraNote) => editHistoryNote(catId, number, idxs, note, extraNote)}
           isMiscCategory={catId === MISC_CATEGORY_ID}
@@ -9244,7 +9261,7 @@ function EditHistoryNoteModal({ row, isMiscCategory, onSave, onClose }) {
     </div>
   );
 }
-function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory, outstationTypes, onMarkOutstation }) {
+function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory, outstationTypes, onMarkOutstation }) {
   const { t } = useLang();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -9369,7 +9386,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, onClearHistory, onD
                 <button
                   onClick={() => downloadCsv(
                     `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.csv`,
-                    [...(stationName ? [[stationName], []] : []), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
+                    [...csvHeaderRows(stationName, district), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
                   )}
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
                 >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
@@ -9792,7 +9809,7 @@ function StaffView({
           pdfBusy={pdfBusy}
           onExportCsv={() => downloadCsv(
             "nokri-book-staff-directory.csv",
-            [...(data.stationName ? [[data.stationName], []] : []), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, displayPhone(s.phone), s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
+            [...csvHeaderRows(data.stationName, data.district), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, displayPhone(s.phone), s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
           )}
           onDownloadPdf={handleDownloadPdf}
         />
@@ -13149,7 +13166,7 @@ function SkipHistoryView({ data, initialSearch }) {
               pdfBusy={pdfBusy}
               onExportCsv={() => downloadCsv(
                 "nokri-book-skip-history.csv",
-                [...(data.stationName ? [[data.stationName], []] : []), ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...exportRows]
+                [...csvHeaderRows(data.stationName, data.district), ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...exportRows]
               )}
               onDownloadPdf={handleDownloadPdf}
             />
