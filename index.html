@@ -1741,14 +1741,17 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   await ensureGujaratiCanvasFont();
 
   const [periodFrom, periodTo] = periodRangeOf(period);
-  // "Rank, Name, Number, Designation, ..." — same left-to-right order used
-  // by both on-screen roster tables (CategoryView and PublicCategoryView),
-  // so the PDF export reads the same as what's on screen.
+  // "Rank, Name, Designation, Buckle Number, ..." — the one column order
+  // used for every person table in the app (on-screen and PDF/CSV alike).
   const desgLabelOfPdf = (id) => {
     if (!id || !designations) return "—";
     const d = designations.find((x) => x.id === id);
     return (d && d.label) || "—";
   };
+  // number -> designation label, so the History table can show the same
+  // Designation column the Roster table does.
+  const desgByNumber = {};
+  roster.forEach((p) => { desgByNumber[p.number] = desgLabelOfPdf(p.staffRec && p.staffRec.designation); });
 
   // Station name first, always, same size/position as every other PDF —
   // see drawPdfHeader's own comment for why this replaced each export's
@@ -1771,7 +1774,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: headerY + 4,
-    head: [["Rank", "Name", "Number", "Designation", "Last duty", "Waiting", "Duties", "Status"]],
+    head: [["Rank", "Name", "Designation", "Buckle Number", "Last duty", "Waiting", "Duties", "Status"]],
     // p.history comes straight off the membership row computeRoster
     // spreads in — same source both CategoryView and PublicCategoryView
     // already use for their own roster tables. The Duties column is
@@ -1779,19 +1782,19 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // used by every other period-aware duty count in the app) rather than
     // an unconditional all-time count.
     body: roster.map((p) => [
-      p.rank || "—", p.name, p.number, desgLabelOfPdf(p.staffRec && p.staffRec.designation), p.lastDuty ? formatDMY(p.lastDuty) : "—",
+      p.rank || "—", p.name, desgLabelOfPdf(p.staffRec && p.staffRec.designation), p.number, p.lastDuty ? formatDMY(p.lastDuty) : "—",
       p.lastDuty ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 1: { minCellWidth: 45 }, 7: { minCellWidth: 26 } },
+    columnStyles: { 1: { minCellWidth: 45 }, 2: { minCellWidth: 22 }, 7: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section === "body" && [1, 2, 7].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index)) {
+      if (hookData.section === "body" && [1, 2, 7].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
         if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -1819,9 +1822,9 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: doc.lastAutoTable.finalY + 14,
-    head: [["#", "Number", "Name", "Dates", "Days", "Note"]],
+    head: [["#", "Name", "Designation", "Buckle Number", "Dates", "Days", "Note"]],
     body: filteredHistoryRows.map((r, i) => [
-      i + 1, r.number, r.name,
+      i + 1, r.name, desgByNumber[r.number] || "—", r.number,
       r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to),
       r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
     ]),
@@ -1832,11 +1835,11 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // (a growing column's width differs between didParseCell's row-height
     // reservation and didDrawCell's actual draw, leaving blank space
     // under a note that fits on fewer lines than were reserved for it).
-    columnStyles: { 2: { minCellWidth: 42 }, 5: { cellWidth: 60 } },
+    columnStyles: { 1: { minCellWidth: 42 }, 2: { minCellWidth: 22 }, 6: { cellWidth: 60 } },
     didParseCell: (hookData) => {
       if (hookData.section !== "body") return;
-      if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
-      if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
+      if ((hookData.column.index === 1 || hookData.column.index === 2) && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
+      if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
         // Hardcoded to match columnStyles[5].cellWidth (60) exactly,
         // rather than reading hookData.column.width here — that read
         // returned a DIFFERENT number than hookData.cell.width does in
@@ -1852,8 +1855,8 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       if (hookData.section !== "body") return;
       const raw = hookData.cell.raw;
       if (raw == null || raw === "" || !needsImageRender(raw)) return;
-      if (hookData.column.index === 2) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-      if (hookData.column.index === 5) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 60 - 2), FONT_PT);
+      if (hookData.column.index === 1 || hookData.column.index === 2) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      if (hookData.column.index === 6) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 60 - 2), FONT_PT);
     },
   });
 
@@ -1889,18 +1892,18 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: headerY + 10,
-    head: [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"]],
-    body: staffList.map((s) => [s.number, s.name, displayPhone(s.phone) || "—", s.desgLabel || "—", s.statusLabel, s.dutiesThisMonth]),
+    head: [["Name", "Designation", "Buckle Number", "Mobile", "Status", "Duties this month"]],
+    body: staffList.map((s) => [s.name, s.desgLabel || "—", s.number, displayPhone(s.phone) || "—", s.statusLabel, s.dutiesThisMonth]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
+    columnStyles: { 0: { minCellWidth: 42 }, 1: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [1, 3, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section === "body" && [0, 1, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [1, 3, 4].includes(hookData.column.index)) {
+      if (hookData.section === "body" && [0, 1, 4].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
         if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -1911,8 +1914,8 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
 }
 // ---------- Skip-history PDF (Skip history's "Download PDF") ----------
 // `rows` here are pre-built arrays matching the exact same columns as the
-// CSV export (Date, Time, Skipped person, Number, Work type, Skipped by,
-// By number, Note) — built once by the caller and reused for both exports,
+// CSV export (Date, Time, Skipped person, Designation, Buckle Number,
+// Work type, Skipped by, By Buckle Number, Note) — built once by the caller and reused for both exports,
 // same pattern as Manage Staff's exportRows.
 async function downloadSkipHistoryPdf(rows, stationName, district) {
   const { jsPDF } = window.jspdf;
@@ -1928,8 +1931,8 @@ async function downloadSkipHistoryPdf(rows, stationName, district) {
   doc.setFontSize(8.5);
   doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
 
-  // Name/Skipped-by columns (indices 2 and 5) are the only ones that can
-  // hold real Gujarati text — same image-cell treatment as every other
+  // Person/Designation/Work type/Skipped-by columns (indices 2, 3, 5, 6)
+  // are the only ones that can hold real Gujarati text — same image-cell treatment as every other
   // Gujarati-capable PDF table in the app.
   doc.autoTable({
     // Never let a row (in particular one made tall by a wrapped
@@ -1939,18 +1942,18 @@ async function downloadSkipHistoryPdf(rows, stationName, district) {
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: headerY + 5,
-    head: [["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"]],
+    head: [["Date", "Time", "Skipped person", "Designation", "Buckle Number", "Work type", "Skipped by", "By Buckle Number", "Note"]],
     body: rows,
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 } },
+    columnStyles: { 2: { minCellWidth: 34 }, 3: { minCellWidth: 22 }, 5: { minCellWidth: 24 }, 6: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section === "body" && [2, 3, 5, 6].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
+      if (hookData.section === "body" && [2, 3, 5, 6].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
         if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -2405,6 +2408,15 @@ function csvHeaderRows(stationName, district) {
     rows.push([]);
   }
   return rows;
+}
+// Designation label for a person, by buckle number — used by the exports
+// whose rows only carry a name + number, so every person table can show
+// the same "Name, Designation, Buckle Number" trio.
+function designationLabelOf(data, number) {
+  const rec = data && data.staff ? data.staff[number] : null;
+  if (!rec || !rec.designation || !data.designations) return "";
+  const d = data.designations.find((x) => x.id === rec.designation);
+  return (d && d.label) || "";
 }
 function downloadCsv(filename, rows) {
   const escapeCell = (v) => {
@@ -6771,11 +6783,19 @@ function DutyRoster() {
   // already true for them and this check is a no-op in that case anyway.
   // Change this date only if you deliberately want to move the cutoff.
   const EMAIL_VERIFICATION_CUTOFF = new Date("2026-09-23T00:00:00Z");
+  // TESTING SWITCH: accounts added by hand in the Firebase console
+  // (Authentication -> Add user) are always created with emailVerified =
+  // false and no way to tick it from the console, so they land on the
+  // "Verify your email" screen even though the account is legitimate.
+  // While this is true, that screen is skipped for EVERYONE (including
+  // normal self-signups) so mass testing isn't blocked. Set it back to
+  // false before real users start signing up.
+  const SKIP_EMAIL_VERIFICATION_FOR_TESTING = true;
   const isPasswordAccount = user.providerData.some((p) => p.providerId === "password");
   const createdAfterCutoff = user.metadata && user.metadata.creationTime
     ? new Date(user.metadata.creationTime) >= EMAIL_VERIFICATION_CUTOFF
     : false;
-  if (isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
+  if (!SKIP_EMAIL_VERIFICATION_FOR_TESTING && isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
     return <LangContext.Provider value={langCtxValue}><VerifyEmailScreen user={user} signOutUser={signOutUser} /></LangContext.Provider>;
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
@@ -8474,6 +8494,13 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   // Every completed duty for THIS work type only, newest first, with
   // consecutive-day spans (an 11-day Group Duty) collapsed into a single
   // row instead of 11 — see groupHistoryRows.
+  // number -> designation label, for the History tab's Designation column
+  // and its CSV export.
+  const desgByNumberForHistory = useMemo(() => {
+    const m = {};
+    membership.forEach((mm) => { m[mm.number] = designationLabelOf(data, mm.number); });
+    return m;
+  }, [data, membership]);
   const historyRows = useMemo(() => {
     const rows = [];
     membership.forEach((m) => {
@@ -8554,6 +8581,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       {tab === "history" ? (
         <CategoryHistoryTable
           key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName} district={data.district}
+          desgByNumber={desgByNumberForHistory}
           onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)}
           onEditNote={(number, idxs, note, extraNote) => editHistoryNote(catId, number, idxs, note, extraNote)}
           isMiscCategory={catId === MISC_CATEGORY_ID}
@@ -8561,7 +8589,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           onMarkOutstation={markHistoryOutstation}
         />
       ) : tab === "fairness" ? (
-        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
+        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} designations={data.designations} />
       ) : (
       <React.Fragment>
       <div data-tour="nb-tour-roster-nextup" style={{
@@ -8737,7 +8765,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
+              <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
               <th style={th}>{t("Waiting", "રાહ")}</th><th style={th}>{t("Duties", "ડ્યુટીની સંખ્યા")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
             </tr>
           </thead>
@@ -8756,8 +8784,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                     onClick={() => setAssignTarget({ number: p.number, name: p.name })}
                     title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")}
                   >{p.name}</td>
-                  <td style={td} className="mono">{p.number}</td>
                   <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                  <td style={td} className="mono">{p.number}</td>
                   <td style={td}>
                     {editingDate === p.number ? (
                       <input type="date" defaultValue={p.lastDuty} autoFocus onBlur={(e) => { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); }} onKeyDown={(e) => { if (e.key === "Enter") { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); } }} />
@@ -9152,16 +9180,16 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
 // percentage — so someone can point at a number ("Rakesh has done 42% of
 // all High Court duty") instead of eyeballing a roster table. Shared by
 // the authenticated and public read-only views, same as the history table.
-function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
+function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period, designations }) {
   const { t } = useLang();
   const [periodFrom, periodTo] = periodRangeOf(period);
   const rows = useMemo(() => {
-    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, count: groupedDutyCountInRange(p.history, periodFrom, periodTo) }));
+    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, desgLabel: ((designations || []).find((d) => p.staffRec && d.id === p.staffRec.designation) || {}).label || "", count: groupedDutyCountInRange(p.history, periodFrom, periodTo) }));
     const total = withCounts.reduce((sum, p) => sum + p.count, 0);
     return withCounts
       .map((p) => ({ ...p, pct: total > 0 ? (p.count / total) * 100 : 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [roster, periodFrom, periodTo]);
+  }, [roster, periodFrom, periodTo, designations]);
 
   return (
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
@@ -9169,7 +9197,7 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties", "ડ્યુટીઓ")}</th><th style={{ ...th, minWidth: 180 }}>{t("Share of all duties here", "અહીંની બધી ડ્યુટીનો હિસ્સો")}</th>
+              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties", "ડ્યુટીઓ")}</th><th style={{ ...th, minWidth: 180 }}>{t("Share of all duties here", "અહીંની બધી ડ્યુટીનો હિસ્સો")}</th>
             </tr>
           </thead>
           <tbody>
@@ -9181,6 +9209,7 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
                 title={onSelectPerson ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
               >
                 <td style={{ ...td, minWidth: 140 }} className="gu">{r.name}</td>
+                <td style={td} className="gu">{r.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                 <td style={td} className="mono">{r.number}</td>
                 <td style={{ ...td, textAlign: "center" }} className="mono">{r.count}</td>
                 <td style={td}>
@@ -9261,7 +9290,7 @@ function EditHistoryNoteModal({ row, isMiscCategory, onSave, onClose }) {
     </div>
   );
 }
-function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory, outstationTypes, onMarkOutstation }) {
+function CategoryHistoryTable({ rows, catLabel, stationName, district, desgByNumber, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory, outstationTypes, onMarkOutstation }) {
   const { t } = useLang();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -9386,7 +9415,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
                 <button
                   onClick={() => downloadCsv(
                     `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.csv`,
-                    [...csvHeaderRows(stationName, district), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
+                    [...csvHeaderRows(stationName, district), ["#", "Name", "Designation", "Buckle Number", "From", "To", "Days", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, r.name, (desgByNumber && desgByNumber[r.number]) || "", r.number, formatDMY(r.from), formatDMY(r.to), r.days, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
                   )}
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
                 >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
@@ -9419,7 +9448,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
               {selectMode && <th style={{ ...th, width: 30 }}></th>}
-              <th style={th}>#</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
+              <th style={th}>#</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
             </tr>
           </thead>
           <tbody>
@@ -9442,12 +9471,13 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
                     </td>
                   )}
                   <td style={td} className="mono">{i + 1}</td>
+                  <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
+                  <td style={td} className="gu">{(desgByNumber && desgByNumber[r.number]) || "—"}</td>
+                  <td style={td} className="mono">{r.number}</td>
                   <td style={td} className="mono">
                     {r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to)}
                     {r.days > 1 && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 10, padding: "1px 6px" }}>{t(`${r.days} days`, `${r.days} દિવસ`)}</span>}
                   </td>
-                  <td style={td} className="mono">{r.number}</td>
-                  <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
                   <td style={{ ...td, maxWidth: 260, color: "var(--text-secondary)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                       <span>
@@ -9809,7 +9839,7 @@ function StaffView({
           pdfBusy={pdfBusy}
           onExportCsv={() => downloadCsv(
             "nokri-book-staff-directory.csv",
-            [...csvHeaderRows(data.stationName, data.district), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, displayPhone(s.phone), s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
+            [...csvHeaderRows(data.stationName, data.district), ["Name", "Designation", "Buckle Number", "Mobile", "Status", "Duties this month"], ...exportRows.map((s) => [s.name, s.desgLabel || "", s.number, displayPhone(s.phone), s.statusLabel, s.dutiesThisMonth])]
           )}
           onDownloadPdf={handleDownloadPdf}
         />
@@ -9834,7 +9864,7 @@ function StaffView({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
+              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
             </tr>
           </thead>
           <tbody>
@@ -9853,7 +9883,6 @@ function StaffView({
               const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
               return (
                 <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                  <td style={td} className="mono">{s.number}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">
                     <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} title={t(`Duty meter: ${heat}`, `ડ્યુટી મીટર: ${heat}`)} />
                     <span
@@ -9875,6 +9904,7 @@ function StaffView({
                       ))}
                     </select>
                   </td>
+                  <td style={td} className="mono">{s.number}</td>
                   <td style={{ ...td, minWidth: 120 }} className="mono">
                     {s.phone ? (
                       <span onClick={() => setStaffPhone(s.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{displayPhone(s.phone)}</span>
@@ -10930,7 +10960,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       if (!ev.start) return;
       const end = ev.end || ev.start;
       if (ev.start <= monthEnd && end >= monthStart) {
-        rows.push({ name: ev.name, number: ev.number || "", type: eventTypeLabel(ev.type, lang), kind: "Event", start: ev.start, end });
+        rows.push({ name: ev.name, number: ev.number || "", desgLabel: designationLabelOf(data, ev.number), type: eventTypeLabel(ev.type, lang), kind: "Event", start: ev.start, end });
         seen.add((ev.number || ev.name) + "|" + ev.start);
       }
     });
@@ -10944,7 +10974,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         if (u.from <= monthEnd && end >= monthStart && !seen.has(key)) {
           const kind = unavailKind(u);
           if (kind === "Leave" || kind === "Outstation") {
-            rows.push({ name: s.name, number: s.number, type: unavailLabel(data, u) || kind, kind, start: u.from, end: u.to || "" });
+            rows.push({ name: s.name, number: s.number, desgLabel: designationLabelOf(data, s.number), type: unavailLabel(data, u) || kind, kind, start: u.from, end: u.to || "" });
             seen.add(key);
           }
         }
@@ -10982,8 +11012,8 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         // fragment too, showing the row twice across the page break.
         rowPageBreak: "avoid",
         startY: headerY + 10,
-        head: [["#", "Name", "Number", "Type", "From", "To"]],
-        body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
+        head: [["#", "Name", "Designation", "Buckle Number", "Type", "From", "To"]],
+        body: exportRows.map((r, i) => [i + 1, r.name, r.desgLabel || "—", r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT, valign: "top" },
         headStyles: { fillColor: [14, 22, 32] },
         // Same reasoning as the Monthly Report and per-work-type PDFs:
@@ -10991,19 +11021,19 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         // be drawn instead, which would otherwise make autoTable size
         // the column from nothing rather than from the name/type that
         // actually gets drawn into it.
-        columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 } },
+        columnStyles: { 1: { minCellWidth: 42 }, 2: { minCellWidth: 22 }, 4: { minCellWidth: 26 } },
         // Name (1) and Type (3) CAN contain Gujarati text — but not
         // always (an English work-type/leave-type label has none), so
         // needsImageRender checks the actual value each time rather than
         // blanket-imaging every cell in these columns regardless of
         // script.
         didParseCell: (hookData) => {
-          if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 3) && needsImageRender(hookData.cell.raw)) {
+          if (hookData.section === "body" && [1, 2, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
             hookData.cell.text = [];
           }
         },
         didDrawCell: (hookData) => {
-          if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 3)) {
+          if (hookData.section === "body" && [1, 2, 4].includes(hookData.column.index)) {
             const raw = hookData.cell.raw;
             if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, CAL_FONT_PT), CAL_FONT_PT);
           }
@@ -13116,8 +13146,8 @@ function SkipHistoryView({ data, initialSearch }) {
   const exportRows = useMemo(() => entries.map((e) => {
     const dt = new Date(e.ts || 0);
     const workType = e.scope === "category" ? (e.catLabel || "") : t("All work types", "બધા કામના પ્રકારો");
-    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
-  }), [entries, t]);
+    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "", e.name || "", designationLabelOf(data, e.number) || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
+  }), [entries, t, data]);
 
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
@@ -13166,7 +13196,7 @@ function SkipHistoryView({ data, initialSearch }) {
               pdfBusy={pdfBusy}
               onExportCsv={() => downloadCsv(
                 "nokri-book-skip-history.csv",
-                [...csvHeaderRows(data.stationName, data.district), ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...exportRows]
+                [...csvHeaderRows(data.stationName, data.district), ["Date", "Time", "Skipped person", "Designation", "Buckle Number", "Work type", "Skipped by", "By Buckle Number", "Note"], ...exportRows]
               )}
               onDownloadPdf={handleDownloadPdf}
             />
@@ -13712,31 +13742,32 @@ function PublicCategoryView({ data, catId }) {
 
       <div key={tab} className="view-fade-in">
       {tab === "fairness" ? (
-        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
+        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} designations={data.designations} />
       ) : tab === "history" ? (
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                  <th style={th}>#</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
+                  <th style={th}>#</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
                 </tr>
               </thead>
               <tbody>
                 {historyRows.map((r, i) => (
                   <tr key={`${r.number}#${r.idxs.join(",")}`} style={{ borderTop: i === 0 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: i === 0 ? "var(--highlight-bg)" : "transparent" }}>
                     <td style={td} className="mono">{i + 1}</td>
+                    <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
+                    <td style={td} className="gu">{designationLabelOf(data, r.number) || "—"}</td>
+                    <td style={td} className="mono">{r.number}</td>
                     <td style={td} className="mono">
                       {r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to)}
                       {r.days > 1 && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 10, padding: "1px 6px" }}>{t(`${r.days} days`, `${r.days} દિવસ`)}</span>}
                     </td>
-                    <td style={td} className="mono">{r.number}</td>
-                    <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
                     <td style={{ ...td, maxWidth: 260, color: "var(--text-secondary)" }}>{r.note || "—"}</td>
                   </tr>
                 ))}
                 {historyRows.length === 0 && (
-                  <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No duty has been completed in this work type yet.", "આ કામના પ્રકારમાં હજુ સુધી કોઈ ડ્યુટી પૂર્ણ થઈ નથી.")}</td></tr>
+                  <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No duty has been completed in this work type yet.", "આ કામના પ્રકારમાં હજુ સુધી કોઈ ડ્યુટી પૂર્ણ થઈ નથી.")}</td></tr>
                 )}
               </tbody>
             </table>
@@ -13748,7 +13779,7 @@ function PublicCategoryView({ data, catId }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                  <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
+                  <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
                   <th style={th}>{t("Waiting", "રાહ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th>
                 </tr>
               </thead>
@@ -13762,8 +13793,8 @@ function PublicCategoryView({ data, catId }) {
                     <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                       <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
-                      <td style={td} className="mono">{p.number}</td>
                       <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                      <td style={td} className="mono">{p.number}</td>
                       <td style={td} className="mono">{formatDMY(p.lastDuty)}</td>
                       <td style={td} className="mono">{p.lastDuty ? `${p.waiting}d` : "—"}</td>
                       <td style={td}>
@@ -13892,7 +13923,7 @@ function PublicStaffView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
+                <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
               </tr>
             </thead>
             <tbody>
@@ -13901,7 +13932,6 @@ function PublicStaffView({ data }) {
                 const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
                 return (
                   <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                    <td style={td} className="mono">{s.number}</td>
                     <td style={{ ...td, minWidth: 160 }} className="gu">
                       <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} />
                       <span
@@ -13911,6 +13941,7 @@ function PublicStaffView({ data }) {
                       >{s.name}</span>
                     </td>
                     <td style={td} className="gu">{s.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                    <td style={td} className="mono">{s.number}</td>
                     <td style={td}>
                       <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{s.statusLabel}</span>
                       {s.unavailable && (
@@ -14032,7 +14063,7 @@ function DistrictStaffView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Phone", "ફોન")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
+                <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Phone", "ફોન")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
               </tr>
             </thead>
             <tbody>
@@ -14041,7 +14072,6 @@ function DistrictStaffView({ data }) {
                 const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
                 return (
                   <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                    <td style={td} className="mono">{s.number}</td>
                     <td style={{ ...td, minWidth: 160 }} className="gu">
                       <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} />
                       <span
@@ -14050,8 +14080,9 @@ function DistrictStaffView({ data }) {
                         style={{ color: DUTY_HEAT_COLOR[heat], fontWeight: heat === "green" ? 400 : 600, cursor: "pointer", borderBottom: "1px dashed currentColor" }}
                       >{s.name}</span>
                     </td>
-                    <td style={td} className="mono">{s.phone ? ("+91 " + s.phone) : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                     <td style={td} className="gu">{s.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                    <td style={td} className="mono">{s.number}</td>
+                    <td style={td} className="mono">{s.phone ? ("+91 " + s.phone) : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                     <td style={td}>
                       <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{s.statusLabel}</span>
                       {s.unavailable && (
@@ -14123,7 +14154,7 @@ function DistrictOnDutyView({ data }) {
       // the Duty calendar tab (built differently) already showed all of
       // them, which is exactly why the two disagreed on here.
       roster.filter((p) => p.onDutyToday).forEach((onDuty) => {
-        list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number });
+        list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number, desgLabel: designationLabelOf(data, onDuty.number) });
       });
     });
     return list;
@@ -14137,19 +14168,20 @@ function DistrictOnDutyView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th>
+                <th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} style={{ borderTop: "1px solid var(--border-soft)" }}>
                   <td style={td} className="gu">{r.catLabel}</td>
-                  <td style={td} className="mono">{r.number}</td>
                   <td style={td} className="gu">{r.name}</td>
+                  <td style={td} className="gu">{r.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                  <td style={td} className="mono">{r.number}</td>
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={3} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No one is on duty today.", "આજે કોઈ ડ્યુટી પર નથી.")}</td></tr>
+                <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No one is on duty today.", "આજે કોઈ ડ્યુટી પર નથી.")}</td></tr>
               )}
             </tbody>
           </table>
