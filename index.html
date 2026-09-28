@@ -3067,7 +3067,7 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, onRequestNewStation, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -3084,6 +3084,24 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
   const [stateDraft, setStateDraft] = useState(state || "");
   const [districtDraft, setDistrictDraft] = useState(district || "");
   const [stationOpen, setStationOpen] = useState(false);
+  // "Request new station" — same manual-entry idea as OrgSetupGateModal's:
+  // a station that isn't in the list gets typed in (pre-filled with
+  // "પોલીસ સ્ટેશન" so only the specific name is left to type) and sent to
+  // the district admin for approval instead of being saved straight away.
+  const [requestMode, setRequestMode] = useState(false);
+  const [requestName, setRequestName] = useState("પોલીસ સ્ટેશન");
+  const requestInputRef = useRef(null);
+  useEffect(() => {
+    if (requestMode && requestInputRef.current) {
+      requestInputRef.current.focus();
+      requestInputRef.current.setSelectionRange(0, 0);
+    }
+  }, [requestMode]);
+  // Same rule as the first-time setup: a short English code (A, B, DCB) is
+  // fine, a full English word isn't — names go in Gujarati everywhere else.
+  const requestEnglishLetters = (requestName.match(/[a-zA-Z]/g) || []).length;
+  const requestTooMuchEnglish = requestEnglishLetters > 3;
+  const canSendRequest = requestName.trim().length > 0 && requestName.trim() !== "પોલીસ સ્ટેશન" && !requestTooMuchEnglish && !!districtDraft && !!stateDraft;
   useEffect(() => { setStationDraft(stationName || ""); }, [stationName]);
   useEffect(() => { setStateDraft(state || ""); }, [state]);
   useEffect(() => { setDistrictDraft(district || ""); }, [district]);
@@ -3224,7 +3242,29 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                     </React.Fragment>
                   )}
                   <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
-                  {stationOptions.length > 0 ? (
+                  {onRequestNewStation && requestMode ? (
+                    <React.Fragment>
+                      <input
+                        ref={requestInputRef}
+                        type="text" value={requestName} onChange={(e) => setRequestName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter" && canSendRequest) { onRequestNewStation({ stationName: requestName.trim(), state: stateDraft, district: districtDraft }); setRequestMode(false); } }}
+                        className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
+                      />
+                      {requestTooMuchEnglish && (
+                        <div className="gu" style={{ fontSize: 11, color: "var(--danger, #c0392b)", marginTop: 4 }}>
+                          {t("Too many English letters — a short code (like A, B, DCB) is fine, but not a full English word.", "વધારે પડતા English અક્ષરો — ટૂંકો કોડ (જેમ કે A, B, DCB) ચાલે, પણ પૂરો English શબ્દ નહીં.")}
+                        </div>
+                      )}
+                      <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.4 }}>
+                        {t("You can keep using the app right away — it just needs your district admin to approve it within 7 days.", "તમે તરત જ એપ વાપરતા રહી શકો છો — તમારા district admin એ 7 દિવસમાં માન્ય કરવાનું છે.")}
+                      </div>
+                      <button
+                        onClick={() => { if (!canSendRequest) return; onRequestNewStation({ stationName: requestName.trim(), state: stateDraft, district: districtDraft }); setRequestMode(false); }}
+                        disabled={!canSendRequest} className="gu"
+                        style={{ width: "100%", marginTop: 8, background: canSendRequest ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: canSendRequest ? "pointer" : "default" }}
+                      >{t("Send request →", "વિનંતી મોકલો →")}</button>
+                    </React.Fragment>
+                  ) : stationOptions.length > 0 ? (
                     <StationSearchSelect
                       options={stationOptions} value={stationDraft}
                       onChange={(v) => { setStationDraft(v); onSaveStationName(v); }}
@@ -3237,6 +3277,14 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                       placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
                       className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
                     />
+                  )}
+                  {onRequestNewStation && districtDraft && (
+                    <button
+                      type="button"
+                      onClick={() => { setRequestMode((v) => { const next = !v; if (next) setRequestName("પોલીસ સ્ટેશન"); return next; }); }}
+                      className="gu"
+                      style={{ marginTop: 8, fontSize: 11.5, fontWeight: 600, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--accent-strong)", background: requestMode ? "var(--accent)" : "transparent", color: requestMode ? "var(--accent-text)" : "var(--accent-strong)", cursor: "pointer" }}
+                    >{requestMode ? t("← Back to list", "← યાદી પર પાછા") : t("Station not in the list? Request new station", "સ્ટેશન યાદીમાં નથી? નવું સ્ટેશન વિનંતી કરો")}</button>
                   )}
                   {onSaveDistrict && (
                     <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.4 }}>
@@ -7160,6 +7208,19 @@ function DutyRoster() {
           signOutUser={signOutUser} formatAllData={formatAllData}
           onDeleteAccount={() => setShowDeleteAccountModal(true)}
           stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
+          // "Request new station" from Settings — same result as the
+          // first-time setup's request path: saved right away and usable,
+          // but marked pending so the district admin's dashboard lists it
+          // and the 7-day approval clock starts from now.
+          onRequestNewStation={({ stationName, state, district }) => {
+            persist({
+              ...dataRef.current,
+              stationName, state, district,
+              stationApprovalStatus: "pending",
+              stationRequestedAt: new Date().toISOString(),
+            });
+            showToast(t("Request sent to your district admin", "વિનંતી તમારા district admin ને મોકલાઈ"));
+          }}
           state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s })}
           district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d })}
           stationApprovalStatus={data.stationApprovalStatus}
