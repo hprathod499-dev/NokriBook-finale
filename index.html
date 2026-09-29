@@ -6828,12 +6828,18 @@ function DutyRoster() {
   // Google has already confirmed those emails, so user.emailVerified is
   // already true for them and this check is a no-op in that case anyway.
   // Change this date only if you deliberately want to move the cutoff.
+  //
+  // TEMPORARILY DISABLED: EMAIL_VERIFICATION_ENABLED is set to false below,
+  // so the gate never triggers and nobody sees VerifyEmailScreen right now
+  // — but every check underneath is still fully intact. Flip it back to
+  // true to turn the requirement back on exactly as it was.
+  const EMAIL_VERIFICATION_ENABLED = false;
   const EMAIL_VERIFICATION_CUTOFF = new Date("2026-09-23T00:00:00Z");
   const isPasswordAccount = user.providerData.some((p) => p.providerId === "password");
   const createdAfterCutoff = user.metadata && user.metadata.creationTime
     ? new Date(user.metadata.creationTime) >= EMAIL_VERIFICATION_CUTOFF
     : false;
-  if (isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
+  if (EMAIL_VERIFICATION_ENABLED && isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
     return <LangContext.Provider value={langCtxValue}><VerifyEmailScreen user={user} signOutUser={signOutUser} /></LangContext.Provider>;
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
