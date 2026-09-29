@@ -918,6 +918,64 @@ function mergeLocations(seed, extra) {
   });
   return merged;
 }
+// Live set of station names already claimed by an existing account in a
+// district (from districts/{districtId}/stations — the same digest
+// syncDistrictDigest keeps current for every registered station, not
+// just pending "Request new station" ones), so a picker can hide an
+// already-taken name and a manually-typed one can be checked against it
+// too — closes the "two different accounts both end up as ધારી" gap.
+// Empty until districtId is actually chosen. excludeUid optionally
+// leaves one account's own claim out of the set, so that account editing
+// its OWN already-registered name (SettingsPanel) never sees itself as
+// "taken".
+function useDistrictTakenStations(districtId, excludeUid) {
+  const [taken, setTaken] = useState(() => new Set());
+  useEffect(() => {
+    if (!districtId) { setTaken(new Set()); return; }
+    const unsub = db.collection("districts").doc(districtId).collection("stations").onSnapshot(
+      (snap) => {
+        const set = new Set();
+        snap.forEach((docSnap) => {
+          if (excludeUid && docSnap.id === excludeUid) return;
+          const name = docSnap.data().stationName;
+          if (name) set.add(name);
+        });
+        setTaken(set);
+      },
+      () => setTaken(new Set())
+    );
+    return () => unsub();
+  }, [districtId, excludeUid]);
+  return taken;
+}
+// Called once a "Request new station" submission is approved (both
+// SuperAdminApp's and DistrictAdminApp's approveStation) — adds the
+// station's name to masterData/policeLocations so it shows up as a
+// normal pickable option for the NEXT station signing up in this
+// district, closing the loop the request started rather than leaving
+// every future signup to request the exact same name manually again.
+// Silently does nothing when state/districtId/stationName are missing
+// (the "Other"/custom-station flow has no state or district at all) or
+// when the district already has Ahmedabad/Rajkot's grouped
+// { groups: {...} } shape — there's no reliable way to know which
+// sub-division/zone to file a brand-new name under automatically; add
+// those by hand from the "Station master list" tab instead. A genuine
+// failure here is logged but never surfaced to the admin or allowed to
+// block the approval itself — by the time this runs, the approval (the
+// thing they actually clicked) has already gone through.
+function addApprovedStationToMasterList(state, districtId, stationName) {
+  if (!state || !districtId || !stationName) return Promise.resolve();
+  return db.collection("masterData").doc("policeLocations").get().then((snap) => {
+    const raw = (snap.exists && snap.data().data) || {};
+    const current = raw[state] && raw[state][districtId];
+    if (current && !Array.isArray(current) && current.groups) return;
+    const existing = Array.isArray(current) ? current : [];
+    if (existing.includes(stationName)) return;
+    const next = { ...raw, [state]: { ...(raw[state] || {}), [districtId]: [...existing, stationName] } };
+    return db.collection("masterData").doc("policeLocations").set({ data: next, updatedAt: Date.now() })
+      .then(() => invalidateMasterLocationsCache());
+  }).catch((e) => { console.error("Adding approved station to master list failed (approval itself still went through):", e); });
+}
 let _masterLocationsCache = null;
 let _masterLocationsPromise = null;
 function fetchMasterLocationsOnce() {
@@ -3180,7 +3238,12 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
       return groupOptions.find((gr) => (districtEntry.groups[gr] || []).includes(stationName)) || groupOptions[0] || "";
     });
   }, [stateDraft, districtDraft]);
-  const stationOptions = groupOptions ? (districtEntry.groups[groupDraft] || []) : flatStationsOf(districtEntry);
+  // Excludes THIS account's own claim (excludeUid) so a station's own
+  // already-registered name still shows up as pickable for itself — only
+  // some OTHER account's claim should ever disappear from this list. See
+  // OrgSetupGateModal for the same rule at signup time.
+  const takenStations = useDistrictTakenStations(districtDraft, user && user.uid);
+  const stationOptions = (groupOptions ? (districtEntry.groups[groupDraft] || []) : flatStationsOf(districtEntry)).filter((s) => !takenStations.has(s));
   const saveState = () => {
     const next = stateDraft.trim();
     if (onSaveState && next !== (state || "")) onSaveState(next);
@@ -12311,24 +12374,32 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   // to 3 English letters total is allowed for that; beyond that it reads
   // as an actual English word/phrase rather than a short code, so it's
   // blocked.
+  // Every station name already claimed by an existing account in this
+  // district — once someone's picked ધારી (say), nobody signing up after
+  // them should be able to pick ધારી again, from the list OR by typing
+  // it manually below. Empty until a district is actually chosen.
+  const takenStations = useDistrictTakenStations(selDistrict);
   const englishLetterCount = (manualStationName.match(/[a-zA-Z]/g) || []).length;
   const manualStationTooMuchEnglish = englishLetterCount > 3;
-  const canSubmitManualStation = manualStationName.trim().length > 0 && manualStationName.trim() !== "પોલીસ સ્ટેશન" && !manualStationTooMuchEnglish;
+  const manualStationTaken = takenStations.has(manualStationName.trim());
+  const canSubmitManualStation = manualStationName.trim().length > 0 && manualStationName.trim() !== "પોલીસ સ્ટેશન" && !manualStationTooMuchEnglish && !manualStationTaken;
   const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
   const districtEntry = POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict];
   const groupOptions = districtEntry && districtEntry.groups ? Object.keys(districtEntry.groups) : null;
-  const stationOptions = groupOptions ? (districtEntry.groups[selGroup] || []) : flatStationsOf(districtEntry);
+  const stationOptions = (groupOptions ? (districtEntry.groups[selGroup] || []) : flatStationsOf(districtEntry)).filter((s) => !takenStations.has(s));
   // Clears (never auto-fills) whenever the choice above it changes, so a
   // stale District from a previous State — or a stale Station from a
   // previous District/Division — never lingers on screen looking chosen
-  // when it isn't anymore.
+  // when it isn't anymore. Also clears if the currently-picked station
+  // becomes taken by someone else while this modal is still open (the
+  // live takenStations set updating out from under a stale pick).
   useEffect(() => { setSelDistrict((d) => (districtOptions.includes(d) ? d : "")); }, [selState]);
   useEffect(() => {
     const opts = (POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict] && POLICE_LOCATIONS_GU[selState][selDistrict].groups)
       ? Object.keys(POLICE_LOCATIONS_GU[selState][selDistrict].groups) : null;
     setSelGroup((g) => (opts && opts.includes(g) ? g : ""));
   }, [selState, selDistrict]);
-  useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : "")); }, [selState, selDistrict, selGroup]);
+  useEffect(() => { setSelStation((s) => (stationOptions.includes(s) ? s : "")); }, [selState, selDistrict, selGroup, takenStations]);
   useEffect(() => {
     if (step === "otherName" && otherInputRef.current) {
       otherInputRef.current.focus();
@@ -12459,6 +12530,11 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
                 {manualStationTooMuchEnglish && (
                   <div className="gu" style={{ fontSize: 11, color: "var(--danger, #c0392b)", marginTop: 4 }}>
                     {t("Too many English letters — a short code (like A, B, DCB) is fine, but not a full English word.", "વધારે પડતા English અક્ષરો — ટૂંકો કોડ (જેમ કે A, B, DCB) ચાલે, પણ પૂરો English શબ્દ નહીં.")}
+                  </div>
+                )}
+                {!manualStationTooMuchEnglish && manualStationTaken && (
+                  <div className="gu" style={{ fontSize: 11, color: "var(--danger, #c0392b)", marginTop: 4 }}>
+                    {t("That station is already registered by another account — pick it from the list instead, or use a different name.", "એ સ્ટેશન પહેલેથી બીજા એકાઉન્ટ દ્વારા નોંધાયેલું છે — યાદીમાંથી પસંદ કરો અથવા અલગ નામ વાપરો.")}
                   </div>
                 )}
                 <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
@@ -14696,13 +14772,17 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
   // Same write as DistrictAdminApp's approveStation — see the comment
   // there for why this now also touches the digest doc directly instead
   // of relying only on accounts/{uid} and waiting for that station's own
-  // client to resync it.
+  // client to resync it. Also feeds the approved name into the master
+  // station list (see addApprovedStationToMasterList above) — looked up
+  // from `pending` since the approval batch itself doesn't carry the
+  // station's name/state, only its uid.
   const approveStation = (uid, districtId) => {
     setApprovingUid(uid);
+    const req = (pending || []).find((p) => p.uid === uid);
     const batch = db.batch();
     batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
     if (districtId) batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
-    batch.commit()
+    Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName)])
       .catch((e) => {
         console.error("Approve failed:", e);
         window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -14838,12 +14918,17 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   // admin update exactly these two fields on an accounts/{uid} doc whose
   // district matches their own districtAdmins/{uid} assignment.
   const [approvingUid, setApprovingUid] = useState(null);
+  // Also feeds the approved name into the master station list (see
+  // addApprovedStationToMasterList above) — looked up from `stations`
+  // (this district's own digest list) since the approval batch itself
+  // doesn't carry the station's name/state, only its uid.
   const approveStation = (uid) => {
     setApprovingUid(uid);
+    const req = (stations || []).find((s) => s.uid === uid);
     const batch = db.batch();
     batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
     batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
-    batch.commit()
+    Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName)])
       .catch((e) => {
         console.error("Approve failed:", e);
         window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
