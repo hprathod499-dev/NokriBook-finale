@@ -868,6 +868,63 @@ function flatStationsOf(districtEntry) {
   if (districtEntry && districtEntry.groups) return Object.values(districtEntry.groups).flat();
   return [];
 }
+
+// POLICE_LOCATIONS_GU above only ever covers whichever districts someone
+// happened to hand-type into this file (Amreli, Ahmedabad, Rajkot as of
+// this writing) — every other district simply has no entry, which means
+// its dropdown is empty and nobody there can even pick their own district
+// during signup. Scaling this to every station in the state can't mean
+// shipping a new build of the whole app every time one more district's
+// list gets typed up, so the master list also lives in Firestore
+// (masterData/policeLocations) and Super Admin gets a screen to grow it
+// directly — see the "Station master list" tab in SuperAdminApp. Only
+// FLAT districts (a plain station array, no Divisions) are managed that
+// way; Ahmedabad/Rajkot's Division grouping stays hand-maintained here,
+// since that shape is rare and not worth building an editor for.
+//
+// mergeLocations layers the Firestore copy on top of this hard-coded
+// seed: a district present in both keeps the seed's version (so nobody
+// can accidentally overwrite Ahmedabad's carefully-grouped entry from the
+// Firestore-editor's flat-only UI) and every other district comes from
+// Firestore. A state not in the seed at all comes through whole.
+function mergeLocations(seed, extra) {
+  if (!extra || typeof extra !== "object") return seed;
+  const merged = {};
+  Object.keys(seed).forEach((st) => { merged[st] = { ...seed[st] }; });
+  Object.keys(extra).forEach((st) => {
+    merged[st] = { ...(merged[st] || {}) };
+    const districts = extra[st] || {};
+    Object.keys(districts).forEach((d) => {
+      if (merged[st][d] !== undefined) return; // seed's own entry wins
+      merged[st][d] = districts[d];
+    });
+  });
+  return merged;
+}
+let _masterLocationsCache = null;
+let _masterLocationsPromise = null;
+function fetchMasterLocationsOnce() {
+  if (_masterLocationsCache) return Promise.resolve(_masterLocationsCache);
+  if (_masterLocationsPromise) return _masterLocationsPromise;
+  _masterLocationsPromise = db.collection("masterData").doc("policeLocations").get()
+    .then((snap) => { _masterLocationsCache = (snap.exists && snap.data().data) || {}; return _masterLocationsCache; })
+    .catch((e) => { console.error("Loading master station list failed:", e); _masterLocationsCache = {}; return _masterLocationsCache; })
+    .finally(() => { _masterLocationsPromise = null; });
+  return _masterLocationsPromise;
+}
+// Used by SuperAdminApp right after it writes a change, so its own editor
+// reflects the update immediately instead of showing the stale cache
+// until the next full page reload.
+function invalidateMasterLocationsCache() { _masterLocationsCache = null; }
+function useMasterLocations() {
+  const [locations, setLocations] = useState(() => (_masterLocationsCache ? mergeLocations(POLICE_LOCATIONS_GU, _masterLocationsCache) : POLICE_LOCATIONS_GU));
+  useEffect(() => {
+    let alive = true;
+    fetchMasterLocationsOnce().then((extra) => { if (alive) setLocations(mergeLocations(POLICE_LOCATIONS_GU, extra)); });
+    return () => { alive = false; };
+  }, []);
+  return locations;
+}
 // English-transliteration aliases for every station name above, keyed by
 // the exact Gujarati string used in POLICE_LOCATIONS_GU. Lets someone
 // type the station's name in plain English (e.g. "Dhari") in
@@ -1741,17 +1798,14 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   await ensureGujaratiCanvasFont();
 
   const [periodFrom, periodTo] = periodRangeOf(period);
-  // "Rank, Name, Designation, Buckle Number, ..." — the one column order
-  // used for every person table in the app (on-screen and PDF/CSV alike).
+  // "Rank, Name, Number, Designation, ..." — same left-to-right order used
+  // by both on-screen roster tables (CategoryView and PublicCategoryView),
+  // so the PDF export reads the same as what's on screen.
   const desgLabelOfPdf = (id) => {
     if (!id || !designations) return "—";
     const d = designations.find((x) => x.id === id);
     return (d && d.label) || "—";
   };
-  // number -> designation label, so the History table can show the same
-  // Designation column the Roster table does.
-  const desgByNumber = {};
-  roster.forEach((p) => { desgByNumber[p.number] = desgLabelOfPdf(p.staffRec && p.staffRec.designation); });
 
   // Station name first, always, same size/position as every other PDF —
   // see drawPdfHeader's own comment for why this replaced each export's
@@ -1774,7 +1828,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: headerY + 4,
-    head: [["Rank", "Name", "Designation", "Buckle Number", "Last duty", "Waiting", "Duties", "Status"]],
+    head: [["Rank", "Name", "Number", "Designation", "Last duty", "Waiting", "Duties", "Status"]],
     // p.history comes straight off the membership row computeRoster
     // spreads in — same source both CategoryView and PublicCategoryView
     // already use for their own roster tables. The Duties column is
@@ -1782,19 +1836,19 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // used by every other period-aware duty count in the app) rather than
     // an unconditional all-time count.
     body: roster.map((p) => [
-      p.rank || "—", p.name, desgLabelOfPdf(p.staffRec && p.staffRec.designation), p.number, p.lastDuty ? formatDMY(p.lastDuty) : "—",
+      p.rank || "—", p.name, p.number, desgLabelOfPdf(p.staffRec && p.staffRec.designation), p.lastDuty ? formatDMY(p.lastDuty) : "—",
       p.lastDuty ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 1: { minCellWidth: 45 }, 2: { minCellWidth: 22 }, 7: { minCellWidth: 26 } },
+    columnStyles: { 1: { minCellWidth: 45 }, 7: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [1, 2, 7].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [1, 2, 7].includes(hookData.column.index)) {
+      if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
         if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -1822,9 +1876,9 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: doc.lastAutoTable.finalY + 14,
-    head: [["#", "Name", "Designation", "Buckle Number", "Dates", "Days", "Note"]],
+    head: [["#", "Number", "Name", "Dates", "Days", "Note"]],
     body: filteredHistoryRows.map((r, i) => [
-      i + 1, r.name, desgByNumber[r.number] || "—", r.number,
+      i + 1, r.number, r.name,
       r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to),
       r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
     ]),
@@ -1835,11 +1889,11 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
     // (a growing column's width differs between didParseCell's row-height
     // reservation and didDrawCell's actual draw, leaving blank space
     // under a note that fits on fewer lines than were reserved for it).
-    columnStyles: { 1: { minCellWidth: 42 }, 2: { minCellWidth: 22 }, 6: { cellWidth: 60 } },
+    columnStyles: { 2: { minCellWidth: 42 }, 5: { cellWidth: 60 } },
     didParseCell: (hookData) => {
       if (hookData.section !== "body") return;
-      if ((hookData.column.index === 1 || hookData.column.index === 2) && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
-      if (hookData.column.index === 6 && needsImageRender(hookData.cell.raw)) {
+      if (hookData.column.index === 2 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
+      if (hookData.column.index === 5 && needsImageRender(hookData.cell.raw)) {
         // Hardcoded to match columnStyles[5].cellWidth (60) exactly,
         // rather than reading hookData.column.width here — that read
         // returned a DIFFERENT number than hookData.cell.width does in
@@ -1855,8 +1909,8 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       if (hookData.section !== "body") return;
       const raw = hookData.cell.raw;
       if (raw == null || raw === "" || !needsImageRender(raw)) return;
-      if (hookData.column.index === 1 || hookData.column.index === 2) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-      if (hookData.column.index === 6) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 60 - 2), FONT_PT);
+      if (hookData.column.index === 2) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      if (hookData.column.index === 5) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 60 - 2), FONT_PT);
     },
   });
 
@@ -1892,18 +1946,18 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: headerY + 10,
-    head: [["Name", "Designation", "Buckle Number", "Mobile", "Status", "Duties this month"]],
-    body: staffList.map((s) => [s.name, s.desgLabel || "—", s.number, displayPhone(s.phone) || "—", s.statusLabel, s.dutiesThisMonth]),
+    head: [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"]],
+    body: staffList.map((s) => [s.number, s.name, displayPhone(s.phone) || "—", s.desgLabel || "—", s.statusLabel, s.dutiesThisMonth]),
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 0: { minCellWidth: 42 }, 1: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
+    columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [0, 1, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section === "body" && [1, 3, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [0, 1, 4].includes(hookData.column.index)) {
+      if (hookData.section === "body" && [1, 3, 4].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
         if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -1914,8 +1968,8 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
 }
 // ---------- Skip-history PDF (Skip history's "Download PDF") ----------
 // `rows` here are pre-built arrays matching the exact same columns as the
-// CSV export (Date, Time, Skipped person, Designation, Buckle Number,
-// Work type, Skipped by, By Buckle Number, Note) — built once by the caller and reused for both exports,
+// CSV export (Date, Time, Skipped person, Number, Work type, Skipped by,
+// By number, Note) — built once by the caller and reused for both exports,
 // same pattern as Manage Staff's exportRows.
 async function downloadSkipHistoryPdf(rows, stationName, district) {
   const { jsPDF } = window.jspdf;
@@ -1931,8 +1985,8 @@ async function downloadSkipHistoryPdf(rows, stationName, district) {
   doc.setFontSize(8.5);
   doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
 
-  // Person/Designation/Work type/Skipped-by columns (indices 2, 3, 5, 6)
-  // are the only ones that can hold real Gujarati text — same image-cell treatment as every other
+  // Name/Skipped-by columns (indices 2 and 5) are the only ones that can
+  // hold real Gujarati text — same image-cell treatment as every other
   // Gujarati-capable PDF table in the app.
   doc.autoTable({
     // Never let a row (in particular one made tall by a wrapped
@@ -1942,18 +1996,18 @@ async function downloadSkipHistoryPdf(rows, stationName, district) {
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
     startY: headerY + 5,
-    head: [["Date", "Time", "Skipped person", "Designation", "Buckle Number", "Work type", "Skipped by", "By Buckle Number", "Note"]],
+    head: [["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"]],
     body: rows,
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: [14, 22, 32] },
-    columnStyles: { 2: { minCellWidth: 34 }, 3: { minCellWidth: 22 }, 5: { minCellWidth: 24 }, 6: { minCellWidth: 30 } },
+    columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
-      if (hookData.section === "body" && [2, 3, 5, 6].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+      if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
       }
     },
     didDrawCell: (hookData) => {
-      if (hookData.section === "body" && [2, 3, 5, 6].includes(hookData.column.index)) {
+      if (hookData.section === "body" && [2, 5].includes(hookData.column.index)) {
         const raw = hookData.cell.raw;
         if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
       }
@@ -2408,15 +2462,6 @@ function csvHeaderRows(stationName, district) {
     rows.push([]);
   }
   return rows;
-}
-// Designation label for a person, by buckle number — used by the exports
-// whose rows only carry a name + number, so every person table can show
-// the same "Name, Designation, Buckle Number" trio.
-function designationLabelOf(data, number) {
-  const rec = data && data.staff ? data.staff[number] : null;
-  if (!rec || !rec.designation || !data.designations) return "";
-  const d = data.designations.find((x) => x.id === rec.designation);
-  return (d && d.label) || "";
 }
 function downloadCsv(filename, rows) {
   const escapeCell = (v) => {
@@ -3067,8 +3112,9 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, onRequestNewStation, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
+  const POLICE_LOCATIONS_GU = useMasterLocations();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
@@ -3084,24 +3130,6 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
   const [stateDraft, setStateDraft] = useState(state || "");
   const [districtDraft, setDistrictDraft] = useState(district || "");
   const [stationOpen, setStationOpen] = useState(false);
-  // "Request new station" — same manual-entry idea as OrgSetupGateModal's:
-  // a station that isn't in the list gets typed in (pre-filled with
-  // "પોલીસ સ્ટેશન" so only the specific name is left to type) and sent to
-  // the district admin for approval instead of being saved straight away.
-  const [requestMode, setRequestMode] = useState(false);
-  const [requestName, setRequestName] = useState("પોલીસ સ્ટેશન");
-  const requestInputRef = useRef(null);
-  useEffect(() => {
-    if (requestMode && requestInputRef.current) {
-      requestInputRef.current.focus();
-      requestInputRef.current.setSelectionRange(0, 0);
-    }
-  }, [requestMode]);
-  // Same rule as the first-time setup: a short English code (A, B, DCB) is
-  // fine, a full English word isn't — names go in Gujarati everywhere else.
-  const requestEnglishLetters = (requestName.match(/[a-zA-Z]/g) || []).length;
-  const requestTooMuchEnglish = requestEnglishLetters > 3;
-  const canSendRequest = requestName.trim().length > 0 && requestName.trim() !== "પોલીસ સ્ટેશન" && !requestTooMuchEnglish && !!districtDraft && !!stateDraft;
   useEffect(() => { setStationDraft(stationName || ""); }, [stationName]);
   useEffect(() => { setStateDraft(state || ""); }, [state]);
   useEffect(() => { setDistrictDraft(district || ""); }, [district]);
@@ -3242,29 +3270,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                     </React.Fragment>
                   )}
                   <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
-                  {onRequestNewStation && requestMode ? (
-                    <React.Fragment>
-                      <input
-                        ref={requestInputRef}
-                        type="text" value={requestName} onChange={(e) => setRequestName(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter" && canSendRequest) { onRequestNewStation({ stationName: requestName.trim(), state: stateDraft, district: districtDraft }); setRequestMode(false); } }}
-                        className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
-                      />
-                      {requestTooMuchEnglish && (
-                        <div className="gu" style={{ fontSize: 11, color: "var(--danger, #c0392b)", marginTop: 4 }}>
-                          {t("Too many English letters — a short code (like A, B, DCB) is fine, but not a full English word.", "વધારે પડતા English અક્ષરો — ટૂંકો કોડ (જેમ કે A, B, DCB) ચાલે, પણ પૂરો English શબ્દ નહીં.")}
-                        </div>
-                      )}
-                      <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.4 }}>
-                        {t("You can keep using the app right away — it just needs your district admin to approve it within 7 days.", "તમે તરત જ એપ વાપરતા રહી શકો છો — તમારા district admin એ 7 દિવસમાં માન્ય કરવાનું છે.")}
-                      </div>
-                      <button
-                        onClick={() => { if (!canSendRequest) return; onRequestNewStation({ stationName: requestName.trim(), state: stateDraft, district: districtDraft }); setRequestMode(false); }}
-                        disabled={!canSendRequest} className="gu"
-                        style={{ width: "100%", marginTop: 8, background: canSendRequest ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: canSendRequest ? "pointer" : "default" }}
-                      >{t("Send request →", "વિનંતી મોકલો →")}</button>
-                    </React.Fragment>
-                  ) : stationOptions.length > 0 ? (
+                  {stationOptions.length > 0 ? (
                     <StationSearchSelect
                       options={stationOptions} value={stationDraft}
                       onChange={(v) => { setStationDraft(v); onSaveStationName(v); }}
@@ -3277,14 +3283,6 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                       placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
                       className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
                     />
-                  )}
-                  {onRequestNewStation && districtDraft && (
-                    <button
-                      type="button"
-                      onClick={() => { setRequestMode((v) => { const next = !v; if (next) setRequestName("પોલીસ સ્ટેશન"); return next; }); }}
-                      className="gu"
-                      style={{ marginTop: 8, fontSize: 11.5, fontWeight: 600, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--accent-strong)", background: requestMode ? "var(--accent)" : "transparent", color: requestMode ? "var(--accent-text)" : "var(--accent-strong)", cursor: "pointer" }}
-                    >{requestMode ? t("← Back to list", "← યાદી પર પાછા") : t("Station not in the list? Request new station", "સ્ટેશન યાદીમાં નથી? નવું સ્ટેશન વિનંતી કરો")}</button>
                   )}
                   {onSaveDistrict && (
                     <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.4 }}>
@@ -6831,19 +6829,11 @@ function DutyRoster() {
   // already true for them and this check is a no-op in that case anyway.
   // Change this date only if you deliberately want to move the cutoff.
   const EMAIL_VERIFICATION_CUTOFF = new Date("2026-09-23T00:00:00Z");
-  // TESTING SWITCH: accounts added by hand in the Firebase console
-  // (Authentication -> Add user) are always created with emailVerified =
-  // false and no way to tick it from the console, so they land on the
-  // "Verify your email" screen even though the account is legitimate.
-  // While this is true, that screen is skipped for EVERYONE (including
-  // normal self-signups) so mass testing isn't blocked. Set it back to
-  // false before real users start signing up.
-  const SKIP_EMAIL_VERIFICATION_FOR_TESTING = true;
   const isPasswordAccount = user.providerData.some((p) => p.providerId === "password");
   const createdAfterCutoff = user.metadata && user.metadata.creationTime
     ? new Date(user.metadata.creationTime) >= EMAIL_VERIFICATION_CUTOFF
     : false;
-  if (!SKIP_EMAIL_VERIFICATION_FOR_TESTING && isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
+  if (isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
     return <LangContext.Provider value={langCtxValue}><VerifyEmailScreen user={user} signOutUser={signOutUser} /></LangContext.Provider>;
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
@@ -7208,19 +7198,6 @@ function DutyRoster() {
           signOutUser={signOutUser} formatAllData={formatAllData}
           onDeleteAccount={() => setShowDeleteAccountModal(true)}
           stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
-          // "Request new station" from Settings — same result as the
-          // first-time setup's request path: saved right away and usable,
-          // but marked pending so the district admin's dashboard lists it
-          // and the 7-day approval clock starts from now.
-          onRequestNewStation={({ stationName, state, district }) => {
-            persist({
-              ...dataRef.current,
-              stationName, state, district,
-              stationApprovalStatus: "pending",
-              stationRequestedAt: new Date().toISOString(),
-            });
-            showToast(t("Request sent to your district admin", "વિનંતી તમારા district admin ને મોકલાઈ"));
-          }}
           state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s })}
           district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d })}
           stationApprovalStatus={data.stationApprovalStatus}
@@ -8555,13 +8532,6 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   // Every completed duty for THIS work type only, newest first, with
   // consecutive-day spans (an 11-day Group Duty) collapsed into a single
   // row instead of 11 — see groupHistoryRows.
-  // number -> designation label, for the History tab's Designation column
-  // and its CSV export.
-  const desgByNumberForHistory = useMemo(() => {
-    const m = {};
-    membership.forEach((mm) => { m[mm.number] = designationLabelOf(data, mm.number); });
-    return m;
-  }, [data, membership]);
   const historyRows = useMemo(() => {
     const rows = [];
     membership.forEach((m) => {
@@ -8642,7 +8612,6 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       {tab === "history" ? (
         <CategoryHistoryTable
           key={catId} rows={historyRows} catLabel={cat ? cat.label : ""} stationName={data.stationName} district={data.district}
-          desgByNumber={desgByNumberForHistory}
           onClearHistory={() => clearCategoryHistory(catId)} onDeleteSelected={(keys) => deleteHistoryEntries(catId, keys)}
           onEditNote={(number, idxs, note, extraNote) => editHistoryNote(catId, number, idxs, note, extraNote)}
           isMiscCategory={catId === MISC_CATEGORY_ID}
@@ -8650,7 +8619,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           onMarkOutstation={markHistoryOutstation}
         />
       ) : tab === "fairness" ? (
-        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} designations={data.designations} />
+        <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
       ) : (
       <React.Fragment>
       <div data-tour="nb-tour-roster-nextup" style={{
@@ -8826,7 +8795,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
+              <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
               <th style={th}>{t("Waiting", "રાહ")}</th><th style={th}>{t("Duties", "ડ્યુટીની સંખ્યા")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
             </tr>
           </thead>
@@ -8845,8 +8814,8 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                     onClick={() => setAssignTarget({ number: p.number, name: p.name })}
                     title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")}
                   >{p.name}</td>
-                  <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td} className="mono">{p.number}</td>
+                  <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td}>
                     {editingDate === p.number ? (
                       <input type="date" defaultValue={p.lastDuty} autoFocus onBlur={(e) => { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); }} onKeyDown={(e) => { if (e.key === "Enter") { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); } }} />
@@ -9241,16 +9210,16 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
 // percentage — so someone can point at a number ("Rakesh has done 42% of
 // all High Court duty") instead of eyeballing a roster table. Shared by
 // the authenticated and public read-only views, same as the history table.
-function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period, designations }) {
+function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
   const { t } = useLang();
   const [periodFrom, periodTo] = periodRangeOf(period);
   const rows = useMemo(() => {
-    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, desgLabel: ((designations || []).find((d) => p.staffRec && d.id === p.staffRec.designation) || {}).label || "", count: groupedDutyCountInRange(p.history, periodFrom, periodTo) }));
+    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, count: groupedDutyCountInRange(p.history, periodFrom, periodTo) }));
     const total = withCounts.reduce((sum, p) => sum + p.count, 0);
     return withCounts
       .map((p) => ({ ...p, pct: total > 0 ? (p.count / total) * 100 : 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [roster, periodFrom, periodTo, designations]);
+  }, [roster, periodFrom, periodTo]);
 
   return (
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
@@ -9258,7 +9227,7 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period, desig
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties", "ડ્યુટીઓ")}</th><th style={{ ...th, minWidth: 180 }}>{t("Share of all duties here", "અહીંની બધી ડ્યુટીનો હિસ્સો")}</th>
+              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties", "ડ્યુટીઓ")}</th><th style={{ ...th, minWidth: 180 }}>{t("Share of all duties here", "અહીંની બધી ડ્યુટીનો હિસ્સો")}</th>
             </tr>
           </thead>
           <tbody>
@@ -9270,7 +9239,6 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period, desig
                 title={onSelectPerson ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
               >
                 <td style={{ ...td, minWidth: 140 }} className="gu">{r.name}</td>
-                <td style={td} className="gu">{r.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                 <td style={td} className="mono">{r.number}</td>
                 <td style={{ ...td, textAlign: "center" }} className="mono">{r.count}</td>
                 <td style={td}>
@@ -9351,7 +9319,7 @@ function EditHistoryNoteModal({ row, isMiscCategory, onSave, onClose }) {
     </div>
   );
 }
-function CategoryHistoryTable({ rows, catLabel, stationName, district, desgByNumber, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory, outstationTypes, onMarkOutstation }) {
+function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHistory, onDeleteSelected, onEditNote, isMiscCategory, outstationTypes, onMarkOutstation }) {
   const { t } = useLang();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -9476,7 +9444,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, desgByNum
                 <button
                   onClick={() => downloadCsv(
                     `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.csv`,
-                    [...csvHeaderRows(stationName, district), ["#", "Name", "Designation", "Buckle Number", "From", "To", "Days", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, r.name, (desgByNumber && desgByNumber[r.number]) || "", r.number, formatDMY(r.from), formatDMY(r.to), r.days, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
+                    [...csvHeaderRows(stationName, district), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
                   )}
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
                 >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
@@ -9509,7 +9477,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, desgByNum
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
               {selectMode && <th style={{ ...th, width: 30 }}></th>}
-              <th style={th}>#</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
+              <th style={th}>#</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
             </tr>
           </thead>
           <tbody>
@@ -9532,13 +9500,12 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, desgByNum
                     </td>
                   )}
                   <td style={td} className="mono">{i + 1}</td>
-                  <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
-                  <td style={td} className="gu">{(desgByNumber && desgByNumber[r.number]) || "—"}</td>
-                  <td style={td} className="mono">{r.number}</td>
                   <td style={td} className="mono">
                     {r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to)}
                     {r.days > 1 && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 10, padding: "1px 6px" }}>{t(`${r.days} days`, `${r.days} દિવસ`)}</span>}
                   </td>
+                  <td style={td} className="mono">{r.number}</td>
+                  <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
                   <td style={{ ...td, maxWidth: 260, color: "var(--text-secondary)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                       <span>
@@ -9900,7 +9867,7 @@ function StaffView({
           pdfBusy={pdfBusy}
           onExportCsv={() => downloadCsv(
             "nokri-book-staff-directory.csv",
-            [...csvHeaderRows(data.stationName, data.district), ["Name", "Designation", "Buckle Number", "Mobile", "Status", "Duties this month"], ...exportRows.map((s) => [s.name, s.desgLabel || "", s.number, displayPhone(s.phone), s.statusLabel, s.dutiesThisMonth])]
+            [...csvHeaderRows(data.stationName, data.district), ["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"], ...exportRows.map((s) => [s.number, s.name, displayPhone(s.phone), s.desgLabel || "", s.statusLabel, s.dutiesThisMonth])]
           )}
           onDownloadPdf={handleDownloadPdf}
         />
@@ -9925,7 +9892,7 @@ function StaffView({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
+              <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
             </tr>
           </thead>
           <tbody>
@@ -9944,6 +9911,7 @@ function StaffView({
               const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
               return (
                 <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
+                  <td style={td} className="mono">{s.number}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">
                     <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} title={t(`Duty meter: ${heat}`, `ડ્યુટી મીટર: ${heat}`)} />
                     <span
@@ -9965,7 +9933,6 @@ function StaffView({
                       ))}
                     </select>
                   </td>
-                  <td style={td} className="mono">{s.number}</td>
                   <td style={{ ...td, minWidth: 120 }} className="mono">
                     {s.phone ? (
                       <span onClick={() => setStaffPhone(s.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{displayPhone(s.phone)}</span>
@@ -11021,7 +10988,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
       if (!ev.start) return;
       const end = ev.end || ev.start;
       if (ev.start <= monthEnd && end >= monthStart) {
-        rows.push({ name: ev.name, number: ev.number || "", desgLabel: designationLabelOf(data, ev.number), type: eventTypeLabel(ev.type, lang), kind: "Event", start: ev.start, end });
+        rows.push({ name: ev.name, number: ev.number || "", type: eventTypeLabel(ev.type, lang), kind: "Event", start: ev.start, end });
         seen.add((ev.number || ev.name) + "|" + ev.start);
       }
     });
@@ -11035,7 +11002,7 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         if (u.from <= monthEnd && end >= monthStart && !seen.has(key)) {
           const kind = unavailKind(u);
           if (kind === "Leave" || kind === "Outstation") {
-            rows.push({ name: s.name, number: s.number, desgLabel: designationLabelOf(data, s.number), type: unavailLabel(data, u) || kind, kind, start: u.from, end: u.to || "" });
+            rows.push({ name: s.name, number: s.number, type: unavailLabel(data, u) || kind, kind, start: u.from, end: u.to || "" });
             seen.add(key);
           }
         }
@@ -11073,8 +11040,8 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         // fragment too, showing the row twice across the page break.
         rowPageBreak: "avoid",
         startY: headerY + 10,
-        head: [["#", "Name", "Designation", "Buckle Number", "Type", "From", "To"]],
-        body: exportRows.map((r, i) => [i + 1, r.name, r.desgLabel || "—", r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
+        head: [["#", "Name", "Number", "Type", "From", "To"]],
+        body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT, valign: "top" },
         headStyles: { fillColor: [14, 22, 32] },
         // Same reasoning as the Monthly Report and per-work-type PDFs:
@@ -11082,19 +11049,19 @@ function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntr
         // be drawn instead, which would otherwise make autoTable size
         // the column from nothing rather than from the name/type that
         // actually gets drawn into it.
-        columnStyles: { 1: { minCellWidth: 42 }, 2: { minCellWidth: 22 }, 4: { minCellWidth: 26 } },
+        columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 } },
         // Name (1) and Type (3) CAN contain Gujarati text — but not
         // always (an English work-type/leave-type label has none), so
         // needsImageRender checks the actual value each time rather than
         // blanket-imaging every cell in these columns regardless of
         // script.
         didParseCell: (hookData) => {
-          if (hookData.section === "body" && [1, 2, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
+          if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 3) && needsImageRender(hookData.cell.raw)) {
             hookData.cell.text = [];
           }
         },
         didDrawCell: (hookData) => {
-          if (hookData.section === "body" && [1, 2, 4].includes(hookData.column.index)) {
+          if (hookData.section === "body" && (hookData.column.index === 1 || hookData.column.index === 3)) {
             const raw = hookData.cell.raw;
             if (raw != null && raw !== "" && needsImageRender(raw)) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, CAL_FONT_PT), CAL_FONT_PT);
           }
@@ -12272,6 +12239,7 @@ function WelcomeModal({ onStartTour }) {
 // this makes picking "Other" by mistake genuinely hard to do.
 function OrgSetupGateModal({ initialStationName, onSubmit }) {
   const { t } = useLang();
+  const POLICE_LOCATIONS_GU = useMasterLocations();
   const [step, setStep] = useState("who"); // "who" | "otherConfirm" | "otherName" | "police"
   const [who, setWho] = useState("police");
   const [otherPhrase, setOtherPhrase] = useState("");
@@ -13207,8 +13175,8 @@ function SkipHistoryView({ data, initialSearch }) {
   const exportRows = useMemo(() => entries.map((e) => {
     const dt = new Date(e.ts || 0);
     const workType = e.scope === "category" ? (e.catLabel || "") : t("All work types", "બધા કામના પ્રકારો");
-    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "", e.name || "", designationLabelOf(data, e.number) || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
-  }), [entries, t, data]);
+    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
+  }), [entries, t]);
 
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
@@ -13257,7 +13225,7 @@ function SkipHistoryView({ data, initialSearch }) {
               pdfBusy={pdfBusy}
               onExportCsv={() => downloadCsv(
                 "nokri-book-skip-history.csv",
-                [...csvHeaderRows(data.stationName, data.district), ["Date", "Time", "Skipped person", "Designation", "Buckle Number", "Work type", "Skipped by", "By Buckle Number", "Note"], ...exportRows]
+                [...csvHeaderRows(data.stationName, data.district), ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...exportRows]
               )}
               onDownloadPdf={handleDownloadPdf}
             />
@@ -13803,32 +13771,31 @@ function PublicCategoryView({ data, catId }) {
 
       <div key={tab} className="view-fade-in">
       {tab === "fairness" ? (
-        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} designations={data.designations} />
+        <CategoryFairnessTable roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
       ) : tab === "history" ? (
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                  <th style={th}>#</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
+                  <th style={th}>#</th><th style={th}>{t("Date", "તારીખ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Note", "નોંધ")}</th>
                 </tr>
               </thead>
               <tbody>
                 {historyRows.map((r, i) => (
                   <tr key={`${r.number}#${r.idxs.join(",")}`} style={{ borderTop: i === 0 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: i === 0 ? "var(--highlight-bg)" : "transparent" }}>
                     <td style={td} className="mono">{i + 1}</td>
-                    <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
-                    <td style={td} className="gu">{designationLabelOf(data, r.number) || "—"}</td>
-                    <td style={td} className="mono">{r.number}</td>
                     <td style={td} className="mono">
                       {r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to)}
                       {r.days > 1 && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 10, padding: "1px 6px" }}>{t(`${r.days} days`, `${r.days} દિવસ`)}</span>}
                     </td>
+                    <td style={td} className="mono">{r.number}</td>
+                    <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
                     <td style={{ ...td, maxWidth: 260, color: "var(--text-secondary)" }}>{r.note || "—"}</td>
                   </tr>
                 ))}
                 {historyRows.length === 0 && (
-                  <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No duty has been completed in this work type yet.", "આ કામના પ્રકારમાં હજુ સુધી કોઈ ડ્યુટી પૂર્ણ થઈ નથી.")}</td></tr>
+                  <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No duty has been completed in this work type yet.", "આ કામના પ્રકારમાં હજુ સુધી કોઈ ડ્યુટી પૂર્ણ થઈ નથી.")}</td></tr>
                 )}
               </tbody>
             </table>
@@ -13840,7 +13807,7 @@ function PublicCategoryView({ data, catId }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                  <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
+                  <th style={th}>{t("Rank", "ક્રમ")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Last duty", "છેલ્લી ડ્યુટી")}</th>
                   <th style={th}>{t("Waiting", "રાહ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th>
                 </tr>
               </thead>
@@ -13854,8 +13821,8 @@ function PublicCategoryView({ data, catId }) {
                     <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                       <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
-                      <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{p.number}</td>
+                      <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{formatDMY(p.lastDuty)}</td>
                       <td style={td} className="mono">{p.lastDuty ? `${p.waiting}d` : "—"}</td>
                       <td style={td}>
@@ -13984,7 +13951,7 @@ function PublicStaffView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
+                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
               </tr>
             </thead>
             <tbody>
@@ -13993,6 +13960,7 @@ function PublicStaffView({ data }) {
                 const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
                 return (
                   <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
+                    <td style={td} className="mono">{s.number}</td>
                     <td style={{ ...td, minWidth: 160 }} className="gu">
                       <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} />
                       <span
@@ -14002,7 +13970,6 @@ function PublicStaffView({ data }) {
                       >{s.name}</span>
                     </td>
                     <td style={td} className="gu">{s.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
-                    <td style={td} className="mono">{s.number}</td>
                     <td style={td}>
                       <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{s.statusLabel}</span>
                       {s.unavailable && (
@@ -14124,7 +14091,7 @@ function DistrictStaffView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th><th style={th}>{t("Phone", "ફોન")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
+                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Phone", "ફોન")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
               </tr>
             </thead>
             <tbody>
@@ -14133,6 +14100,7 @@ function DistrictStaffView({ data }) {
                 const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
                 return (
                   <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
+                    <td style={td} className="mono">{s.number}</td>
                     <td style={{ ...td, minWidth: 160 }} className="gu">
                       <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} />
                       <span
@@ -14141,9 +14109,8 @@ function DistrictStaffView({ data }) {
                         style={{ color: DUTY_HEAT_COLOR[heat], fontWeight: heat === "green" ? 400 : 600, cursor: "pointer", borderBottom: "1px dashed currentColor" }}
                       >{s.name}</span>
                     </td>
-                    <td style={td} className="gu">{s.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
-                    <td style={td} className="mono">{s.number}</td>
                     <td style={td} className="mono">{s.phone ? ("+91 " + s.phone) : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                    <td style={td} className="gu">{s.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                     <td style={td}>
                       <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{s.statusLabel}</span>
                       {s.unavailable && (
@@ -14215,7 +14182,7 @@ function DistrictOnDutyView({ data }) {
       // the Duty calendar tab (built differently) already showed all of
       // them, which is exactly why the two disagreed on here.
       roster.filter((p) => p.onDutyToday).forEach((onDuty) => {
-        list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number, desgLabel: designationLabelOf(data, onDuty.number) });
+        list.push({ catLabel: c.label, name: onDuty.name, number: onDuty.number });
       });
     });
     return list;
@@ -14229,20 +14196,19 @@ function DistrictOnDutyView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Buckle Number", "બકલ નંબર")}</th>
+                <th style={th}>{t("Work type", "કામનો પ્રકાર")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} style={{ borderTop: "1px solid var(--border-soft)" }}>
                   <td style={td} className="gu">{r.catLabel}</td>
-                  <td style={td} className="gu">{r.name}</td>
-                  <td style={td} className="gu">{r.desgLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td} className="mono">{r.number}</td>
+                  <td style={td} className="gu">{r.name}</td>
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No one is on duty today.", "આજે કોઈ ડ્યુટી પર નથી.")}</td></tr>
+                <tr><td colSpan={3} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No one is on duty today.", "આજે કોઈ ડ્યુટી પર નથી.")}</td></tr>
               )}
             </tbody>
           </table>
@@ -14411,8 +14377,143 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
 // create the matching index the first time this runs in a project that's
 // never run one before (a direct link appears in the browser console
 // error; click it, then reload).
+// Lets a Super Admin grow POLICE_LOCATIONS_GU's coverage (see that
+// object's own comment) without a new build of the app. Only ever reads
+// and writes the RAW Firestore doc — never the hard-coded seed, which
+// stays a fixed, reviewed-by-hand reference and is shown here read-only
+// so it's obvious which districts are already covered before adding a
+// duplicate. New districts are always a flat station list; Ahmedabad/
+// Rajkot's Division-grouped shape isn't editable from here (see the
+// comment on mergeLocations for why).
+function MasterLocationsEditor() {
+  const { t } = useLang();
+  const [raw, setRaw] = useState(null); // null = loading
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [newState, setNewState] = useState("ગુજરાત");
+  const [newDistrict, setNewDistrict] = useState("");
+  const [newStationsText, setNewStationsText] = useState("");
+  const [editTexts, setEditTexts] = useState({}); // "state|district" -> textarea draft
+
+  useEffect(() => {
+    db.collection("masterData").doc("policeLocations").get()
+      .then((snap) => setRaw((snap.exists && snap.data().data) || {}))
+      .catch((e) => { console.error("Loading master station list failed:", e); setStatus(t("Couldn't load — check your connection.", "લોડ કરી શકાયું નહીં — તમારું કનેક્શન તપાસો.")); setRaw({}); });
+  }, []);
+
+  const save = (next, successMsg) => {
+    setSaving(true); setStatus("");
+    db.collection("masterData").doc("policeLocations").set({ data: next, updatedAt: Date.now() })
+      .then(() => { setRaw(next); invalidateMasterLocationsCache(); setStatus(successMsg); })
+      .catch((e) => { console.error("Saving master station list failed:", e); setStatus(t("Couldn't save — check your connection and try again.", "સાચવી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો.")); })
+      .finally(() => setSaving(false));
+  };
+
+  const addDistrict = () => {
+    const st = newState.trim(), d = newDistrict.trim();
+    const stations = newStationsText.split("\n").map((x) => x.trim()).filter(Boolean);
+    if (!st || !d || stations.length === 0) return;
+    if ((POLICE_LOCATIONS_GU[st] && POLICE_LOCATIONS_GU[st][d]) || (raw[st] && raw[st][d])) {
+      setStatus(t("That district already exists — edit it below instead of adding it again.", "એ જિલ્લો પહેલેથી છે — ફરી ઉમેરવાને બદલે નીચે તેને એડિટ કરો."));
+      return;
+    }
+    const next = { ...raw, [st]: { ...(raw[st] || {}), [d]: stations } };
+    save(next, t(`Added ${d} with ${stations.length} stations.`, `${d} ${stations.length} સ્ટેશન સાથે ઉમેરાયો.`));
+    setNewDistrict(""); setNewStationsText("");
+  };
+
+  const saveDistrictEdit = (st, d) => {
+    const key = st + "|" + d;
+    const stations = (editTexts[key] || "").split("\n").map((x) => x.trim()).filter(Boolean);
+    if (stations.length === 0) { setStatus(t("A district needs at least one station — to remove it entirely, use Delete instead.", "જિલ્લામાં ઓછામાં ઓછું એક સ્ટેશન જોઈએ — સંપૂર્ણપણે કાઢવા માટે Delete વાપરો.")); return; }
+    const next = { ...raw, [st]: { ...raw[st], [d]: stations } };
+    save(next, t(`Saved ${d}.`, `${d} સાચવ્યું.`));
+  };
+
+  const deleteDistrict = (st, d) => {
+    if (!window.confirm(t(`Remove ${d} from the master list? Stations already using it keep working — this only stops NEW stations from selecting it.`, `${d} ને માસ્ટર યાદીમાંથી કાઢવો છે? જે સ્ટેશનો પહેલેથી તેનો ઉપયોગ કરે છે તે ચાલુ રહેશે — આ ફક્ત નવા સ્ટેશનોને તે પસંદ કરતા અટકાવશે.`))) return;
+    const nextState = { ...raw[st] };
+    delete nextState[d];
+    const next = { ...raw, [st]: nextState };
+    save(next, t(`Removed ${d}.`, `${d} કાઢી નાખ્યો.`));
+  };
+
+  if (raw === null) {
+    return <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>;
+  }
+
+  const builtInEntries = [];
+  Object.keys(POLICE_LOCATIONS_GU).forEach((st) => Object.keys(POLICE_LOCATIONS_GU[st]).forEach((d) => {
+    builtInEntries.push({ st, d, count: flatStationsOf(POLICE_LOCATIONS_GU[st][d]).length });
+  }));
+  const addedEntries = [];
+  Object.keys(raw).forEach((st) => Object.keys(raw[st] || {}).forEach((d) => {
+    addedEntries.push({ st, d, stations: raw[st][d] });
+  }));
+
+  return (
+    <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
+      <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16, lineHeight: 1.5 }}>
+        {t("Districts added here become selectable for every station signing up or editing Settings, app-wide, without needing a new release.", "અહીં ઉમેરેલા જિલ્લા આખી એપમાં દરેક નવા સાઇનઅપ કે Settings માટે તરત પસંદ કરી શકાય તેવા બને છે — નવી રિલીઝ વગર.")}
+      </div>
+      {status && <div className="gu" style={{ fontSize: 12.5, color: "var(--accent-strong)", background: "var(--bg-surface-2)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>{status}</div>}
+
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <div className="gu" style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{t("Add a new district", "નવો જિલ્લો ઉમેરો")}</div>
+        <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }} className="gu">{t("State", "રાજ્ય")}</label>
+        <input type="text" value={newState} onChange={(e) => setNewState(e.target.value)} className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginBottom: 10 }} />
+        <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }} className="gu">{t("District name", "જિલ્લાનું નામ")}</label>
+        <input type="text" value={newDistrict} onChange={(e) => setNewDistrict(e.target.value)} placeholder="દા.ત. જૂનાગઢ" className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginBottom: 10 }} />
+        <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }} className="gu">{t("Station names — one per line", "સ્ટેશનના નામ — એક લીટીએ એક")}</label>
+        <textarea
+          value={newStationsText} onChange={(e) => setNewStationsText(e.target.value)} rows={6}
+          placeholder={"જૂનાગઢ શહેર પોલીસ સ્ટેશન\nજૂનાગઢ ગ્રામ્ય પોલીસ સ્ટેશન\n…"}
+          className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit", marginBottom: 10 }}
+        />
+        <button
+          onClick={addDistrict} disabled={saving || !newState.trim() || !newDistrict.trim() || !newStationsText.trim()} className="gu"
+          style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: saving ? "default" : "pointer" }}
+        >{t("Add district", "જિલ્લો ઉમેરો")}</button>
+      </div>
+
+      {addedEntries.length > 0 && (
+        <React.Fragment>
+          <div className="gu" style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{t("Added from here", "અહીંથી ઉમેરેલા")}</div>
+          {addedEntries.map(({ st, d, stations }) => {
+            const key = st + "|" + d;
+            const draft = editTexts[key] !== undefined ? editTexts[key] : stations.join("\n");
+            return (
+              <div key={key} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div className="gu" style={{ fontWeight: 700, fontSize: 13.5 }}>{d} <span style={{ fontWeight: 400, color: "var(--text-tertiary)", fontSize: 12 }}>· {st} · {stations.length}</span></div>
+                  <button onClick={() => deleteDistrict(st, d)} disabled={saving} className="gu" style={{ background: "transparent", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 600 }}>{t("Delete", "કાઢો")}</button>
+                </div>
+                <textarea
+                  value={draft} onChange={(e) => setEditTexts({ ...editTexts, [key]: e.target.value })} rows={Math.min(10, Math.max(3, stations.length))}
+                  className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit", marginBottom: 8 }}
+                />
+                <button
+                  onClick={() => saveDistrictEdit(st, d)} disabled={saving} className="gu"
+                  style={{ background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600 }}
+                >{t("Save changes", "ફેરફારો સાચવો")}</button>
+              </div>
+            );
+          })}
+        </React.Fragment>
+      )}
+
+      <div className="gu" style={{ fontWeight: 700, fontSize: 14, margin: "20px 0 10px" }}>{t("Already built into the app", "એપમાં પહેલેથી બનાવેલા")}</div>
+      <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }} className="gu">
+        {builtInEntries.map(({ st, d, count }) => (
+          <div key={st + "|" + d} style={{ padding: "6px 0", borderBottom: "1px solid var(--border-soft)" }}>{d} <span style={{ color: "var(--text-tertiary)" }}>· {st} · {count} {t("stations", "સ્ટેશન")} · {t("edit this one in code, not here", "આ કોડમાં એડિટ કરો, અહીં નહીં")}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
   const { t } = useLang();
+  const [tab, setTab] = useState("pending"); // "pending" | "locations"
   const [pending, setPending] = useState(null); // null = loading
   const [approvingUid, setApprovingUid] = useState(null);
 
@@ -14483,9 +14584,23 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🛡️ {t("Super Admin — Pending station requests", "સુપર એડમિન — બાકી સ્ટેશન વિનંતીઓ")}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🛡️ {t("Super Admin", "સુપર એડમિન")}</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              onClick={() => setTab("pending")} className="gu"
+              style={{ fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", background: tab === "pending" ? "var(--accent)" : "transparent", color: tab === "pending" ? "var(--accent-text)" : "var(--text-secondary)" }}
+            >{t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ")}{pending && pending.length > 0 ? ` (${pending.length})` : ""}</button>
+            <button
+              onClick={() => setTab("locations")} className="gu"
+              style={{ fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", background: tab === "locations" ? "var(--accent)" : "transparent", color: tab === "locations" ? "var(--accent-text)" : "var(--text-secondary)" }}
+            >{t("Station master list", "સ્ટેશન માસ્ટર યાદી")}</button>
+          </div>
+        </div>
         <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
       </div>
+      {tab === "locations" && <MasterLocationsEditor />}
+      {tab === "pending" && (
       <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
         {pending === null && (
           <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
@@ -14524,6 +14639,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
           );
         })}
       </div>
+      )}
     </div>
   );
 }
