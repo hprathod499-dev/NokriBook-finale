@@ -868,6 +868,23 @@ function flatStationsOf(districtEntry) {
   if (districtEntry && districtEntry.groups) return Object.values(districtEntry.groups).flat();
   return [];
 }
+// Two-way conversion between a { groups: {...} } district value and the
+// "one editable block per sub-division/zone" shape MasterLocationsEditor's
+// UI works with ({ label, text } rows, text = station names newline-
+// joined, same as the plain-district textarea). Used both for a brand-new
+// grouped district and for editing an existing one.
+function groupsToBlocks(groupsObj) {
+  return Object.keys(groupsObj || {}).map((label) => ({ label, text: (groupsObj[label] || []).join("\n") }));
+}
+function blocksToGroups(blocks) {
+  const out = {};
+  (blocks || []).forEach(({ label, text }) => {
+    const lbl = (label || "").trim();
+    const stations = (text || "").split("\n").map((x) => x.trim()).filter(Boolean);
+    if (lbl && stations.length) out[lbl] = stations;
+  });
+  return out;
+}
 
 // POLICE_LOCATIONS_GU above only ever covers whichever districts someone
 // happened to hand-type into this file (Amreli, Ahmedabad, Rajkot as of
@@ -14388,9 +14405,17 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
 // and writes the RAW Firestore doc — never the hard-coded seed, which
 // stays a fixed, reviewed-by-hand reference and is shown here read-only
 // so it's obvious which districts are already covered before adding a
-// duplicate. New districts are always a flat station list; Ahmedabad/
-// Rajkot's Division-grouped shape isn't editable from here (see the
-// comment on mergeLocations for why).
+// duplicate. A new district can be either a flat station list, or built
+// from sub-divisions/zones (the "This district has sub-divisions / zones"
+// checkbox below) — that second shape writes the exact same
+// { groups: { label: [stations] } } object Ahmedabad/Rajkot use in the
+// hard-coded seed, via groupsToBlocks/blocksToGroups above, so it's picked
+// up everywhere flatStationsOf() and district.groups are already read
+// (signup, Settings' station picker) with no other change needed.
+// Ahmedabad/Rajkot themselves still stay hand-maintained in the seed
+// simply because they're already there (see mergeLocations: a seed
+// district always wins over a same-named Firestore one) — nothing about
+// THIS editor stops a brand-new grouped district from being added here.
 function MasterLocationsEditor() {
   const { t } = useLang();
   const [raw, setRaw] = useState(null); // null = loading
@@ -14399,7 +14424,15 @@ function MasterLocationsEditor() {
   const [newState, setNewState] = useState("ગુજરાત");
   const [newDistrict, setNewDistrict] = useState("");
   const [newStationsText, setNewStationsText] = useState("");
-  const [editTexts, setEditTexts] = useState({}); // "state|district" -> textarea draft
+  // Off (default): the district is one flat station list, exactly as
+  // before. On: it's built from Ahmedabad-style sub-divisions/zones —
+  // newGroups holds one { label, text } block per sub-division, text
+  // being that sub-division's station names newline-joined same as the
+  // flat textarea. See groupsToBlocks/blocksToGroups above.
+  const [newIsGrouped, setNewIsGrouped] = useState(false);
+  const [newGroups, setNewGroups] = useState([{ label: "", text: "" }]);
+  const [editTexts, setEditTexts] = useState({}); // "state|district" -> textarea draft (flat districts)
+  const [editGroupsState, setEditGroupsState] = useState({}); // "state|district" -> block array (grouped districts)
 
   useEffect(() => {
     db.collection("masterData").doc("policeLocations").get()
@@ -14417,19 +14450,45 @@ function MasterLocationsEditor() {
 
   const addDistrict = () => {
     const st = newState.trim(), d = newDistrict.trim();
-    const stations = newStationsText.split("\n").map((x) => x.trim()).filter(Boolean);
-    if (!st || !d || stations.length === 0) return;
+    if (!st || !d) return;
     if ((POLICE_LOCATIONS_GU[st] && POLICE_LOCATIONS_GU[st][d]) || (raw[st] && raw[st][d])) {
       setStatus(t("That district already exists — edit it below instead of adding it again.", "એ જિલ્લો પહેલેથી છે — ફરી ઉમેરવાને બદલે નીચે તેને એડિટ કરો."));
       return;
     }
-    const next = { ...raw, [st]: { ...(raw[st] || {}), [d]: stations } };
-    save(next, t(`Added ${d} with ${stations.length} stations.`, `${d} ${stations.length} સ્ટેશન સાથે ઉમેરાયો.`));
-    setNewDistrict(""); setNewStationsText("");
+    let value, msg;
+    if (newIsGrouped) {
+      const groups = blocksToGroups(newGroups);
+      const groupCount = Object.keys(groups).length;
+      if (groupCount === 0) {
+        setStatus(t("Add at least one sub-division/zone with both a name and at least one station.", "ઓછામાં ઓછો એક પેટા વિભાગ/ઝોન ઉમેરો, જેમાં નામ અને ઓછામાં ઓછું એક સ્ટેશન બંને હોય."));
+        return;
+      }
+      const stationCount = Object.values(groups).reduce((n, arr) => n + arr.length, 0);
+      value = { groups };
+      msg = t(`Added ${d} with ${groupCount} sub-division${groupCount === 1 ? "" : "s"} (${stationCount} stations).`, `${d} ${groupCount} પેટા વિભાગ (${stationCount} સ્ટેશન) સાથે ઉમેરાયો.`);
+    } else {
+      const stations = newStationsText.split("\n").map((x) => x.trim()).filter(Boolean);
+      if (stations.length === 0) return;
+      value = stations;
+      msg = t(`Added ${d} with ${stations.length} stations.`, `${d} ${stations.length} સ્ટેશન સાથે ઉમેરાયો.`);
+    }
+    const next = { ...raw, [st]: { ...(raw[st] || {}), [d]: value } };
+    save(next, msg);
+    setNewDistrict(""); setNewStationsText(""); setNewIsGrouped(false); setNewGroups([{ label: "", text: "" }]);
   };
 
   const saveDistrictEdit = (st, d) => {
     const key = st + "|" + d;
+    const current = raw[st][d];
+    const isGrouped = current && !Array.isArray(current) && current.groups;
+    if (isGrouped) {
+      const blocks = editGroupsState[key] || groupsToBlocks(current.groups);
+      const groups = blocksToGroups(blocks);
+      if (Object.keys(groups).length === 0) { setStatus(t("A district needs at least one sub-division/zone with at least one station — to remove it entirely, use Delete instead.", "જિલ્લામાં ઓછામાં ઓછો એક પેટા વિભાગ/ઝોન જોઈએ, જેમાં ઓછામાં ઓછું એક સ્ટેશન હોય — સંપૂર્ણપણે કાઢવા માટે Delete વાપરો.")); return; }
+      const next = { ...raw, [st]: { ...raw[st], [d]: { groups } } };
+      save(next, t(`Saved ${d}.`, `${d} સાચવ્યું.`));
+      return;
+    }
     const stations = (editTexts[key] || "").split("\n").map((x) => x.trim()).filter(Boolean);
     if (stations.length === 0) { setStatus(t("A district needs at least one station — to remove it entirely, use Delete instead.", "જિલ્લામાં ઓછામાં ઓછું એક સ્ટેશન જોઈએ — સંપૂર્ણપણે કાઢવા માટે Delete વાપરો.")); return; }
     const next = { ...raw, [st]: { ...raw[st], [d]: stations } };
@@ -14454,8 +14513,11 @@ function MasterLocationsEditor() {
   }));
   const addedEntries = [];
   Object.keys(raw).forEach((st) => Object.keys(raw[st] || {}).forEach((d) => {
-    addedEntries.push({ st, d, stations: raw[st][d] });
+    addedEntries.push({ st, d, value: raw[st][d] });
   }));
+  const newValid = newIsGrouped
+    ? newGroups.some((g) => g.label.trim() && g.text.trim())
+    : newStationsText.trim().length > 0;
 
   return (
     <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
@@ -14470,14 +14532,54 @@ function MasterLocationsEditor() {
         <input type="text" value={newState} onChange={(e) => setNewState(e.target.value)} className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginBottom: 10 }} />
         <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }} className="gu">{t("District name", "જિલ્લાનું નામ")}</label>
         <input type="text" value={newDistrict} onChange={(e) => setNewDistrict(e.target.value)} placeholder="દા.ત. જૂનાગઢ" className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, marginBottom: 10 }} />
-        <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }} className="gu">{t("Station names — one per line", "સ્ટેશનના નામ — એક લીટીએ એક")}</label>
-        <textarea
-          value={newStationsText} onChange={(e) => setNewStationsText(e.target.value)} rows={6}
-          placeholder={"જૂનાગઢ શહેર પોલીસ સ્ટેશન\nજૂનાગઢ ગ્રામ્ય પોલીસ સ્ટેશન\n…"}
-          className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit", marginBottom: 10 }}
-        />
+
+        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10, cursor: "pointer" }} className="gu">
+          <input type="checkbox" checked={newIsGrouped} onChange={(e) => setNewIsGrouped(e.target.checked)} />
+          {t("This district has sub-divisions / zones (like Ahmedabad — Zone → Division → Station)", "આ જિલ્લામાં પેટા વિભાગ / ઝોન છે (અમદાવાદ જેવા — ઝોન → ડિવિઝન → સ્ટેશન)")}
+        </label>
+
+        {newIsGrouped ? (
+          <div style={{ marginBottom: 10 }}>
+            {newGroups.map((g, i) => (
+              <div key={i} style={{ border: "1px solid var(--border-soft)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                  <input
+                    type="text" value={g.label} placeholder={t("Sub-division / zone name — e.g. \"જૂનાગઢ શહેર\" or \"Traffic Police\"", "પેટા વિભાગ / ઝોનનું નામ — દા.ત. \"જૂનાગઢ શહેર\" અથવા \"Traffic Police\"")}
+                    onChange={(e) => setNewGroups(newGroups.map((row, j) => j === i ? { ...row, label: e.target.value } : row))}
+                    className="gu" style={{ flex: 1, fontSize: 13 }}
+                  />
+                  {newGroups.length > 1 && (
+                    <button
+                      onClick={() => setNewGroups(newGroups.filter((_, j) => j !== i))} className="gu"
+                      style={{ background: "transparent", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", borderRadius: 6, padding: "5px 9px", fontSize: 11.5, fontWeight: 600, flexShrink: 0 }}
+                    >{t("Remove", "કાઢો")}</button>
+                  )}
+                </div>
+                <textarea
+                  value={g.text} rows={4} placeholder={t("Station names in this sub-division — one per line", "આ પેટા વિભાગના સ્ટેશનના નામ — એક લીટીએ એક")}
+                  onChange={(e) => setNewGroups(newGroups.map((row, j) => j === i ? { ...row, text: e.target.value } : row))}
+                  className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit" }}
+                />
+              </div>
+            ))}
+            <button
+              onClick={() => setNewGroups([...newGroups, { label: "", text: "" }])} className="gu"
+              style={{ background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12.5, fontWeight: 600 }}
+            >{t("+ Add another sub-division / zone", "+ બીજો પેટા વિભાગ / ઝોન ઉમેરો")}</button>
+          </div>
+        ) : (
+          <React.Fragment>
+            <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }} className="gu">{t("Station names — one per line", "સ્ટેશનના નામ — એક લીટીએ એક")}</label>
+            <textarea
+              value={newStationsText} onChange={(e) => setNewStationsText(e.target.value)} rows={6}
+              placeholder={"જૂનાગઢ શહેર પોલીસ સ્ટેશન\nજૂનાગઢ ગ્રામ્ય પોલીસ સ્ટેશન\n…"}
+              className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit", marginBottom: 10 }}
+            />
+          </React.Fragment>
+        )}
+
         <button
-          onClick={addDistrict} disabled={saving || !newState.trim() || !newDistrict.trim() || !newStationsText.trim()} className="gu"
+          onClick={addDistrict} disabled={saving || !newState.trim() || !newDistrict.trim() || !newValid} className="gu"
           style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: saving ? "default" : "pointer" }}
         >{t("Add district", "જિલ્લો ઉમેરો")}</button>
       </div>
@@ -14485,23 +14587,71 @@ function MasterLocationsEditor() {
       {addedEntries.length > 0 && (
         <React.Fragment>
           <div className="gu" style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{t("Added from here", "અહીંથી ઉમેરેલા")}</div>
-          {addedEntries.map(({ st, d, stations }) => {
+          {addedEntries.map(({ st, d, value }) => {
             const key = st + "|" + d;
-            const draft = editTexts[key] !== undefined ? editTexts[key] : stations.join("\n");
+            const isGrouped = value && !Array.isArray(value) && value.groups;
+            const totalCount = flatStationsOf(value).length;
+            const blocks = isGrouped ? (editGroupsState[key] || groupsToBlocks(value.groups)) : null;
+            const setBlocks = (next) => setEditGroupsState({ ...editGroupsState, [key]: next });
+            const draft = !isGrouped ? (editTexts[key] !== undefined ? editTexts[key] : value.join("\n")) : null;
             return (
               <div key={key} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div className="gu" style={{ fontWeight: 700, fontSize: 13.5 }}>{d} <span style={{ fontWeight: 400, color: "var(--text-tertiary)", fontSize: 12 }}>· {st} · {stations.length}</span></div>
+                  <div className="gu" style={{ fontWeight: 700, fontSize: 13.5 }}>
+                    {d} <span style={{ fontWeight: 400, color: "var(--text-tertiary)", fontSize: 12 }}>
+                      · {st} · {totalCount} {isGrouped && <React.Fragment>· {t("sub-divisions", "પેટા વિભાગ")}: {Object.keys(value.groups).length}</React.Fragment>}
+                    </span>
+                  </div>
                   <button onClick={() => deleteDistrict(st, d)} disabled={saving} className="gu" style={{ background: "transparent", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", borderRadius: 7, padding: "5px 10px", fontSize: 12, fontWeight: 600 }}>{t("Delete", "કાઢો")}</button>
                 </div>
-                <textarea
-                  value={draft} onChange={(e) => setEditTexts({ ...editTexts, [key]: e.target.value })} rows={Math.min(10, Math.max(3, stations.length))}
-                  className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit", marginBottom: 8 }}
-                />
-                <button
-                  onClick={() => saveDistrictEdit(st, d)} disabled={saving} className="gu"
-                  style={{ background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600 }}
-                >{t("Save changes", "ફેરફારો સાચવો")}</button>
+
+                {isGrouped ? (
+                  <React.Fragment>
+                    {blocks.map((g, i) => (
+                      <div key={i} style={{ border: "1px solid var(--border-soft)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                          <input
+                            type="text" value={g.label} placeholder={t("Sub-division / zone name", "પેટા વિભાગ / ઝોનનું નામ")}
+                            onChange={(e) => setBlocks(blocks.map((row, j) => j === i ? { ...row, label: e.target.value } : row))}
+                            className="gu" style={{ flex: 1, fontSize: 13 }}
+                          />
+                          {blocks.length > 1 && (
+                            <button
+                              onClick={() => setBlocks(blocks.filter((_, j) => j !== i))} className="gu"
+                              style={{ background: "transparent", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", borderRadius: 6, padding: "5px 9px", fontSize: 11.5, fontWeight: 600, flexShrink: 0 }}
+                            >{t("Remove", "કાઢો")}</button>
+                          )}
+                        </div>
+                        <textarea
+                          value={g.text} onChange={(e) => setBlocks(blocks.map((row, j) => j === i ? { ...row, text: e.target.value } : row))}
+                          rows={Math.min(10, Math.max(3, g.text.split("\n").length))}
+                          className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit" }}
+                        />
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                      <button
+                        onClick={() => setBlocks([...blocks, { label: "", text: "" }])} disabled={saving} className="gu"
+                        style={{ background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600 }}
+                      >{t("+ Add another sub-division / zone", "+ બીજો પેટા વિભાગ / ઝોન ઉમેરો")}</button>
+                      <button
+                        onClick={() => saveDistrictEdit(st, d)} disabled={saving} className="gu"
+                        style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600 }}
+                      >{t("Save changes", "ફેરફારો સાચવો")}</button>
+                    </div>
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    <textarea
+                      value={draft} onChange={(e) => setEditTexts({ ...editTexts, [key]: e.target.value })} rows={Math.min(10, Math.max(3, value.length))}
+                      className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "inherit", marginBottom: 8 }}
+                    />
+                    <button
+                      onClick={() => saveDistrictEdit(st, d)} disabled={saving} className="gu"
+                      style={{ background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "7px 14px", fontSize: 12.5, fontWeight: 600 }}
+                    >{t("Save changes", "ફેરફારો સાચવો")}</button>
+                  </React.Fragment>
+                )}
               </div>
             );
           })}
