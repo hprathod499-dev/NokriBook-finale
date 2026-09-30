@@ -46,14 +46,19 @@ service cloud.firestore {
 
     // One registered name per state|district|station.
     // MUST match nbStationKey() in index.html.
+    // Names containing "/" can't be a document id, so they are simply
+    // not registered (index.html makes exactly the same check).
     function hasStation(a) {
-      return strOr(a.get('district', null)) != ''
-        && strOr(a.get('stationName', null)) != '';
+      let st = strOr(a.get('state', null));
+      let di = strOr(a.get('district', null));
+      let nm = strOr(a.get('stationName', null));
+      return di != '' && nm != ''
+        && !(st + di + nm).matches('.*/.*');
     }
     function stationKey(a) {
-      return (strOr(a.get('state', null)) + '|'
-            + strOr(a.get('district', null)) + '|'
-            + strOr(a.get('stationName', null))).replace('/', '∕');
+      return strOr(a.get('state', null)) + '|'
+           + strOr(a.get('district', null)) + '|'
+           + strOr(a.get('stationName', null));
     }
 
     function nowMs() {
@@ -264,7 +269,9 @@ service cloud.firestore {
       }
 
       // Own digest, own district, same approval state + name as the
-      // real account, and the name must be registered to this station.
+      // real account. Its name must be registered to this station —
+      // EXCEPT while the request is pending, so a pending request is
+      // always visible to the admin who has to decide on it.
       function ownerDigestOk() {
         let a = accountOf(stationUid);
         let d = request.resource.data;
@@ -283,7 +290,8 @@ service cloud.firestore {
           && d.get('stationRequestedAt', null) == a.get('stationRequestedAt', null)
           && (d.get('stationName', null) == null
               || (d.get('stationName', null) == a.get('stationName', null)
-                  && (!hasStation(a)
+                  && (a.get('stationApprovalStatus', null) == "pending"
+                      || !hasStation(a)
                       || get(/databases/$(database)/documents/stationRegistry/$(stationKey(a))).data.uid == stationUid)));
       }
 
@@ -292,11 +300,13 @@ service cloud.firestore {
 
       allow create, update: if ownerDigestOk();
 
-      // Admin approve: only stationApprovalStatus -> "approved".
+      // Admin approve: status -> "approved" and (if it was) unblocked,
+      // in the same batch as the account, so both always match.
       allow update: if isAdminHere()
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['stationApprovalStatus'])
-        && request.resource.data.stationApprovalStatus == "approved";
+             .hasOnly(['stationApprovalStatus', 'blocked'])
+        && request.resource.data.stationApprovalStatus == "approved"
+        && request.resource.data.get('blocked', false) == false;
 
       allow delete: if (signedIn() && request.auth.uid == stationUid)
         || (resource.data.get('stationApprovalStatus', null) == "pending"

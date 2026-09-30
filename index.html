@@ -921,7 +921,10 @@ function nbStationKey(d) {
   if (!d) return null;
   const str = (v) => (typeof v === "string" ? v : "");
   if (!str(d.district) || !str(d.stationName)) return null;
-  return (str(d.state) + "|" + str(d.district) + "|" + str(d.stationName)).replace(/\//g, "\u2215");
+  // A "/" can't be part of a document id — such names just aren't
+  // registered (the rules make exactly the same check).
+  if ((str(d.state) + str(d.district) + str(d.stationName)).indexOf("/") !== -1) return null;
+  return str(d.state) + "|" + str(d.district) + "|" + str(d.stationName);
 }
 // Super Admin only: publishes every listed station (hard-coded seed +
 // masterData/policeLocations) as masterData/stationIndex, which the rules
@@ -5627,6 +5630,20 @@ function DutyRoster() {
     persist({ ...cur, shareEnabled: true, shareToken: token });
     return `${window.location.origin}/?view=${token}`;
   };
+  // Station names are one-per-district (stationRegistry). Checked BEFORE a
+  // station request / pick is saved, so a request can never end up
+  // hidden from the district admin because its name was already taken.
+  const stationNameIsFree = (fields) => {
+    const key = nbStationKey(fields);
+    if (!key) return Promise.resolve(true);
+    return db.collection("stationRegistry").doc(key).get()
+      .then((snap) => !snap.exists || snap.data().uid === accountUid)
+      .catch(() => true); // offline: let it through; the rules still guard the dashboard
+  };
+  const nameTakenToast = () => showToast(t(
+    "This station name is already registered by another station in this district. Choose a different name, or ask your district admin.",
+    "આ સ્ટેશનનું નામ આ જિલ્લામાં બીજા સ્ટેશને પહેલેથી નોંધાવ્યું છે. બીજું નામ પસંદ કરો, અથવા તમારા જિલ્લા એડમિનને પૂછો."
+  ), "error");
   // Accounts that had Share on before tokens existed: give them one
   // (their old uid-based link stops working — they re-send the new link).
   useEffect(() => {
@@ -7856,7 +7873,7 @@ function DutyRoster() {
           // currently saved -- picked separately via onSaveState/
           // onSaveDistrict above -- so only the name and the pending flag
           // need setting here.
-          onRequestNewStation={(name) => persist({
+          onRequestNewStation={(name) => stationNameIsFree({ ...dataRef.current, stationName: name }).then((free) => free ? persist({
             ...dataRef.current,
             stationName: name,
             stationApprovalStatus: "pending",
@@ -7864,7 +7881,7 @@ function DutyRoster() {
             // Rules reject resetting the 5-day approval window).
             stationRequestedAt: dataRef.current.stationApprovalStatus === "pending" ? (dataRef.current.stationRequestedAt || null) : new Date().toISOString(),
             stationRequestedAtMs: dataRef.current.stationApprovalStatus === "pending" ? (dataRef.current.stationRequestedAtMs || null) : Date.now(),
-          })}
+          }) : nameTakenToast())}
           onHelp={() => setLocalHelpOpen(true)}
           onChooseBackupFolder={chooseBackupFolder}
           onRecoverLocalBackup={recoverLocalBackup}
@@ -7914,7 +7931,8 @@ function DutyRoster() {
       {showStationGate && (
         <OrgSetupGateModal
           initialStationName={data.stationName || "પોલીસ સ્ટેશન"}
-          onSubmit={({ stationName, state, district, isRequest }) => {
+          onSubmit={async ({ stationName, state, district, isRequest }) => {
+            if (!(await stationNameIsFree({ state, district, stationName }))) { nameTakenToast(); return; }
             persist({
               ...dataRef.current,
               stationName, state: state, district: district,
@@ -15356,7 +15374,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
     const req = (pending || []).find((p) => p.uid === uid);
     const batch = db.batch();
     batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
-    if (districtId) batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
+    if (districtId) batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved", blocked: false });
     Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName).catch((e) => console.warn("Master station list not updated (Super Admin only):", e))])
       .catch((e) => {
         console.error("Approve failed:", e);
@@ -15503,7 +15521,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     const req = (stations || []).find((s) => s.uid === uid);
     const batch = db.batch();
     batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
-    batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
+    batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved", blocked: false });
     Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName).catch((e) => console.warn("Master station list not updated (Super Admin only):", e))])
       .catch((e) => {
         console.error("Approve failed:", e);
