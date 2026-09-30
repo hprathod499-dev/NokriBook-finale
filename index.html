@@ -13527,24 +13527,16 @@ function AboutPanel({ onClose }) {
           boxShadow: "0 20px 50px rgba(0,0,0,0.25)", textAlign: "center", overflow: "hidden",
         }}
       >
-        <div style={{
-          // top was -40 — with a 180px circle that put its brightest point
-          // (the gradient's 0% center) right around y=50 in the card,
-          // directly behind/around the 64px logo square that starts at
-          // y≈28 (the card's own 28px top padding). Since the card also
-          // clips with overflow:hidden, that bright center was landing
-          // squarely in the still-visible, still-fairly-opaque part of
-          // the gradient right where the logo sits, tinting it with
-          // whatever --accent-glow happens to be for the active theme.
-          // Pushed further up (and shrunk slightly) so the gradient's
-          // brightest point sits above the card's visible top edge —
-          // by the time the fade reaches the logo's actual position, it's
-          // already past the 70% mark where this gradient goes fully
-          // transparent, so no color reaches the logo in any theme.
-          position: "absolute", top: -110, left: "50%", transform: "translateX(-50%)",
-          width: 160, height: 160, borderRadius: "50%",
-          background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)", pointerEvents: "none",
-        }} />
+        {/* There used to be a decorative --accent-glow radial-gradient
+            circle here, behind the logo, meant to sit purely in the
+            card's empty top padding. Nudging its position (top: -40,
+            then -110) never fully stopped its fade tail from still
+            faintly tinting the logo in some theme or other — gradient
+            percentages are too easy to get subtly wrong without being
+            able to render and check it live. Removed outright rather
+            than keep guessing at another position: the safest way to
+            guarantee the fade color can never touch the logo, in any
+            theme, is for it to not be there at all. */}
         <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")}
           style={{ position: "absolute", top: 10, right: 12, background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15 }}>✕</button>
 
