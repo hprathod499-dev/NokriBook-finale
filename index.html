@@ -582,31 +582,14 @@
 
 <!-- ============================================================
      STEP 3 (optional): fully automatic email on "Format all data".
-     Without this, that action still opens a pre-filled email in the
-     person's own mail app for them to send — it just isn't sent with
-     zero clicks. Filling these three in makes it send silently, with
-     no user action, the moment "Format all data" is confirmed.
-
-     How to get these values (emailjs.com, free tier is enough):
-       1. Sign up at https://www.emailjs.com and add an Email Service
-          (e.g. connect the nokribook@gmail.com Gmail account) —
-          this gives you the SERVICE ID.
-       2. Create an Email Template with a body that uses {{message}}
-          somewhere in it (that's where this app's full message text
-          — who did it, their buckle number, and the time — gets
-          inserted), and set the template's "To email" field to
-          {{to_email}} — this gives you the TEMPLATE ID.
-       3. Account → General → find your PUBLIC KEY.
-     Paste the three below. Leave any placeholder as-is to keep this
-     feature off — "Format all data" will keep using the pre-filled
-     mailto draft instead, same as before.
+     Paste the address of your Cloudflare email Worker below (see
+     email-worker/README.md). Leave it empty to keep the fallback: a
+     pre-filled email opens in the person's own mail app instead.
+     No secret keys live in this page — they stay on Cloudflare.
      ============================================================ -->
 <script>
-  window.EMAILJS_PUBLIC_KEY = "gcu9vlnpJ80hiN4lw";
-  window.EMAILJS_SERVICE_ID = "service_m6ma8i5";
-  window.EMAILJS_TEMPLATE_ID = "template_77bcirr";
+  window.NB_EMAIL_WORKER_URL = "";
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4.4.1/dist/email.min.js" integrity="sha384-SALc35EccAf6RzGw4iNsyj7kTPr33K7RoGzYu+7heZhT8s0GZouafRiCg1qy44AS" crossorigin="anonymous"></script>
 <!-- ============================================================ -->
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -5592,7 +5575,7 @@ function DutyRoster() {
   // for Undo/Redo — captured here so those two actions can say exactly what
   // they're reverting instead of a generic "last change reverted". Error
   // toasts stay up longer (6s vs 2.2s) — a normal confirmation is fine to
-  // glance past, but an error (e.g. why the automatic EmailJS send just
+  // glance past, but an error (e.g. why the automatic email send just
   // failed) needs enough time to actually be read.
   const showToast = (msg, type) => {
     if (type !== "error") lastActionRef.current = msg;
@@ -5793,27 +5776,11 @@ function DutyRoster() {
   const DRIVE_FOLDER_NAME = "Nokri Book Backups";
   const driveConfigured = !!(window.GOOGLE_DRIVE_CLIENT_ID && window.GOOGLE_DRIVE_CLIENT_ID.indexOf("YOUR_") !== 0);
 
-  // ---------- EmailJS (fully automatic email on "Format all data") ----------
-  // True, zero-click sending straight from the browser — no backend of this
-  // app's own needed. Only active once all three placeholders in the
-  // <head> config block are filled in with a real EmailJS account's
-  // values; until then this silently stays off and performFormatAllData
-  // below falls back to opening a pre-filled mailto draft instead.
-  const emailjsConfigured = !!(
-    window.EMAILJS_PUBLIC_KEY && window.EMAILJS_PUBLIC_KEY.indexOf("YOUR_") !== 0 &&
-    window.EMAILJS_SERVICE_ID && window.EMAILJS_SERVICE_ID.indexOf("YOUR_") !== 0 &&
-    window.EMAILJS_TEMPLATE_ID && window.EMAILJS_TEMPLATE_ID.indexOf("YOUR_") !== 0 &&
-    typeof emailjs !== "undefined"
-  );
-  useEffect(() => {
-    // v4 of the EmailJS browser SDK (the CDN build loaded in <head>) takes
-    // an options OBJECT here — { publicKey: ... } — not a bare string like
-    // the older v3 SDK did. Passing a bare string silently leaves the key
-    // unset, so every send() call afterward fails authentication and
-    // performFormatAllData's catch handler falls back to the mailto draft
-    // — which is exactly the "it still opens mail to send manually" bug.
-    if (emailjsConfigured) { try { emailjs.init({ publicKey: window.EMAILJS_PUBLIC_KEY }); } catch (e) { console.warn("EmailJS init failed", e); } }
-  }, [emailjsConfigured]);
+  // ---------- Automatic email on "Format all data" ----------
+  // Sent by our own Cloudflare Worker (email-worker/), which checks the
+  // signed-in user's Firebase login and only ever emails that user's own
+  // verified address. Empty URL = use the mail-app draft fallback.
+  const emailWorkerUrl = String(window.NB_EMAIL_WORKER_URL || "").replace(/\/+$/, "");
   const [driveConnected, setDriveConnected] = useState(() => localStorage.getItem("nb_drive_connected") === "1");
   // Whether Drive backup is turned on for THIS ACCOUNT — synced via
   // Firestore (data.driveEnabled), not localStorage, so it's the same on
@@ -6464,7 +6431,7 @@ function DutyRoster() {
   // with their name looked up from the roster that still exists at this
   // point — it's read BEFORE the wipe clears anything) and when, by email
   // to the signed-in account's own email address. Sent automatically via
-  // EmailJS with zero further clicks when it's configured (see the
+  // our email Worker with zero further clicks when it's configured (see the
   // <head> config block); otherwise falls back to opening a pre-filled
   // mailto draft in the person's own mail app for them to send instead —
   // still a real record, just not a silent one.
@@ -6604,30 +6571,38 @@ function DutyRoster() {
     }
     if (user && user.email) {
       const messageText = bodyLines.join("\n");
-      if (emailjsConfigured) {
-        emailjs.send(window.EMAILJS_SERVICE_ID, window.EMAILJS_TEMPLATE_ID, {
-          to_email: user.email,
-          subject,
-          message: messageText,
-          person_name: personName || "",
-          buckle_number: buckleNumber,
-          time: whenText,
-        }).then(() => {
-          showToastRaw(t("Confirmation email sent automatically.", "પુષ્ટિ ઈમેલ આપમેળે મોકલાયો."));
-        }).catch((e) => {
-          console.warn("EmailJS send failed, falling back to mailto", e);
-          const reason = (e && (e.text || e.message)) || t("unknown error", "અજ્ઞાત ભૂલ");
-          showToastRaw(t(`Automatic email failed (${reason}) — opening a draft to send manually instead.`, `આપમેળે ઈમેલ મોકલવામાં નિષ્ફળ (${reason}) — તેના બદલે જાતે મોકલવા માટે ડ્રાફ્ટ ખોલી રહ્યા છીએ.`), "error");
-          const mailtoUrl = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(messageText)}`;
-          const a = document.createElement("a");
-          a.href = mailtoUrl;
-          a.click();
-        });
-      } else {
+      const openMailDraft = () => {
         const mailtoUrl = `mailto:${encodeURIComponent(user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(messageText)}`;
         const a = document.createElement("a");
         a.href = mailtoUrl;
         a.click();
+      };
+      if (emailWorkerUrl) {
+        (async () => {
+          try {
+            const idToken = await auth.currentUser.getIdToken();
+            const res = await fetch(emailWorkerUrl + "/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: "Bearer " + idToken },
+              body: JSON.stringify({
+                kind: isFullWipe ? "format-all" : "format-keep",
+                keepMonths: isFullWipe ? null : nbKeepMonthsFor(formatMode),
+                personName: personName || "",
+                buckleNumber,
+                stationName: data.stationName || "",
+              }),
+            });
+            const out = await res.json().catch(() => ({}));
+            if (!res.ok || !out.ok) throw new Error(out.error || ("HTTP " + res.status));
+            showToastRaw(t("Confirmation email sent automatically.", "પુષ્ટિ ઈમેલ આપમેળે મોકલાયો."));
+          } catch (e) {
+            console.warn("Automatic email failed, falling back to a mail draft", e);
+            showToastRaw(t(`Automatic email failed (${e.message}) — opening a draft to send manually instead.`, `આપમેળે ઈમેલ મોકલવામાં નિષ્ફળ (${e.message}) — તેના બદલે જાતે મોકલવા ડ્રાફ્ટ ખોલી રહ્યા છીએ.`), "error");
+            openMailDraft();
+          }
+        })();
+      } else {
+        openMailDraft();
       }
     }
     showToastRaw(toastMsg);
