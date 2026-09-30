@@ -23,9 +23,14 @@ Free: Cloudflare Workers (100,000 requests/day) + Resend (3,000 emails/month).
 1. https://dash.cloudflare.com → **Workers & Pages → Create → Create Worker**.
 2. Name it `nokribook-email` → **Deploy**.
 3. **Edit code** → delete everything → paste all of `src/worker.js` → **Deploy**.
-4. **Settings → Variables and Secrets → Add** → Type **Secret**,
-   Name `RESEND_API_KEY`, Value = the key from Resend → **Deploy**.
-   (That's the only setting needed; the rest is built in.)
+4. **Settings → Variables and Secrets → Add**:
+
+   | Name | Type | Value |
+   |---|---|---|
+   | `RESEND_API_KEY` | **Secret** | the key from Resend |
+   | `FROM_EMAIL` | Text | `Nokri Book <noreply@nokribook.in>` |
+   | `FIREBASE_PROJECT_ID` | Text | `duty-roaster-944b9` |
+   | `ALLOWED_ORIGINS` | Text | `https://nokribook.in,https://www.nokribook.in` |
 
 5. Copy the Worker's address (like `https://nokribook-email.<you>.workers.dev`).
    Opening it in a browser should show `{"ok":true,"service":"nokribook-email"}`.

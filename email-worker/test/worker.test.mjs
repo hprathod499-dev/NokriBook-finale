@@ -106,14 +106,6 @@ test("more than 10 emails an hour for one user -> 429", async () => {
   for (let i = 0; i < 11; i++) last = await call({ token, body: goodBody });
   assert.equal(last.res.status, 429);
 });
-test("works with ONLY the secret set (defaults fill the rest)", async () => {
-  _resetKeyCache();
-  const f = fakeFetch();
-  const req = new Request("https://w.dev/send", { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "application/json", Authorization: "Bearer " + await makeToken({ sub: "only-secret" }) }, body: JSON.stringify(goodBody) });
-  const res = await worker.fetch(req, { RESEND_API_KEY: "re_x" }, {}, { fetch: f });
-  assert.equal(res.status, 200);
-  assert.equal(f.sent[0].from, "Nokri Book <noreply@nokribook.in>");
-});
 test("full-wipe email text", () => {
   const e = buildEmail({ kind: "format-all", personName: "A", buckleNumber: "1" });
   assert.match(e.subject, /all data was deleted/);

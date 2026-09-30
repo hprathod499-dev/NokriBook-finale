@@ -11,15 +11,11 @@
 //   4. sends through Resend with a secret API key that never leaves
 //      Cloudflare (it is NOT in the web page, unlike EmailJS keys).
 //
-// The ONLY setting you must add (Cloudflare → the Worker → Settings →
-// Variables and Secrets):   RESEND_API_KEY  (type: Secret)
-// Everything else has a built-in default below and can optionally be
-// overridden with a variable of the same name.
-const DEFAULTS = {
-  FROM_EMAIL: "Nokri Book <noreply@nokribook.in>",
-  FIREBASE_PROJECT_ID: "duty-roaster-944b9",
-  ALLOWED_ORIGINS: "https://nokribook.in,https://www.nokribook.in",
-};
+// Settings (Cloudflare dashboard → the Worker → Settings → Variables):
+//   RESEND_API_KEY     (Secret)  from resend.com → API Keys
+//   FROM_EMAIL         (Text)    e.g.  Nokri Book <noreply@nokribook.in>
+//   FIREBASE_PROJECT_ID (Text)   duty-roaster-944b9
+//   ALLOWED_ORIGINS    (Text)    https://nokribook.in,https://www.nokribook.in
 
 const JWKS_URL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
 let jwksCache = { keys: null, until: 0 };
@@ -138,8 +134,7 @@ function rateLimited(uid, now = Date.now()) {
 }
 
 export default {
-  async fetch(request, rawEnv, ctx, deps = {}) {
-    const env = { ...DEFAULTS, ...Object.fromEntries(Object.entries(rawEnv || {}).filter(([, v]) => v)) };
+  async fetch(request, env, ctx, deps = {}) {
     const fetchImpl = deps.fetch || fetch;
     const url = new URL(request.url);
     const { ok: originOk, headers: cors } = corsHeaders(request.headers.get("Origin"), env);
