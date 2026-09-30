@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Nokri Book</title>
+<script>
+  // GitHub Pages serves THIS file for any path with no matching real
+  // file — which, now that the app uses real URLs like /app/dashboard
+  // via history.pushState, includes every one of those client-side
+  // routes whenever someone visits them directly (a reload, a bookmark,
+  // a shared link, or just typing the address). This is the standard
+  // fix for a single-page app on GitHub Pages: bounce straight back to
+  // index.html with the originally-requested path preserved in a query
+  // string, so the small script at the top of index.html's <head> can
+  // put the real address back with history.replaceState before the
+  // app's own router (useNbPath) ever looks at window.location. The
+  // whole round trip is invisible — the user just sees the app open
+  // exactly where they meant to be, not this page.
+  var path = location.pathname + location.search + location.hash;
+  location.replace("/?nbRedirect=" + encodeURIComponent(path));
+</script>
+</head>
+<body></body>
+</html>
