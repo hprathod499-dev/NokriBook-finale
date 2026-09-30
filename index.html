@@ -28,6 +28,27 @@
 <head>
 <meta charset="UTF-8" />
 <script>
+  // Companion half of 404.html's redirect (see the comment over there for
+  // the full picture). GitHub Pages serves 404.html for any client-side
+  // route hit directly — a reload, a bookmark, a shared link, or just
+  // typing the address — which bounces here as /?nbRedirect=<the
+  // original path, encoded>. This puts that real path back with
+  // replaceState as early as possible, BEFORE React mounts and before
+  // useNbPath's very first read of window.location.pathname — otherwise
+  // the app always starts at plain "/", which nbCleanPath resolves to
+  // the dashboard, no matter where the person actually reloaded from.
+  // Wrapped in try/catch for the same reason as the theme script below:
+  // a failure here should never block the page from loading — worst
+  // case, it just lands on the dashboard instead of the exact route.
+  try {
+    var nbRedirectMatch = window.location.search.match(/[?&]nbRedirect=([^&]*)/);
+    if (nbRedirectMatch) {
+      var nbRedirectTarget = decodeURIComponent(nbRedirectMatch[1]) || "/";
+      window.history.replaceState(null, "", nbRedirectTarget);
+    }
+  } catch (e) {}
+</script>
+<script>
   // Applied as early as physically possible (before the stylesheet below
   // even parses) so a saved Soft Blue / Light Green choice never flashes
   // the Classic theme for a frame on load. Wrapped in try/catch since
