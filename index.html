@@ -2049,6 +2049,43 @@ function drawPdfHeader(doc, title, stationName, district) {
   doc.text(title, 14, headerY);
   return headerY + 8;
 }
+// ---------- One look for EVERY PDF ----------
+// Same body font size, same table header colour/margins, same
+// "period / Generated" lines under the header, same footer, and the
+// same English date format everywhere.
+const NB_PDF_FONT_PT = 9;
+function nbPdfStamp() {
+  const d = new Date();
+  return formatDMY(todayStr()) + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+// PDFs are always English (jsPDF can't draw Gujarati as text).
+function nbPdfMonthLabel(month) {
+  return new Date(month + "-01T00:00:00").toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+// Lines under the header: optional period/month, "Generated …", extras.
+// Returns the y to start the first table (or section title) at.
+function nbPdfIntro(doc, y, subtitle, extras) {
+  if (subtitle) { doc.setFontSize(10); doc.text(subtitle, 14, y); y += 5; }
+  doc.setFontSize(8.5);
+  doc.text("Generated " + nbPdfStamp(), 14, y); y += 5;
+  (extras || []).forEach((line) => { doc.setFontSize(8.5); doc.text(line, 14, y); y += 5; });
+  return y + 2;
+}
+// Footer on every page: app name left, "Page X of Y" right.
+function nbPdfFooter(doc) {
+  if (!doc || doc.__nbFooter) return;
+  doc.__nbFooter = true;
+  const n = doc.internal.getNumberOfPages();
+  const w = doc.internal.pageSize.getWidth(), h = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(120);
+    doc.text("Nokri Book · nokribook.in", 14, h - 8);
+    doc.text(`Page ${i} of ${n}`, w - 14, h - 8, { align: "right" });
+    doc.setTextColor(0);
+  }
+}
 // ---------- Per-work-type ("duty type") PDF export ----------
 // Every work type (category) — WAPC, UHC, ULRD, "112", etc. — gets its own
 // "Roster + History" PDF, built with exactly the same Gujarati-safe
@@ -2078,6 +2115,7 @@ function periodLabelEn(period) {
 // works the same way everywhere.
 function PdfReadyModal({ pdf, onClose }) {
   const { t } = useLang();
+  nbPdfFooter(pdf && pdf.doc);
   useEscToClose(onClose);
   const handleView = () => {
     try {
@@ -2164,7 +2202,7 @@ function ExportMenuButton({ disabled, pdfBusy, onExportCsv, onDownloadPdf }) {
 async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName, district, designations) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  const FONT_PT = 9;
+  const FONT_PT = NB_PDF_FONT_PT;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
@@ -2184,13 +2222,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   // Station name first, always, same size/position as every other PDF —
   // see drawPdfHeader's own comment for why this replaced each export's
   // previous one-off header.
-  let headerY = drawPdfHeader(doc, `Nokri Book — ${catLabel}`, stationName, district);
-  doc.setFontSize(10);
-  doc.text(periodLabelEn(period), 14, headerY);
-  headerY += 5;
-  doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
-  headerY += 8;
+  let headerY = nbPdfIntro(doc, drawPdfHeader(doc, `Nokri Book — ${catLabel}`, stationName, district), periodLabelEn(period)) + 1;
 
   doc.setFontSize(11);
   doc.text("Roster", 14, headerY);
@@ -2214,7 +2246,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       p.lastDuty ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32] },
+    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     columnStyles: { 1: { minCellWidth: 45 }, 7: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
@@ -2257,7 +2289,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32] },
+    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     // Note gets a fixed cellWidth rather than minCellWidth — see the full
     // explanation above downloadPersonHistoryPdf's own columnStyles below
     // (a growing column's width differs between didParseCell's row-height
@@ -2289,7 +2321,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
   });
 
   const slug = String(catLabel).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
-  return { doc, filename: `nokri-book-${slug || "duty-type"}-report.pdf` };
+  return { doc, filename: `nokri-book-${slug || "duty-type"}-${todayStr()}.pdf` };
 }
 // ---------- Full staff directory PDF (Manage Staff's "Download PDF") ----------
 // Same Gujarati-safe pipeline as every other PDF in the app — plain
@@ -2299,18 +2331,14 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
 async function downloadStaffDirectoryPdf(staffList, stationName, district) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  const FONT_PT = 9;
+  const FONT_PT = NB_PDF_FONT_PT;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  let headerY = drawPdfHeader(doc, "Nokri Book — Staff Directory", stationName, district);
-  doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
-  doc.setFontSize(8.5);
-  doc.text(`${staffList.length} staff`, 14, headerY + 5);
+  const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Staff Directory", stationName, district), null, [`${staffList.length} staff`]);
 
   doc.autoTable({
     // Never let a row (in particular one made tall by a wrapped
@@ -2319,11 +2347,11 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
     // a split row meant the image got redrawn on its continuation
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
-    startY: headerY + 10,
+    startY: headerY,
     head: [["Number", "Name", "Mobile", "Designation", "Status", "Duties this month"]],
     body: staffList.map((s) => [s.number, s.name, displayPhone(s.phone) || "—", s.desgLabel || "—", s.statusLabel, s.dutiesThisMonth]),
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32] },
+    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     columnStyles: { 1: { minCellWidth: 42 }, 3: { minCellWidth: 26 }, 4: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [1, 3, 4].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
@@ -2338,7 +2366,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
     },
   });
 
-  return { doc, filename: "nokri-book-staff-directory.pdf" };
+  return { doc, filename: `nokri-book-staff-directory-${todayStr()}.pdf` };
 }
 // ---------- Skip-history PDF (Skip history's "Download PDF") ----------
 // `rows` here are pre-built arrays matching the exact same columns as the
@@ -2348,16 +2376,14 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
 async function downloadSkipHistoryPdf(rows, stationName, district) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  const FONT_PT = 8;
+  const FONT_PT = NB_PDF_FONT_PT;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  let headerY = drawPdfHeader(doc, "Nokri Book — Skip History", stationName, district);
-  doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, headerY);
+  const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Skip History", stationName, district));
 
   // Name/Skipped-by columns (indices 2 and 5) are the only ones that can
   // hold real Gujarati text — same image-cell treatment as every other
@@ -2369,11 +2395,11 @@ async function downloadSkipHistoryPdf(rows, stationName, district) {
     // a split row meant the image got redrawn on its continuation
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
-    startY: headerY + 5,
+    startY: headerY,
     head: [["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"]],
     body: rows,
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32] },
+    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
@@ -2388,7 +2414,7 @@ async function downloadSkipHistoryPdf(rows, stationName, district) {
     },
   });
 
-  return { doc, filename: "nokri-book-skip-history.pdf" };
+  return { doc, filename: `nokri-book-skip-history-${todayStr()}.pdf` };
 }
 
 function buildInitialData() {
@@ -10952,7 +10978,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
 async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, stationName, district) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  const FONT_PT = 9;
+  const FONT_PT = NB_PDF_FONT_PT;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
@@ -10964,19 +10990,8 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   // (10pt) off to the side next to the buckle number, which read as
   // oversized/cluttered and buried the station name. This mirrors every
   // other PDF's header order (station name, then the report title).
-  let headerY = 16;
-  if (stationName) {
-    drawCenteredStationName(doc, stationName, headerY, 16);
-    headerY += 6;
-    // District, centered right under the station name — same as every
-    // other PDF's header (see drawPdfHeader).
-    if (district) {
-      drawCenteredStationName(doc, district, headerY, 10);
-      headerY += 5;
-    }
-  }
-  doc.setFontSize(11);
-  doc.text("Nokri Book — Duty History", 14, headerY);
+  // Shared header (same as every PDF); name + number go under its title.
+  let headerY = drawPdfHeader(doc, "Nokri Book — Duty History", stationName, district) - 8;
   // Title, name, and buckle number all left-aligned at x=14, same font
   // size (11pt), and advanced by the exact same line height (LINE_H) —
   // one uniform spacing used for every line here, not a bigger gap after
@@ -10988,11 +11003,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   doc.setFontSize(11);
   doc.text(`#${number}`, 14, headerY);
   headerY += LINE_H + 6;
-  let y = headerY;
-  doc.setFontSize(10);
-  doc.text(periodLabelEn(period), 14, y);
-  doc.setFontSize(8.5);
-  doc.text("Generated " + new Date().toLocaleString(), 14, y + 5);
+  const y = nbPdfIntro(doc, headerY, periodLabelEn(period));
 
   // filteredGroups arrives newest-first (matching the on-screen modal),
   // but the PDF should read as a timeline of the period — earliest date
@@ -11006,14 +11017,14 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
     // a split row meant the image got redrawn on its continuation
     // fragment too, showing the row twice across the page break.
     rowPageBreak: "avoid",
-    startY: y + 13,
+    startY: y,
     head: [["Date", "Work type", "Days", "Note"]],
     body: sortedGroups.map((g) => [
       g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
       g.catLabel, g.days, [g.note, g.extraNote].filter(Boolean).join(" — "),
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32] },
+    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     // Note's own width is FIXED (cellWidth, not minCellWidth) rather than
     // left to autoTable's normal auto-grow-to-fill-the-page sizing. The
     // wrap in didParseCell below (which decides how many blank lines to
@@ -11046,7 +11057,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
   });
 
   const slug = String(staffRec.name).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
-  return { doc, filename: `nokri-book-${slug || number}-history.pdf` };
+  return { doc, filename: `nokri-book-${slug || number}-history-${todayStr()}.pdf` };
 }
 function PersonHistoryModal({ data, number, onClose }) {
   const { t } = useLang();
@@ -11681,16 +11692,12 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
 
   const downloadCalendarPdf = async () => {
     setPdfBusy(true);
-    const CAL_FONT_PT = 9;
+    const CAL_FONT_PT = NB_PDF_FONT_PT;
     try {
       await ensureGujaratiCanvasFont();
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
-      let headerY = drawPdfHeader(doc, "Nokri Book — Leave / Outstation Calendar", data.stationName, data.district);
-      doc.setFontSize(10);
-      doc.text(monthLabel, 14, headerY);
-      doc.setFontSize(8.5);
-      doc.text("Generated " + new Date().toLocaleString(), 14, headerY + 5);
+      const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Leave / Outstation Calendar", data.stationName, data.district), nbPdfMonthLabel(month));
       doc.autoTable({
         // Never let a row (in particular one made tall by a wrapped
         // Note column) get split across a page boundary — with the
@@ -11698,11 +11705,11 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
         // a split row meant the image got redrawn on its continuation
         // fragment too, showing the row twice across the page break.
         rowPageBreak: "avoid",
-        startY: headerY + 10,
+        startY: headerY,
         head: [["#", "Name", "Number", "Type", "From", "To"]],
         body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT, valign: "top" },
-        headStyles: { fillColor: [14, 22, 32] },
+        headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
         // Same reasoning as the Monthly Report and per-work-type PDFs:
         // didParseCell blanks these cells' native text so the image can
         // be drawn instead, which would otherwise make autoTable size
@@ -11726,7 +11733,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
           }
         },
       });
-      setPdfReady({ doc, filename: `nokri-book-calendar-${month}.pdf` });
+      setPdfReady({ doc, filename: `nokri-book-leave-calendar-${month}.pdf` });
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
     } finally {
@@ -12175,7 +12182,7 @@ function ReportView({ initialSort, focus, data }) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const GU_FONT = "NotoSansGujarati";
-    const FONT_PT = 9;
+    const FONT_PT = NB_PDF_FONT_PT;
 
     setPdfBusy(true);
     try {
@@ -12190,11 +12197,7 @@ function ReportView({ initialSort, focus, data }) {
     }
     setPdfBusy(false);
 
-    let headerY = drawPdfHeader(doc, "Nokri Book — Monthly Duty Report", data.stationName, data.district);
-    doc.setFontSize(10);
-    doc.text(monthLabel, 14, headerY);
-    doc.setFontSize(8.5);
-    doc.text("Generated " + new Date().toLocaleString(), 14, headerY + 5);
+    const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Monthly Duty Report", data.stationName, data.district), nbPdfMonthLabel(month));
     // Summary table first: one row per person, total duties this month
     // across every work type combined, most duties first — the "who does
     // duty the most" answer at a glance before the full day-by-day list.
@@ -12218,11 +12221,11 @@ function ReportView({ initialSort, focus, data }) {
       // a split row meant the image got redrawn on its continuation
       // fragment too, showing the row twice across the page break.
       rowPageBreak: "avoid",
-      startY: headerY + 10,
+      startY: headerY,
       head: [["#", "Name", "Designation", "Total duties"]],
       body: summaryNames.map((name, i) => [i + 1, name, grouped[name][0].designation, grouped[name].length]),
       styles: { fontSize: FONT_PT, valign: "top" },
-      headStyles: { fillColor: [14, 22, 32] },
+      headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
       // autoTable sizes "auto" columns from each cell's text width — but
       // didParseCell (below) blanks the Name/Designation cell text for
       // any Gujarati content so the image can be drawn instead, which
@@ -12263,7 +12266,7 @@ function ReportView({ initialSort, focus, data }) {
         r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
       ]),
       styles: { fontSize: FONT_PT, valign: "top" },
-      headStyles: { fillColor: [14, 22, 32] },
+      headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
       // Same reasoning as the summary table above: didParseCell blanks
       // these cells' text for the image-render path, so without an
       // explicit minCellWidth autoTable would size the column from
@@ -12304,7 +12307,7 @@ function ReportView({ initialSort, focus, data }) {
         if (hookData.column.index === 6) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 40 - 2), FONT_PT);
       },
     });
-    setPdfReady({ doc, filename: `nokri-book-report-${month}-gu.pdf` });
+    setPdfReady({ doc, filename: `nokri-book-monthly-report-${month}.pdf` });
   };
 
   return (
