@@ -5334,6 +5334,7 @@ function DutyRoster() {
       stationRequestedAt: next.stationRequestedAt || null,
       blocked: !!next.blocked,
       updatedAt: Date.now(),
+      ...(next.lastFormat ? { lastFormat: next.lastFormat } : {}),
     };
     // Names-only entry (no counts, no staff) so other stations signing up
     // in this district can see which station names are already taken.
@@ -6514,10 +6515,18 @@ function DutyRoster() {
     } catch (e) {
       console.error("Pre-format safety backup failed — proceeding with format anyway", e);
     }
-    const personName = staffRec.name;
     const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const personName = staffRec.name;
     const isFullWipe = formatMode === "all";
     if (formatMode === "keep6") setDidKeep6Format(true);
+    // Shown to the district admin as "Recently formatted" (see DistrictAdminApp).
+    const lastFormat = {
+      at: Date.now(),
+      byName: personName || "",
+      byNumber: String(buckleNumber),
+      mode: isFullWipe ? "all" : "keep",
+      keepMonths: isFullWipe ? 0 : nbKeepMonthsFor(formatMode),
+    };
     let subject, bodyLines, toastMsg;
     if (isFullWipe) {
       // Full wipe: nothing survives — staff, designations' assignments,
@@ -6534,6 +6543,7 @@ function DutyRoster() {
         recycleBin: [],
         events: [],
         reminderAcks: {},
+        lastFormat,
       });
       subject = "Nokri Book — all data was deleted";
       bodyLines = [
@@ -6590,6 +6600,7 @@ function DutyRoster() {
         recycleBin: (data.recycleBin || []).filter((e) => (e.deletedAt || "") >= cutoff),
         events: (data.events || []).filter((e) => !e.end || e.end >= cutoff),
         reminderAcks: {},
+        lastFormat,
       });
       subject = "Nokri Book — old duty data was formatted";
       bodyLines = [
@@ -15713,6 +15724,8 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   }, [starredStations, STATION_STAR_KEY]);
   const toggleStationStar = (uid) => setStarredStations((prev) => (prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]));
   const [showAllStations, setShowAllStations] = useState(false);
+  // "Recently formatted" details window (station digest's lastFormat).
+  const [formatInfo, setFormatInfo] = useState(null);
   // Station + page come from the address: /app/district/<stationUid>/<page>
   const nbPath = useNbPath();
   const districtSegs = nbSegsAfter(nbPath, "/app/district");
@@ -15942,6 +15955,15 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                         {s.stationApprovalStatus === "pending" && (
                           <span className="gu" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: "var(--accent-strong)", border: "1px solid var(--accent-strong)", borderRadius: 20, padding: "1px 7px" }}>⏳ {t("Pending", "બાકી")}</span>
                         )}
+                        {s.lastFormat && s.lastFormat.at && (Date.now() - s.lastFormat.at) < 30 * 24 * 60 * 60 * 1000 && (
+                          <span
+                            role="button" tabIndex={0} className="gu"
+                            onClick={(e) => { e.stopPropagation(); setFormatInfo({ ...s.lastFormat, stationName: s.stationName }); }}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setFormatInfo({ ...s.lastFormat, stationName: s.stationName }); } }}
+                            title={t("Tap to see who formatted this station's data, and when", "આ સ્ટેશનનો ડેટા કોણે અને ક્યારે ફોર્મેટ કર્યો તે જોવા ટૅપ કરો")}
+                            style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: "var(--status-warning-text)", background: "var(--status-warning-bg, transparent)", border: "1px solid var(--status-warning-text)", borderRadius: 20, padding: "1px 7px", cursor: "pointer" }}
+                          >⚠️ {t("Recently formatted", "તાજેતરમાં ફોર્મેટ થયું")}</span>
+                        )}
                         {s.blocked && (
                           <span className="gu" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: "#c0392b", border: "1px solid #c0392b", borderRadius: 20, padding: "1px 7px" }}>🚫 {t("Blocked", "બ્લોક")}</span>
                         )}
@@ -15971,6 +15993,29 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             );
           })()}
         </div>
+        {formatInfo && (
+          <div role="dialog" aria-modal="true" aria-label={t("Recently formatted", "તાજેતરમાં ફોર્મેટ થયું")} className="modal-backdrop" onClick={() => setFormatInfo(null)} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
+            <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 360, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+              <div className="disp" style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>⚠️ {t("Data was formatted", "ડેટા ફોર્મેટ થયો")}</div>
+              {[
+                [t("Station", "સ્ટેશન"), formatInfo.stationName || "—"],
+                [t("Done by", "કરનાર"), formatInfo.byName || "—"],
+                [t("Buckle number", "બકલ નંબર"), formatInfo.byNumber || "—"],
+                [t("Date & time", "તારીખ અને સમય"), new Date(formatInfo.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })],
+                [t("What was cleared", "શું સાફ થયું"), formatInfo.mode === "all"
+                  ? t("ALL data — staff, work types and every duty record", "બધો ડેટા — સ્ટાફ, કામના પ્રકારો અને દરેક ડ્યુટી રેકોર્ડ")
+                  : t(`Duty data older than ${formatInfo.keepMonths || 2} months (last ${formatInfo.keepMonths || 2} months kept)`, `${formatInfo.keepMonths || 2} મહિનાથી જૂનો ડ્યુટી ડેટા (છેલ્લા ${formatInfo.keepMonths || 2} મહિના રાખ્યા)`)],
+              ].map(([k, v]) => (
+                <div key={k} style={{ display: "flex", gap: 10, padding: "7px 0", borderBottom: "1px solid var(--border-soft)", fontSize: 13 }}>
+                  <div style={{ width: 118, flexShrink: 0, color: "var(--text-secondary)" }}>{k}</div>
+                  <div style={{ fontWeight: 600, minWidth: 0, wordBreak: "break-word" }}>{v}</div>
+                </div>
+              ))}
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 10 }}>{t("This warning shows for 30 days after the format.", "આ ચેતવણી ફોર્મેટ પછી 30 દિવસ સુધી દેખાય છે.")}</div>
+              <button onClick={() => setFormatInfo(null)} style={{ marginTop: 14, width: "100%", background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "9px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{t("Close", "બંધ કરો")}</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

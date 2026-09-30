@@ -302,8 +302,9 @@ service cloud.firestore {
                'stationName', 'state', 'district', 'staffCount',
                'presentCount', 'onDutyToday', 'monthlyDutyCount',
                'stationApprovalStatus', 'stationRequestedAt',
-               'blocked', 'updatedAt'
+               'blocked', 'updatedAt', 'lastFormat'
              ])
+          && d.get('lastFormat', null) == a.get('lastFormat', null)
           && d.get('stationApprovalStatus', null) == a.get('stationApprovalStatus', null)
           && d.get('blocked', false) == a.get('blocked', false)
           && d.get('stationRequestedAt', null) == a.get('stationRequestedAt', null)
