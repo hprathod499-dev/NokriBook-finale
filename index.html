@@ -4784,12 +4784,16 @@ function DutyRoster() {
     const t = setTimeout(check, 4000);
     return () => clearTimeout(t);
   }, [data]);
-  // Storage used (% of the 1 MB per-station limit) + two reminders:
-  // first at 90%, second ("full") at 99% — the last point where saving
-  // still works (Firestore refuses anything over 100%). Both open
-  // "Format — keep last 6 months". Dismissing hides it for this session.
+  // Storage used (% of the 1 MB per-station limit):
+  //  - 90%: a reminder bar (can be dismissed for this session)
+  //  - full (99%+, the last point where saving still works; Firestore
+  //    refuses anything over 100%): formatting becomes COMPULSORY — a
+  //    screen that can't be closed until "Format — keep last 6 months"
+  //    is done. If a station is still full even after that, it also
+  //    offers "keep last 2 months".
   const storagePct = useMemo(() => (data ? Math.round((nbFirestoreBytes(data) + 200) / NB_DOC_LIMIT_BYTES * 1000) / 10 : 0), [data]);
   const [storageDismissed, setStorageDismissed] = useState(0);
+  const [didKeep6Format, setDidKeep6Format] = useState(false);
   const storageLevel = storagePct >= 99 ? 110 : storagePct >= 90 ? 90 : 0;
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("nb_dark_mode") === "1");
@@ -6513,6 +6517,7 @@ function DutyRoster() {
     const personName = staffRec.name;
     const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
     const isFullWipe = formatMode === "all";
+    if (formatMode === "keep6") setDidKeep6Format(true);
     let subject, bodyLines, toastMsg;
     if (isFullWipe) {
       // Full wipe: nothing survives — staff, designations' assignments,
@@ -7745,7 +7750,7 @@ function DutyRoster() {
           <button onClick={() => setReturnNotices((prev) => prev.filter((_, idx) => idx !== i))} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--status-info-text)", fontWeight: 700 }}>✕</button>
         </div>
       ))}
-      {storageLevel > storageDismissed && (
+      {storageLevel === 90 && storageDismissed < 90 && (
         <div role="alert" style={{ background: storageLevel >= 110 ? "var(--status-error-bg)" : "var(--highlight-bg)", color: storageLevel >= 110 ? "var(--status-error-text)" : "var(--text-primary)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <span className="gu">
             {storageLevel >= 110
@@ -8061,6 +8066,32 @@ function DutyRoster() {
           onConfirm={async () => { setShowDeleteAccountModal(false); await deleteMyAccountAndData(); }}
           onCancel={() => setShowDeleteAccountModal(false)}
         />
+      )}
+
+      {storagePct >= 99 && !showFormatModal && (
+        <div role="alertdialog" aria-modal="true" aria-label={t("Storage full", "સ્ટોરેજ ભરાઈ ગયું")} style={{ position: "fixed", inset: 0, zIndex: 150, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 22, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ fontSize: 32, marginBottom: 6 }}>⚠️</div>
+            <div className="disp gu" style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: "var(--status-error-text)" }}>{t("Storage full — format required", "સ્ટોરેજ ભરાઈ ગયું — ફોર્મેટ કરવું ફરજિયાત")}</div>
+            <p className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, margin: "0 0 16px" }}>
+              {t(
+                `This station has used ${storagePct}% of its storage, so new changes can't be saved. Format now to continue: the last 6 months of duty data are kept, staff and work types stay, and a full backup downloads automatically first.`,
+                `આ સ્ટેશને તેના સ્ટોરેજનો ${storagePct}% ઉપયોગ કર્યો છે, તેથી નવા ફેરફારો સચવાઈ શકશે નહીં. આગળ વધવા હમણાં ફોર્મેટ કરો: છેલ્લા 6 મહિનાનો ડ્યુટી ડેટા રહેશે, સ્ટાફ અને કામના પ્રકારો રહેશે, અને પહેલા આખો બેકઅપ આપમેળે ડાઉનલોડ થશે.`
+              )}
+            </p>
+            <button onClick={() => formatAllData("keep6")} className="gu" style={{ width: "100%", background: "var(--btn-danger-solid)", color: "#fff", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+              🧹 {t("Format — keep last 6 months", "ફોર્મેટ — છેલ્લા 6 મહિના રાખો")}
+            </button>
+            {didKeep6Format && (
+              <button onClick={() => formatAllData("keep")} className="gu" style={{ width: "100%", marginTop: 8, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {t("Still full — format and keep last 2 months", "હજુ ભરેલું છે — ફોર્મેટ કરો અને છેલ્લા 2 મહિના રાખો")}
+              </button>
+            )}
+            <button onClick={() => exportBackup()} className="gu" style={{ width: "100%", marginTop: 8, background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, cursor: "pointer" }}>
+              ⬇ {t("Download a backup first", "પહેલા બેકઅપ ડાઉનલોડ કરો")}
+            </button>
+          </div>
+        </div>
       )}
 
       {showFormatModal && (
