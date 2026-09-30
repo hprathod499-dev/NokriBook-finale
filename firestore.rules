@@ -1,0 +1,313 @@
+rules_version = '2';
+
+// Nokri Book — Firestore Security Rules (v3)
+// Deploy together with the matching index.html (share tokens,
+// stationRegistry, stationIndex, stationRequestedAtMs).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/superAdmins/$(request.auth.uid));
+    }
+
+    // Signed-in user is the District Admin of district `d`
+    // (accepts old "district" and new "districtId" field names).
+    function isDistrictAdminFor(d) {
+      let path = /databases/$(database)/documents/districtAdmins/$(request.auth.uid);
+      return signedIn()
+        && d != null && d != ""
+        && exists(path)
+        && (get(path).data.get('districtId', null) == d
+            || get(path).data.get('district', null) == d);
+    }
+
+    function isAdminOf(acct) {
+      return isSuperAdmin()
+        || isDistrictAdminFor(acct.get('district', null))
+        || isDistrictAdminFor(acct.get('districtId', null));
+    }
+
+    function accountOf(u) {
+      return get(/databases/$(database)/documents/accounts/$(u)).data;
+    }
+
+    function strOr(v) {
+      return v is string ? v : '';
+    }
+
+    // One registered name per state|district|station.
+    // MUST match nbStationKey() in index.html.
+    function hasStation(a) {
+      return strOr(a.get('district', null)) != ''
+        && strOr(a.get('stationName', null)) != '';
+    }
+    function stationKey(a) {
+      return (strOr(a.get('state', null)) + '|'
+            + strOr(a.get('district', null)) + '|'
+            + strOr(a.get('stationName', null))).replace('/', '∕');
+    }
+
+    function nowMs() {
+      return request.time.toMillis();
+    }
+    // Client "request time" must be within 10 min of the server clock.
+    function freshMs(v) {
+      return v is int && math.abs(v - nowMs()) < 10 * 60 * 1000;
+    }
+    function approvalWindowMs() {
+      return 5 * 24 * 60 * 60 * 1000;   // 5 days
+    }
+
+    function publicRosterKeysOk(d) {
+      return d.keys().hasOnly([
+        'v', 'stationName', 'categories', 'membership', 'staff',
+        'leaveTypes', 'outstationTypes', 'designations', 'skipLog'
+      ]);
+    }
+
+
+    // ============================================================
+    // ACCOUNTS  —  accounts/{uid}   (full private roster)
+    // ============================================================
+    match /accounts/{uid} {
+
+      function isOwner()        { return signedIn() && request.auth.uid == uid; }
+      function approvalOf(d)    { return d.get('stationApprovalStatus', null); }
+      function isBlockedDoc(d)  { return d.get('blocked', false) == true; }
+      function requestedAt(d)   { return d.get('stationRequestedAt', null); }
+      function requestedMs(d)   { return d.get('stationRequestedAtMs', null); }
+
+      // Owner may change approval fields ONLY by:
+      //  (a) leaving them untouched (every normal save),
+      //  (b) submitting a NEW request (not already pending) with a
+      //      server-checked timestamp, or
+      //  (c) approved -> null (approved station moving to a listed one).
+      function ownerApprovalChangeOk() {
+        let oldStatus = approvalOf(resource.data);
+        let newStatus = approvalOf(request.resource.data);
+        return (newStatus == oldStatus
+                  && requestedAt(request.resource.data) == requestedAt(resource.data)
+                  && requestedMs(request.resource.data) == requestedMs(resource.data))
+          || (newStatus == "pending" && oldStatus != "pending"
+                  && requestedAt(request.resource.data) is string
+                  && freshMs(requestedMs(request.resource.data)))
+          || (newStatus == null && oldStatus == "approved");
+      }
+
+      // After 5 days pending, nothing can be saved except the
+      // auto-block itself.
+      function pendingWindowOk() {
+        let ms = requestedMs(resource.data);
+        return approvalOf(resource.data) != "pending"
+          || ms == null                         // request older than this field
+          || nowMs() < ms + approvalWindowMs()
+          || isBlockedDoc(request.resource.data);
+      }
+
+      allow read: if isOwner();
+
+      allow create: if isOwner()
+        && request.resource.data.get('blocked', false) == false
+        && (approvalOf(request.resource.data) == null
+            || (approvalOf(request.resource.data) == "pending"
+                && requestedAt(request.resource.data) is string
+                && freshMs(requestedMs(request.resource.data))));
+
+      // Blocked accounts are read-only for their owner.
+      allow update: if isOwner()
+        && !isBlockedDoc(resource.data)
+        && ownerApprovalChangeOk()
+        && pendingWindowOk();
+
+      // Admin: approve / block only.
+      allow update: if isAdminOf(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['stationApprovalStatus', 'blocked'])
+        && approvalOf(request.resource.data) in [null, "pending", "approved"]
+        && request.resource.data.get('blocked', false) is bool;
+
+      allow delete: if isOwner()
+        || (approvalOf(resource.data) == "pending" && isAdminOf(resource.data));
+    }
+
+
+    // ============================================================
+    // ADMIN VIEW OF A STATION  —  publicRosters/{uid}
+    // (no phone numbers; only exists while the station has Share on)
+    // ============================================================
+    match /publicRosters/{uid} {
+      allow get: if signedIn()
+        && (request.auth.uid == uid || isAdminOf(accountOf(uid)));
+      allow list: if false;
+
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && publicRosterKeysOk(request.resource.data);
+
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+
+    // ============================================================
+    // PUBLIC SHARE LINK  —  sharedRosters/{token}
+    // token = random 32 chars, new one every time Share is turned on
+    // ============================================================
+    match /sharedRosters/{token} {
+      allow get: if true;          // anyone holding the exact link
+      allow list: if false;        // nobody can enumerate links
+
+      function shareWriteOk() {
+        let a = accountOf(request.auth.uid);
+        let d = request.resource.data;
+        return signedIn()
+          && d.owner == request.auth.uid
+          && d.keys().hasOnly([
+               'v', 'stationName', 'categories', 'membership', 'staff',
+               'leaveTypes', 'outstationTypes', 'designations', 'skipLog',
+               'owner'
+             ])
+          && a.get('shareEnabled', false) == true
+          && a.get('shareToken', null) == token;
+      }
+
+      allow create: if shareWriteOk();
+      allow update: if resource.data.owner == request.auth.uid && shareWriteOk();
+      allow delete: if signedIn()
+        && (resource == null || resource.data.owner == request.auth.uid);
+    }
+
+
+    // ============================================================
+    // STATION NAME REGISTRY  —  stationRegistry/{state|district|station}
+    // One owner per station name. Unlisted names need a pending /
+    // approved request.
+    // ============================================================
+    match /stationRegistry/{key} {
+
+      function claimOk() {
+        let a = accountOf(request.auth.uid);
+        let d = request.resource.data;
+        let idx = /databases/$(database)/documents/masterData/stationIndex;
+        return signedIn()
+          && d.keys().hasOnly(['uid', 'state', 'district', 'stationName', 'updatedAt'])
+          && d.uid == request.auth.uid
+          && hasStation(a)
+          && stationKey(a) == key
+          && d.district == a.get('district', null)
+          && d.stationName == a.get('stationName', null)
+          && (a.get('stationApprovalStatus', null) in ["pending", "approved"]
+              || !exists(idx)
+              || key in get(idx).data.names);
+      }
+
+      allow read: if signedIn();   // lets the picker hide taken names
+      allow create: if claimOk();
+      allow update: if resource.data.uid == request.auth.uid && claimOk();
+      allow delete: if signedIn()
+        && (resource == null
+            || resource.data.uid == request.auth.uid
+            || isSuperAdmin()
+            || isDistrictAdminFor(resource.data.get('district', null)));
+    }
+
+
+    // ============================================================
+    // LEGACY SHARED DATA
+    // ============================================================
+    match /duty-roster/data {
+      allow read: if signedIn()
+        && request.auth.uid == "o7YqtShT5if0JMFnFFtP6gp3N532";
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // ADMIN ROLE DOCS (Firebase Console only)
+    // ============================================================
+    match /districtAdmins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /superAdmins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // MASTER DATA  —  policeLocations, stationIndex
+    // ============================================================
+    match /masterData/{docId} {
+      allow read: if signedIn();
+      allow write: if isSuperAdmin();
+    }
+
+
+    // ============================================================
+    // DISTRICT DIGEST  —  districts/{d}/stations/{uid}
+    // (summary numbers only)
+    // ============================================================
+    match /districts/{districtId}/stations/{stationUid} {
+
+      function isAdminHere() {
+        return isSuperAdmin() || isDistrictAdminFor(districtId);
+      }
+
+      // Own digest, own district, same approval state + name as the
+      // real account, and the name must be registered to this station.
+      function ownerDigestOk() {
+        let a = accountOf(stationUid);
+        let d = request.resource.data;
+        return signedIn()
+          && request.auth.uid == stationUid
+          && (a.get('district', null) == districtId
+              || a.get('districtId', null) == districtId)
+          && d.keys().hasOnly([
+               'stationName', 'state', 'district', 'staffCount',
+               'presentCount', 'onDutyToday', 'monthlyDutyCount',
+               'stationApprovalStatus', 'stationRequestedAt',
+               'blocked', 'updatedAt'
+             ])
+          && d.get('stationApprovalStatus', null) == a.get('stationApprovalStatus', null)
+          && d.get('blocked', false) == a.get('blocked', false)
+          && d.get('stationRequestedAt', null) == a.get('stationRequestedAt', null)
+          && (d.get('stationName', null) == null
+              || (d.get('stationName', null) == a.get('stationName', null)
+                  && (!hasStation(a)
+                      || get(/databases/$(database)/documents/stationRegistry/$(stationKey(a))).data.uid == stationUid)));
+      }
+
+      allow read: if (signedIn() && request.auth.uid == stationUid)
+        || isAdminHere();
+
+      allow create, update: if ownerDigestOk();
+
+      // Admin approve: only stationApprovalStatus -> "approved".
+      allow update: if isAdminHere()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['stationApprovalStatus'])
+        && request.resource.data.stationApprovalStatus == "approved";
+
+      allow delete: if (signedIn() && request.auth.uid == stationUid)
+        || (resource.data.get('stationApprovalStatus', null) == "pending"
+            && isAdminHere());
+    }
+
+    // Super Admin's "all pending requests" (collectionGroup query).
+    match /{path=**}/stations/{stationUid} {
+      allow read: if isSuperAdmin();
+    }
+
+    // Everything else: denied (Firestore default).
+  }
+}

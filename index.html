@@ -606,18 +606,18 @@
   window.EMAILJS_SERVICE_ID = "service_m6ma8i5";
   window.EMAILJS_TEMPLATE_ID = "template_77bcirr";
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4.4.1/dist/email.min.js" integrity="sha384-SALc35EccAf6RzGw4iNsyj7kTPr33K7RoGzYu+7heZhT8s0GZouafRiCg1qy44AS" crossorigin="anonymous"></script>
 <!-- ============================================================ -->
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.9/babel.min.js" integrity="sha384-oLbIC13I/8DNBviftYPfOFQS5DC2WUmwk0SyIPmnzu1Ui+vYyATSSBJiJ5ETa4o/" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js" integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <script type="text/babel" data-type="module">
@@ -874,7 +874,77 @@ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((err) => {
 // Old shared data (pre-accounts) lives here. Kept only so a signed-in user
 // can pull it into their own account via "Import my existing roster" —
 // nothing writes to this location anymore.
+// SECURITY: this device must not keep one account's data after it signs
+// out (shared duty-room computers). The old un-keyed "nb_auto_backup"
+// snapshot could belong to ANY account that ever used this browser, so it
+// is removed outright. On a real sign-out (a signed-in user -> null, not
+// the initial signed-out load) this also removes that account's local
+// snapshot and Drive folder pointer, clears the Firestore offline cache,
+// and reloads so nothing from the previous session stays in memory.
+try { localStorage.removeItem("nb_auto_backup"); } catch (e) {}
+(function nbWipeOnSignOut() {
+  let lastUid = null;
+  auth.onAuthStateChanged((u) => {
+    if (u) { lastUid = u.uid; return; }
+    if (!lastUid) return;
+    const goneUid = lastUid;
+    lastUid = null;
+    try {
+      ["nb_auto_backup_" + goneUid, "nb_drive_folder_id", "nb_drive_connected", "nb_drive_last_backup"]
+        .forEach((k) => localStorage.removeItem(k));
+    } catch (e) {}
+    db.terminate()
+      .then(() => db.clearPersistence())
+      .catch((e) => console.warn("Could not clear offline cache:", e))
+      .finally(() => { window.location.reload(); });
+  });
+})();
 const LEGACY_DOC_REF = db.collection("duty-roster").doc("data");
+// ---------- Security helpers ----------
+// Random, unguessable share-link token (NOT the account uid). A new one is
+// made every time Share is turned on, so turning Share off and on again
+// kills every old link.
+function nbNewShareToken() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) out += chars[bytes[i] % chars.length];
+  return out;
+}
+// One station name per district, enforced by Security Rules through
+// stationRegistry/{key}. MUST stay identical to stationKey() in
+// firestore.rules.
+function nbStationKey(d) {
+  if (!d) return null;
+  const str = (v) => (typeof v === "string" ? v : "");
+  if (!str(d.district) || !str(d.stationName)) return null;
+  return (str(d.state) + "|" + str(d.district) + "|" + str(d.stationName)).replace(/\//g, "\u2215");
+}
+// Super Admin only: publishes every listed station (hard-coded seed +
+// masterData/policeLocations) as masterData/stationIndex, which the rules
+// use so a station can't skip approval by typing an unlisted name.
+function nbRebuildStationIndex() {
+  return db.collection("masterData").doc("policeLocations").get().then((snap) => {
+    const merged = mergeLocations(POLICE_LOCATIONS_GU, (snap.exists && snap.data().data) || {});
+    const names = {};
+    Object.keys(merged).forEach((st) => {
+      Object.keys(merged[st] || {}).forEach((dist) => {
+        flatStationsOf(merged[st][dist]).forEach((name) => {
+          const k = nbStationKey({ state: st, district: dist, stationName: name });
+          if (k) names[k] = true;
+        });
+      });
+    });
+    return db.collection("masterData").doc("stationIndex").set({ names, updatedAt: Date.now() });
+  }).catch((e) => console.warn("Station index rebuild failed:", e));
+}
+// Frees every station name this uid holds (account delete / admin deny).
+function nbReleaseStationNames(uid, keepKey) {
+  return db.collection("stationRegistry").where("uid", "==", uid).get()
+    .then((qs) => Promise.all(qs.docs.filter((d) => d.id !== keepKey).map((d) => d.ref.delete().catch(() => {}))))
+    .catch(() => {});
+}
 // Each signed-in user's roster lives at accounts/{uid}, matching the
 // Firestore rule that only allows a user to read/write their own doc.
 function accountDocRef(uid) { return db.collection("accounts").doc(uid); }
@@ -1159,11 +1229,11 @@ function useDistrictTakenStations(districtId, excludeUid) {
   const [taken, setTaken] = useState(() => new Set());
   useEffect(() => {
     if (!districtId) { setTaken(new Set()); return; }
-    const unsub = db.collection("districts").doc(districtId).collection("stations").onSnapshot(
+    const unsub = db.collection("stationRegistry").where("district", "==", districtId).onSnapshot(
       (snap) => {
         const set = new Set();
         snap.forEach((docSnap) => {
-          if (excludeUid && docSnap.id === excludeUid) return;
+          if (excludeUid && docSnap.data().uid === excludeUid) return;
           const name = docSnap.data().stationName;
           if (name) set.add(name);
         });
@@ -1200,7 +1270,7 @@ function addApprovedStationToMasterList(state, districtId, stationName) {
     if (existing.includes(stationName)) return;
     const next = { ...raw, [state]: { ...(raw[state] || {}), [districtId]: [...existing, stationName] } };
     return db.collection("masterData").doc("policeLocations").set({ data: next, updatedAt: Date.now() })
-      .then(() => invalidateMasterLocationsCache());
+      .then(() => { invalidateMasterLocationsCache(); return nbRebuildStationIndex(); });
   }).catch((e) => { console.error("Adding approved station to master list failed (approval itself still went through):", e); });
 }
 let _masterLocationsCache = null;
@@ -2767,7 +2837,10 @@ function csvHeaderRows(stationName, district) {
 }
 function downloadCsv(filename, rows) {
   const escapeCell = (v) => {
-    const s = v === null || v === undefined ? "" : String(v);
+    let s = v === null || v === undefined ? "" : String(v);
+    // Block spreadsheet formula injection (=, +, -, @ ...) but leave plain
+    // numbers / phone numbers like "+91 98..." or "-5" untouched.
+    if (/^[=+\-@\t\r]/.test(s) && !/^[+\-]?[\d\s()]+$/.test(s)) s = "'" + s;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const csv = rows.map((row) => row.map(escapeCell).join(",")).join("\r\n");
@@ -4746,7 +4819,7 @@ function DutyRoster() {
             // still remembers real data from before. Recoverable via
             // Data → Recover local backup.
             try {
-              const prevBackupRaw = localStorage.getItem("nb_auto_backup");
+              const prevBackupRaw = localStorage.getItem("nb_auto_backup_" + accountUid);
               const prevStaffCount = prevBackupRaw ? Object.keys(JSON.parse(prevBackupRaw).data.staff || {}).length : -1;
               const newStaffCount = Object.keys(normalized.staff || {}).length;
               // Only refuse a DRASTIC, suspicious drop (losing more than
@@ -4769,7 +4842,7 @@ function DutyRoster() {
                 // nothing had actually changed since a real edit made a
                 // while before that. Falls back to Date.now() only for
                 // data saved before this field existed at all.
-                localStorage.setItem("nb_auto_backup", JSON.stringify({ savedAt: normalized.lastModifiedAt || Date.now(), data: normalized }));
+                localStorage.setItem("nb_auto_backup_" + accountUid, JSON.stringify({ savedAt: normalized.lastModifiedAt || Date.now(), data: normalized }));
               }
             } catch (e) { /* localStorage full or unavailable — not worth surfacing, the Firestore data itself is unaffected either way */ }
             // Same fromCache guard as the "brand new account" branch
@@ -5053,11 +5126,23 @@ function DutyRoster() {
   // off actually revoke access immediately, instead of leaving stale
   // (but still real) data sitting in a document Rules still allow anyone
   // to read.
+  // publicRosters/{uid}: read by this station's district/super admin only.
+  // sharedRosters/{shareToken}: the public share link.
+  const lastShareTokenRef = useRef(null);
   const syncPublicRoster = (next) => {
     if (!publicRosterDocRef) return;
+    const token = next.shareEnabled && next.shareToken ? next.shareToken : null;
+    if (lastShareTokenRef.current && lastShareTokenRef.current !== token) {
+      db.collection("sharedRosters").doc(lastShareTokenRef.current).delete().catch(() => {});
+    }
+    lastShareTokenRef.current = token;
     const trySync = (isRetry) => {
+      const pub = next.shareEnabled ? deepStripUndefined(derivePublicData(next)) : null;
       const op = next.shareEnabled
-        ? publicRosterDocRef.set(deepStripUndefined(derivePublicData(next)))
+        ? Promise.all([
+            publicRosterDocRef.set(pub),
+            token ? db.collection("sharedRosters").doc(token).set({ ...pub, owner: accountUid }) : Promise.resolve(),
+          ])
         : publicRosterDocRef.delete();
       op.catch((e) => {
         console.error("Public roster sync failed:", e);
@@ -5127,13 +5212,28 @@ function DutyRoster() {
       blocked: !!next.blocked,
       updatedAt: Date.now(),
     };
+    // Names-only entry (no counts, no staff) so other stations signing up
+    // in this district can see which station names are already taken.
+    // Claim this station name (one per district), release any old one,
+    // then publish the digest — the rules only accept a digest whose
+    // name this account actually holds.
+    const key = nbStationKey(next);
+    const claim = key
+      ? db.collection("stationRegistry").doc(key).set({
+          uid: accountUid,
+          state: typeof next.state === "string" ? next.state : "",
+          district: next.district,
+          stationName: next.stationName,
+          updatedAt: Date.now(),
+        }).catch((e) => console.warn("Station name claim failed (already registered by another station, or not on the approved list):", e))
+      : Promise.resolve();
     const trySync = (isRetry) => {
       db.doc(newPath).set(digest).catch((e) => {
         console.error("District digest sync failed:", e);
         if (!isRetry) setTimeout(() => trySync(true), 4000);
       });
     };
-    trySync(false);
+    claim.then(() => nbReleaseStationNames(accountUid, key)).then(() => trySync(false));
   };
   // The digest above only gets rewritten when THIS station's own device
   // makes a save — fine for staffCount (rarely changes), but "on duty
@@ -5171,8 +5271,8 @@ function DutyRoster() {
     const stamped = { ...next, lastModifiedAt: Date.now() };
     dataRef.current = stamped;
     setData(stamped);
-    syncPublicRoster(stamped);
-    syncDistrictDigest(stamped);
+    // Public/digest mirrors are synced only after the account save below
+    // commits — the Security Rules compare them against the saved account.
     if (!docRef) return;
 
     pendingWritesRef.current += 1;
@@ -5222,6 +5322,8 @@ function DutyRoster() {
           confirmedRevRef.current = expectedRev + 1;
           pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
           if (pendingWritesRef.current === 0) setSaveStatus("idle");
+          syncPublicRoster(dataRef.current);
+          syncDistrictDigest(dataRef.current);
         })
         .catch((e) => {
           if (e && e.__conflict) {
@@ -5236,6 +5338,23 @@ function DutyRoster() {
               "Someone else saved a change here at the same moment — your last action wasn't applied, and the screen now shows their update instead. Please try again.",
               "કોઈ બીજાએ તે જ ક્ષણે અહીં ફેરફાર સાચવ્યો — તમારી છેલ્લી ક્રિયા લાગુ થઈ નથી, અને સ્ક્રીન હવે તેમનું અપડેટ બતાવે છે. કૃપા કરી ફરી પ્રયાસ કરો."
             ), "error");
+            return;
+          }
+          if (e && e.code === "permission-denied") {
+            // Rejected by Security Rules (e.g. approval window expired,
+            // account blocked) — retrying can never succeed. Show the
+            // server's real data again instead.
+            console.error("Save rejected by Security Rules:", e);
+            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+            if (pendingWritesRef.current === 0) setSaveStatus("idle");
+            showToast(t("This change isn't allowed and was not saved.", "આ ફેરફારની મંજૂરી નથી, તેથી સેવ થયો નથી."), "error");
+            docRef.get().then((snap) => {
+              if (!snap.exists) return;
+              const fresh = normalizeData(snap.data());
+              dataRef.current = fresh;
+              setData(fresh);
+              confirmedRevRef.current = fresh._rev || 0;
+            }).catch(() => {});
             return;
           }
           console.error("Save failed, will retry:", e);
@@ -5406,6 +5525,8 @@ function DutyRoster() {
     if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
     const districtId = (data && data.district || "").trim();
     if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
+    if (data && data.shareToken) cleanup.push(db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {}));
+    cleanup.push(nbReleaseStationNames(accountUid));
     await Promise.all(cleanup);
     const doDelete = () => user.delete();
     try {
@@ -5459,11 +5580,21 @@ function DutyRoster() {
   // right warning copy) and performFormatAllData (to decide which write
   // to actually run).
   const [formatMode, setFormatMode] = useState("keep");
-  const shareUrl = accountUid ? `${window.location.origin}/?view=${accountUid}` : "";
+  const shareUrl = accountUid && data && data.shareEnabled && data.shareToken ? `${window.location.origin}/?view=${data.shareToken}` : "";
   const toggleShare = () => {
     if (!data) return;
-    persist({ ...dataRef.current, shareEnabled: !data.shareEnabled });
+    const turningOn = !data.shareEnabled;
+    const oldToken = dataRef.current.shareToken;
+    // Every "on" gets a brand-new token; "off" deletes the old link's doc.
+    if (!turningOn && oldToken) db.collection("sharedRosters").doc(oldToken).delete().catch(() => {});
+    persist({ ...dataRef.current, shareEnabled: turningOn, shareToken: turningOn ? nbNewShareToken() : null });
   };
+  // Accounts that had Share on before tokens existed: give them one
+  // (their old uid-based link stops working — they re-send the new link).
+  useEffect(() => {
+    if (!data || !accountUid || data.blocked) return;
+    if (data.shareEnabled && !data.shareToken) writeToFirestore({ ...dataRef.current, shareToken: nbNewShareToken() });
+  }, [data && data.shareEnabled, data && data.shareToken, accountUid]);
 
   // ---------- Google Drive daily auto-backup ----------
   // Uses Google Identity Services for OAuth with the narrow "drive.file"
@@ -7221,7 +7352,7 @@ function DutyRoster() {
   // action (replace everything with a known-good snapshot from earlier).
   const recoverLocalBackup = () => {
     let raw;
-    try { raw = localStorage.getItem("nb_auto_backup"); } catch (e) { raw = null; }
+    try { raw = accountUid ? localStorage.getItem("nb_auto_backup_" + accountUid) : null; } catch (e) { raw = null; }
     if (!raw) { showToast(t("No local data snapshot found on this device yet", "આ ડિવાઇસ પર હજુ કોઈ સ્થાનિક ડેટા સ્નેપશોટ મળ્યો નથી"), "error"); return; }
     let parsed;
     try { parsed = JSON.parse(raw); } catch (e) { showToast(t("The local data snapshot on this device is corrupted", "આ ડિવાઇસ પરનો સ્થાનિક ડેટા સ્નેપશોટ ખરાબ થયેલો છે"), "error"); return; }
@@ -7230,7 +7361,10 @@ function DutyRoster() {
       `Restore the local data from ${when}? It will replace ALL current data (staff, work types, history, designations, everything). You can still Ctrl+Z once right after, but do this carefully.`,
       `${when} નો સ્થાનિક ડેટા પુનઃસ્થાપિત કરવો છે? તે તમામ હાલનો ડેટા (સ્ટાફ, કામના પ્રકારો, ઇતિહાસ, હોદ્દાઓ, બધું) બદલી નાખશે. તમે તરત જ પછી એકવાર Ctrl+Z કરી શકો છો, પણ કાળજીપૂર્વક કરો.`
     ))) return;
-    persist(normalizeData(parsed.data));
+    const cur = dataRef.current || {};
+    // Approval state always stays whatever the SERVER has — a backup can't change it.
+    const keepApproval = { stationApprovalStatus: cur.stationApprovalStatus ?? null, blocked: !!cur.blocked, stationRequestedAt: cur.stationRequestedAt ?? null, stationRequestedAtMs: cur.stationRequestedAtMs ?? null };
+    persist({ ...normalizeData(parsed.data), ...keepApproval });
     showToast(t("Local data restored", "સ્થાનિક ડેટા પુનઃસ્થાપિત થયો"));
   };
   const importBackup = (file) => {
@@ -7255,7 +7389,10 @@ function DutyRoster() {
       // of the app (before some field existed) comes back with the same
       // shape the rest of the app expects, rather than silently missing
       // pieces like designations or unavailableHistory.
-      persist(normalizeData(parsed));
+      const cur = dataRef.current || {};
+      // Approval state always stays whatever the SERVER has — a backup can't change it.
+      const keepApproval = { stationApprovalStatus: cur.stationApprovalStatus ?? null, blocked: !!cur.blocked, stationRequestedAt: cur.stationRequestedAt ?? null, stationRequestedAtMs: cur.stationRequestedAtMs ?? null };
+      persist({ ...normalizeData(parsed), ...keepApproval });
       showToast(t("Backup restored", "બેકઅપ પુનઃસ્થાપિત થયો"));
     };
     reader.readAsText(file);
@@ -7280,7 +7417,7 @@ function DutyRoster() {
   // so the gate never triggers and nobody sees VerifyEmailScreen right now
   // — but every check underneath is still fully intact. Flip it back to
   // true to turn the requirement back on exactly as it was.
-  const EMAIL_VERIFICATION_ENABLED = false;
+  const EMAIL_VERIFICATION_ENABLED = true;
   const EMAIL_VERIFICATION_CUTOFF = new Date("2026-09-23T00:00:00Z");
   const isPasswordAccount = user.providerData.some((p) => p.providerId === "password");
   const createdAfterCutoff = user.metadata && user.metadata.creationTime
@@ -7678,7 +7815,10 @@ function DutyRoster() {
             ...dataRef.current,
             stationName: name,
             stationApprovalStatus: "pending",
-            stationRequestedAt: new Date().toISOString(),
+            // Already pending -> keep the ORIGINAL request time (Security
+            // Rules reject resetting the 5-day approval window).
+            stationRequestedAt: dataRef.current.stationApprovalStatus === "pending" ? (dataRef.current.stationRequestedAt || null) : new Date().toISOString(),
+            stationRequestedAtMs: dataRef.current.stationApprovalStatus === "pending" ? (dataRef.current.stationRequestedAtMs || null) : Date.now(),
           })}
           onHelp={() => setLocalHelpOpen(true)}
           onChooseBackupFolder={chooseBackupFolder}
@@ -7742,7 +7882,12 @@ function DutyRoster() {
               // state instead, since it's no longer an unlisted station
               // needing review.
               stationApprovalStatus: isRequest ? "pending" : null,
-              stationRequestedAt: isRequest ? new Date().toISOString() : null,
+              stationRequestedAt: isRequest
+                ? (dataRef.current.stationApprovalStatus === "pending" ? (dataRef.current.stationRequestedAt || null) : new Date().toISOString())
+                : null,
+              stationRequestedAtMs: isRequest
+                ? (dataRef.current.stationApprovalStatus === "pending" ? (dataRef.current.stationRequestedAtMs || null) : Date.now())
+                : null,
             });
             setShowStationGate(false);
             setShowSpotlightTour(true);
@@ -14016,7 +14161,7 @@ function PublicRosterView({ uid }) {
     // the way the old code checked snap.data().shareEnabled — checking a
     // flag INSIDE a document the rules already had to allow reading
     // would've protected nothing extra anyway.
-    const unsub = db.collection("publicRosters").doc(uid).onSnapshot(
+    const unsub = db.collection("sharedRosters").doc(uid).onSnapshot(
       (snap) => {
         if (snap.exists && snap.data().v === 2) {
           setData(normalizeData(snap.data()));
@@ -14934,7 +15079,7 @@ function MasterLocationsEditor() {
   const save = (next, successMsg) => {
     setSaving(true); setStatus("");
     db.collection("masterData").doc("policeLocations").set({ data: next, updatedAt: Date.now() })
-      .then(() => { setRaw(next); invalidateMasterLocationsCache(); setStatus(successMsg); })
+      .then(() => { setRaw(next); invalidateMasterLocationsCache(); setStatus(successMsg); nbRebuildStationIndex(); })
       .catch((e) => { console.error("Saving master station list failed:", e); setStatus(t("Couldn't save — check your connection and try again.", "સાચવી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો.")); })
       .finally(() => setSaving(false));
   };
@@ -15160,6 +15305,8 @@ function MasterLocationsEditor() {
 }
 function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
   const { t } = useLang();
+  // Keep masterData/stationIndex in step with this build's station list.
+  useEffect(() => { nbRebuildStationIndex(); }, []);
   const [tab, setTab] = useState("pending"); // "pending" | "locations"
   const [pending, setPending] = useState(null); // null = loading
   const [approvingUid, setApprovingUid] = useState(null);
@@ -15197,7 +15344,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
     const batch = db.batch();
     batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
     if (districtId) batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
-    Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName)])
+    Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName).catch((e) => console.warn("Master station list not updated (Super Admin only):", e))])
       .catch((e) => {
         console.error("Approve failed:", e);
         window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -15217,6 +15364,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
     batch.delete(db.collection("accounts").doc(uid));
     if (districtId) batch.delete(db.collection("districts").doc(districtId).collection("stations").doc(uid));
     batch.commit()
+      .then(() => nbReleaseStationNames(uid))
       .catch((e) => {
         console.error("Deny failed:", e);
         window.alert(t("Could not deny — check your connection and try again.", "નકારી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -15343,7 +15491,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     const batch = db.batch();
     batch.update(db.collection("accounts").doc(uid), { stationApprovalStatus: "approved", blocked: false });
     batch.update(db.collection("districts").doc(districtId).collection("stations").doc(uid), { stationApprovalStatus: "approved" });
-    Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName)])
+    Promise.all([batch.commit(), addApprovedStationToMasterList(req && req.state, districtId, req && req.stationName).catch((e) => console.warn("Master station list not updated (Super Admin only):", e))])
       .catch((e) => {
         console.error("Approve failed:", e);
         window.alert(t("Could not approve — check your connection and try again.", "મંજૂર કરી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
@@ -15359,6 +15507,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     batch.delete(db.collection("accounts").doc(uid));
     batch.delete(db.collection("districts").doc(districtId).collection("stations").doc(uid));
     batch.commit()
+      .then(() => nbReleaseStationNames(uid))
       .catch((e) => {
         console.error("Deny failed:", e);
         window.alert(t("Could not deny — check your connection and try again.", "નકારી શકાયું નહીં — તમારું કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
