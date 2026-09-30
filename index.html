@@ -968,6 +968,24 @@ function nbRebuildStationIndex() {
     return db.collection("masterData").doc("stationIndex").set({ names, updatedAt: Date.now() });
   }).catch((e) => console.warn("Station index rebuild failed:", e));
 }
+// Registers stations that existed before the one-station rule, from the
+// district summaries an admin can see. Only fills in missing names — never
+// changes a name another station already holds.
+function nbRegisterExistingStations(list) {
+  return Promise.all((list || []).map(async (s) => {
+    const districtId = s.districtId || s.district;
+    if (!s.uid || !s.stationName || !districtId) return;
+    const state = typeof s.state === "string" ? s.state : "";
+    const key = nbStationKey({ state, district: districtId, stationName: s.stationName });
+    if (!key) return;
+    try {
+      const ref = db.collection("stationRegistry").doc(key);
+      const snap = await ref.get();
+      if (snap.exists) return;
+      await ref.set({ uid: s.uid, state, district: districtId, stationName: s.stationName, updatedAt: Date.now() });
+    } catch (e) { /* already taken or not allowed — nothing to do */ }
+  }));
+}
 // Frees every station name this uid holds (account delete / admin deny).
 function nbReleaseStationNames(uid, keepKey) {
   return db.collection("stationRegistry").where("uid", "==", uid).get()
@@ -13173,7 +13191,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
   // district — once someone's picked ધારી (say), nobody signing up after
   // them should be able to pick ધારી again, from the list OR by typing
   // it manually below. Empty until a district is actually chosen.
-  const takenStations = useDistrictTakenStations(selDistrict);
+  const takenStations = useDistrictTakenStations(selDistrict, auth.currentUser ? auth.currentUser.uid : null);
   const englishLetterCount = (manualStationName.match(/[a-zA-Z]/g) || []).length;
   const manualStationTooMuchEnglish = englishLetterCount > 3;
   const manualStationTaken = takenStations.has(manualStationName.trim());
@@ -15559,8 +15577,16 @@ function MasterLocationsEditor() {
 }
 function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
   const { t } = useLang();
-  // Keep masterData/stationIndex in step with this build's station list.
-  useEffect(() => { nbRebuildStationIndex(); }, []);
+  // Keep masterData/stationIndex in step with this build's station list,
+  // and register every existing station (all districts) once per visit.
+  useEffect(() => {
+    nbRebuildStationIndex();
+    db.collectionGroup("stations").get().then((qs) => {
+      const list = [];
+      qs.forEach((d) => list.push({ uid: d.id, districtId: d.ref.parent.parent ? d.ref.parent.parent.id : null, ...d.data() }));
+      return nbRegisterExistingStations(list);
+    }).catch((e) => console.warn("Registering existing stations failed:", e));
+  }, []);
   // Tab comes from the address: /app/super/pending or /app/super/locations
   const nbPath = useNbPath();
   const superSegs = nbSegsAfter(nbPath, "/app/super");
@@ -15704,6 +15730,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
 function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
   const { t } = useLang();
   const [stations, setStations] = useState(null); // null = loading
+  const registeredOnceRef = useRef(false);
   // Which of this district's stations the admin actually checks day to
   // day — a district can run into 20+ stations, but a given Divisional
   // officer typically only supervises a handful of them directly, so
@@ -15790,6 +15817,10 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
         snap.forEach((docSnap) => list.push({ uid: docSnap.id, ...docSnap.data() }));
         list.sort((a, b) => (a.stationName || "").localeCompare(b.stationName || ""));
         setStations(list);
+        if (!registeredOnceRef.current) {
+          registeredOnceRef.current = true;
+          nbRegisterExistingStations(list.map((x) => ({ ...x, districtId })));
+        }
       },
       () => setStations([])
     );

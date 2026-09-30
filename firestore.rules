@@ -235,6 +235,18 @@ service cloud.firestore {
 
       allow read: if signedIn();   // lets the picker hide taken names
       allow create: if claimOk();
+
+      // Admins register stations that existed before this rule (from the
+      // district summaries they can see). Create only — they can never
+      // take over a name that is already registered.
+      allow create: if signedIn()
+        && (isSuperAdmin() || isDistrictAdminFor(request.resource.data.get('district', null)))
+        && request.resource.data.keys().hasOnly(['uid', 'state', 'district', 'stationName', 'updatedAt'])
+        && request.resource.data.uid is string
+        && request.resource.data.stationName is string
+        && key == strOr(request.resource.data.get('state', null)) + '|'
+                + strOr(request.resource.data.get('district', null)) + '|'
+                + strOr(request.resource.data.get('stationName', null));
       allow update: if resource.data.uid == request.auth.uid && claimOk();
       allow delete: if signedIn()
         && (resource == null
