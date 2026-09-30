@@ -3252,7 +3252,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
   // request does, so it shows up on the district/super admin's pending
   // queue and this panel's own "Pending" badge the same way.
   const [requestingStation, setRequestingStation] = useState(false);
-  const [requestStationName, setRequestStationName] = useState(t("New station", "????? ??????"));
+  const [requestStationName, setRequestStationName] = useState("નવું સ્ટેશન");
   const requestStationRef = useRef(null);
   useEffect(() => {
     if (requestingStation && requestStationRef.current) {
@@ -3268,13 +3268,13 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
   const requestTooMuchEnglish = requestEnglishLetterCount > 3;
   const requestStationTaken = takenStations.has(requestStationName.trim());
   const canSubmitStationRequest = !!onRequestNewStation && requestStationName.trim().length > 0
-    && requestStationName.trim() !== t("New station", "????? ??????") && !requestTooMuchEnglish && !requestStationTaken;
+    && requestStationName.trim() !== "નવું સ્ટેશન" && !requestTooMuchEnglish && !requestStationTaken;
   const submitStationRequest = () => {
     if (!canSubmitStationRequest) return;
     onRequestNewStation(requestStationName.trim());
     setStationDraft(requestStationName.trim());
     setRequestingStation(false);
-    setRequestStationName(t("New station", "????? ??????"));
+    setRequestStationName("નવું સ્ટેશન");
   };
   const saveState = () => {
     const next = stateDraft.trim();
@@ -3339,7 +3339,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
               </button>
               {stationOpen && stationApprovalStatus === "pending" && (
                 <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.5 }}>
-                  ⏳ {t("This station is waiting for your district admin to approve it — it keeps working normally in the meantime, but gets blocked if it's not approved within 7 days of the request.", "આ સ્ટેશન તમારા district admin ની મંજૂરીની રાહ જોઈ રહ્યું છે — એ દરમિયાન સામાન્ય રીતે કામ કરતું રહેશે, પણ વિનંતીના 7 દિવસમાં મંજૂર ન થાય તો બ્લોક થઈ જશે.")}
+                  ⏳ {t("This station is waiting for your district admin to approve it — it keeps working normally in the meantime, but gets blocked if it's not approved within 5 days of the request.", "આ સ્ટેશન તમારા district admin ની મંજૂરીની રાહ જોઈ રહ્યું છે — એ દરમિયાન સામાન્ય રીતે કામ કરતું રહેશે, પણ વિનંતીના 5 દિવસમાં મંજૂર ન થાય તો બ્લોક થઈ જશે.")}
                 </div>
               )}
               {stationOpen && (
@@ -3382,7 +3382,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                     </React.Fragment>
                   )}
                   <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
-                  {onRequestNewStation && (
+                  {onRequestNewStation && districtDraft && (
                     <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
                       <button
                         onClick={() => setRequestingStation((v) => !v)} className="gu"
@@ -3410,7 +3410,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
                         </div>
                       )}
                       <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.5 }}>
-                        {t("This is usable right away — your district admin just needs to approve it too, within 7 days.", "આ તરત જ વાપરી શકાશે — ફક્ત તમારા district admin એ પણ 7 દિવસમાં approve કરવાનું રહેશે.")}
+                        {t("This is usable right away — your district admin just needs to approve it too, within 5 days.", "આ તરત જ વાપરી શકાશે — ફક્ત તમારા district admin એ પણ 5 દિવસમાં approve કરવાનું રહેશે.")}
                       </div>
                       <button
                         onClick={submitStationRequest} disabled={!canSubmitStationRequest} className="gu"
@@ -4996,7 +4996,7 @@ function DutyRoster() {
     if (!data || !accountUid) return;
     if (data.stationApprovalStatus !== "pending" || data.blocked) return;
     const requestedAt = data.stationRequestedAt ? new Date(data.stationRequestedAt).getTime() : null;
-    if (requestedAt && (Date.now() - requestedAt) > 7 * 24 * 60 * 60 * 1000) {
+    if (requestedAt && (Date.now() - requestedAt) > 5 * 24 * 60 * 60 * 1000) {
       writeToFirestore({ ...dataRef.current, blocked: true });
     }
   }, [data, accountUid]);
@@ -12618,7 +12618,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
                   </div>
                 )}
                 <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-                  {t("You can start using it right away — it just needs your district admin to approve it within 7 days.", "તમે તરત જ ઉપયોગ શરૂ કરી શકો છો — તમારા district admin એ 7 દિવસમાં માન્ય કરવાનું છે.")}
+                  {t("You can start using it right away — it just needs your district admin to approve it within 5 days.", "તમે તરત જ ઉપયોગ શરૂ કરી શકો છો — તમારા district admin એ 5 દિવસમાં માન્ય કરવાનું છે.")}
                 </div>
               </React.Fragment>
             ) : (
@@ -14926,7 +14926,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
         )}
         {(pending || []).map((s) => {
           const requestedAt = s.stationRequestedAt ? new Date(s.stationRequestedAt) : null;
-          const daysLeft = requestedAt ? Math.max(0, 7 - Math.floor((Date.now() - requestedAt.getTime()) / 86400000)) : null;
+          const daysLeft = requestedAt ? Math.max(0, 5 - Math.floor((Date.now() - requestedAt.getTime()) / 86400000)) : null;
           return (
             <div key={s.uid} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", marginBottom: 10 }}>
               <div style={{ minWidth: 0 }}>
@@ -15145,11 +15145,11 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
               <div style={{ marginBottom: 24, background: "var(--bg-surface)", border: "1px solid var(--accent-strong)", borderRadius: 10, padding: 16 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }} className="gu">⏳ {t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ")} ({pendingList.length})</div>
                 <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginBottom: 10 }} className="gu">
-                  {t("Unapproved after 7 days, a station gets blocked until approved.", "7 દિવસમાં મંજૂર ન થાય તો સ્ટેશન બ્લોક થઈ જાય છે, જ્યાં સુધી મંજૂર ન થાય.")}
+                  {t("Unapproved after 5 days, a station gets blocked until approved.", "5 દિવસમાં મંજૂર ન થાય તો સ્ટેશન બ્લોક થઈ જાય છે, જ્યાં સુધી મંજૂર ન થાય.")}
                 </div>
                 {pendingList.map((s) => {
                   const requestedAt = s.stationRequestedAt ? new Date(s.stationRequestedAt) : null;
-                  const daysLeft = requestedAt ? Math.max(0, 7 - Math.floor((Date.now() - requestedAt.getTime()) / 86400000)) : null;
+                  const daysLeft = requestedAt ? Math.max(0, 5 - Math.floor((Date.now() - requestedAt.getTime()) / 86400000)) : null;
                   return (
                     <div key={s.uid} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--border)" }}>
                       <div style={{ minWidth: 0 }}>
