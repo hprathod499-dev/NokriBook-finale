@@ -4519,6 +4519,14 @@ function DutyRoster() {
     if (nbIsAppPath(routePath)) {
       if (!explicit && !showAccountDeletedScreen) { try { sessionStorage.setItem(NB_INTENDED_KEY, routePath + window.location.search); } catch (e) {} }
       nbNavigate("/login", { replace: true });
+    } else if (routePath === "/") {
+      // "/" resolves to the exact same sign-in screen as "/login" (see
+      // nbResolveRoute, and the tab-title effect below already treating
+      // them the same) — but nothing ever actually turned "/" into
+      // "/login" in the address bar itself. Normalize it here so the URL
+      // always reads /login while that screen is showing, whether
+      // someone landed on the bare domain or just got signed out.
+      nbNavigate("/login", { replace: true });
     }
   }, [user, routePath]);
   // Signed in + public page (/, /login, ...) -> intended path or dashboard; /app -> /app/dashboard; etc.
