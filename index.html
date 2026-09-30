@@ -652,6 +652,28 @@ function nbCleanPath(p) {
 }
 function nbIsAppPath(p) { return p === "/app" || p.indexOf("/app/") === 0; }
 function nbDecode(x) { try { return decodeURIComponent(x); } catch (e) { return x; } }
+// ---------- Routes for the share view and the admin apps ----------
+// Share link:     /view/<token>[/work-types/<id>|/staff|/calendar|/reports|/history]
+// District admin: /app/district[/<stationUid>[/work-types/<id>|/on-duty|/fairness|/staff|/calendar|/reports|/history]]
+// Super admin:    /app/super[/pending|/locations]
+const NB_SUB_VIEW = { "on-duty": "onDuty", fairness: "fairness", staff: "staff", calendar: "calendar", reports: "report", history: "skipHistory" };
+function nbSegsAfter(path, base) {
+  if (path !== base && path.indexOf(base + "/") !== 0) return null;
+  return path.slice(base.length).split("/").filter(Boolean).map(nbDecode);
+}
+function nbSubViewFromSegs(seg) {
+  const a = seg[0], b = seg[1];
+  if (!a) return { mode: "home" };
+  if (a === "work-types" && b) return { mode: "category", catId: b };
+  return NB_SUB_VIEW[a] ? { mode: NB_SUB_VIEW[a] } : { mode: "home" };
+}
+function nbSubPathFromView(v) {
+  v = v || {};
+  if (v.mode === "category" && v.catId) return "/work-types/" + encodeURIComponent(v.catId);
+  const key = Object.keys(NB_SUB_VIEW).find((k) => NB_SUB_VIEW[k] === v.mode);
+  return key ? "/" + key : "";
+}
+function nbShareUrl(token) { return `${window.location.origin}/view/${token}`; }
 function nbIsIsoDate(x) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
   const d = new Date(x + "T00:00:00Z");
@@ -788,6 +810,10 @@ function nbResolveRoute(path, signedIn) {
       return NF;
     case "help":
       return n === 1 ? P("help", null, ["Help", "મદદ"]) : NF;
+    case "district":
+      return { kind: "admin", title: ["District Admin", "જિલ્લા એડમિન"] };
+    case "super":
+      return { kind: "admin", title: ["Super Admin", "સુપર એડમિન"] };
     default:
       return NF;
   }
@@ -1635,6 +1661,8 @@ function extractShareUid(input) {
       const url = new URL(trimmed);
       const fromQuery = url.searchParams.get("view");
       if (fromQuery && looksLikeFirebaseUid(fromQuery)) return fromQuery;
+      const fromPath = url.pathname.match(/^\/view\/([A-Za-z0-9]{10,64})(\/|$)/);
+      if (fromPath) return fromPath[1];
     } catch (e) { /* not a parseable URL — fall through to the plainer checks below */ }
     // It WAS a URL (has a scheme), but not a recognizable Nokri Book
     // share link — critically, never fall through to the bare-code
@@ -1644,6 +1672,8 @@ function extractShareUid(input) {
     // every future page load.
     return "";
   }
+  const mp = trimmed.match(/\/view\/([A-Za-z0-9]{10,64})(?:[/?#\s]|$)/);
+  if (mp) return mp[1];
   const m = trimmed.match(/[?&]view=([^&\s]+)/);
   if (m) {
     const candidate = decodeURIComponent(m[1]);
@@ -4283,7 +4313,7 @@ function SignInScreen() {
       return;
     }
     try { localStorage.setItem(PINNED_VIEW_KEY, linkUid); } catch (e) { /* proceed anyway — the URL param below still gets them there this one time */ }
-    window.location.href = `${window.location.origin}/?view=${encodeURIComponent(linkUid)}`;
+    window.location.href = nbShareUrl(encodeURIComponent(linkUid));
   };
 
   const signInWithGoogle = () => {
@@ -4673,6 +4703,7 @@ function DutyRoster() {
     if (!user) ti = routePath === "/register" ? ["Register", "નોંધણી"] : routePath === "/forgot-password" ? ["Forgot Password", "પાસવર્ડ ભૂલી ગયા"] : ["Sign In", "સાઇન ઇન"];
     else if (route.kind === "view" || route.kind === "panel") ti = route.title;
     else if (route.kind === "notfound") ti = ["Page Not Found", "પેજ મળ્યું નથી"];
+    else if (route.kind === "admin") ti = route.title;
     else return;
     document.title = "Nokri Book — " + (lang === "gu" ? ti[1] : ti[0]);
   }, [route, routePath, lang, user]);
@@ -5670,7 +5701,7 @@ function DutyRoster() {
   // right warning copy) and performFormatAllData (to decide which write
   // to actually run).
   const [formatMode, setFormatMode] = useState("keep");
-  const shareUrl = accountUid && data && data.shareEnabled && data.shareToken ? `${window.location.origin}/?view=${data.shareToken}` : "";
+  const shareUrl = accountUid && data && data.shareEnabled && data.shareToken ? nbShareUrl(data.shareToken) : "";
   const toggleShare = () => {
     if (!data) return;
     const turningOn = !data.shareEnabled;
@@ -5684,10 +5715,10 @@ function DutyRoster() {
   // can open inside the same tap (popup blockers need that).
   const ensureShareUrl = () => {
     const cur = dataRef.current || {};
-    if (cur.shareEnabled && cur.shareToken) return `${window.location.origin}/?view=${cur.shareToken}`;
+    if (cur.shareEnabled && cur.shareToken) return nbShareUrl(cur.shareToken);
     const token = nbNewShareToken();
     persist({ ...cur, shareEnabled: true, shareToken: token });
-    return `${window.location.origin}/?view=${token}`;
+    return nbShareUrl(token);
   };
   // Station names are one-per-district (stationRegistry). Checked BEFORE a
   // station request / pick is saved, so a request can never end up
@@ -7539,6 +7570,9 @@ function DutyRoster() {
     : false;
   if (EMAIL_VERIFICATION_ENABLED && isPasswordAccount && createdAfterCutoff && !user.emailVerified) {
     return <LangContext.Provider value={langCtxValue}><VerifyEmailScreen user={user} signOutUser={signOutUser} /></LangContext.Provider>;
+  }
+  if (route.kind === "admin" && isSuperAdmin === false && isDistrictAdmin === false) {
+    setTimeout(() => nbNavigate("/app/dashboard", { replace: true }), 0);
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
   if (isSuperAdmin) {
@@ -14199,7 +14233,21 @@ function PublicRosterView({ uid }) {
   const langCtxValue = useMemo(() => ({ lang, setLang, t }), [lang, t]);
 
   const [data, setData] = useState(undefined); // undefined = loading, null = not shared/not found
-  const [view, setView] = useState({ mode: "home" });
+  // Page comes from the address: /view/<token>/staff etc.
+  const nbPath = useNbPath();
+  const viewBase = "/view/" + uid;
+  const viewSegs = nbSegsAfter(nbPath, viewBase);
+  useEffect(() => {
+    // Opened as /?view=<token> or from a pinned link: switch to /view/<token>.
+    if (viewSegs === null) nbNavigate(viewBase, { replace: true });
+  }, [viewSegs === null, viewBase]);
+  const view = nbSubViewFromSegs(viewSegs || []);
+  const setView = useCallback((v) => nbNavigate(viewBase + nbSubPathFromView(v)), [viewBase]);
+  useEffect(() => {
+    const names = { home: ["Today's duty", "આજની ડ્યુટી"], category: ["Work type", "કામનો પ્રકાર"], staff: ["Staff", "સ્ટાફ"], calendar: ["Duty calendar", "ડ્યુટી કૅલેન્ડર"], report: ["Monthly report", "માસિક અહેવાલ"], skipHistory: ["Skip history", "સ્કિપ ઇતિહાસ"] };
+    const n = names[view.mode] || names.home;
+    document.title = "Nokri Book — " + (lang === "gu" ? n[1] : n[0]);
+  }, [view.mode, lang]);
   const [showAboutPanel, setShowAboutPanel] = useState(false);
   const [showHelpPanel, setShowHelpPanel] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
@@ -14223,7 +14271,7 @@ function PublicRosterView({ uid }) {
   // visitor to the normal sign-in screen at the app's base URL.
   const goToLogin = useCallback(() => {
     try { localStorage.removeItem(PINNED_VIEW_KEY); } catch (e) {}
-    window.location.href = window.location.origin + window.location.pathname;
+    window.location.href = window.location.origin + "/login";
   }, []);
   // data-theme has to live on <html> itself (not just a wrapper div) so it
   // reaches every CSS variable consumer on the page — same approach the
@@ -15400,7 +15448,12 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
   const { t } = useLang();
   // Keep masterData/stationIndex in step with this build's station list.
   useEffect(() => { nbRebuildStationIndex(); }, []);
-  const [tab, setTab] = useState("pending"); // "pending" | "locations"
+  // Tab comes from the address: /app/super/pending or /app/super/locations
+  const nbPath = useNbPath();
+  const superSegs = nbSegsAfter(nbPath, "/app/super");
+  useEffect(() => { if (superSegs === null) nbNavigate("/app/super/pending", { replace: true }); }, [superSegs === null]);
+  const tab = superSegs && superSegs[0] === "locations" ? "locations" : "pending";
+  const setTab = (v) => nbNavigate("/app/super/" + (v === "locations" ? "locations" : "pending"));
   const [pending, setPending] = useState(null); // null = loading
   const [approvingUid, setApprovingUid] = useState(null);
 
@@ -15558,9 +15611,15 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   }, [starredStations, STATION_STAR_KEY]);
   const toggleStationStar = (uid) => setStarredStations((prev) => (prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]));
   const [showAllStations, setShowAllStations] = useState(false);
-  const [selectedUid, setSelectedUid] = useState(null);
+  // Station + page come from the address: /app/district/<stationUid>/<page>
+  const nbPath = useNbPath();
+  const districtSegs = nbSegsAfter(nbPath, "/app/district");
+  useEffect(() => { if (districtSegs === null) nbNavigate("/app/district", { replace: true }); }, [districtSegs === null]);
+  const selectedUid = (districtSegs && districtSegs[0]) || null;
+  const view = nbSubViewFromSegs((districtSegs || []).slice(1));
+  const setSelectedUid = useCallback((uid) => nbNavigate(uid ? "/app/district/" + encodeURIComponent(uid) : "/app/district"), []);
+  const setView = useCallback((v) => { if (selectedUid) nbNavigate("/app/district/" + encodeURIComponent(selectedUid) + nbSubPathFromView(v)); }, [selectedUid]);
   const [selectedData, setSelectedData] = useState(undefined); // undefined = loading, null = couldn't load
-  const [view, setView] = useState({ mode: "home" });
   const [showAboutPanel, setShowAboutPanel] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId, selectedUid]);
@@ -15941,7 +16000,8 @@ function RootApp() {
   const nbPath = useNbPath();
   const nbOnAppPath = nbIsAppPath(nbPath);
   const params = new URLSearchParams(window.location.search);
-  let viewUid = params.get("view");
+  const viewPathMatch = nbPath.match(/^\/view\/([A-Za-z0-9]{10,64})(\/|$)/);
+  let viewUid = viewPathMatch ? viewPathMatch[1] : params.get("view");
   // Ignoring a malformed ?view= param outright (rather than trying to
   // use it and crashing) — same reasoning as extractShareUid above, for
   // whatever might land in the URL itself rather than the paste-a-link

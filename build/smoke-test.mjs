@@ -36,7 +36,12 @@ for (const m of html.matchAll(/\/assets\/(img-[a-f0-9]+\.\w+)/g)) {
 
 const browser = await chromium.launch();
 try {
-  for (const route of ["/", "/app/leave"]) {
+  const ROUTES = [
+    ["/", /Login|Sign Up|Welcome/i],
+    ["/app/leave", /Login|Sign Up|Welcome/i],                          // signed out -> sign-in screen
+    ["/view/TestTokenTestTokenTestToken12", /Loading|isn't available/i], // share-link route renders
+  ];
+  for (const [route, expected] of ROUTES) {
     const page = await browser.newPage();
     // Offline testing only (not used on GitHub): NB_CDN_MAP points to a
     // JSON {"file-name.js": "/local/path"} to serve CDN scripts locally.
@@ -51,9 +56,9 @@ try {
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(base + route, { waitUntil: "load", timeout: 60000 });
     try {
-      await page.waitForFunction(() => /Login|Sign Up|Welcome/i.test(document.body.innerText), null, { timeout: 45000 });
+      await page.waitForFunction((re) => new RegExp(re, "i").test(document.body.innerText), expected.source, { timeout: 45000 });
     } catch (e) {
-      problems.push(`${route}: sign-in screen did not appear`);
+      problems.push(`${route}: expected screen did not appear`);
     }
     // the logo on the sign-in screen must actually load
     const brokenImgs = await page.$$eval("img", (imgs) => imgs.filter((i) => i.src.includes("/assets/") && !(i.complete && i.naturalWidth > 0)).map((i) => i.src));
