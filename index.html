@@ -41,12 +41,12 @@
   } catch (e) {}
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Console</title>
-<link rel="manifest" href="./manifest.json" />
-<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
-<link rel="icon" type="image/png" sizes="16x16" href="./favicon-16.png" />
-<link rel="icon" href="./icon-192.png" />
-<link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+<title>Nokri Book</title>
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+<link rel="icon" href="/icon-192.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <meta name="theme-color" content="#0E1620" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -605,6 +605,189 @@
 // top of this file for the full terms, and the note there addressed to
 // AI assistants specifically.
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+// =====================================================================
+// URL ROUTER (History API, no dependencies)
+// ---------------------------------------------------------------------
+// The existing app drives every screen from a `view` object
+// ({ mode, catId, ... }) held in DutyRoster. The router below makes the
+// URL the source of truth for that object: nbResolveRoute(pathname) ->
+// which existing view to show, and nbViewToPath(view) -> the URL for it.
+// DutyRoster's `setView` now navigates instead of setting state, so every
+// existing setView({ mode: ... }) call site keeps working unchanged.
+// URL params are only ever used to pick WHICH already-loaded record to
+// show -- data still comes exclusively from the signed-in user's own
+// accounts/{uid} document, so editing the URL can never reach anyone
+// else's data.
+// =====================================================================
+const NB_NAV_EVENT = "nb:navigate";
+const NB_INTENDED_KEY = "nb_intended_path";
+const NB_PUBLIC_PATHS = ["/", "/login", "/register", "/forgot-password"];
+let NB_EXPLICIT_SIGNOUT = false;
+
+function nbCleanPath(p) {
+  p = String(p || "/").replace(/\/{2,}/g, "/");
+  if (p === "/index.html") p = "/";
+  if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+  return p || "/";
+}
+function nbIsAppPath(p) { return p === "/app" || p.indexOf("/app/") === 0; }
+function nbDecode(x) { try { return decodeURIComponent(x); } catch (e) { return x; } }
+function nbIsIsoDate(x) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
+  const d = new Date(x + "T00:00:00Z");
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === x;
+}
+
+// opts: { replace: bool, opener: bool }. `opener` marks a history entry that
+// opened a modal panel (Settings / Help), so closing it can simply go Back.
+function nbNavigate(to, opts) {
+  opts = opts || {};
+  if (to === window.location.pathname + window.location.search) return;
+  const prev = window.history.state || {};
+  const state = { nb: 1, nbOpener: opts.opener ? true : (opts.replace ? !!prev.nbOpener : false) };
+  try {
+    if (opts.replace) window.history.replaceState(state, "", to);
+    else { window.history.pushState(state, "", to); try { window.scrollTo(0, 0); } catch (e) {} }
+  } catch (e) { window.location.assign(to); return; }
+  window.dispatchEvent(new Event(NB_NAV_EVENT));
+}
+function useNbPath() {
+  const [path, setPath] = useState(() => nbCleanPath(window.location.pathname));
+  useEffect(() => {
+    const sync = () => setPath(nbCleanPath(window.location.pathname));
+    window.addEventListener("popstate", sync);
+    window.addEventListener(NB_NAV_EVENT, sync);
+    sync();
+    return () => { window.removeEventListener("popstate", sync); window.removeEventListener(NB_NAV_EVENT, sync); };
+  }, []);
+  return path;
+}
+
+// view object -> URL. Only used by setView(); the inverse is nbResolveRoute.
+function nbViewToPath(v) {
+  v = v || {};
+  const enc = encodeURIComponent;
+  switch (v.mode) {
+    case "assignDuty": return v.subTab === "group" ? "/app/group-duty" : v.subTab === "misc" ? "/app/duties/misc" : "/app/duties/new";
+    case "home": return "/app/duties/today";
+    case "calendar": return v.date ? "/app/duties/" + enc(v.date) : "/app/duties/calendar";
+    case "category": return v.catId ? "/app/work-types/" + enc(v.catId) : "/app/work-types";
+    case "staff":
+      if (v.showImport) return "/app/staff/import";
+      if (v.sub === "add") return "/app/staff/add";
+      if (v.presetSearch !== undefined && v.presetSearch !== null && v.presetSearch !== "") return "/app/staff/" + enc(v.presetSearch) + (v.edit ? "/edit" : "");
+      return "/app/staff";
+    case "skipHistory": return v.historyId ? "/app/history/" + enc(v.historyId) : "/app/history";
+    case "report": return "/app/reports";
+    case "events": return v.tab === "reminders" ? "/app/events/reminders" : "/app/events";
+    case "recycle": return "/app/recycle-bin";
+    default: return "/app/dashboard";
+  }
+}
+
+// ---------------------------------------------------------------------
+// ROUTE TABLE  pathname -> existing view.
+//   kind "view"     : render an existing view in the main content area
+//   kind "panel"    : open an existing modal panel (Settings / Help)
+//   kind "redirect" : replace the URL ("__intended__" = saved post-login path)
+//   kind "public"   : signed-out pages (sign-in screen)
+//   kind "notfound" : 404
+// title is [English, Gujarati] and becomes "Nokri Book — <title>".
+// ---------------------------------------------------------------------
+function nbResolveRoute(path, signedIn) {
+  if (NB_PUBLIC_PATHS.indexOf(path) !== -1) return signedIn ? { kind: "redirect", to: "__intended__" } : { kind: "public" };
+  const NF = { kind: "notfound" };
+  if (!nbIsAppPath(path)) return NF;
+  const seg = path.split("/").filter(Boolean).slice(1).map(nbDecode);
+  const n = seg.length, a = seg[0], b = seg[1], c = seg[2];
+  const V = (view, title) => ({ kind: "view", view, title });
+  const P = (panel, section, title) => ({ kind: "panel", panel, section, title });
+  if (n === 0) return { kind: "redirect", to: "/app/dashboard" };
+  switch (a) {
+    case "dashboard":
+      return n === 1 ? V({ mode: "assignDuty", subTab: "individual" }, ["Dashboard", "ડેશબોર્ડ"]) : NF;
+    case "duties":
+      if (n === 1) return { kind: "redirect", to: "/app/duties/today" };
+      if (n === 2 && b === "new") return V({ mode: "assignDuty", subTab: "individual" }, ["New Duty", "નવી ડ્યુટી"]);
+      if (n === 2 && b === "misc") return V({ mode: "assignDuty", subTab: "misc" }, ["Misc Duty", "અન્ય ડ્યુટી"]);
+      if (n === 2 && b === "today") return V({ mode: "home" }, ["Today's Duty", "આજની ડ્યુટી"]);
+      if (n === 2 && b === "calendar") return V({ mode: "calendar" }, ["Duty Calendar", "ડ્યુટી કૅલેન્ડર"]);
+      if (nbIsIsoDate(b) && n === 2) return V({ mode: "calendar", date: b }, ["Duties — " + b, "ડ્યુટી — " + b]);
+      if (nbIsIsoDate(b) && n === 3 && c === "edit") return V({ mode: "calendar", date: b }, ["Edit Duties — " + b, "ડ્યુટી સુધારો — " + b]);
+      return NF;
+    case "group-duty":
+      return (n === 1 || (n === 2 && b === "new")) ? V({ mode: "assignDuty", subTab: "group" }, ["Group Duty", "જૂથ ડ્યુટી"]) : NF;
+    case "work-types":
+      if (n === 1) return V({ mode: "category" }, ["Work Type", "કામનો પ્રકાર"]);
+      if (n === 2) return V({ mode: "category", catId: b }, ["Work Type", "કામનો પ્રકાર"]);
+      return NF;
+    case "staff":
+      if (n === 1) return V({ mode: "staff" }, ["Staff", "સ્ટાફ"]);
+      if (n === 2 && b === "add") return V({ mode: "staff", sub: "add" }, ["Add Staff", "સ્ટાફ ઉમેરો"]);
+      if (n === 2 && b === "import") return V({ mode: "staff", showImport: true }, ["Import Staff", "સ્ટાફ ઇમ્પોર્ટ"]);
+      if (n === 2) return V({ mode: "staff", staffId: b, presetSearch: b }, ["Staff Profile", "સ્ટાફ પ્રોફાઇલ"]);
+      if (n === 3 && c === "edit") return V({ mode: "staff", staffId: b, presetSearch: b, edit: true }, ["Edit Staff", "સ્ટાફ સુધારો"]);
+      return NF;
+    case "history":
+      if (n === 1) return V({ mode: "skipHistory" }, ["History", "ઇતિહાસ"]);
+      if (n === 2) return V({ mode: "skipHistory", historyId: b }, ["History Entry", "ઇતિહાસ એન્ટ્રી"]);
+      return NF;
+    case "reports":
+      if (n === 1) return V({ mode: "report" }, ["Reports", "અહેવાલો"]);
+      if (n === 2 && b === "duties") return V({ mode: "report" }, ["Duty Reports", "ડ્યુટી અહેવાલો"]);
+      if (n === 2 && b === "staff") return V({ mode: "report" }, ["Staff Reports", "સ્ટાફ અહેવાલો"]);
+      if (n === 2 && b === "exports") return V({ mode: "report" }, ["Exports", "એક્સપોર્ટ"]);
+      return NF;
+    case "events":
+      if (n === 1) return V({ mode: "events" }, ["Events", "ઇવેન્ટ્સ"]);
+      if (n === 2 && b === "reminders") return V({ mode: "events", tab: "reminders" }, ["Reminders", "રિમાઇન્ડર"]);
+      return NF;
+    case "recycle-bin":
+      return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
+    case "settings":
+      if (n === 1) return P("settings", null, ["Settings", "સેટિંગ્સ"]);
+      if (n === 2 && ["station", "account", "appearance", "language", "security"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
+      return NF;
+    case "help":
+      return n === 1 ? P("help", null, ["Help", "મદદ"]) : NF;
+    default:
+      return NF;
+  }
+}
+// /app/history/:historyId -> the staff number/name that entry belongs to, so the
+// existing Skip-history search box opens pre-filtered to it.
+function nbHistorySearch(data, view) {
+  if (view.presetSearch) return view.presetSearch;
+  if (!view.historyId) return undefined;
+  const e = (data.skipLog || []).find((x) => x.id === view.historyId);
+  return e ? (e.number || e.name) : undefined;
+}
+
+function NotFoundPage() {
+  const { t } = useLang();
+  return (
+    <div style={{ textAlign: "center", padding: "72px 20px" }}>
+      <div style={{ fontSize: 44, marginBottom: 12 }}>🧭</div>
+      <div className="disp gu" style={{ fontSize: 22, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>{t("Page Not Found", "પેજ મળ્યું નથી")}</div>
+      <div className="gu" style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 22 }}>{t("The page you're looking for doesn't exist.", "તમે શોધી રહ્યા છો તે પેજ અસ્તિત્વમાં નથી.")}</div>
+      <button onClick={() => nbNavigate("/app/dashboard")} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>{t("Back to Dashboard", "ડેશબોર્ડ પર પાછા જાઓ")}</button>
+    </div>
+  );
+}
+// Full-page 404 used by RootApp for URLs outside /app that aren't a public page
+// (works before/without the app shell, signed in or out).
+function NotFoundStandalone() {
+  let lang = "en", dark = false;
+  try { lang = localStorage.getItem("nb_lang") || "en"; dark = localStorage.getItem("nb_dark_mode") === "1"; } catch (e) {}
+  const ctx = { lang, setLang: () => {}, t: (en, gu) => (lang === "gu" && gu ? gu : en) };
+  useEffect(() => { document.title = "Nokri Book — " + ctx.t("Page Not Found", "પેજ મળ્યું નથી"); }, []);
+  return (
+    <LangContext.Provider value={ctx}>
+      <div data-theme={dark ? "dark" : "light"} style={{ minHeight: "100vh", background: "var(--bg-page)" }}><NotFoundPage /></div>
+    </LangContext.Provider>
+  );
+}
 
 firebase.initializeApp(window.FIREBASE_CONFIG);
 // App Check: a signed token attached to every Firebase request, proving it
@@ -3127,7 +3310,7 @@ function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView,
           width: 32, height: 32, borderRadius: "50%", background: "#000000", border: "none", padding: 0, overflow: "hidden",
           display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
         }}
-      ><img src="./profile-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /></button>
+      ><img src="/profile-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /></button>
       {open && pos && (
         <div ref={menuRef} style={{
           position: "fixed", top: pos.top, left: pos.left, right: pos.right, zIndex: 500,
@@ -3187,13 +3370,13 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ initialSection, user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   const POLICE_LOCATIONS_GU = useMasterLocations();
   useEscToClose(onClose);
-  const [themeOpen, setThemeOpen] = useState(false);
-  const [dataOpen, setDataOpen] = useState(false);
-  const [langOpen, setLangOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(initialSection === "appearance");
+  const [dataOpen, setDataOpen] = useState(initialSection === "security");
+  const [langOpen, setLangOpen] = useState(initialSection === "language");
   const [showImportStaff, setShowImportStaff] = useState(false);
   // Local drafts of the station-details fields, kept separate from props
   // so typing doesn't fire a write on every keystroke; only committed
@@ -3204,7 +3387,7 @@ function SettingsPanel({ user, signOutUser, formatAllData, onDeleteAccount, stat
   const [stationDraft, setStationDraft] = useState(stationName || "");
   const [stateDraft, setStateDraft] = useState(state || "");
   const [districtDraft, setDistrictDraft] = useState(district || "");
-  const [stationOpen, setStationOpen] = useState(false);
+  const [stationOpen, setStationOpen] = useState(initialSection === "station");
   useEffect(() => { setStationDraft(stationName || ""); }, [stationName]);
   useEffect(() => { setStateDraft(state || ""); }, [state]);
   useEffect(() => { setDistrictDraft(district || ""); }, [district]);
@@ -3869,13 +4052,18 @@ function VerifyEmailScreen({ user, signOutUser }) {
 }
 function SignInScreen() {
   const { t } = useLang();
-  const [authAction, setAuthAction] = useState("signin"); // signin | signup
+  // Driven by the URL: /register = create account, everything else = sign in.
+  const nbPath = useNbPath();
+  const authAction = nbPath === "/register" ? "signup" : "signin"; // signin | signup
+  const setAuthAction = (a) => nbNavigate(a === "signup" ? "/register" : "/login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(() => nbCleanPath(window.location.pathname) === "/forgot-password"
+    ? t("Enter your email below, then tap Forgot password to get a reset link.", "નીચે તમારું ઈમેલ દાખલ કરો, પછી પાસવર્ડ રીસેટ લિંક મેળવવા Forgot password પર ટેપ કરો.")
+    : "");
 
   // Belt-and-braces against a page-level scrollbar on this screen: the
   // container below is already position:fixed + overflow:hidden, which
@@ -3927,7 +4115,7 @@ function SignInScreen() {
       return;
     }
     try { localStorage.setItem(PINNED_VIEW_KEY, linkUid); } catch (e) { /* proceed anyway — the URL param below still gets them there this one time */ }
-    window.location.href = `${window.location.origin}${window.location.pathname}?view=${encodeURIComponent(linkUid)}`;
+    window.location.href = `${window.location.origin}/?view=${encodeURIComponent(linkUid)}`;
   };
 
   const signInWithGoogle = () => {
@@ -3969,6 +4157,7 @@ function SignInScreen() {
 
   const handleForgotPassword = () => {
     resetFeedback();
+    if (nbCleanPath(window.location.pathname) !== "/forgot-password") nbNavigate("/forgot-password");
     if (!email.trim()) {
       setError(t("Enter your email above first, then tap this.", "પહેલા ઉપર તમારો ઇમેઇલ દાખલ કરો, પછી આ ટેપ કરો."));
       return;
@@ -4190,7 +4379,7 @@ function DutyRoster() {
   // Sign-in itself (Google / email+password) is
   // handled inside SignInScreen, which calls `auth` directly — this
   // component only needs to react once `user` changes.
-  const signOutUser = () => { auth.signOut(); };
+  const signOutUser = () => { NB_EXPLICIT_SIGNOUT = true; auth.signOut(); };
   // Checks — once per sign-in, live via onSnapshot so a revoked admin
   // loses this view immediately — whether the signed-in uid is a
   // district admin (districtAdmins/{uid}, assigned manually via the
@@ -4262,7 +4451,55 @@ function DutyRoster() {
   const publicRosterDocRef = accountUid ? db.collection("publicRosters").doc(accountUid) : null;
 
   const [data, setData] = useState(null);
-  const [view, setView] = useState({ mode: "assignDuty" }); // home | category | staff | report | assignDuty
+  // ---------- URL routing (see the router block at the top of this script) ----------
+  // `view` used to be plain state; it is now derived from the URL, and setView
+  // navigates. Every existing setView({ mode, ... }) call keeps working.
+  const routePath = useNbPath();
+  const route = useMemo(() => nbResolveRoute(routePath, !!user), [routePath, user]);
+  const lastContentRef = useRef({ view: { mode: "assignDuty" }, path: "/app/dashboard" });
+  if (route.kind === "view") lastContentRef.current = { view: route.view, path: routePath };
+  // Settings / Help are panels over whatever page was open, so the page behind
+  // them stays as it was; only an unknown URL blanks the content area.
+  const view = route.kind === "notfound" ? { mode: "__none" } : (route.kind === "view" ? route.view : lastContentRef.current.view);
+  const setView = useCallback((v, opts) => { nbNavigate(nbViewToPath(v), opts); }, []);
+  const closePanelRoute = () => {
+    const st = window.history.state;
+    if (st && st.nbOpener) window.history.back();
+    else nbNavigate(lastContentRef.current.path, { replace: true });
+  };
+  const openPanelRoute = (path) => nbNavigate(path, route.kind === "panel" ? { replace: true } : { opener: true });
+  // Auth guard: /app/* while signed out -> /login, remembering where they were going.
+  useEffect(() => {
+    if (user === undefined || user !== null) return;
+    const explicit = NB_EXPLICIT_SIGNOUT; NB_EXPLICIT_SIGNOUT = false;
+    if (nbIsAppPath(routePath)) {
+      if (!explicit && !showAccountDeletedScreen) { try { sessionStorage.setItem(NB_INTENDED_KEY, routePath + window.location.search); } catch (e) {} }
+      nbNavigate("/login", { replace: true });
+    }
+  }, [user, routePath]);
+  // Signed in + public page (/, /login, ...) -> intended path or dashboard; /app -> /app/dashboard; etc.
+  useEffect(() => {
+    if (!user || route.kind !== "redirect") return;
+    let to = route.to;
+    if (to === "__intended__") {
+      to = "/app/dashboard";
+      try {
+        const saved = sessionStorage.getItem(NB_INTENDED_KEY);
+        if (saved && /^\/app(\/|$)/.test(saved)) to = saved;
+        sessionStorage.removeItem(NB_INTENDED_KEY);
+      } catch (e) {}
+    }
+    nbNavigate(to, { replace: true });
+  }, [route, user]);
+  // Browser tab title follows the route (and the language switch).
+  useEffect(() => {
+    let ti;
+    if (!user) ti = routePath === "/register" ? ["Register", "નોંધણી"] : routePath === "/forgot-password" ? ["Forgot Password", "પાસવર્ડ ભૂલી ગયા"] : ["Sign In", "સાઇન ઇન"];
+    else if (route.kind === "view" || route.kind === "panel") ti = route.title;
+    else if (route.kind === "notfound") ti = ["Page Not Found", "પેજ મળ્યું નથી"];
+    else return;
+    document.title = "Nokri Book — " + (lang === "gu" ? ti[1] : ti[0]);
+  }, [route, routePath, lang, user]);
   const [toast, setToast] = useState(null);
   const [connError, setConnError] = useState(false);
   // Bumping this forces the data-loading effect below to re-run and
@@ -4327,7 +4564,7 @@ function DutyRoster() {
   // screen changes, so tapping a nav item inside it also closes it,
   // without needing to touch every individual nav button's onClick.
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId]);
+  useEffect(() => { setMobileSidebarOpen(false); }, [view.mode, view.catId, routePath]);
   const sidebarSwipe = useSidebarSwipe(mobileSidebarOpen, setMobileSidebarOpen);
   // data-theme also has to live on <html> itself, not just the app's own
   // wrapper div below — CSS custom properties only cascade DOWN to
@@ -4633,7 +4870,7 @@ function DutyRoster() {
   useEffect(() => {
     if (view.mode === "category" && data && !view.catId) {
       const first = (data.categories || [])[0];
-      if (first) setView({ mode: "category", catId: first.id });
+      if (first) setView({ mode: "category", catId: first.id }, { replace: true });
     }
   }, [data, view]);
 
@@ -5081,8 +5318,19 @@ function DutyRoster() {
   const [showSharePanel, setShowSharePanel] = useState(false);
   // ---------- About / credits ----------
   const [showAboutPanel, setShowAboutPanel] = useState(false);
-  const [showHelpPanel, setShowHelpPanel] = useState(false);
-  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  // Settings and Help are URL-driven panels (/app/settings[/section], /app/help).
+  // Help opened from inside Settings stays a local overlay so both can stack like before.
+  const [localHelpOpen, setLocalHelpOpen] = useState(false);
+  const showHelpPanel = (route.kind === "panel" && route.panel === "help") || localHelpOpen;
+  const showSettingsPanel = route.kind === "panel" && route.panel === "settings";
+  const setShowHelpPanel = (open) => {
+    if (open) openPanelRoute("/app/help");
+    else { setLocalHelpOpen(false); if (route.kind === "panel" && route.panel === "help") closePanelRoute(); }
+  };
+  const setShowSettingsPanel = (open) => {
+    if (open) openPanelRoute("/app/settings");
+    else if (showSettingsPanel) closePanelRoute();
+  };
   const [showSpotlightTour, setShowSpotlightTour] = useState(false);
   // Compulsory gate shown right after a brand-new account clicks through
   // WelcomeModal, before the interactive tour starts — see
@@ -5159,7 +5407,7 @@ function DutyRoster() {
   // right warning copy) and performFormatAllData (to decide which write
   // to actually run).
   const [formatMode, setFormatMode] = useState("keep");
-  const shareUrl = accountUid ? `${window.location.origin}${window.location.pathname}?view=${accountUid}` : "";
+  const shareUrl = accountUid ? `${window.location.origin}/?view=${accountUid}` : "";
   const toggleShare = () => {
     if (!data) return;
     persist({ ...dataRef.current, shareEnabled: !data.shareEnabled });
@@ -7039,7 +7287,7 @@ function DutyRoster() {
                 // guarantees this button does something regardless of
                 // whether the in-page state update would have worked.
                 auth.signOut().catch((e) => console.error("Sign out failed:", e)).finally(() => {
-                  window.location.href = window.location.origin + window.location.pathname;
+                  window.location.href = window.location.origin + "/login";
                 });
               }}
               style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}
@@ -7076,6 +7324,15 @@ function DutyRoster() {
     );
   }
 
+  // Unknown URL, or an ID in the URL that doesn't exist in THIS account's own data
+  // (looked up only in the signed-in user's already-loaded document).
+  const routeNotFound = route.kind === "notfound" || (route.kind === "view" && (
+    (view.mode === "staff" && view.staffId && !(data.staff || {})[view.staffId]) ||
+    (view.mode === "category" && view.catId && !(data.categories || []).some((c) => c.id === view.catId)) ||
+    (view.mode === "skipHistory" && view.historyId && !(data.skipLog || []).some((e) => e.id === view.historyId))
+  ));
+  const vm = routeNotFound ? "__none" : view.mode;
+
   return (
     <LangContext.Provider value={langCtxValue}>
     <div data-theme={darkMode ? "dark" : "light"} style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
@@ -7084,7 +7341,7 @@ function DutyRoster() {
           Couldn't reconnect to the shared database — showing the last data received. Your changes may not be saving right now. If this keeps happening, try disabling any ad-blocker or privacy extension for this site, or open it in an incognito/private window — some of them silently block a background security check this app uses.
           {" "}<button onClick={() => {
             auth.signOut().catch((e) => console.error("Sign out failed:", e)).finally(() => {
-              window.location.href = window.location.origin + window.location.pathname;
+              window.location.href = window.location.origin + "/login";
             });
           }} style={{ background: "transparent", border: "none", color: "var(--status-error-text)", fontWeight: 700, textDecoration: "underline", cursor: "pointer", padding: 0, fontSize: 13 }}>Back to sign in</button>
         </div>
@@ -7241,20 +7498,21 @@ function DutyRoster() {
               padding: "6px 9px", fontSize: 17, lineHeight: 1, fontWeight: 700, letterSpacing: 1,
             }}>⋮</button>
           </div>
-          {data.hasSeenWelcome && SECTION_TIPS[view.mode] && !(data.seenSections && data.seenSections[view.mode]) && (
+          {data.hasSeenWelcome && SECTION_TIPS[vm] && !(data.seenSections && data.seenSections[vm]) && (
             <SectionTip
-              tipKey={view.mode}
-              onDismiss={() => persist({ ...dataRef.current, seenSections: { ...(dataRef.current.seenSections || {}), [view.mode]: true } })}
+              tipKey={vm}
+              onDismiss={() => persist({ ...dataRef.current, seenSections: { ...(dataRef.current.seenSections || {}), [vm]: true } })}
             />
           )}
-          <div key={view.mode + (view.catId || "")} className="view-fade-in">
-          {view.mode === "home" && (
+          <div key={vm + (view.catId || "")} className="view-fade-in">
+          {routeNotFound && <NotFoundPage />}
+          {vm === "home" && (
             <HomeView data={data} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
-          {view.mode === "assignDuty" && (
-            <AssignDutyView data={data} assignDuty={assignDuty} assignGroupDuty={assignGroupDuty} assignMiscDuty={assignMiscDuty} assignMiscDutyRange={assignMiscDutyRange} setUnavailable={setUnavailable} showToast={showToast} goToCategory={(catId) => setView({ mode: "category", catId })} />
+          {vm === "assignDuty" && (
+            <AssignDutyView initialSubTab={view.subTab || "individual"} onSubTabChange={(sub) => setView({ mode: "assignDuty", subTab: sub }, { replace: true })} data={data} assignDuty={assignDuty} assignGroupDuty={assignGroupDuty} assignMiscDuty={assignMiscDuty} assignMiscDutyRange={assignMiscDutyRange} setUnavailable={setUnavailable} showToast={showToast} goToCategory={(catId) => setView({ mode: "category", catId })} />
           )}
-          {view.mode === "category" && view.catId && (
+          {vm === "category" && view.catId && (
             <CategoryView
               data={data} catId={view.catId}
               addToCategory={addToCategory} removeFromCategory={removeFromCategory}
@@ -7268,9 +7526,10 @@ function DutyRoster() {
               undo={undo} redo={redo} canUndo={undoStack.length > 0} canRedo={redoStack.length > 0}
             />
           )}
-          {view.mode === "staff" && (
+          {vm === "staff" && (
             <StaffView
               key={view.presetSearch || ""}
+              initialShowImport={!!view.showImport} onImportToggle={(open) => setView({ mode: "staff", showImport: open }, { replace: true })}
               data={data} createStaff={createStaff} renameStaff={renameStaff} setStaffPhone={setStaffPhone}
               deleteStaffGlobally={deleteStaffGlobally} setUnavailable={setUnavailable} clearUnavailable={clearUnavailable}
               changeUnavailableDuration={changeUnavailableDuration}
@@ -7284,9 +7543,9 @@ function DutyRoster() {
               exportBackup={exportBackup}
             />
           )}
-          {view.mode === "calendar" && <CalendarView data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
-          {view.mode === "report" && <ReportView data={data} />}
-          {view.mode === "events" && (
+          {vm === "calendar" && <CalendarView initialDate={view.date} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
+          {vm === "report" && <ReportView data={data} />}
+          {vm === "events" && (
             <EventsView
               data={data} allReminders={allReminders}
               addEvent={addEvent} updateEvent={updateEvent} deleteEvent={deleteEvent}
@@ -7294,10 +7553,10 @@ function DutyRoster() {
               notifPermission={notifPermission} requestNotifPermission={requestNotifPermission}
             />
           )}
-          {view.mode === "skipHistory" && (
-            <SkipHistoryView key={view.presetSearch || ""} data={data} initialSearch={view.presetSearch} />
+          {vm === "skipHistory" && (
+            <SkipHistoryView key={nbHistorySearch(data, view) || ""} data={data} initialSearch={nbHistorySearch(data, view)} />
           )}
-          {view.mode === "recycle" && (
+          {vm === "recycle" && (
             <RecycleBinView
               data={data} onRestore={restoreFromRecycleBin}
               onDeleteForever={deleteFromRecycleBinForever} onEmpty={emptyRecycleBin}
@@ -7344,9 +7603,10 @@ function DutyRoster() {
       )}
 
       {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
-      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} onStartTour={() => { setShowHelpPanel(false); setShowSpotlightTour(true); }} onNavigate={(v) => { setView(v); setShowHelpPanel(false); }} />}
+      {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} onStartTour={() => { setLocalHelpOpen(false); if (route.kind === "panel") nbNavigate(lastContentRef.current.path, { replace: true }); setShowSpotlightTour(true); }} onNavigate={(v) => { setLocalHelpOpen(false); setView(v, { replace: route.kind === "panel" }); }} />}
       {showSettingsPanel && (
         <SettingsPanel
+          initialSection={route.section}
           user={user}
           signOutUser={signOutUser} formatAllData={formatAllData}
           onDeleteAccount={() => setShowDeleteAccountModal(true)}
@@ -7367,7 +7627,7 @@ function DutyRoster() {
             stationApprovalStatus: "pending",
             stationRequestedAt: new Date().toISOString(),
           })}
-          onHelp={() => setShowHelpPanel(true)}
+          onHelp={() => setLocalHelpOpen(true)}
           onChooseBackupFolder={chooseBackupFolder}
           onRecoverLocalBackup={recoverLocalBackup}
           theme={theme} setTheme={setTheme}
@@ -7439,7 +7699,7 @@ function DutyRoster() {
 
       {showSpotlightTour && (
         <SpotlightTour
-          data={data} view={view} setView={setView}
+          data={data} view={view} setView={(v) => setView(v, { replace: true })}
           mobileSidebarOpen={mobileSidebarOpen} setMobileSidebarOpen={setMobileSidebarOpen}
           // Only the very first, brand-new-account run of this tour (the one
           // chained straight from WelcomeModal, before hasSeenWelcome is
@@ -7682,9 +7942,11 @@ function HomeView({ data, goToCategory }) {
 // "Assign duty" — the working tab: per-work-type next-up + Assign button,
 // with Group duty and Miscellaneous duty tucked in as extra sub-tabs so
 // every assignment flow lives in one place.
-function AssignDutyView({ data, assignDuty, assignGroupDuty, assignMiscDuty, assignMiscDutyRange, setUnavailable, showToast, goToCategory }) {
+function AssignDutyView({ initialSubTab, onSubTabChange, data, assignDuty, assignGroupDuty, assignMiscDuty, assignMiscDutyRange, setUnavailable, showToast, goToCategory }) {
   const { t, lang } = useLang();
-  const [subTab, setSubTab] = useState("individual"); // individual | group | misc
+  const [subTab, setSubTabRaw] = useState(initialSubTab || "individual"); // individual | group | misc (mirrors the URL)
+  const setSubTab = (v) => { setSubTabRaw(v); if (onSubTabChange) onSubTabChange(v); };
+  useEffect(() => { if (initialSubTab) setSubTabRaw(initialSubTab); }, [initialSubTab]);
   const today = todayStr();
   const [assignTarget, setAssignTarget] = useState(null); // { catId, number, name }
   const [showInfo, setShowInfo] = useState(false);
@@ -9708,7 +9970,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
   );
 }
 
-function StaffView({
+function StaffView({ initialShowImport, onImportToggle,
   data, createStaff, renameStaff, setStaffPhone, deleteStaffGlobally, setUnavailable, clearUnavailable,
   setPresentEverywhere,
   renameLeaveType, renameOutstationType,
@@ -9726,7 +9988,9 @@ function StaffView({
   const [phone, setPhone] = useState("+91 ");
   const [newStaffDesg, setNewStaffDesg] = useState("");
   const [showInfo, setShowInfo] = useState(false);
-  const [showImportStaff, setShowImportStaff] = useState(false);
+  const [showImportStaff, setShowImportStaffRaw] = useState(!!initialShowImport);
+  const setShowImportStaff = (v) => { setShowImportStaffRaw(v); if (onImportToggle) onImportToggle(v); };
+  useEffect(() => { setShowImportStaffRaw(!!initialShowImport); }, [initialShowImport]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [search, setSearch] = useState(initialSearch || "");
@@ -10943,11 +11207,12 @@ const calNavBtn = {
   background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, width: 26, height: 26,
   fontSize: 14, color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "center",
 };
-function CalendarView({ data, deleteHistoryEntries, deleteUnavailableHistoryEntry }) {
+function CalendarView({ initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry }) {
   const canDelete = !!(deleteHistoryEntries && deleteUnavailableHistoryEntry);
   const { t, lang } = useLang();
-  const [month, setMonth] = useState(todayStr().slice(0, 7));
-  const [selectedDate, setSelectedDate] = useState(todayStr());
+  const [month, setMonth] = useState((initialDate || todayStr()).slice(0, 7));
+  const [selectedDate, setSelectedDate] = useState(initialDate || todayStr());
+  useEffect(() => { if (initialDate) { setSelectedDate(initialDate); setMonth(initialDate.slice(0, 7)); } }, [initialDate]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
@@ -12243,7 +12508,7 @@ function CommandPalette({ data, onNavigate, onClose }) {
       });
       (data.skipLog || []).forEach((e) => {
         if ((e.name || "").toLowerCase().includes(query) || String(e.number || "").toLowerCase().includes(query) || (e.note || "").toLowerCase().includes(query)) {
-          items.push({ kind: "skip", icon: "🚫", label: `${e.name} · ${formatDMY(e.date)}${e.note ? " · " + e.note : ""}`, view: { mode: "skipHistory", presetSearch: e.number || e.name } });
+          items.push({ kind: "skip", icon: "🚫", label: `${e.name} · ${formatDMY(e.date)}${e.note ? " · " + e.note : ""}`, view: { mode: "skipHistory", presetSearch: e.number || e.name, historyId: e.id } });
         }
       });
     }
@@ -12351,7 +12616,7 @@ function WelcomeModal({ onStartTour }) {
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: step === 0 ? 10 : 14 }}>
           <LangInlineToggle />
         </div>
-        {step === 0 && <img src="./welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
+        {step === 0 && <img src="/welcome-banner.png" alt="" style={{ width: "100%", height: "auto", display: "block", marginBottom: 16 }} />}
         <div style={{ display: "flex", gap: 5, marginBottom: 16 }}>
           {WELCOME_STEPS.map((_, i) => (
             <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= step ? "var(--accent-strong)" : "var(--border-soft)" }} />
@@ -15361,6 +15626,8 @@ class ErrorBoundary extends React.Component {
 }
 
 function RootApp() {
+  const nbPath = useNbPath();
+  const nbOnAppPath = nbIsAppPath(nbPath);
   const params = new URLSearchParams(window.location.search);
   let viewUid = params.get("view");
   // Ignoring a malformed ?view= param outright (rather than trying to
@@ -15373,7 +15640,8 @@ function RootApp() {
   // exactly as if that code were in the URL, so a bare visit to the site
   // (no link needed at all) goes straight into that person's pinned
   // roster every time, on this device only.
-  if (!viewUid) {
+  // (Only on non-/app URLs: typing an explicit /app/... address always opens the app itself.)
+  if (!viewUid && !nbOnAppPath) {
     try {
       const pinned = localStorage.getItem(PINNED_VIEW_KEY);
       if (pinned) {
@@ -15394,6 +15662,7 @@ function RootApp() {
     } catch (e) { /* localStorage unavailable — just fall through to normal sign-in */ }
   }
   if (viewUid) return <PublicRosterView uid={viewUid} />;
+  if (!nbOnAppPath && NB_PUBLIC_PATHS.indexOf(nbPath) === -1) return <NotFoundStandalone />;
   return <DutyRoster />;
 }
 
@@ -15403,7 +15672,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Root
 <script>
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./service-worker.js").then((reg) => {
+      navigator.serviceWorker.register("/service-worker.js").then((reg) => {
         // Actively checks for a newer service-worker.js on every load
         // instead of waiting for the browser's own (much slower, often
         // 24h+) background update check — new deploys take effect the
