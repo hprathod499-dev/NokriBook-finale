@@ -51,9 +51,9 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Console" />
-<meta name="application-name" content="Console" />
-<meta name="description" content="Console" />
+<meta name="apple-mobile-web-app-title" content="Nokri Book" />
+<meta name="application-name" content="Nokri Book" />
+<meta name="description" content="Nokri Book — police duty roster and staff management" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=Noto+Sans+Gujarati:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
@@ -652,6 +652,19 @@ function nbNavigate(to, opts) {
   } catch (e) { window.location.assign(to); return; }
   window.dispatchEvent(new Event(NB_NAV_EVENT));
 }
+// Ctrl/Cmd/Shift-click or middle-click on any sidebar item opens its URL in a new tab.
+(function nbNewTabLinks() {
+  if (window.__nbNewTab) return; window.__nbNewTab = true;
+  const go = (e) => {
+    const el = e.target && e.target.closest ? e.target.closest("[data-nb-path]") : null;
+    if (!el) return;
+    if (e.type === "auxclick" ? e.button !== 1 : !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+    e.preventDefault(); e.stopPropagation();
+    window.open(el.getAttribute("data-nb-path"), "_blank", "noopener");
+  };
+  document.addEventListener("click", go, true);
+  document.addEventListener("auxclick", go, true);
+})();
 function useNbPath() {
   const [path, setPath] = useState(() => nbCleanPath(window.location.pathname));
   useEffect(() => {
@@ -671,7 +684,7 @@ function nbViewToPath(v) {
   switch (v.mode) {
     case "assignDuty": return v.subTab === "group" ? "/app/group-duty" : v.subTab === "misc" ? "/app/duties/misc" : "/app/duties/new";
     case "home": return "/app/duties/today";
-    case "calendar": return v.date ? "/app/duties/" + enc(v.date) : "/app/duties/calendar";
+    case "calendar": return v.batchId ? "/app/group-duty/" + enc(v.batchId) : v.date ? "/app/duties/" + enc(v.date) : "/app/duties/calendar";
     case "category": return v.catId ? "/app/work-types/" + enc(v.catId) : "/app/work-types";
     case "staff":
       if (v.showImport) return "/app/staff/import";
@@ -679,7 +692,7 @@ function nbViewToPath(v) {
       if (v.presetSearch !== undefined && v.presetSearch !== null && v.presetSearch !== "") return "/app/staff/" + enc(v.presetSearch) + (v.edit ? "/edit" : "");
       return "/app/staff";
     case "skipHistory": return v.historyId ? "/app/history/" + enc(v.historyId) : "/app/history";
-    case "report": return "/app/reports";
+    case "report": return v.focus === "exports" ? "/app/reports/exports" : v.sort === "duties" ? "/app/reports/duties" : v.sort === "name" ? "/app/reports/staff" : "/app/reports";
     case "events": return v.tab === "reminders" ? "/app/events/reminders" : "/app/events";
     case "recycle": return "/app/recycle-bin";
     default: return "/app/dashboard";
@@ -717,7 +730,10 @@ function nbResolveRoute(path, signedIn) {
       if (nbIsIsoDate(b) && n === 3 && c === "edit") return V({ mode: "calendar", date: b }, ["Edit Duties — " + b, "ડ્યુટી સુધારો — " + b]);
       return NF;
     case "group-duty":
-      return (n === 1 || (n === 2 && b === "new")) ? V({ mode: "assignDuty", subTab: "group" }, ["Group Duty", "જૂથ ડ્યુટી"]) : NF;
+      if (n === 1 || (n === 2 && b === "new")) return V({ mode: "assignDuty", subTab: "group" }, ["Group Duty", "જૂથ ડ્યુટી"]);
+      // :groupDutyId = the `batch` id every entry of one group-duty assignment carries
+      if (n === 2) return V({ mode: "calendar", batchId: b }, ["Group Duty", "જૂથ ડ્યુટી"]);
+      return NF;
     case "work-types":
       if (n === 1) return V({ mode: "category" }, ["Work Type", "કામનો પ્રકાર"]);
       if (n === 2) return V({ mode: "category", catId: b }, ["Work Type", "કામનો પ્રકાર"]);
@@ -735,9 +751,9 @@ function nbResolveRoute(path, signedIn) {
       return NF;
     case "reports":
       if (n === 1) return V({ mode: "report" }, ["Reports", "અહેવાલો"]);
-      if (n === 2 && b === "duties") return V({ mode: "report" }, ["Duty Reports", "ડ્યુટી અહેવાલો"]);
-      if (n === 2 && b === "staff") return V({ mode: "report" }, ["Staff Reports", "સ્ટાફ અહેવાલો"]);
-      if (n === 2 && b === "exports") return V({ mode: "report" }, ["Exports", "એક્સપોર્ટ"]);
+      if (n === 2 && b === "duties") return V({ mode: "report", sort: "duties" }, ["Duty Reports", "ડ્યુટી અહેવાલો"]);
+      if (n === 2 && b === "staff") return V({ mode: "report", sort: "name" }, ["Staff Reports", "સ્ટાફ અહેવાલો"]);
+      if (n === 2 && b === "exports") return V({ mode: "report", focus: "exports" }, ["Exports", "એક્સપોર્ટ"]);
       return NF;
     case "events":
       if (n === 1) return V({ mode: "events" }, ["Events", "ઇવેન્ટ્સ"]);
@@ -764,6 +780,13 @@ function nbHistorySearch(data, view) {
   return e ? (e.number || e.name) : undefined;
 }
 
+function nbGroupBatchDate(data, batchId) {
+  let first = null;
+  Object.values((data && data.membership) || {}).forEach((list) => (list || []).forEach((m) => (m.history || []).forEach((e) => {
+    if (e && e.batch === batchId && e.date && (!first || e.date < first)) first = e.date;
+  })));
+  return first;
+}
 function NotFoundPage() {
   const { t } = useLang();
   return (
@@ -7329,7 +7352,8 @@ function DutyRoster() {
   const routeNotFound = route.kind === "notfound" || (route.kind === "view" && (
     (view.mode === "staff" && view.staffId && !(data.staff || {})[view.staffId]) ||
     (view.mode === "category" && view.catId && !(data.categories || []).some((c) => c.id === view.catId)) ||
-    (view.mode === "skipHistory" && view.historyId && !(data.skipLog || []).some((e) => e.id === view.historyId))
+    (view.mode === "skipHistory" && view.historyId && !(data.skipLog || []).some((e) => e.id === view.historyId)) ||
+    (view.mode === "calendar" && view.batchId && !nbGroupBatchDate(data, view.batchId))
   ));
   const vm = routeNotFound ? "__none" : view.mode;
 
@@ -7529,7 +7553,7 @@ function DutyRoster() {
           {vm === "staff" && (
             <StaffView
               key={view.presetSearch || ""}
-              initialShowImport={!!view.showImport} onImportToggle={(open) => setView({ mode: "staff", showImport: open }, { replace: true })}
+              focusStaffId={view.staffId} editMode={!!view.edit} addMode={view.sub === "add"} initialShowImport={!!view.showImport} onImportToggle={(open) => setView({ mode: "staff", showImport: open }, { replace: true })}
               data={data} createStaff={createStaff} renameStaff={renameStaff} setStaffPhone={setStaffPhone}
               deleteStaffGlobally={deleteStaffGlobally} setUnavailable={setUnavailable} clearUnavailable={clearUnavailable}
               changeUnavailableDuration={changeUnavailableDuration}
@@ -7543,8 +7567,8 @@ function DutyRoster() {
               exportBackup={exportBackup}
             />
           )}
-          {vm === "calendar" && <CalendarView initialDate={view.date} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
-          {vm === "report" && <ReportView data={data} />}
+          {vm === "calendar" && <CalendarView initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
+          {vm === "report" && <ReportView data={data} initialSort={view.sort} focus={view.focus} />}
           {vm === "events" && (
             <EventsView
               data={data} allReminders={allReminders}
@@ -7787,9 +7811,9 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
       </div>
 
       <div style={{ padding: "8px 0", borderBottom: "1px solid #1B2733" }}>
-        <button data-tour="nb-tour-nav-assign" onClick={() => setView({ mode: "assignDuty" })} style={navBtn(view.mode === "assignDuty")} className="gu">📝 {t("Assign duty", "ડ્યુટી સોંપો")}</button>
-        <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
-        <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
+        <button data-tour="nb-tour-nav-assign" onClick={() => setView({ mode: "assignDuty" })} data-nb-path={nbViewToPath({ mode: "assignDuty" })} style={navBtn(view.mode === "assignDuty")} className="gu">📝 {t("Assign duty", "ડ્યુટી સોંપો")}</button>
+        <button onClick={() => setView({ mode: "home" })} data-nb-path={nbViewToPath({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
+        <button onClick={() => setView({ mode: "calendar" })} data-nb-path={nbViewToPath({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
       </div>
 
       <div data-tour="nb-tour-nav-worktypes" style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
@@ -7812,7 +7836,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                 </span>
               )}
-              <button onClick={() => setView({ mode: "category", catId: c.id })} style={{
+              <button onClick={() => setView({ mode: "category", catId: c.id })} data-nb-path={nbViewToPath({ mode: "category", catId: c.id })} style={{
                 flex: 1, textAlign: "left", background: active ? "#1B2733" : "transparent",
                 border: "none", borderLeft: active ? "3px solid var(--accent-strong)" : "3px solid transparent", borderRadius: editing ? 6 : 0,
                 color: active ? "#fff" : "#B7C2CA", padding: editing ? "8px 10px 8px 4px" : "9px 16px 9px 15px", fontSize: 13,
@@ -7849,16 +7873,16 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
       </div>
 
       <div style={{ borderTop: "1px solid #1B2733", padding: "8px 0" }}>
-        <button data-tour="nb-tour-nav-staff" onClick={() => setView({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</button>
-        <button data-tour="nb-tour-nav-skiphistory" onClick={() => setView({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
-        <button onClick={() => setView({ mode: "events" })} style={{ ...navBtn(view.mode === "events"), display: "flex", justifyContent: "space-between", alignItems: "center" }} className="gu">
+        <button data-tour="nb-tour-nav-staff" onClick={() => setView({ mode: "staff" })} data-nb-path={nbViewToPath({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</button>
+        <button data-tour="nb-tour-nav-skiphistory" onClick={() => setView({ mode: "skipHistory" })} data-nb-path={nbViewToPath({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
+        <button onClick={() => setView({ mode: "events" })} data-nb-path={nbViewToPath({ mode: "events" })} style={{ ...navBtn(view.mode === "events"), display: "flex", justifyContent: "space-between", alignItems: "center" }} className="gu">
           <span>🔔 {t("Events & reminders", "ઇવેન્ટ્સ અને રિમાઇન્ડર")}</span>
           {pendingReminderCount > 0 && (
             <span className="mono" style={{ fontSize: 10.5, background: "var(--accent)", color: "var(--text-primary)", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{pendingReminderCount}</span>
           )}
         </button>
-        <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
-        <button onClick={() => setView({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
+        <button onClick={() => setView({ mode: "report" })} data-nb-path={nbViewToPath({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
+        <button onClick={() => setView({ mode: "recycle" })} data-nb-path={nbViewToPath({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
         <button data-tour="nb-tour-nav-settings" onClick={onSettings} style={navBtn(false)} className="gu">⚙️ {t("Settings", "સેટિંગ્સ")}</button>
       </div>
     </div>
@@ -9970,7 +9994,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
   );
 }
 
-function StaffView({ initialShowImport, onImportToggle,
+function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImportToggle,
   data, createStaff, renameStaff, setStaffPhone, deleteStaffGlobally, setUnavailable, clearUnavailable,
   setPresentEverywhere,
   renameLeaveType, renameOutstationType,
@@ -10054,7 +10078,16 @@ function StaffView({ initialShowImport, onImportToggle,
   // row compact and harder to misclick a destructive action on, while the
   // full set is still one tap away via this toggle whenever actually
   // needed.
-  const [showFullActions, setShowFullActions] = useState(false);
+  const [showFullActions, setShowFullActions] = useState(!!editMode);
+  // /app/staff/:id -> scroll to + highlight that person's row; /edit also reveals the
+  // row's edit-name / remove controls; /app/staff/add focuses the add-staff form.
+  useEffect(() => { if (editMode) setShowFullActions(true); }, [editMode]);
+  useEffect(() => {
+    const el = focusStaffId ? document.getElementById("nb-staff-row-" + focusStaffId)
+      : addMode ? document.getElementById("nb-add-staff-number") : null;
+    if (!el) return;
+    try { el.scrollIntoView({ behavior: "smooth", block: "center" }); if (addMode) el.focus(); } catch (e) {}
+  }, [focusStaffId, addMode, editMode]);
   // Each of the three lists (Leave types / Outstation types /
   // Designations) below starts collapsed behind its own arrow — matching
   // the sidebar's own collapse arrow — so this panel doesn't default to
@@ -10340,7 +10373,7 @@ function StaffView({ initialShowImport, onImportToggle,
               const sty = STATUS_STYLE[kind] || STATUS_STYLE.Present;
               const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
               return (
-                <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
+                <tr key={s.number} id={"nb-staff-row-" + s.number} style={{ borderTop: "1px solid var(--border-soft)", ...(focusStaffId && String(s.number) === String(focusStaffId) ? { background: "var(--highlight-bg)", outline: "2px solid var(--accent)", outlineOffset: -2 } : null) }}>
                   <td style={td} className="mono">{s.number}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">
                     <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} title={t(`Duty meter: ${heat}`, `ડ્યુટી મીટર: ${heat}`)} />
@@ -10500,7 +10533,7 @@ function StaffView({ initialShowImport, onImportToggle,
         onSubmit={(e) => { e.preventDefault(); createStaff(num, name, phone, newStaffDesg); setNum(""); setName(""); setPhone("+91 "); setNewStaffDesg(""); }}
         style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 20 }}
       >
-        <input type="text" inputMode="numeric" placeholder={t("Buckle number", "બકલ નંબર")} value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))} style={{ width: 150 }} className="mono" />
+        <input id="nb-add-staff-number" type="text" inputMode="numeric" placeholder={t("Buckle number", "બકલ નંબર")} value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, ""))} style={{ width: 150 }} className="mono" />
         <input type="text" placeholder={t("Full name", "પૂરું નામ")} value={name} onChange={(e) => setName(e.target.value)} style={{ width: 220 }} className="gu" />
         <input type="text" placeholder={t("Mobile number (optional)", "મોબાઇલ નંબર (વૈકલ્પિક)")} value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: 160 }} className="mono" />
         <select value={newStaffDesg} onChange={(e) => setNewStaffDesg(e.target.value)} style={{ width: 160, fontSize: 13 }} className="gu">
@@ -11207,12 +11240,13 @@ const calNavBtn = {
   background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, width: 26, height: 26,
   fontSize: 14, color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "center",
 };
-function CalendarView({ initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry }) {
+function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry }) {
   const canDelete = !!(deleteHistoryEntries && deleteUnavailableHistoryEntry);
   const { t, lang } = useLang();
   const [month, setMonth] = useState((initialDate || todayStr()).slice(0, 7));
-  const [selectedDate, setSelectedDate] = useState(initialDate || todayStr());
-  useEffect(() => { if (initialDate) { setSelectedDate(initialDate); setMonth(initialDate.slice(0, 7)); } }, [initialDate]);
+  const [selectedDate, setSelectedDateRaw] = useState(initialDate || todayStr());
+  const setSelectedDate = (d) => { setSelectedDateRaw(d); if (onDateChange && typeof d === "string") onDateChange(d); };
+  useEffect(() => { if (initialDate) { setSelectedDateRaw(initialDate); setMonth(initialDate.slice(0, 7)); } }, [initialDate]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
@@ -11895,12 +11929,14 @@ function DutyNoteModal({ record, onClose }) {
   );
 }
 
-function ReportView({ data }) {
+function ReportView({ initialSort, focus, data }) {
   const { t } = useLang();
   const [month, setMonth] = useState(todayStr().slice(0, 7));
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
-  const [sortNames, setSortNames] = useState("name"); // name | duties
+  const [sortNames, setSortNames] = useState(initialSort || "name"); // name | duties (mirrors /app/reports/duties | /staff)
+  useEffect(() => { if (initialSort) setSortNames(initialSort); }, [initialSort]);
+  useEffect(() => { if (focus === "exports") { const el = document.getElementById("nb-report-exports"); if (el) try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} } }, [focus]);
   const [showInfo, setShowInfo] = useState(false);
 
   const desgLabelOf = useMemo(() => {
@@ -12090,7 +12126,7 @@ function ReportView({ data }) {
         </p>
       )}
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
+      <div id="nb-report-exports" style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button
             onClick={() => setMonth((m) => shiftMonthStr(m, -1))}
