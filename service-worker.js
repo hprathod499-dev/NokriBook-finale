@@ -1,44 +1,49 @@
-// Minimal service worker for Nokri Book. Its main job for install
-// purposes is simply existing and successfully registering — Chrome
-// requires an active service worker before it will offer "Install app"
-// on both Android and desktop. Beyond that, it caches the app shell
-// (this page plus its icons/manifest) so the app still opens even with
-// no connection, falling back to the network for anything not cached
-// (e.g. the Firebase/Google/EmailJS scripts, which need to be live
-// anyway for the app to actually do anything once open).
+// Service worker for Nokri Book.
 //
-// IMPORTANT — this used to be stale-while-revalidate for EVERYTHING,
-// including index.html itself: always serve whatever's cached
-// immediately, and only update the cache in the background for next
-// time. That's fine for icons that basically never change, but for the
-// actual app code (index.html), it meant that if a cache was ever
-// populated from a broken/half-deployed moment, the app would keep
-// serving that exact broken snapshot on every single load — even after
-// the real site was completely fixed — because a cached response was
-// always available and always preferred, with no reason to ever prefer
-// the network instead. That's exactly the "worked on X, but stuck
-// broken on Y until Chrome data was wiped" bug. Fixed below by giving
-// the actual page content (any navigation request, i.e. loading
-// index.html) a NETWORK-FIRST strategy instead: always try to get the
-// current version first, and only fall back to the cached copy if
-// there's truly no connection at all. Static assets (icons, manifest)
-// keep cache-first, since being briefly one version behind on an icon
-// is harmless and this keeps things fast.
-const CACHE_NAME = "nokri-book-shell-v2";
+// Two jobs:
+//  1. Exist and register, so Chrome offers "Install app" (Android + desktop).
+//  2. Cache the app shell so the app still opens with no connection,
+//     falling back to the network for anything not cached (Firebase /
+//     Google / EmailJS scripts must be live anyway).
+//
+// Strategy (unchanged in spirit from v2):
+//  - Page navigations (opening/reloading any URL): NETWORK-FIRST. Always try
+//    the current version; use the cached copy only when genuinely offline.
+//    This is what prevents a broken snapshot from being served forever.
+//  - Icons/manifest and other same-origin static files: cache-first with a
+//    background refresh (being briefly stale is harmless).
+//
+// v3 — URL routing support (/app/staff, /app/duties/new, ...):
+//  - The app is a single-page app: EVERY page URL is the same index.html and
+//    the in-page router picks the screen. So the shell is cached under ONE
+//    key ("/index.html") and used as the offline fallback for every
+//    navigation, whatever its path.
+//  - On GitHub Pages, /app/... has no real file, so Pages answers with its
+//    404.html (an exact copy of index.html) using HTTP status 404. That
+//    response is a perfectly good app shell, so it is accepted and used to
+//    refresh the cached shell instead of being discarded for "not ok".
+//  - Precaching adds files one at a time, so one missing file can no longer
+//    stop index.html itself from being cached.
+const CACHE_NAME = "nokri-book-shell-v3";
+const SHELL_URL = "/index.html";
 const APP_SHELL = [
-  "./",
-  "./index.html",
-  "./manifest.json",
-  "./favicon-16.png",
-  "./favicon-32.png",
-  "./icon-192.png",
-  "./icon-512.png",
-  "./apple-touch-icon.png",
+  "/",
+  SHELL_URL,
+  "/manifest.json",
+  "/favicon-16.png",
+  "/favicon-32.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/apple-touch-icon.png",
+  "/profile-icon.png",
+  "/welcome-banner.png",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).catch(() => {})
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(APP_SHELL.map((url) => cache.add(url).catch(() => {})))
+    )
   );
   self.skipWaiting();
 });
@@ -52,36 +57,54 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// True for a response that is the HTML app shell: a normal 200, or the
+// GitHub Pages 404.html fallback (status 404 + HTML body) that serves it
+// for /app/... deep links.
+function isShellResponse(res) {
+  if (!res) return false;
+  if (res.ok) return true;
+  const type = res.headers && res.headers.get("content-type");
+  return res.status === 404 && !!type && type.indexOf("text/html") !== -1;
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-  // Only handle GET requests for same-origin app-shell files — anything
-  // else (Firebase, Google APIs, EmailJS, cross-origin CDN scripts)
-  // passes straight through to the network untouched.
+  // Only handle GET requests for same-origin files — everything else
+  // (Firebase, Google APIs, EmailJS, cross-origin CDN scripts) passes
+  // straight through to the network untouched.
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Any request for the page itself (opening/reloading the app) — always
-  // prefer a fresh copy from the network. Only reach for the cached
-  // version if the network request genuinely fails, i.e. actually
-  // offline — that's the one case this cache exists for.
+  // Opening / reloading / deep-linking to any page.
   if (req.mode === "navigate" || url.pathname.endsWith("/index.html") || url.pathname === "/") {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res && res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+          // Keep ONE fresh copy of the shell, no matter which URL was opened.
+          if (isShellResponse(res)) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) =>
+              // Re-wrap as a 200 so it is always a valid shell for any URL later.
+              cache.put(SHELL_URL, new Response(copy.body, {
+                status: 200,
+                headers: { "Content-Type": "text/html; charset=utf-8" },
+              }))
+            ).catch(() => {});
           }
+          // Return the network response as-is (a 404-status shell still
+          // renders the app; the in-page router takes over).
           return res;
         })
-        .catch(() => caches.match(req).then((cached) => cached || caches.match("./index.html")))
+        .catch(() =>
+          // Offline: serve the shell for ANY path (/app/staff/123 included).
+          caches.match(SHELL_URL).then((cached) => cached || caches.match("/"))
+        )
     );
     return;
   }
 
-  // Everything else in the app shell (icons, manifest) — cache-first is
-  // fine, these change rarely and being briefly stale is harmless.
+  // Everything else in the app shell (icons, manifest) — cache-first.
   event.respondWith(
     caches.match(req).then((cached) => {
       const network = fetch(req)
