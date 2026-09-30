@@ -1733,6 +1733,27 @@ function todayStr() {
 // Skip history, recycle-bin entries, and fully-past Leave/Outstation
 // periods get cleared — everything ON or AFTER this date is always kept,
 // no matter how "Format all data" is run.
+// Storage bar in Settings > Data. The % number next to it is always the
+// REAL usage; only the bar's look is eased: it fills slowly in the first
+// half and faster after ~50% (a smooth power curve, no visible kink),
+// and it grows in with an animation that starts gently and speeds up.
+function nbStorageBarWidth(pct) {
+  const p = Math.max(0, Math.min(100, pct)) / 100;
+  return Math.round(Math.pow(p, 1.7) * 1000) / 10; // 50% -> ~31%, 90% -> ~84%, 100% -> 100%
+}
+function NbStorageBar({ pct }) {
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setW(nbStorageBarWidth(pct))));
+    return () => cancelAnimationFrame(id);
+  }, [pct]);
+  const color = pct >= 90 ? "var(--status-error-text)" : pct >= 70 ? "var(--status-warning-text)" : "var(--status-success-text)";
+  return (
+    <div style={{ height: 6, borderRadius: 3, background: "var(--border)", overflow: "hidden" }} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+      <div style={{ width: w + "%", height: "100%", borderRadius: 3, background: color, transition: "width 1.4s cubic-bezier(0.55, 0.05, 0.35, 1), background-color 0.4s ease" }} />
+    </div>
+  );
+}
 // ---------- Storage used by one station ----------
 // Firestore allows at most 1 MiB per document, and a station's whole
 // roster is one document. Size is counted the way Firestore counts it.
@@ -3949,9 +3970,7 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                         <span>{t("Storage used", "વપરાયેલ સ્ટોરેજ")}</span>
                         <span style={{ fontWeight: 700, color: storagePct >= 90 ? "var(--status-error-text)" : "var(--text-primary)" }}>{storagePct}%</span>
                       </div>
-                      <div style={{ height: 6, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
-                        <div style={{ width: Math.min(100, storagePct) + "%", height: "100%", background: storagePct >= 90 ? "var(--status-error-text)" : storagePct >= 70 ? "var(--status-warning-text)" : "var(--status-success-text)" }} />
-                      </div>
+                      <NbStorageBar pct={storagePct} />
                     </div>
                   )}
                   {formatAllData && (
