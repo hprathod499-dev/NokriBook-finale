@@ -12,7 +12,6 @@ on:
     paths-ignore:
       - "android/**"
       - "firestore.rules"
-      - "email-worker/**"
       - "README.md"
   workflow_dispatch:
 
