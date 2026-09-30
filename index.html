@@ -13528,8 +13528,21 @@ function AboutPanel({ onClose }) {
         }}
       >
         <div style={{
-          position: "absolute", top: -40, left: "50%", transform: "translateX(-50%)",
-          width: 180, height: 180, borderRadius: "50%",
+          // top was -40 — with a 180px circle that put its brightest point
+          // (the gradient's 0% center) right around y=50 in the card,
+          // directly behind/around the 64px logo square that starts at
+          // y≈28 (the card's own 28px top padding). Since the card also
+          // clips with overflow:hidden, that bright center was landing
+          // squarely in the still-visible, still-fairly-opaque part of
+          // the gradient right where the logo sits, tinting it with
+          // whatever --accent-glow happens to be for the active theme.
+          // Pushed further up (and shrunk slightly) so the gradient's
+          // brightest point sits above the card's visible top edge —
+          // by the time the fade reaches the logo's actual position, it's
+          // already past the 70% mark where this gradient goes fully
+          // transparent, so no color reaches the logo in any theme.
+          position: "absolute", top: -110, left: "50%", transform: "translateX(-50%)",
+          width: 160, height: 160, borderRadius: "50%",
           background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)", pointerEvents: "none",
         }} />
         <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")}
