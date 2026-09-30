@@ -5347,7 +5347,31 @@ function DutyRoster() {
           conflictErr.freshData = freshData;
           throw conflictErr;
         }
+        // One registered station = one account. When this save gives the
+        // account a new station (state|district|name), claim it here, in
+        // the same transaction — the Security Rules refuse the save
+        // otherwise — and release the old one.
+        const newKey = nbStationKey(clean);
+        const oldKey = freshData ? nbStationKey(freshData) : null;
+        const regRef = (k) => db.collection("stationRegistry").doc(k);
+        const newReg = newKey && newKey !== oldKey ? await tx.get(regRef(newKey)) : null;
+        const oldReg = oldKey && oldKey !== newKey ? await tx.get(regRef(oldKey)) : null;
+        if (newReg && newReg.exists && newReg.data().uid !== accountUid) {
+          const takenErr = new Error("Station already registered by another account");
+          takenErr.__nameTaken = true;
+          throw takenErr;
+        }
         tx.set(docRef, clean);
+        if (newReg) {
+          tx.set(regRef(newKey), {
+            uid: accountUid,
+            state: typeof clean.state === "string" ? clean.state : "",
+            district: clean.district,
+            stationName: clean.stationName,
+            updatedAt: Date.now(),
+          });
+        }
+        if (oldReg && oldReg.exists && oldReg.data().uid === accountUid) tx.delete(regRef(oldKey));
       })
         .then(() => {
           confirmedRevRef.current = expectedRev + 1;
@@ -5357,6 +5381,21 @@ function DutyRoster() {
           syncDistrictDigest(dataRef.current);
         })
         .catch((e) => {
+          if (e && e.__nameTaken) {
+            // Someone else already holds this station — put the screen back
+            // to what's really saved and say why.
+            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+            if (pendingWritesRef.current === 0) setSaveStatus("idle");
+            nameTakenToast();
+            docRef.get().then((snap) => {
+              if (!snap.exists) return;
+              const fresh = normalizeData(snap.data());
+              dataRef.current = fresh;
+              setData(fresh);
+              confirmedRevRef.current = fresh._rev || 0;
+            }).catch(() => {});
+            return;
+          }
           if (e && e.__conflict) {
             console.error("Write conflict — another tab/device saved first, this stale write was discarded instead of overwriting it:", e);
             const normalized = normalizeData(e.freshData);
@@ -7863,8 +7902,8 @@ function DutyRoster() {
           signOutUser={signOutUser} formatAllData={formatAllData}
           onDeleteAccount={() => setShowDeleteAccountModal(true)}
           stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
-          state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s })}
-          district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d })}
+          state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s, ...(s !== (dataRef.current.state || "") ? { district: "", stationName: "" } : {}) })}
+          district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d, ...(d !== (dataRef.current.district || "") ? { stationName: "" } : {}) })}
           stationApprovalStatus={data.stationApprovalStatus}
           // Same effect as a fresh OrgSetupGateModal "Request new station"
           // submission (see that modal's onSubmit above), just reachable

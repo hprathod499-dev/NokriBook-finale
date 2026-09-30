@@ -118,9 +118,24 @@ service cloud.firestore {
           || isBlockedDoc(request.resource.data);
       }
 
+      // ONE ACCOUNT PER STATION: whenever an account gets a new
+      // station (state|district|name), the same write must register
+      // that station to this account in stationRegistry. The registry
+      // allows only one owner per station, so a second account can
+      // never save the same station. Accounts whose station didn't
+      // change (and "Other" orgs with no district) are unaffected.
+      function stationClaimOk() {
+        let n = request.resource.data;
+        return !hasStation(n)
+          || (resource != null && hasStation(resource.data)
+              && stationKey(n) == stationKey(resource.data))
+          || getAfter(/databases/$(database)/documents/stationRegistry/$(stationKey(n))).data.uid == uid;
+      }
+
       allow read: if isOwner();
 
       allow create: if isOwner()
+        && stationClaimOk()
         && request.resource.data.get('blocked', false) == false
         && (approvalOf(request.resource.data) == null
             || (approvalOf(request.resource.data) == "pending"
@@ -131,7 +146,8 @@ service cloud.firestore {
       allow update: if isOwner()
         && !isBlockedDoc(resource.data)
         && ownerApprovalChangeOk()
-        && pendingWindowOk();
+        && pendingWindowOk()
+        && stationClaimOk();
 
       // Admin: approve / block only.
       allow update: if isAdminOf(resource.data)
@@ -193,13 +209,16 @@ service cloud.firestore {
 
     // ============================================================
     // STATION NAME REGISTRY  —  stationRegistry/{state|district|station}
-    // One owner per station name. Unlisted names need a pending /
-    // approved request.
+    // One owner per station. Once registered, nobody else can create or
+    // take over the same station (create fails because the doc exists;
+    // update is owner-only). Unlisted names need a pending/approved
+    // request. Freed only by its owner (rename / delete account) or an
+    // admin (deny / cleanup).
     // ============================================================
     match /stationRegistry/{key} {
 
       function claimOk() {
-        let a = accountOf(request.auth.uid);
+        let a = getAfter(/databases/$(database)/documents/accounts/$(request.auth.uid)).data;
         let d = request.resource.data;
         let idx = /databases/$(database)/documents/masterData/stationIndex;
         return signedIn()
