@@ -703,7 +703,7 @@ function nbViewToPath(v) {
   v = v || {};
   const enc = encodeURIComponent;
   switch (v.mode) {
-    case "assignDuty": return v.subTab === "group" ? "/app/group-duty" : v.subTab === "misc" ? "/app/duties/misc" : "/app/duties/new";
+    case "assignDuty": return v.subTab === "group" ? "/app/group-duty" : v.subTab === "misc" ? "/app/duties/misc" : v.subTab === "leave" ? "/app/leave" : "/app/duties/new";
     case "home": return "/app/duties/today";
     case "calendar": return v.batchId ? "/app/group-duty/" + enc(v.batchId) : v.date ? "/app/duties/" + enc(v.date) : "/app/duties/calendar";
     case "category": return v.catId ? "/app/work-types/" + enc(v.catId) : "/app/work-types";
@@ -755,6 +755,8 @@ function nbResolveRoute(path, signedIn) {
       // :groupDutyId = the `batch` id every entry of one group-duty assignment carries
       if (n === 2) return V({ mode: "calendar", batchId: b }, ["Group Duty", "જૂથ ડ્યુટી"]);
       return NF;
+    case "leave":
+      return n === 1 ? V({ mode: "assignDuty", subTab: "leave" }, ["Record Leave", "રજા નોંધો"]) : NF;
     case "work-types":
       if (n === 1) return V({ mode: "category" }, ["Work Type", "કામનો પ્રકાર"]);
       if (n === 2) return V({ mode: "category", catId: b }, ["Work Type", "કામનો પ્રકાર"]);
@@ -5589,6 +5591,16 @@ function DutyRoster() {
     if (!turningOn && oldToken) db.collection("sharedRosters").doc(oldToken).delete().catch(() => {});
     persist({ ...dataRef.current, shareEnabled: turningOn, shareToken: turningOn ? nbNewShareToken() : null });
   };
+  // Share menu (WhatsApp / Copy link): turns sharing on with a fresh
+  // token the first time, and returns the link straight away so WhatsApp
+  // can open inside the same tap (popup blockers need that).
+  const ensureShareUrl = () => {
+    const cur = dataRef.current || {};
+    if (cur.shareEnabled && cur.shareToken) return `${window.location.origin}/?view=${cur.shareToken}`;
+    const token = nbNewShareToken();
+    persist({ ...cur, shareEnabled: true, shareToken: token });
+    return `${window.location.origin}/?view=${token}`;
+  };
   // Accounts that had Share on before tokens existed: give them one
   // (their old uid-based link stops working — they re-send the new link).
   useEffect(() => {
@@ -7668,12 +7680,18 @@ function DutyRoster() {
               style={{ display: "none" }}
               onChange={(e) => { importBackup(e.target.files[0]); e.target.value = ""; }}
             />
-            <button onClick={() => setShowSharePanel(true)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} style={{
+            <button onClick={() => setShowSharePanel((v) => !v)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} aria-label={langCtxValue.t("Share", "શેર")} style={{
               ...undoRedoBtn(true),
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
               background: data.shareEnabled ? "var(--status-success-bg)" : "var(--bg-surface)",
               borderColor: data.shareEnabled ? "var(--status-success-border)" : "var(--border)",
               color: data.shareEnabled ? "var(--status-success-text)" : "var(--text-primary)",
-            }}>{langCtxValue.t("Share", "શેર")}{data.shareEnabled ? " ✓" : ""}</button>
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
+              </svg>
+            </button>
             <button onClick={() => setShowAboutPanel(true)} title={langCtxValue.t("About this app", "આ એપ વિશે")} aria-label={langCtxValue.t("About this app", "આ એપ વિશે")} style={{
               ...undoRedoBtn(true),
               // Deliberately keeps the same 6px top/bottom padding as
@@ -7785,8 +7803,9 @@ function DutyRoster() {
       {showSharePanel && (
         <SharePanel
           enabled={!!data.shareEnabled}
-          shareUrl={shareUrl}
-          onToggle={toggleShare}
+          getShareUrl={ensureShareUrl}
+          stationName={data.stationName}
+          onStop={() => { if (dataRef.current.shareEnabled) toggleShare(); setShowSharePanel(false); }}
           onClose={() => setShowSharePanel(false)}
           showToast={showToast}
         />
@@ -8561,14 +8580,21 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
             style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (kind === "Outstation" ? "var(--status-purple-border)" : "var(--border)"), background: kind === "Outstation" ? "var(--status-purple-bg)" : "transparent", color: kind === "Outstation" ? "var(--status-purple-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
           >🧳 {t("Outstation", "બહારગામ")}</button>
         </div>
-
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{kind === "Leave" ? t("Leave type", "રજાનો પ્રકાર") : t("Outstation type", "બહારગામનો પ્રકાર")}</label>
-          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }} className="gu">
-            {typeList.length === 0 && <option value="">{kind === "Leave" ? t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી") : t("No outstation types set up yet", "હજુ કોઈ બહારગામનો પ્રકાર સેટ નથી")}</option>}
-            {typeList.map((lt) => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
-          </select>
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Buckle number", "બકલ નંબર")}</label>
+          <BuckleOrNameInput
+            data={data} value={numberInput} onChange={setNumberInput} onEnter={addToQueue}
+            className="mono" style={{ width: "100%", boxSizing: "border-box" }}
+          />
+          {numberInput.trim() && (
+            <div style={{ fontSize: 11.5, marginTop: 4 }} className="gu">
+              {lookupName
+                ? <span style={{ color: "var(--status-success-text)" }}>{lookupName}</span>
+                : <span style={{ color: "var(--status-error-text)" }}>{t("No staff found with that number — add them in Manage staff first", "તે નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી — પહેલા સ્ટાફ સંચાલિત કરોમાં ઉમેરો")}</span>}
+            </div>
+          )}
         </div>
+
 
         <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
           <button
@@ -8606,19 +8632,13 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
           </div>
         )}
 
+
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Buckle number", "બકલ નંબર")}</label>
-          <BuckleOrNameInput
-            data={data} value={numberInput} onChange={setNumberInput} onEnter={addToQueue}
-            className="mono" style={{ width: "100%", boxSizing: "border-box" }}
-          />
-          {numberInput.trim() && (
-            <div style={{ fontSize: 11.5, marginTop: 4 }} className="gu">
-              {lookupName
-                ? <span style={{ color: "var(--status-success-text)" }}>{lookupName}</span>
-                : <span style={{ color: "var(--status-error-text)" }}>{t("No staff found with that number — add them in Manage staff first", "તે નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી — પહેલા સ્ટાફ સંચાલિત કરોમાં ઉમેરો")}</span>}
-            </div>
-          )}
+          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{kind === "Leave" ? t("Leave type", "રજાનો પ્રકાર") : t("Outstation type", "બહારગામનો પ્રકાર")}</label>
+          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }} className="gu">
+            {typeList.length === 0 && <option value="">{kind === "Leave" ? t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી") : t("No outstation types set up yet", "હજુ કોઈ બહારગામનો પ્રકાર સેટ નથી")}</option>}
+            {typeList.map((lt) => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
+          </select>
         </div>
 
         <button
@@ -12619,65 +12639,55 @@ function ReminderPanel({ reminders, onAcknowledge, onClose, onOpenEvents, notifP
   );
 }
 
-function SharePanel({ enabled, shareUrl, onToggle, onClose, showToast }) {
+function SharePanel({ enabled, getShareUrl, stationName, onStop, onClose, showToast }) {
   const { t } = useLang();
   useEscToClose(onClose);
+  const shareWhatsApp = () => {
+    const url = getShareUrl();
+    const msg = t(
+      `${stationName ? stationName + " — " : ""}Nokri Book duty roster (view only):\n${url}`,
+      `${stationName ? stationName + " — " : ""}નોકરી બુક ડ્યુટી રોસ્ટર (ફક્ત જોવા માટે):\n${url}`
+    );
+    window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank", "noopener");
+    onClose();
+  };
   const copyLink = () => {
-    navigator.clipboard.writeText(shareUrl)
-      .then(() => showToast(t("Link copied", "લિંક કોપી થઈ")))
-      .catch(() => showToast(t("Couldn't copy — select and copy the link manually", "કોપી થઈ શક્યું નથી — લિંક જાતે પસંદ કરીને કોપી કરો"), "error"));
+    const url = getShareUrl();
+    const done = () => { showToast(t("Link copied", "લિંક કોપી થઈ")); onClose(); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(() => { window.prompt(t("Copy this link:", "આ લિંક કોપી કરો:"), url); onClose(); });
+    } else {
+      window.prompt(t("Copy this link:", "આ લિંક કોપી કરો:"), url); onClose();
+    }
+  };
+  const optionBtn = {
+    display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "12px 14px",
+    background: "transparent", border: "none", borderRadius: 8, cursor: "pointer",
+    fontSize: 14, fontWeight: 600, color: "var(--text-primary)", textAlign: "left",
   };
   return (
-    <div role="dialog" aria-label={t("Share roster (view only)", "રોસ્ટર શેર કરો (ફક્ત જોવા માટે)")} className="modal-card" style={{
-      position: "fixed", top: 18, right: 18, width: 340, maxWidth: "calc(100vw - 36px)",
-      background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12,
-      boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--border-soft)" }}>
-        <div className="disp gu" style={{ fontSize: 14, fontWeight: 700 }}>{t("Share roster (view only)", "રોસ્ટર શેર કરો (ફક્ત જોવા માટે)")}</div>
-        <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15 }}>✕</button>
-      </div>
-
-      <div style={{ padding: "14px 16px" }}>
-        <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 12 }} className="gu">
-          {t("Anyone with this link can see the full roster — staff, categories, and duty history — but cannot sign in, edit, or see this Settings/Share area. No account needed on their end.", "આ લિંક ધરાવનાર કોઈપણ સંપૂર્ણ રોસ્ટર જોઈ શકે છે — સ્ટાફ, કેટેગરી અને ડ્યુટી ઇતિહાસ — પરંતુ સાઇન ઇન, એડિટ અથવા આ સેટિંગ્સ/શેર વિસ્તાર જોઈ શકતા નથી. તેમને કોઈ ખાતાની જરૂર નથી.")}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: enabled ? 12 : 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }} className="gu">{t("Sharing", "શેરિંગ")}</span>
-          <button
-            onClick={onToggle}
-            role="switch" aria-checked={enabled}
-            style={{
-              width: 44, height: 24, borderRadius: 12, border: "none", position: "relative", cursor: "pointer",
-              background: enabled ? "var(--status-success-text)" : "var(--border)", transition: "background 0.15s",
-            }}
-          >
-            <span style={{
-              position: "absolute", top: 2, left: enabled ? 22 : 2, width: 20, height: 20, borderRadius: "50%",
-              background: "var(--bg-surface)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)", transition: "left 0.15s",
-            }} />
-          </button>
-        </div>
-
+    <React.Fragment>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
+      <div role="menu" aria-label={t("Share", "શેર")} className="modal-card" style={{
+        position: "fixed", top: 58, right: 18, width: 240, maxWidth: "calc(100vw - 36px)",
+        background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12,
+        boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000, padding: 6,
+      }}>
+        <button role="menuitem" onClick={shareWhatsApp} style={optionBtn} className="gu">
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="#25D366" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/><path fill="#fff" d="M17.3 14.6c-.3-.1-1.7-.8-1.9-.9-.3-.1-.5-.1-.7.1l-.9 1.1c-.2.2-.3.2-.6.1a7.6 7.6 0 0 1-3.8-3.3c-.3-.5.3-.5.8-1.6.1-.2 0-.4 0-.5l-.9-2.1c-.2-.5-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.1 4.9 4.3 1.8.8 2.5.8 3.4.7.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.2-.6-.4z"/></svg>
+          WhatsApp
+        </button>
+        <button role="menuitem" onClick={copyLink} style={optionBtn} className="gu">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+          {t("Copy link", "લિંક કોપી કરો")}
+        </button>
         {enabled && (
-          <React.Fragment>
-            <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
-              <input
-                readOnly value={shareUrl} onFocus={(e) => e.target.select()}
-                style={{ flex: 1, fontSize: 11.5, padding: "7px 9px", boxSizing: "border-box" }}
-              />
-              <button onClick={copyLink} style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu">
-                {t("Copy", "કોપી")}
-              </button>
-            </div>
-            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="gu">
-              {t("Turn sharing off anytime to instantly disable this link.", "લિંક તરત જ બંધ કરવા માટે ગમે ત્યારે શેરિંગ બંધ કરો.")}
-            </div>
-          </React.Fragment>
+          <button onClick={onStop} style={{ display: "block", width: "100%", marginTop: 2, padding: "8px 14px 6px", background: "transparent", border: "none", borderTop: "1px solid var(--border-soft)", fontSize: 11.5, color: "var(--status-error-text)", textAlign: "left", cursor: "pointer" }} className="gu">
+            {t("Stop sharing (old link stops working)", "શેરિંગ બંધ કરો (જૂની લિંક બંધ થશે)")}
+          </button>
         )}
       </div>
-    </div>
+    </React.Fragment>
   );
 }
 
