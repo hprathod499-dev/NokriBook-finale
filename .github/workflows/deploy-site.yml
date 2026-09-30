@@ -1,0 +1,67 @@
+name: Deploy nokribook.in (fast build)
+
+# Every push to main: build the fast version of index.html, test it, and
+# only if the test passes publish it to GitHub Pages. If anything fails,
+# nothing is published and the site that's live right now stays live.
+#
+# One-time setting needed: repo Settings -> Pages -> Source = "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "android/**"
+      - "firestore.rules"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: build/package-lock.json
+
+      - name: Install build tools
+        working-directory: build
+        run: npm ci
+
+      - name: Build fast version
+        working-directory: build
+        run: npm run build
+
+      - name: Install test browser
+        working-directory: build
+        run: npx playwright install --with-deps chromium
+
+      - name: Safety test (sign-in screen, images, no errors)
+        working-directory: build
+        run: npm test
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

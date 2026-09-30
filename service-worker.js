@@ -24,7 +24,7 @@
 //    refresh the cached shell instead of being discarded for "not ok".
 //  - Precaching adds files one at a time, so one missing file can no longer
 //    stop index.html itself from being cached.
-const CACHE_NAME = "nokri-book-shell-v3";
+const CACHE_NAME = "nokri-book-shell-v4";
 const SHELL_URL = "/index.html";
 const APP_SHELL = [
   "/",

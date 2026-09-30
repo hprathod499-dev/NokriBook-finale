@@ -616,8 +616,6 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.9/babel.min.js" integrity="sha384-oLbIC13I/8DNBviftYPfOFQS5DC2WUmwk0SyIPmnzu1Ui+vYyATSSBJiJ5ETa4o/" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js" integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <script type="text/babel" data-type="module">
@@ -2052,6 +2050,25 @@ function drawPdfHeader(doc, title, stationName, district) {
   doc.text(title, 14, headerY);
   return headerY + 8;
 }
+// ---------- PDF library: loaded only when a PDF is first made ----------
+// jsPDF + autoTable are ~400 KB and only needed for exports, so they are
+// no longer downloaded on every app open.
+let _nbJsPdfPromise = null;
+function nbEnsureJsPDF() {
+  if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) return Promise.resolve();
+  if (_nbJsPdfPromise) return _nbJsPdfPromise;
+  const load = (src, integrity) => new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = src; el.integrity = integrity; el.crossOrigin = "anonymous";
+    el.onload = resolve;
+    el.onerror = () => reject(new Error("Could not load " + src));
+    document.head.appendChild(el);
+  });
+  _nbJsPdfPromise = load("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js", "sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk")
+    .then(() => load("https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js", "sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3"))
+    .catch((e) => { _nbJsPdfPromise = null; throw e; });
+  return _nbJsPdfPromise;
+}
 // ---------- One look for EVERY PDF ----------
 // Same body font size, same table header colour/margins, same
 // "period / Generated" lines under the header, same footer, and the
@@ -2203,6 +2220,7 @@ function ExportMenuButton({ disabled, pdfBusy, onExportCsv, onDownloadPdf }) {
 }
 
 async function downloadCategoryPdf(catLabel, roster, historyRows, period, stationName, district, designations) {
+  await nbEnsureJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
@@ -2332,6 +2350,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
 // renderTextToImage/drawTextImageInCell) for any autoTable cell holding
 // real Gujarati text (Name, Designation, Status can all be Gujarati).
 async function downloadStaffDirectoryPdf(staffList, stationName, district) {
+  await nbEnsureJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
@@ -2377,6 +2396,7 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
 // By number, Note) — built once by the caller and reused for both exports,
 // same pattern as Manage Staff's exportRows.
 async function downloadSkipHistoryPdf(rows, stationName, district) {
+  await nbEnsureJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
@@ -11033,6 +11053,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
 // other PDF in the app (native jsPDF text for headers/dates, rendered
 // images only for cells that actually contain Gujarati).
 async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, stationName, district) {
+  await nbEnsureJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
@@ -11752,6 +11773,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
     const CAL_FONT_PT = NB_PDF_FONT_PT;
     try {
       await ensureGujaratiCanvasFont();
+      await nbEnsureJsPDF();
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF();
       const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Leave / Outstation Calendar", data.stationName, data.district), nbPdfMonthLabel(month));
@@ -12236,6 +12258,7 @@ function ReportView({ initialSort, focus, data }) {
   const monthLabel = new Date(month + "-01T00:00:00").toLocaleDateString(t("en-IN", "gu-IN"), { month: "long", year: "numeric" });
 
   const downloadPdf = async () => {
+    await nbEnsureJsPDF();
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const GU_FONT = "NotoSansGujarati";
