@@ -7417,7 +7417,7 @@ function DutyRoster() {
   // so the gate never triggers and nobody sees VerifyEmailScreen right now
   // — but every check underneath is still fully intact. Flip it back to
   // true to turn the requirement back on exactly as it was.
-  const EMAIL_VERIFICATION_ENABLED = true;
+  const EMAIL_VERIFICATION_ENABLED = false;
   const EMAIL_VERIFICATION_CUTOFF = new Date("2026-09-23T00:00:00Z");
   const isPasswordAccount = user.providerData.some((p) => p.providerId === "password");
   const createdAfterCutoff = user.metadata && user.metadata.creationTime
