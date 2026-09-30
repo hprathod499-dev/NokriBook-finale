@@ -1715,9 +1715,28 @@ function todayStr() {
 // Skip history, recycle-bin entries, and fully-past Leave/Outstation
 // periods get cleared — everything ON or AFTER this date is always kept,
 // no matter how "Format all data" is run.
-function monthAgoStr() {
+// ---------- Storage used by one station ----------
+// Firestore allows at most 1 MiB per document, and a station's whole
+// roster is one document. Size is counted the way Firestore counts it.
+const NB_DOC_LIMIT_BYTES = 1048576;
+function nbFirestoreBytes(v) {
+  if (v === null || v === undefined || typeof v === "boolean") return 1;
+  if (typeof v === "number") return 8;
+  if (typeof v === "string") return new TextEncoder().encode(v).length + 1;
+  if (Array.isArray(v)) { let n = 0; for (const x of v) n += nbFirestoreBytes(x); return n; }
+  if (typeof v === "object") { let n = 0; for (const k in v) n += new TextEncoder().encode(k).length + 1 + nbFirestoreBytes(v[k]); return n; }
+  return 1;
+}
+// How much duty data "Format all data" keeps, counted back from the day
+// of the format:
+//   "keep"  (from Settings)                 -> last 2 months
+//   "keep6" (from the storage-full reminder) -> last 6 months
+const NB_FORMAT_KEEP_MONTHS = 2;
+const NB_FORMAT_KEEP_MONTHS_LIMIT = 6;
+function nbKeepMonthsFor(mode) { return mode === "keep6" ? NB_FORMAT_KEEP_MONTHS_LIMIT : NB_FORMAT_KEEP_MONTHS; }
+function monthAgoStr(months) {
   const d = new Date();
-  d.setMonth(d.getMonth() - 1);
+  d.setMonth(d.getMonth() - (months || NB_FORMAT_KEEP_MONTHS));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function daysBetween(a, b) {
@@ -2205,7 +2224,7 @@ function FormatChoiceModal({ onChoose, onClose }) {
         <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, textAlign: "center" }}>{t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</div>
         <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 16, textAlign: "center" }}>{t("Choose what to clear", "શું સાફ કરવું તે પસંદ કરો")}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button onClick={() => onChoose("keep")} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗓️ {t("Delete all data — keep this month", "બધો ડેટા ડિલીટ કરો — આ મહિનો સાચવો")}</button>
+          <button onClick={() => onChoose("keep")} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗓️ {t("Delete all data — keep last 2 months", "બધો ડેટા ડિલીટ કરો — છેલ્લા 2 મહિના રાખો")}</button>
           <button onClick={() => onChoose("all")} className="gu" style={{ background: "var(--btn-danger-solid)", color: "#fff", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗑️ {t("Delete all data", "બધો ડેટા ડિલીટ કરો")}</button>
         </div>
       </div>
@@ -3568,7 +3587,7 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ initialSection, user, signOutUser, formatAllData, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   const POLICE_LOCATIONS_GU = useMasterLocations();
   useEscToClose(onClose);
@@ -3906,6 +3925,17 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, onDel
                       unmount it before it ever got a chance to open. It
                       simply layers on top (higher z-index) instead. */}
                   <button onClick={() => setShowImportStaff(true)} className="gu" style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}>📥 {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
+                  {typeof storagePct === "number" && (
+                    <div className="gu" style={{ padding: "8px 14px 10px", borderBottom: "1px solid var(--border-soft)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}>
+                        <span>{t("Storage used", "વપરાયેલ સ્ટોરેજ")}</span>
+                        <span style={{ fontWeight: 700, color: storagePct >= 90 ? "var(--status-error-text)" : "var(--text-primary)" }}>{storagePct}%</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
+                        <div style={{ width: Math.min(100, storagePct) + "%", height: "100%", background: storagePct >= 90 ? "var(--status-error-text)" : storagePct >= 70 ? "var(--status-warning-text)" : "var(--status-success-text)" }} />
+                      </div>
+                    </div>
+                  )}
                   {formatAllData && (
                     <button
                       onClick={() => setShowFormatChoice(true)}
@@ -4754,6 +4784,13 @@ function DutyRoster() {
     const t = setTimeout(check, 4000);
     return () => clearTimeout(t);
   }, [data]);
+  // Storage used (% of the 1 MB per-station limit) + two reminders:
+  // first at 90%, second ("full") at 99% — the last point where saving
+  // still works (Firestore refuses anything over 100%). Both open
+  // "Format — keep last 6 months". Dismissing hides it for this session.
+  const storagePct = useMemo(() => (data ? Math.round((nbFirestoreBytes(data) + 200) / NB_DOC_LIMIT_BYTES * 1000) / 10 : 0), [data]);
+  const [storageDismissed, setStorageDismissed] = useState(0);
+  const storageLevel = storagePct >= 99 ? 110 : storagePct >= 90 ? 90 : 0;
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("nb_dark_mode") === "1");
   useEffect(() => { localStorage.setItem("nb_dark_mode", darkMode ? "1" : "0"); }, [darkMode]);
@@ -5955,10 +5992,13 @@ function DutyRoster() {
   // duplicated, so the folder gains at most one new file per day. Returns
   // the file id so the caller can cache it for instant reuse later (see
   // driveTodayFileRef above).
-  const uploadBackupToDrive = async (token, folderId, jsonStr, { keepalive } = {}) => {
-    const fileName = `nokri-book-backup-${todayStr()}.json`;
-    let existingId = driveTodayFileRef.current.date === todayStr() ? driveTodayFileRef.current.fileId : null;
-    if (!existingId) {
+  const uploadBackupToDrive = async (token, folderId, jsonStr, { keepalive, fileName: customName } = {}) => {
+    // customName = a one-off, separately named file (e.g. the safety copy
+    // made right before "Format all data") that never replaces today's
+    // regular daily backup file.
+    const fileName = customName || `nokri-book-backup-${todayStr()}.json`;
+    let existingId = customName ? null : (driveTodayFileRef.current.date === todayStr() ? driveTodayFileRef.current.fileId : null);
+    if (!existingId && !customName) {
       const q = encodeURIComponent(`name='${fileName}' and '${folderId}' in parents and trashed=false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id)`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -5988,7 +6028,7 @@ function DutyRoster() {
       throw new Error(errBody?.error?.message || `Drive upload failed (${res.status})`);
     }
     const fileId = existingId || (await res.json().catch(() => null))?.id || null;
-    if (fileId) driveTodayFileRef.current = { date: todayStr(), fileId };
+    if (fileId && !customName) driveTodayFileRef.current = { date: todayStr(), fileId };
     return fileId;
   };
 
@@ -6440,9 +6480,23 @@ function DutyRoster() {
     // without interrupting this flow with the folder-picker/confirm
     // dialogs exportBackup() normally shows for a person-initiated
     // backup — this one just needs to happen, quietly, every time.
+    const preFormatJson = JSON.stringify(data, null, 2);
+    const preFormatFilename = `nokri-book-backup-${todayStr()}-${Date.now()}-before-format.json`;
+    // Automatic backup #2: if Google Drive backup is connected, the same
+    // full pre-format copy is also saved to Drive, as its own file.
+    if (driveConfigured && driveConnected) {
+      (async () => {
+        try {
+          const token = await requestDriveToken(false);
+          const folderId = await findOrCreateDriveFolder(token);
+          await uploadBackupToDrive(token, folderId, preFormatJson, { fileName: preFormatFilename });
+          showToastRaw(t("Safety backup also saved to Google Drive.", "સુરક્ષા બેકઅપ Google Drive પર પણ સચવાયો."));
+        } catch (e) {
+          console.warn("Pre-format Drive backup failed (the downloaded copy is still there)", e);
+        }
+      })();
+    }
     try {
-      const preFormatJson = JSON.stringify(data, null, 2);
-      const preFormatFilename = `nokri-book-backup-${todayStr()}-${Date.now()}-before-format.json`;
       const blob = new Blob([preFormatJson], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -6490,7 +6544,8 @@ function DutyRoster() {
       // Everything dated ON or AFTER this stays; only what's strictly older
       // gets cleared. String comparison works directly since every date here
       // is "YYYY-MM-DD".
-      const cutoff = monthAgoStr();
+      const keepMonths = nbKeepMonthsFor(formatMode);
+      const cutoff = monthAgoStr(keepMonths);
       const cleanStaff = {};
       Object.values(data.staff || {}).forEach((s) => {
         // A Leave/Outstation period is kept whenever any part of it could
@@ -6533,14 +6588,14 @@ function DutyRoster() {
       });
       subject = "Nokri Book — old duty data was formatted";
       bodyLines = [
-        "This confirms that duty data older than 1 month in Nokri Book was cleared.",
+        `This confirms that duty data older than ${keepMonths} months in Nokri Book was cleared.`,
         "",
         `Performed by: ${personName} (buckle number ${buckleNumber})`,
         `Time: ${whenText}`,
         "",
-        "Staff names, designations, and work types were kept, along with the last 1 month of duty history, last-duty dates, Leave/Outstation records, Skip history, and recycle bin. Everything older than that was erased.",
+        `Staff names, designations, and work types were kept, along with the last ${keepMonths} months of duty history, last-duty dates, Leave/Outstation records, Skip history, and recycle bin. Everything older than that was erased.`,
       ];
-      toastMsg = t("Duty data older than 1 month cleared — staff, designations, work types, and the last month are kept.", "1 મહિનાથી જૂનો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો 1 મહિનો સચવાયા.");
+      toastMsg = t(`Duty data older than ${keepMonths} months cleared — staff, designations, work types, and the last ${keepMonths} months are kept.`, `${keepMonths} મહિનાથી જૂનો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો 1 મહિનો સચવાયા.`);
     }
     if (user && user.email) {
       const messageText = bodyLines.join("\n");
@@ -7690,6 +7745,21 @@ function DutyRoster() {
           <button onClick={() => setReturnNotices((prev) => prev.filter((_, idx) => idx !== i))} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--status-info-text)", fontWeight: 700 }}>✕</button>
         </div>
       ))}
+      {storageLevel > storageDismissed && (
+        <div role="alert" style={{ background: storageLevel >= 110 ? "var(--status-error-bg)" : "var(--highlight-bg)", color: storageLevel >= 110 ? "var(--status-error-text)" : "var(--text-primary)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="gu">
+            {storageLevel >= 110
+              ? t(`Storage is FULL (${storagePct}% used). New changes may stop saving — format now. The last 6 months are kept and a backup is made automatically.`,
+                  `સ્ટોરેજ ભરાઈ ગયું છે (${storagePct}% વપરાયું). નવા ફેરફારો સચવાવાનું બંધ થઈ શકે છે — હમણાં ફોર્મેટ કરો. છેલ્લા 6 મહિના રહેશે અને બેકઅપ આપમેળે બનશે.`)
+              : t(`Storage is ${storagePct}% used. Format old data soon — the last 6 months are kept and a backup is made automatically.`,
+                  `સ્ટોરેજ ${storagePct}% વપરાયું છે. જૂનો ડેટા જલ્દી ફોર્મેટ કરો — છેલ્લા 6 મહિના રહેશે અને બેકઅપ આપમેળે બનશે.`)}
+          </span>
+          <button onClick={() => formatAllData("keep6")} style={{ background: storageLevel >= 110 ? "var(--btn-danger-solid)" : "var(--accent)", color: storageLevel >= 110 ? "#fff" : "var(--accent-text)", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }} className="gu">
+            🧹 {t("Format — keep last 6 months", "ફોર્મેટ — છેલ્લા 6 મહિના રાખો")}
+          </button>
+          <button onClick={() => setStorageDismissed(storageLevel)} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "inherit", fontSize: 15, cursor: "pointer" }}>✕</button>
+        </div>
+      )}
       {backupReminder && (
         <div style={{ background: "var(--highlight-bg)", color: "var(--text-primary)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }} className="no-print">
           <span className="gu">{t("It's been a couple of days since your last backup — worth taking one now.", "તમારા છેલ્લા બેકઅપને થોડા દિવસ થઈ ગયા છે — હમણાં એક લેવો યોગ્ય રહેશે.")}</span>
@@ -7951,6 +8021,7 @@ function DutyRoster() {
       {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} onStartTour={() => { setLocalHelpOpen(false); if (route.kind === "panel") nbNavigate(lastContentRef.current.path, { replace: true }); setShowSpotlightTour(true); }} onNavigate={(v) => { setLocalHelpOpen(false); setView(v, { replace: route.kind === "panel" }); }} />}
       {showSettingsPanel && (
         <SettingsPanel
+          storagePct={storagePct}
           initialSection={route.section}
           user={user}
           signOutUser={signOutUser} formatAllData={formatAllData}
@@ -8000,7 +8071,7 @@ function DutyRoster() {
           dutyCount={
             formatMode === "all"
               ? Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).length, 0), 0)
-              : Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).filter((e) => historyDate(e) < monthAgoStr()).length, 0), 0)
+              : Object.values(data.membership || {}).reduce((n, list) => n + list.reduce((m, mem) => m + (mem.history || []).filter((e) => historyDate(e) < monthAgoStr(nbKeepMonthsFor(formatMode))).length, 0), 0)
           }
           onConfirm={(buckleNumber) => { setShowFormatModal(false); performFormatAllData(buckleNumber); }}
           onCancel={() => setShowFormatModal(false)}
@@ -9821,8 +9892,8 @@ function FormatAllDataModal({ data, mode, staffCount, dutyCount, onConfirm, onCa
                 `This deletes EVERYTHING — all ${staffCount} staff members, every work type, and all ${dutyCount} duty entries — with no exceptions. Buckle numbers, phone numbers, designations, and work types are all erased too, not just duty history. This cannot be undone from here.`,
                 `આ બધું જ ડિલીટ કરે છે — બધા ${staffCount} સ્ટાફ સભ્યો, બધા કામના પ્રકારો, અને બધા ${dutyCount} ડ્યુટી એન્ટ્રીઓ — કોઈ અપવાદ વગર. બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને કામના પ્રકારો પણ ડ્યુટી ઇતિહાસની સાથે ભૂંસાઈ જશે. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
               ) : t(
-                `This clears duty history, Skip history, recycle bin, and past Leave/Outstation records that are OLDER than 1 month, for every one of your ${staffCount} staff — that's ${dutyCount} duty entries gone for good. The last 1 month of duty history is kept, along with staff names, buckle numbers, phone numbers, designations, and your work types themselves. This cannot be undone from here.`,
-                `આ તમારા ${staffCount} સ્ટાફ માટેનો 1 મહિનાથી જૂનો ડ્યુટી ઇતિહાસ, સ્કિપ ઇતિહાસ, રિસાયકલ બિન અને જૂના રજા/બહારગામ રેકોર્ડ સાફ કરે છે — એટલે કે ${dutyCount} ડ્યુટી એન્ટ્રીઓ કાયમ માટે જતી રહેશે. છેલ્લો 1 મહિનાનો ડ્યુટી ઇતિહાસ સચવાશે, સાથે સ્ટાફના નામ, બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને તમારા કામના પ્રકારો પણ. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
+                `This clears duty history, Skip history, recycle bin, and past Leave/Outstation records that are OLDER than ${nbKeepMonthsFor(mode)} months, for every one of your ${staffCount} staff — that's ${dutyCount} duty entries gone for good. The last ${nbKeepMonthsFor(mode)} months of duty history is kept, along with staff names, buckle numbers, phone numbers, designations, and your work types themselves. This cannot be undone from here.`,
+                `આ તમારા ${staffCount} સ્ટાફ માટેનો ${nbKeepMonthsFor(mode)} મહિનાથી જૂનો ડ્યુટી ઇતિહાસ, સ્કિપ ઇતિહાસ, રિસાયકલ બિન અને જૂના રજા/બહારગામ રેકોર્ડ સાફ કરે છે — એટલે કે ${dutyCount} ડ્યુટી એન્ટ્રીઓ કાયમ માટે જતી રહેશે. છેલ્લો 1 મહિનાનો ડ્યુટી ઇતિહાસ સચવાશે, સાથે સ્ટાફના નામ, બકલ નંબર, ફોન નંબર, હોદ્દાઓ અને તમારા કામના પ્રકારો પણ. અહીંથી આ પૂર્વવત્ કરી શકાશે નહીં.`
               )}
             </p>
             <p className="gu" style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "8px 0 0", lineHeight: 1.5 }}>
