@@ -24,7 +24,16 @@
 //    refresh the cached shell instead of being discarded for "not ok".
 //  - Precaching adds files one at a time, so one missing file can no longer
 //    stop index.html itself from being cached.
-const CACHE_NAME = "nokri-book-shell-v5";
+const CACHE_NAME = "nokri-book-shell-v6";
+// Fixed-version libraries the page loads from CDNs (React, Firebase, pako,
+// jsPDF, fonts, ...). Kept on the device so the app — and the offline
+// Crime Review — still opens with no internet once it has been opened once.
+const CDN_CACHE = "nokri-book-cdn-v1";
+const CDN_HOSTS = ["unpkg.com", "cdn.jsdelivr.net", "cdnjs.cloudflare.com", "fonts.googleapis.com", "fonts.gstatic.com"];
+function isCdnAsset(url) {
+  if (CDN_HOSTS.indexOf(url.hostname) !== -1) return true;
+  return url.hostname === "www.gstatic.com" && url.pathname.indexOf("/firebasejs/") === 0;
+}
 const SHELL_URL = "/index.html";
 const APP_SHELL = [
   "/",
@@ -51,7 +60,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k !== CACHE_NAME && k !== CDN_CACHE).map((k) => caches.delete(k)))
     )
   );
   self.clients.claim();
@@ -61,10 +70,9 @@ self.addEventListener("activate", (event) => {
 // GitHub Pages 404.html fallback (status 404 + HTML body) that serves it
 // for /app/... deep links.
 function isShellResponse(res) {
-  if (!res) return false;
-  if (res.ok) return true;
-  const type = res.headers && res.headers.get("content-type");
-  return res.status === 404 && !!type && type.indexOf("text/html") !== -1;
+  // Only a real page. (GitHub Pages' 404.html is a tiny redirect page, not
+  // the app, so it must never replace the cached app.)
+  return !!res && res.ok;
 }
 
 self.addEventListener("fetch", (event) => {
@@ -74,7 +82,21 @@ self.addEventListener("fetch", (event) => {
   // straight through to the network untouched.
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin) {
+    if (!isCdnAsset(url)) return;   // Firebase / Google sign-in / EmailJS calls: always live
+    // Versioned library files: from the device first, network if missing.
+    // Font CSS: network first (it can change), device copy when offline.
+    const networkFirst = url.hostname === "fonts.googleapis.com";
+    event.respondWith(caches.open(CDN_CACHE).then((cache) => {
+      const fromNet = fetch(req).then((res) => {
+        if (res && (res.ok || res.type === "opaque")) cache.put(req, res.clone()).catch(() => {});
+        return res;
+      });
+      if (networkFirst) return fromNet.catch(() => cache.match(req).then((hit) => hit || Promise.reject(new Error("offline"))));
+      return cache.match(req).then((hit) => hit || fromNet);
+    }));
+    return;
+  }
 
   // Opening / reloading / deep-linking to any page.
   if (req.mode === "navigate" || url.pathname.endsWith("/index.html") || url.pathname === "/") {

@@ -618,7 +618,15 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.9/babel.min.js" integrity="sha384-oLbIC13I/8DNBviftYPfOFQS5DC2WUmwk0SyIPmnzu1Ui+vYyATSSBJiJ5ETa4o/" crossorigin="anonymous"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+  // Google sign-in (used for Drive backup) — not loaded on the offline
+  // Crime Review page (/crime), which never goes online.
+  if (!/^\/crime(\/|$)/.test(window.location.pathname)) {
+    var nbGsi = document.createElement("script");
+    nbGsi.src = "https://accounts.google.com/gsi/client"; nbGsi.async = true; nbGsi.defer = true;
+    document.head.appendChild(nbGsi);
+  }
+</script>
 
 <script type="text/babel" data-type="module">
 // © 2026 Harshvardhan Rathod P. — All rights reserved. Proprietary,
@@ -652,8 +660,8 @@ function nbCleanPath(p) {
   if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
   return p || "/";
 }
-function nbIsAppPath(p) { return p === "/app" || p.indexOf("/app/") === 0 || nbIsCrimePath(p); }
-// Crime Review is its own app at /crime (no roster sidebar).
+function nbIsAppPath(p) { return p === "/app" || p.indexOf("/app/") === 0; }
+// Crime Review is its own OFFLINE app at /crime (data only on this device).
 function nbIsCrimePath(p) { return p === "/crime" || p.indexOf("/crime/") === 0; }
 function nbDecode(x) { try { return decodeURIComponent(x); } catch (e) { return x; } }
 // ---------- Routes for the share view and the admin apps ----------
@@ -678,12 +686,8 @@ function nbSubPathFromView(v) {
   return key ? "/" + key : "";
 }
 function nbShareUrl(token) { return `${window.location.origin}/view/${token}`; }
-function nbCrimeUrl(token) { return `${window.location.origin}/crime/${token}`; }
-function nbNewCrimeCode() {
-  const b = new Uint32Array(1); crypto.getRandomValues(b);
-  return String(b[0] % 1000000).padStart(6, "0");
-}
-const NB_CRIME_TOKEN_RE = /^\/crime\/([A-Za-z0-9]{20,64})(\/report)?$/;
+// Older Crime Review addresses (and old /crime/<link> links) -> /crime
+const NB_CRIME_OLD_RE = /^\/(?:crime-?review|app\/crime(?:-?review)?|app\/district\/crime-review)(\/report)?$/i;
 function nbIsIsoDate(x) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
   const d = new Date(x + "T00:00:00Z");
@@ -762,18 +766,6 @@ function nbViewToPath(v) {
 function nbResolveRoute(path, signedIn) {
   if (NB_PUBLIC_PATHS.indexOf(path) !== -1) return signedIn ? { kind: "redirect", to: "__intended__" } : { kind: "public" };
   const NF = { kind: "notfound" };
-  // Crime Review app: /crime[/report] or a station's own link /crime/<token>[/report].
-  if (nbIsCrimePath(path)) {
-    const cs = path.split("/").filter(Boolean).slice(1);
-    let linkToken = null;
-    if (cs[0] && cs[0] !== "report") { if (!/^[A-Za-z0-9]{12,64}$/.test(cs[0])) return NF; linkToken = cs.shift(); }
-    if (cs.length > 1 || (cs[0] && cs[0] !== "report")) return NF;
-    const report = cs[0] === "report";
-    return { kind: "crime", tab: report ? "report" : "cases", linkToken, title: report ? ["Crime Review Report", "ગુના સમીક્ષા અહેવાલ"] : ["Crime Review", "ગુના સમીક્ષા"] };
-  }
-  // Older / mistyped Crime Review addresses -> /crime
-  const crimeOld = path.match(/^\/(?:crime-?review|app\/crime(?:-?review)?|app\/district\/crime-review)(\/report)?$/i);
-  if (crimeOld) return { kind: "redirect", to: crimeOld[1] ? "/crime/report" : "/crime" };
   if (!nbIsAppPath(path)) return NF;
   const seg = path.split("/").filter(Boolean).slice(1).map(nbDecode);
   const n = seg.length, a = seg[0], b = seg[1], c = seg[2];
@@ -828,7 +820,7 @@ function nbResolveRoute(path, signedIn) {
       return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
     case "settings":
       if (n === 1) return P("settings", null, ["Settings", "સેટિંગ્સ"]);
-      if (n === 2 && ["station", "account", "appearance", "language", "security", "crime"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
+      if (n === 2 && ["station", "account", "appearance", "language", "security"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
       return NF;
     case "help":
       return n === 1 ? P("help", null, ["Help", "મદદ"]) : NF;
@@ -3702,73 +3694,12 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-// Settings → Manage crime app: this station's own Crime Review link plus
-// its 6-digit code. Made automatically the first time the section is
-// opened. Anyone opening the link must type the code once per device
-// (checked by the database rules, not just this page). A new code locks
-// out every device that was unlocked with the old one.
-function CrimeAppLinkBox({ token, code, onCrimeLink, hasStation }) {
-  const { t } = useLang();
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [copied, setCopied] = useState("");
-  const run = async (kind) => {
-    setBusy(true); setErr("");
-    try { await onCrimeLink(kind); }
-    catch (e) { console.error("Crime link failed:", e); setErr(t("Couldn't save — check your connection. If it keeps failing, the new Firestore rules may not be published yet.", "સાચવી શકાયું નહીં — જોડાણ તપાસો. વારંવાર થાય તો નવા Firestore rules કદાચ publish થયા નથી.")); }
-    setBusy(false);
-  };
-  useEffect(() => { if (hasStation && (!token || !code) && !busy) run("ensure"); }, [token, code, hasStation]);
-  if (!hasStation) {
-    return <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 8 }}>{t("Set your station and district above first — the crime app link is made for your station.", "પહેલાં ઉપર તમારું સ્ટેશન અને જિલ્લો સેટ કરો — ક્રાઇમ એપની લિંક તમારા સ્ટેશન માટે બને છે.")}</div>;
-  }
-  if (!token || !code) return <div className="gu" style={{ fontSize: 12.5, color: err ? "var(--status-error-text)" : "var(--text-secondary)", marginTop: 8 }}>{err || t("Making your link…", "તમારી લિંક બની રહી છે…")}</div>;
-  const url = nbCrimeUrl(token);
-  const copy = async (text, what) => {
-    try { await navigator.clipboard.writeText(text); }
-    catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (e2) {} ta.remove(); }
-    setCopied(what); setTimeout(() => setCopied(""), 2000);
-  };
-  const btn = { flex: "1 1 0", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", whiteSpace: "nowrap", textAlign: "center", textDecoration: "none" };
-  const small = { background: "transparent", border: "none", padding: 0, fontSize: 12, cursor: "pointer", textAlign: "left" };
-  return (
-    <div style={{ marginTop: 10 }}>
-      <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6, lineHeight: 1.5 }}>
-        {t("Your station's Crime Review link. Whoever opens it must enter the 6-digit code below once on their device — then it opens Crime Review for this station only (no roster, no login).", "તમારા સ્ટેશનની ગુના સમીક્ષા લિંક. જે ખોલે તેણે પોતાના ડિવાઇસ પર એક વાર નીચેનો 6 અંકનો કોડ નાખવો પડશે — પછી ફક્ત આ સ્ટેશનની ગુના સમીક્ષા ખુલશે (રોસ્ટર નહીં, લોગિન નહીં).")}
-      </div>
-      <div className="mono" onClick={() => copy(url, "link")} title={t("Tap to copy", "કૉપિ કરવા ટેપ કરો")} style={{ fontSize: 12, background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", wordBreak: "break-all", cursor: "pointer", color: "var(--text-primary)" }}>{url}</div>
-      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-        <button onClick={() => copy(url, "link")} className="gu" style={btn}>{copied === "link" ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy link", "લિંક કૉપિ")}</button>
-        <a href={"https://wa.me/?text=" + encodeURIComponent(t("Crime Review — ", "ગુના સમીક્ષા — ") + url)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}>💬 WhatsApp</a>
-        <a href={url} target="_blank" rel="noopener" className="gu" style={btn}>↗ {t("Open", "ખોલો")}</a>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px" }}>
-        <div style={{ flex: 1 }}>
-          <div className="gu" style={{ fontSize: 11, color: "var(--text-secondary)" }}>{t("6-digit code", "6 અંકનો કોડ")}</div>
-          <div className="mono" style={{ fontSize: 24, fontWeight: 700, letterSpacing: 4, color: "var(--text-primary)" }}>{code.slice(0, 3)} {code.slice(3)}</div>
-        </div>
-        <button onClick={() => copy(code, "code")} className="gu" style={{ ...btn, flex: "0 0 auto", padding: "8px 12px" }}>{copied === "code" ? "✓" : "📋 " + t("Copy", "કૉપિ")}</button>
-      </div>
-      <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.5 }}>
-        {t("Tell the code separately (not in the same message as the link). Anyone with both can see and edit this station's cases.", "કોડ અલગથી જણાવો (લિંકવાળા મેસેજમાં નહીં). જેની પાસે બંને હોય તે આ સ્ટેશનના ગુના જોઈ અને સુધારી શકે.")}
-      </div>
-      {err && <div className="gu" style={{ fontSize: 12, color: "var(--status-error-text)", marginTop: 6 }}>{err}</div>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-        <button disabled={busy} onClick={() => { if (window.confirm(t("Make a new code? Every device that opened Crime Review with the old code will be locked and must enter the new code.", "નવો કોડ બનાવવો છે? જૂના કોડથી ખોલેલા બધા ડિવાઇસ લૉક થઈ જશે અને નવો કોડ નાખવો પડશે."))) run("code"); }}
-          className="gu" style={{ ...small, color: "var(--accent-strong)", fontWeight: 600 }}>🔢 {t("New code (locks all devices)", "નવો કોડ (બધા ડિવાઇસ લૉક)")}</button>
-        <button disabled={busy} onClick={() => { if (window.confirm(t("Make a new link and code? The old link stops working and every device is locked.", "નવી લિંક અને કોડ બનાવવા છે? જૂની લિંક બંધ થશે અને બધા ડિવાઇસ લૉક થશે."))) run("link"); }}
-          className="gu" style={{ ...small, color: "var(--status-error-text)" }}>🔄 {t("New link + code (old link stops working)", "નવી લિંક + કોડ (જૂની લિંક બંધ)")}</button>
-      </div>
-    </div>
-  );
-}
-function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, crimeLinkToken, crimeLinkCode, onCrimeLink, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   const POLICE_LOCATIONS_GU = useMasterLocations();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(initialSection === "appearance");
   const [dataOpen, setDataOpen] = useState(initialSection === "security");
-  const [crimeOpen, setCrimeOpen] = useState(initialSection === "crime");
   const [langOpen, setLangOpen] = useState(initialSection === "language");
   const [showImportStaff, setShowImportStaff] = useState(false);
   // Local drafts of the station-details fields, kept separate from props
@@ -4132,23 +4063,6 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                   )}
                 </div>
               )}
-            </div>
-          )}
-          {onCrimeLink && (
-            <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
-              <button
-                onClick={() => setCrimeOpen((v) => !v)}
-                aria-expanded={crimeOpen}
-                className="disp gu"
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13,
-                  background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)",
-                }}
-              >
-                <span style={{ display: "inline-block", transform: crimeOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
-                {t("Manage crime app", "ક્રાઇમ એપ મેનેજ કરો")}
-              </button>
-              {crimeOpen && <CrimeAppLinkBox token={crimeLinkToken} code={crimeLinkCode} onCrimeLink={onCrimeLink} hasStation={!!(district || "").trim()} />}
             </div>
           )}
           {onHelp && (
@@ -4913,7 +4827,7 @@ function DutyRoster() {
       to = "/app/dashboard";
       try {
         const saved = sessionStorage.getItem(NB_INTENDED_KEY);
-        if (saved && /^\/(app|crime)(\/|$)/.test(saved)) to = saved;
+        if (saved && /^\/app(\/|$)/.test(saved)) to = saved;
         sessionStorage.removeItem(NB_INTENDED_KEY);
       } catch (e) {}
     }
@@ -4925,7 +4839,7 @@ function DutyRoster() {
     if (!user) ti = routePath === "/register" ? ["Register", "નોંધણી"] : routePath === "/forgot-password" ? ["Forgot Password", "પાસવર્ડ ભૂલી ગયા"] : ["Sign In", "સાઇન ઇન"];
     else if (route.kind === "view" || route.kind === "panel") ti = route.title;
     else if (route.kind === "notfound") ti = ["Page Not Found", "પેજ મળ્યું નથી"];
-    else if (route.kind === "admin" || route.kind === "crime") ti = route.title;
+    else if (route.kind === "admin") ti = route.title;
     else return;
     document.title = "Nokri Book — " + (lang === "gu" ? ti[1] : ti[0]);
   }, [route, routePath, lang, user]);
@@ -6008,10 +5922,6 @@ function DutyRoster() {
     if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
     if (data && data.shareToken) cleanup.push(db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {}));
     cleanup.push(nbReleaseStationNames(accountUid));
-    if (data && data.crimeLinkToken) cleanup.push(db.collection("crimeLinks").doc(data.crimeLinkToken).delete().catch(() => {}));
-    // Crime-review cases belong to this station only.
-    cleanup.push(db.collection("crimeCases").where("owner", "==", accountUid).get()
-      .then((snap) => Promise.all(snap.docs.map((d) => d.ref.delete().catch(() => {})))).catch(() => {}));
     await Promise.all(cleanup);
     const doDelete = () => user.delete();
     try {
@@ -6077,29 +5987,6 @@ function DutyRoster() {
   // Share menu (WhatsApp / Copy link): turns sharing on with a fresh
   // token the first time, and returns the link straight away so WhatsApp
   // can open inside the same tap (popup blockers need that).
-  // Crime Review link: crimeLinks/{token} = { owner, code, station... }.
-  // kind "ensure" (make if missing), "code" (new code), "link" (new link + code).
-  const crimeLinkDoc = (cur, token, code) => ({ owner: accountUid, code, stationName: cur.stationName || "", district: cur.district || "", state: cur.state || "", updatedAt: Date.now() });
-  const makeCrimeLink = async (kind) => {
-    const cur = dataRef.current || {};
-    const oldToken = cur.crimeLinkToken || null;
-    const token = kind === "link" || !oldToken ? nbNewShareToken().slice(0, 24) : oldToken;
-    const code = kind === "ensure" && cur.crimeLinkCode && token === oldToken ? cur.crimeLinkCode : nbNewCrimeCode();
-    await db.collection("crimeLinks").doc(token).set(crimeLinkDoc(cur, token, code));
-    if (oldToken && oldToken !== token) await db.collection("crimeLinks").doc(oldToken).delete().catch(() => {});
-    try { localStorage.setItem("nb_crime_link_sync", [token, code, cur.stationName, cur.district, cur.state].join("|")); } catch (e) {}
-    persist({ ...dataRef.current, crimeLinkToken: token, crimeLinkCode: code });
-  };
-  // Keep the link's station name / district in step with Settings.
-  useEffect(() => {
-    if (!accountUid || !data || !data.crimeLinkToken || !data.crimeLinkCode) return;
-    const sig = [data.crimeLinkToken, data.crimeLinkCode, data.stationName, data.district, data.state].join("|");
-    let last = null; try { last = localStorage.getItem("nb_crime_link_sync"); } catch (e) {}
-    if (last === sig) return;
-    db.collection("crimeLinks").doc(data.crimeLinkToken).set(crimeLinkDoc(data, data.crimeLinkToken, data.crimeLinkCode))
-      .then(() => { try { localStorage.setItem("nb_crime_link_sync", sig); } catch (e) {} })
-      .catch((e) => console.warn("Crime link sync failed:", e && e.code));
-  }, [accountUid, data && data.crimeLinkToken, data && data.crimeLinkCode, data && data.stationName, data && data.district, data && data.state]);
   const ensureShareUrl = () => {
     const cur = dataRef.current || {};
     if (cur.shareEnabled && cur.shareToken) return nbShareUrl(cur.shareToken);
@@ -7991,16 +7878,6 @@ function DutyRoster() {
     setTimeout(() => nbNavigate("/app/dashboard", { replace: true }), 0);
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
-  if (route.kind === "crime" && (isSuperAdmin || isDistrictAdmin)) {
-    return (
-      <LangContext.Provider value={langCtxValue}>
-        <CrimeReviewApp
-          mode={isDistrictAdmin ? "district" : "super"} districtId={districtAdminDistrictId} tab={route.tab} linkToken={route.linkToken}
-          email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme}
-        />
-      </LangContext.Provider>
-    );
-  }
   if (isSuperAdmin) {
     return (
       <LangContext.Provider value={langCtxValue}>
@@ -8084,19 +7961,6 @@ function DutyRoster() {
           >{t("Sign out", "સાઇન આઉટ")}</button>
         </div>
       </div>
-    );
-  }
-
-  // Crime Review is a separate app (own screen, no roster sidebar).
-  if (route.kind === "crime") {
-    return (
-      <LangContext.Provider value={langCtxValue}>
-        <CrimeReviewApp
-          mode="station" ownerUid={accountUid} stationName={data.stationName} district={data.district} state={data.state} tab={route.tab}
-          linkToken={route.linkToken} linkValid={!route.linkToken || route.linkToken === data.crimeLinkToken}
-          email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme}
-        />
-      </LangContext.Provider>
     );
   }
 
@@ -8406,8 +8270,6 @@ function DutyRoster() {
       {showSettingsPanel && (
         <SettingsPanel
           storagePct={storagePct}
-          crimeLinkToken={data.crimeLinkToken || null} crimeLinkCode={data.crimeLinkCode || null}
-          onCrimeLink={makeCrimeLink}
           initialSection={route.section}
           user={user}
           signOutUser={signOutUser} formatAllData={formatAllData}
@@ -16246,51 +16108,72 @@ function nbMonthRange(offset = 0) {
   return [iso(a), iso(b)];
 }
 
-// Live list of cases: a station's own, or (district admin) the district's.
-// SAVING FIREBASE READS: only cases registered on/after `since` are loaded
-// (the screen sets it to 1 January of the year before the chosen "From"
-// date, which also covers "previous period" and "same period last year"),
-// plus every case still waiting for a charge-sheet, however old, so the
-// overdue list stays complete. `since` = null loads everything ("All dates").
-// The date-limited query needs a Firestore index (owner/district + regDate);
-// until that index exists it quietly falls back to loading everything.
-function useCrimeCases({ ownerUid, districtId, since }) {
+// ---------- ON-DEVICE STORAGE (no internet) ----------
+// Every case is kept in this browser's own database (IndexedDB) — nothing
+// is sent anywhere. "cases" holds the cases, "meta" holds the station
+// details, the optional PIN (only its hash) and the last backup time.
+const NB_CRIME_EVT = "nb:crime-changed";
+let _nbCrimeDbP = null;
+function nbCrimeDb() {
+  if (!_nbCrimeDbP) {
+    _nbCrimeDbP = new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error("This browser can't store data on the device.")); return; }
+      const req = indexedDB.open("nb_crime", 1);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains("cases")) d.createObjectStore("cases", { keyPath: "id" });
+        if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta");
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => { _nbCrimeDbP = null; reject(req.error || new Error("Storage unavailable")); };
+    });
+  }
+  return _nbCrimeDbP;
+}
+function nbIdb(store, mode, fn) {
+  return nbCrimeDb().then((d) => new Promise((resolve, reject) => {
+    const tx = d.transaction(store, mode);
+    const r = fn(tx.objectStore(store));
+    let out;
+    if (r && "onsuccess" in r) r.onsuccess = () => { out = r.result; };
+    tx.oncomplete = () => resolve(out);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("Storage write cancelled"));
+  }));
+}
+let _nbCrimeBc = null;
+try { _nbCrimeBc = new BroadcastChannel("nb-crime"); _nbCrimeBc.onmessage = () => window.dispatchEvent(new Event(NB_CRIME_EVT)); } catch (e) {}
+function nbCrimeChanged() {
+  window.dispatchEvent(new Event(NB_CRIME_EVT));
+  try { if (_nbCrimeBc) _nbCrimeBc.postMessage(1); } catch (e) {}
+}
+const nbCrimeStore = {
+  all: () => nbIdb("cases", "readonly", (st) => st.getAll()).then((x) => x || []),
+  put: (c) => nbIdb("cases", "readwrite", (st) => st.put(c)).then(nbCrimeChanged),
+  putMany: (list) => nbIdb("cases", "readwrite", (st) => { list.forEach((c) => st.put(c)); }).then(nbCrimeChanged),
+  del: (id) => nbIdb("cases", "readwrite", (st) => st.delete(id)).then(nbCrimeChanged),
+  clearAll: () => nbIdb("cases", "readwrite", (st) => st.clear()).then(() => nbIdb("meta", "readwrite", (st) => st.clear())).then(nbCrimeChanged),
+  getMeta: (k) => nbIdb("meta", "readonly", (st) => st.get(k)),
+  setMeta: (k, v) => nbIdb("meta", "readwrite", (st) => st.put(v, k)).then(nbCrimeChanged),
+};
+function nbNewCaseId() { return "c" + Date.now().toString(36) + uid(); }
+// Live list of this device's cases.
+function useLocalCrimeCases() {
   const [cases, setCases] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => {
-    if (!ownerUid && !districtId) { setCases([]); return; }
-    const base = () => (ownerUid ? db.collection("crimeCases").where("owner", "==", ownerUid) : db.collection("crimeCases").where("district", "==", districtId));
-    const parts = { main: null, inv: since ? null : {}, det: since ? null : {} };
-    const publish = () => {
-      if (parts.main === null || parts.inv === null || parts.det === null) return;
-      const all = { ...parts.inv, ...parts.det, ...parts.main };
-      const list = Object.values(all);
-      list.sort((a, b) => (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.crNo) || 0) - (Number(a.crNo) || 0));
-      setCases(list); setError(null);
-    };
-    const toMap = (snap) => { const m = {}; snap.forEach((d) => { m[d.id] = { id: d.id, ...d.data() }; }); return m; };
-    const fail = (e) => { console.error("Crime cases load failed:", e); setError(e.message || "error"); setCases([]); };
-    const unsubs = [];
-    const listenMain = (useSince) => {
-      const q = useSince ? base().where("regDate", ">=", since) : base();
-      unsubs.push(q.onSnapshot(
-        (snap) => { parts.main = toMap(snap); publish(); },
-        (e) => {
-          if (useSince && e && e.code === "failed-precondition") {
-            console.warn("Crime Review: date index not created yet — loading all cases. Create it: Firestore > Indexes > Composite: crimeCases (" + (ownerUid ? "owner" : "district") + " Ascending, regDate Ascending).");
-            listenMain(false);
-          } else fail(e);
-        }
-      ));
-    };
-    listenMain(!!since);
-    if (since) {
-      // Older cases still waiting for a charge-sheet (for the overdue list).
-      unsubs.push(base().where("status", "==", "investigation").onSnapshot((snap) => { parts.inv = toMap(snap); publish(); }, fail));
-      unsubs.push(base().where("status", "==", "detected").where("chargesheetDate", "==", "").onSnapshot((snap) => { parts.det = toMap(snap); publish(); }, fail));
-    }
-    return () => unsubs.forEach((u) => { try { u(); } catch (e) {} });
-  }, [ownerUid, districtId, since]);
+    let alive = true;
+    const load = () => nbCrimeStore.all()
+      .then((list) => {
+        if (!alive) return;
+        list.sort((a, b) => (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.crNo) || 0) - (Number(a.crNo) || 0));
+        setCases(list); setError(null);
+      })
+      .catch((e) => { console.error("Crime cases load failed:", e); if (alive) { setError(e.message || "storage error"); setCases([]); } });
+    load();
+    window.addEventListener(NB_CRIME_EVT, load);
+    return () => { alive = false; window.removeEventListener(NB_CRIME_EVT, load); };
+  }, []);
   return { cases, error };
 }
 
@@ -16535,13 +16418,11 @@ async function downloadCrimeReviewPdf({ title, subtitle, head, rows, stationName
 // ---------- the Crime Review page (station or district) ----------
 function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, state, stations, initialTab, onTabChange, onBack }) {
   const { t, lang } = useLang();
-  const isDistrict = mode === "district";
+  const isDistrict = false; // Crime Review is per device only (no district view)
   const [monthFrom, monthTo] = nbMonthRange(0);
   const [from, setFrom] = useState(monthFrom);
   const [to, setTo] = useState(monthTo);
-  // Load from 1 January of the year before "From" (enough for comparisons).
-  const since = from ? `${Number(from.slice(0, 4)) - 1}-01-01` : null;
-  const { cases, error } = useCrimeCases(isDistrict ? { districtId, since } : { ownerUid, since });
+  const { cases, error } = useLocalCrimeCases();
   const [tab, setTabRaw] = useState(initialTab || "cases");
   useEffect(() => { if (initialTab) setTabRaw(initialTab); }, [initialTab]);
   const setTab = (v) => { setTabRaw(v); if (onTabChange) onTabChange(v); };
@@ -16567,15 +16448,14 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
     clean.victims = (clean.victims || []).filter((v) => (v.name || "").trim() || v.age != null).map((v) => ({ name: (v.name || "").trim().slice(0, 120), gender: v.gender || "", age: v.age == null ? null : Number(v.age) }));
     if (clean.status !== "undetected") { clean.summaryType = null; clean.summaryNo = ""; clean.summaryDate = ""; }
     if (clean.status !== "detected") { clean.chargesheetNo = ""; clean.chargesheetDate = ""; clean.court = ""; clean.ccNo = ""; clean.ccYear = ""; }
-    const docData = { ...clean, owner: ownerUid, district: district || "", state: state || "", stationName: stationName || "", updatedAt: Date.now() };
+    const docData = { ...clean, district: district || "", state: state || "", stationName: stationName || "", updatedAt: Date.now() };
     const dup = (cases || []).find((x) => x.id !== c.id && String(x.crNo) === clean.crNo && String(x.crYear) === String(clean.crYear));
     if (dup && !window.confirm(t(`Case ${clean.crNo}/${clean.crYear} already exists. Save another one anyway?`, `ગુનો ${clean.crNo}/${clean.crYear} પહેલેથી છે. છતાં બીજો સાચવવો છે?`))) throw new Error(t("Not saved.", "સચવાયું નથી."));
-    if (c.id) await db.collection("crimeCases").doc(c.id).set({ ...docData, createdAt: c.createdAt || Date.now() });
-    else await db.collection("crimeCases").add({ ...docData, createdAt: Date.now() });
+    await nbCrimeStore.put({ ...docData, id: c.id || nbNewCaseId(), createdAt: c.createdAt || Date.now() });
     setEditing(null);
     showToast(t("Case saved", "ગુનો સચવાયો"));
   };
-  const deleteCase = async (id) => { await db.collection("crimeCases").doc(id).delete(); setEditing(null); showToast(t("Case deleted", "ગુનો ડિલીટ થયો")); };
+  const deleteCase = async (id) => { await nbCrimeStore.del(id); setEditing(null); showToast(t("Case deleted", "ગુનો ડિલીટ થયો")); };
 
   // ----- cases tab -----
   const visibleCases = useMemo(() => {
@@ -16707,7 +16587,7 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
       </div>
       </div>
 
-      {error && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, marginBottom: 10 }}>{t("Couldn't load cases: ", "ગુનાઓ લોડ થઈ શક્યા નહીં: ") + error}</div>}
+      {error && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, marginBottom: 10 }}>{t("Couldn't open this device's storage: ", "આ ડિવાઇસનું સ્ટોરેજ ખુલી શક્યું નહીં: ") + error}</div>}
       {cases === null && <div className="gu" style={{ color: "var(--text-secondary)", padding: 20 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
 
       {cases !== null && tab === "cases" && (
@@ -16825,209 +16705,260 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
   );
 }
 
-// The standalone Crime Review app at nokribook.in/crime — its own header,
-// no roster sidebar. Station: its own register. District admin: every
-// station of the district.
-function CrimeReviewApp({ mode, ownerUid, stationName, district, state, districtId, tab, linkToken, linkValid = true, deviceMode, onLock, email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
-  const base = linkToken ? "/crime/" + linkToken : "/crime";
-  const { t, lang, setLang } = useLang();
-  const [stations, setStations] = useState(mode === "district" ? null : []);
-  useEffect(() => {
-    if (mode !== "district" || !districtId) return;
-    const unsub = db.collection("districts").doc(districtId).collection("stations").onSnapshot(
-      (snap) => { const list = []; snap.forEach((d) => list.push({ uid: d.id, ...d.data() })); setStations(list.filter((x) => x.stationApprovalStatus !== "pending").sort((a, b) => (a.stationName || "").localeCompare(b.stationName || ""))); },
-      () => setStations([])
-    );
-    return () => unsub();
-  }, [mode, districtId]);
-  useEffect(() => {
-    if (theme && theme !== "classic") document.documentElement.setAttribute("data-color-theme", theme);
-    else document.documentElement.removeAttribute("data-color-theme");
-    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
-  }, [theme, darkMode]);
-  const sub = mode === "district" ? `${districtId} — ${t("District", "જિલ્લો")}` : [stationName, district].filter(Boolean).join(", ");
-  const langBtn = (code, label) => (
-    <button onClick={() => setLang(code)} className={code === "gu" ? "gu" : ""} style={{ background: lang === code ? "var(--accent)" : "transparent", color: lang === code ? "var(--accent-text)" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, fontWeight: 700 }}>{label}</button>
-  );
-  let body;
-  if (!linkValid) {
-    body = (
-      <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>
-        <div style={{ fontSize: 34, marginBottom: 10 }}>🔗</div>
-        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>{t("This Crime Review link isn't valid for this account", "આ ગુના સમીક્ષા લિંક આ એકાઉન્ટ માટે માન્ય નથી")}</div>
-        <div style={{ fontSize: 13, marginBottom: 16 }}>{t("It belongs to another station, or a new link was made in Settings → Manage crime app.", "તે બીજા સ્ટેશનની છે, અથવા સેટિંગ્સ → ક્રાઇમ એપ મેનેજ કરો માં નવી લિંક બનાવવામાં આવી છે.")}</div>
-        <button onClick={() => nbNavigate("/crime", { replace: true })} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13.5, fontWeight: 700 }}>{t("Open my Crime Review", "મારી ગુના સમીક્ષા ખોલો")}</button>
-      </div>
-    );
-  } else if (mode === "super") {
-    body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Crime Review is used by police stations and District Admins. Open it with a station or district admin account.", "ગુના સમીક્ષા પોલીસ સ્ટેશન અને જિલ્લા એડમિન માટે છે. સ્ટેશન કે જિલ્લા એડમિન એકાઉન્ટથી ખોલો.")}</div>;
-  } else if (mode === "station" && !(district || "").trim()) {
-    body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Set your station and district in Nokri Book first (Settings → Station), then open Crime Review again.", "પહેલાં Nokri Book માં તમારું સ્ટેશન અને જિલ્લો સેટ કરો (સેટિંગ્સ → સ્ટેશન), પછી ફરી ગુના સમીક્ષા ખોલો.")}</div>;
-  } else if (mode === "district" && stations === null) {
-    body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>;
-  } else {
-    body = (
-      <CrimeReviewView
-        mode={mode} ownerUid={ownerUid} stationName={stationName} district={mode === "district" ? districtId : district} state={state}
-        districtId={districtId} stations={stations}
-        initialTab={tab === "report" ? "report" : "cases"}
-        onTabChange={(tb) => nbNavigate(tb === "report" ? base + "/report" : base, { replace: true })}
-      />
-    );
-  }
-  return (
-    <div className="crime-review-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap", position: "sticky", top: 0, zIndex: 40 }}>
-        <div style={{ fontSize: 26 }}>🚔</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="disp gu" style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2 }}>{t("Crime Review", "ગુના સમીક્ષા")}</div>
-          {sub && <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>{langBtn("en", "EN")}{langBtn("gu", "ગુ")}</div>
-        {deviceMode
-          ? <button onClick={onLock} title={t("Lock this device", "આ ડિવાઇસ લૉક કરો")} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>🔒 {t("Lock", "લૉક")}</button>
-          : <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />}
-      </div>
-      <div style={{ padding: "20px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>{body}</div>
-    </div>
-  );
+// ======================================================================
+// The standalone OFFLINE Crime Review app — nokribook.in/crime
+// No login, no internet: every case is kept only in this browser
+// (see nbCrimeStore). Station details are typed once on the device.
+// Backup = one file to download; Restore reads that file back (on this
+// or another device). Optional 6-digit PIN, checked on the device only.
+// ======================================================================
+function nbCrimePinHash(pin) {
+  const data = new TextEncoder().encode("nokribook-crime|" + pin);
+  return crypto.subtle.digest("SHA-256", data).then((buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join(""));
 }
-
-// nokribook.in/crime/<token> — a station's Crime Review link.
-// Signed-in Nokri Book users go to their own /crime. Everyone else gets an
-// anonymous sign-in on this device and must type the station's 6-digit
-// code once; the database rules only let this device see that station's
-// cases while its saved code still matches (a new code locks it out).
-const NB_CRIME_LOCK_KEY = "nb_crime_code_lock";
-function CrimeDeviceGate({ token, report }) {
+// Station details already saved on this device by Nokri Book (if any).
+function nbCrimeGuessProfile() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || k.indexOf("nb_auto_backup_") !== 0) continue;
+      const d = (JSON.parse(localStorage.getItem(k) || "{}") || {}).data || {};
+      if (d.stationName) return { stationName: d.stationName || "", district: d.district || "", state: d.state || "" };
+    }
+  } catch (e) {}
+  return { stationName: "", district: "", state: "" };
+}
+function nbDownloadText(filename, text, type) {
+  const blob = new Blob([text], { type: type || "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+const NB_CRIME_BACKUP_DAYS = 7;
+function CrimeOfflineApp({ tab }) {
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("nb_lang") || "en"; } catch (e) { return "en"; } });
   useEffect(() => { try { localStorage.setItem("nb_lang", lang); } catch (e) {} }, [lang]);
   const t = useCallback((en, gu) => (lang === "gu" && gu ? gu : en), [lang]);
   const langCtx = useMemo(() => ({ lang, setLang, t }), [lang, t]);
-  const darkMode = (() => { try { return localStorage.getItem("nb_dark_mode") === "1"; } catch (e) { return false; } })();
-  useEffect(() => { document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light"); }, [darkMode]);
-  const [user, setUser] = useState(undefined);
-  const [phase, setPhase] = useState("loading"); // loading | code | open | error
-  const [link, setLink] = useState(null);
-  const [msg, setMsg] = useState("");
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [errCode, setErrCode] = useState("");
-  const [, tick] = useState(0);
-  useEffect(() => { document.title = "Nokri Book — " + t("Crime Review", "ગુના સમીક્ષા"); }, [t]);
-  useEffect(() => auth.onAuthStateChanged((u) => {
-    if (!u) {
-      setUser(null);
-      auth.signInAnonymously().catch((e) => {
-        console.error("Anonymous sign-in failed:", e);
-        const c = (e && e.code) || "";
-        setErrCode(c);
-        setPhase("error");
-        setMsg(c === "auth/operation-not-allowed" || c === "auth/admin-restricted-operation" ? "anon-off" : c === "auth/network-request-failed" ? "net" : "other");
-      });
-      return;
-    }
-    if (!u.isAnonymous) { nbNavigate(report ? "/crime/report" : "/crime", { replace: true }); return; }
-    setUser(u);
-  }), []);
-  const loadLink = () => db.collection("crimeLinks").doc(token).get().then((snap) => {
-    if (!snap.exists) throw Object.assign(new Error("gone"), { code: "permission-denied" });
-    setLink(snap.data()); setPhase("open");
-  });
-  useEffect(() => {
-    if (!user) return;
-    db.collection("crimeAccess").doc(user.uid).get()
-      .then((snap) => {
-        if (snap.exists && snap.data().token === token) return loadLink().catch(() => { setMsg("changed"); setPhase("code"); });
-        setPhase("code");
-      })
-      .catch(() => setPhase("code"));
-  }, [user, token]);
-  const lockInfo = () => { try { return JSON.parse(localStorage.getItem(NB_CRIME_LOCK_KEY) || "{}"); } catch (e) { return {}; } };
-  const lockedFor = () => Math.max(0, (lockInfo().until || 0) - Date.now());
-  useEffect(() => { if (lockedFor() <= 0) return; const id = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(id); });
-  const submit = async () => {
-    if (busy || code.length !== 6 || lockedFor() > 0 || !user) return;
-    setBusy(true); setMsg("");
-    try {
-      await db.collection("crimeAccess").doc(user.uid).set({ token, code, createdAt: Date.now() });
-      await loadLink();
-      try { localStorage.removeItem(NB_CRIME_LOCK_KEY); } catch (e) {}
-    } catch (e) {
-      const info = lockInfo(); const fails = (info.fails || 0) + 1;
-      const next = fails >= 5 ? { fails: 0, until: Date.now() + 10 * 60 * 1000 } : { fails, until: 0 };
-      try { localStorage.setItem(NB_CRIME_LOCK_KEY, JSON.stringify(next)); } catch (e2) {}
-      setMsg(fails >= 5 ? "locked" : "wrong:" + (5 - fails)); setCode("");
-    }
-    setBusy(false);
-  };
-  const onLock = async () => {
-    if (!window.confirm(t("Lock this device? The 6-digit code will be needed again.", "આ ડિવાઇસ લૉક કરવું છે? ફરી 6 અંકનો કોડ જોઈશે."))) return;
-    try { await db.collection("crimeAccess").doc(user.uid).delete(); } catch (e) {}
-    auth.signOut();
-  };
-  if (phase === "open" && link) {
-    return (
-      <LangContext.Provider value={langCtx}>
-        <CrimeReviewApp mode="station" deviceMode onLock={onLock} ownerUid={link.owner} stationName={link.stationName} district={link.district} state={link.state}
-          tab={report ? "report" : "cases"} linkToken={token} darkMode={darkMode} />
-      </LangContext.Provider>
-    );
-  }
-  const left = lockedFor();
-  const message =
-    msg === "anon-off" ? t("Crime Review links are not switched on yet (the station's admin must enable Anonymous sign-in in Firebase).", "ગુના સમીક્ષા લિંક હજુ ચાલુ નથી (Firebase માં Anonymous sign-in ચાલુ કરવું પડશે).")
-    : msg === "net" ? t("Couldn't connect. Check the internet and reload.", "જોડાણ થઈ શક્યું નહીં. ઇન્ટરનેટ તપાસી ફરી લોડ કરો.")
-    : msg === "other" ? t("Couldn't open Crime Review.", "ગુના સમીક્ષા ખુલી શકી નહીં.")
-    : msg === "changed" ? t("The code for this link was changed. Enter the new code.", "આ લિંકનો કોડ બદલાયો છે. નવો કોડ નાખો.")
-    : msg === "locked" ? ""
-    : msg.indexOf("wrong:") === 0 ? t(`Wrong code, or this link is no longer valid. ${msg.slice(6)} tries left.`, `ખોટો કોડ, અથવા આ લિંક હવે માન્ય નથી. ${msg.slice(6)} પ્રયત્ન બાકી.`)
-    : "";
-  return (
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("nb_dark_mode") === "1"; } catch (e) { return false; } });
+  useEffect(() => { document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light"); try { localStorage.setItem("nb_dark_mode", darkMode ? "1" : "0"); } catch (e) {} }, [darkMode]);
+  useEffect(() => { document.title = "Nokri Book — " + (tab === "report" ? t("Crime Review Report", "ગુના સમીક્ષા અહેવાલ") : t("Crime Review", "ગુના સમીક્ષા")); }, [t, tab]);
+  // Ask the browser to keep this data (not clear it when space runs low).
+  useEffect(() => { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {} }, []);
+
+  const [meta, setMeta] = useState(null); // { profile, pinHash, lastBackupAt }
+  const [storeErr, setStoreErr] = useState("");
+  const loadMeta = useCallback(() => Promise.all([nbCrimeStore.getMeta("profile"), nbCrimeStore.getMeta("pinHash"), nbCrimeStore.getMeta("lastBackupAt")])
+    .then(([profile, pinHash, lastBackupAt]) => setMeta({ profile: profile || null, pinHash: pinHash || null, lastBackupAt: lastBackupAt || 0 }))
+    .catch((e) => { console.error("Crime storage failed:", e); setStoreErr(e.message || "storage error"); }), []);
+  useEffect(() => { loadMeta(); window.addEventListener(NB_CRIME_EVT, loadMeta); return () => window.removeEventListener(NB_CRIME_EVT, loadMeta); }, [loadMeta]);
+  const { cases } = useLocalCrimeCases();
+  const [unlocked, setUnlocked] = useState(() => { try { return sessionStorage.getItem("nb_crime_unlocked") === "1"; } catch (e) { return false; } });
+  const [showMenu, setShowMenu] = useState(false);
+  const [toast, setToast] = useState("");
+  const showToast = (m) => { setToast(m); setTimeout(() => setToast(""), 3000); };
+
+  const card = { width: 420, maxWidth: "100%", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "26px 22px", boxShadow: "0 10px 40px rgba(0,0,0,0.08)" };
+  const bigBtn = { width: "100%", marginTop: 14, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 10, padding: "12px 0", fontSize: 14.5, fontWeight: 700 };
+  const langBtns = (
+    <div style={{ display: "flex", gap: 4 }}>
+      {[["en", "EN"], ["gu", "ગુ"]].map(([c, l]) => (
+        <button key={c} onClick={() => setLang(c)} className={c === "gu" ? "gu" : ""} style={{ background: lang === c ? "var(--accent)" : "transparent", color: lang === c ? "var(--accent-text)" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, fontWeight: 700 }}>{l}</button>
+      ))}
+    </div>
+  );
+  const center = (children) => (
     <LangContext.Provider value={langCtx}>
       <div style={{ minHeight: "100vh", background: "var(--bg-page)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-        <div style={{ width: 380, maxWidth: "100%", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "28px 24px", textAlign: "center", boxShadow: "0 10px 40px rgba(0,0,0,0.08)" }}>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginTop: -12, marginRight: -8 }}>
-            {[["en", "EN"], ["gu", "ગુ"]].map(([c, l]) => (
-              <button key={c} onClick={() => setLang(c)} className={c === "gu" ? "gu" : ""} style={{ background: lang === c ? "var(--accent)" : "transparent", color: lang === c ? "var(--accent-text)" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, fontWeight: 700 }}>{l}</button>
-            ))}
-          </div>
-          <div style={{ fontSize: 40 }}>🚔</div>
-          <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, margin: "6px 0 4px" }}>{t("Crime Review", "ગુના સમીક્ષા")}</div>
-          {phase === "loading" && <div className="gu" style={{ color: "var(--text-secondary)", fontSize: 13, padding: 16 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
-          {phase === "error" && (
-            <div className="gu" style={{ padding: "12px 0" }}>
-              <div style={{ color: "var(--status-error-text)", fontSize: 13 }}>{message}</div>
-              {errCode && <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{errCode}</div>}
-              <button onClick={() => window.location.reload()} className="gu" style={{ marginTop: 14, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13.5, fontWeight: 700 }}>{t("Retry", "ફરી પ્રયત્ન કરો")}</button>
-            </div>
-          )}
-          {phase === "code" && (
-            <React.Fragment>
-              <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16, lineHeight: 1.5 }}>
-                🔒 {t("Enter the 6-digit code. Ask your station — it is in Nokri Book → Settings → Manage crime app.", "6 અંકનો કોડ નાખો. તમારા સ્ટેશનને પૂછો — તે Nokri Book → સેટિંગ્સ → ક્રાઇમ એપ મેનેજ કરો માં છે.")}
-              </div>
-              <input
-                type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={6} autoFocus
-                value={code} disabled={left > 0 || busy}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-                aria-label={t("6-digit code", "6 અંકનો કોડ")} placeholder="••••••"
-                className="mono" style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 30, letterSpacing: 12, padding: "10px 0", borderRadius: 10 }}
-              />
-              {left > 0
-                ? <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 10 }}>{t(`Too many wrong tries. Try again in ${Math.ceil(left / 60000)} min.`, `ઘણા ખોટા પ્રયત્નો. ${Math.ceil(left / 60000)} મિનિટ પછી ફરી પ્રયત્ન કરો.`)}</div>
-                : message && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 10 }}>{message}</div>}
-              <button onClick={submit} disabled={busy || code.length !== 6 || left > 0} className="gu"
-                style={{ width: "100%", marginTop: 16, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 10, padding: "12px 0", fontSize: 14.5, fontWeight: 700, opacity: busy || code.length !== 6 || left > 0 ? 0.5 : 1 }}>
-                {busy ? t("Checking…", "ચકાસી રહ્યા છીએ…") : t("Open Crime Review", "ગુના સમીક્ષા ખોલો")}
-              </button>
-              <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 12 }}>{t("Asked only once on this device.", "આ ડિવાઇસ પર ફક્ત એક વાર પૂછાશે.")}</div>
-            </React.Fragment>
-          )}
+        <div style={card}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -10, marginRight: -6 }}>{langBtns}</div>
+          <div style={{ textAlign: "center", fontSize: 40 }}>🚔</div>
+          <div className="disp gu" style={{ textAlign: "center", fontSize: 19, fontWeight: 700, margin: "6px 0 12px" }}>{t("Crime Review", "ગુના સમીક્ષા")}</div>
+          {children}
         </div>
       </div>
     </LangContext.Provider>
+  );
+
+  if (storeErr) return center(<div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, textAlign: "center" }}>{t("This browser can't keep data on the device (private browsing?). Open Crime Review in a normal browser window.", "આ બ્રાઉઝર ડિવાઇસ પર ડેટા રાખી શકતું નથી (પ્રાઇવેટ બ્રાઉઝિંગ?). સામાન્ય બ્રાઉઝર વિન્ડોમાં ગુના સમીક્ષા ખોલો.")}<div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{storeErr}</div></div>);
+  if (!meta) return center(<div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>);
+  if (meta.pinHash && !unlocked) return center(<CrimePinScreen pinHash={meta.pinHash} onUnlock={() => { try { sessionStorage.setItem("nb_crime_unlocked", "1"); } catch (e) {} setUnlocked(true); }} bigBtn={bigBtn} />);
+  if (!meta.profile) return center(<CrimeProfileForm initial={nbCrimeGuessProfile()} bigBtn={bigBtn} onSave={(p) => nbCrimeStore.setMeta("profile", p)} first />);
+
+  const profile = meta.profile;
+  const days = meta.lastBackupAt ? Math.floor((Date.now() - meta.lastBackupAt) / 86400000) : null;
+  const needBackup = (cases || []).length > 0 && (days === null || days >= NB_CRIME_BACKUP_DAYS);
+  const doBackup = () => {
+    const now = Date.now();
+    const payload = { app: "nokri-book-crime-review", v: 1, exportedAt: new Date(now).toISOString(), station: profile, cases: cases || [] };
+    nbDownloadText(`nokri-book-crime-backup-${todayStr()}.json`, JSON.stringify(payload, null, 1));
+    nbCrimeStore.setMeta("lastBackupAt", now).then(() => showToast(t(`Backup downloaded (${(cases || []).length} cases)`, `બેકઅપ ડાઉનલોડ થયો (${(cases || []).length} ગુના)`)));
+  };
+  return (
+    <LangContext.Provider value={langCtx}>
+      <div className="crime-review-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap", position: "sticky", top: 0, zIndex: 40 }}>
+          <div style={{ fontSize: 26 }}>🚔</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="disp gu" style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2 }}>{t("Crime Review", "ગુના સમીક્ષા")}</div>
+            <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[profile.stationName, profile.district].filter(Boolean).join(", ")}</div>
+          </div>
+          {langBtns}
+          {meta.pinHash && <button onClick={() => { try { sessionStorage.removeItem("nb_crime_unlocked"); } catch (e) {} setUnlocked(false); }} title={t("Lock", "લૉક")} className="gu" style={{ ...iconBtnWide, padding: "6px 10px" }}>🔒</button>}
+          <button onClick={() => setShowMenu(true)} className="gu" style={{ ...iconBtnWide, padding: "6px 10px", fontWeight: 700 }}>⚙️ {t("Data", "ડેટા")}</button>
+        </div>
+        <div style={{ padding: "16px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>
+          <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span>📱 {t("Saved only on this device — nothing is sent online.", "ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી.")}</span>
+            <span style={{ color: "var(--text-tertiary)" }}>{meta.lastBackupAt ? t(`Last backup: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`, `છેલ્લો બેકઅપ: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`) : t("No backup yet", "હજુ બેકઅપ નથી")}</span>
+          </div>
+          {needBackup && (
+            <div className="gu" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--status-warning-text, #b7791f)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
+              <span style={{ flex: 1, minWidth: 200 }}>⚠️ {days === null ? t("You haven't made a backup yet. If this browser's data is cleared or the device is lost, the cases are gone.", "તમે હજુ બેકઅપ લીધો નથી. આ બ્રાઉઝરનો ડેટા સાફ થાય કે ડિવાઇસ ખોવાય તો ગુનાઓ જતા રહેશે.") : t(`Last backup was ${days} days ago.`, `છેલ્લો બેકઅપ ${days} દિવસ પહેલાં લીધો હતો.`)}</span>
+              <button onClick={doBackup} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>⬇ {t("Download backup", "બેકઅપ ડાઉનલોડ કરો")}</button>
+            </div>
+          )}
+          <CrimeReviewView
+            mode="station" stationName={profile.stationName} district={profile.district} state={profile.state}
+            initialTab={tab === "report" ? "report" : "cases"}
+            onTabChange={(tb) => nbNavigate(tb === "report" ? "/crime/report" : "/crime", { replace: true })}
+          />
+        </div>
+        {showMenu && <CrimeDataMenu meta={meta} cases={cases || []} onBackup={doBackup} onClose={() => setShowMenu(false)} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} bigBtn={bigBtn} />}
+        {toast && <div className="gu" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
+      </div>
+    </LangContext.Provider>
+  );
+}
+function CrimeProfileForm({ initial, onSave, bigBtn, first }) {
+  const { t } = useLang();
+  const [p, setP] = useState({ stationName: "", district: "", state: "", ...(initial || {}) });
+  const [busy, setBusy] = useState(false);
+  const ok = p.stationName.trim() && p.district.trim();
+  return (
+    <div className="gu">
+      {first && <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12, lineHeight: 1.5, textAlign: "center" }}>{t("Crime Review works offline. Cases are saved only on this device — nothing goes online. First, your station:", "ગુના સમીક્ષા ઓફલાઇન ચાલે છે. ગુનાઓ ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી. પહેલાં, તમારું સ્ટેશન:")}</div>}
+      <label style={nbCrLabel}>{t("Police station", "પોલીસ સ્ટેશન")}</label>
+      <input type="text" value={p.stationName} onChange={(e) => setP({ ...p, stationName: e.target.value.slice(0, 100) })} className="gu" style={nbCrInput} placeholder={t("e.g. Dhari Police Station", "દા.ત. ધારી પોલીસ સ્ટેશન")} />
+      <label style={nbCrLabel}>{t("District", "જિલ્લો")}</label>
+      <input type="text" value={p.district} onChange={(e) => setP({ ...p, district: e.target.value.slice(0, 60) })} className="gu" style={nbCrInput} placeholder={t("e.g. Amreli", "દા.ત. અમરેલી")} />
+      <label style={nbCrLabel}>{t("State (optional)", "રાજ્ય (વૈકલ્પિક)")}</label>
+      <input type="text" value={p.state} onChange={(e) => setP({ ...p, state: e.target.value.slice(0, 60) })} className="gu" style={nbCrInput} />
+      <button disabled={!ok || busy} onClick={async () => { setBusy(true); try { await onSave({ stationName: p.stationName.trim(), district: p.district.trim(), state: p.state.trim() }); } finally { setBusy(false); } }}
+        className="gu" style={{ ...bigBtn, opacity: ok && !busy ? 1 : 0.5 }}>{first ? t("Start", "શરૂ કરો") : t("Save", "સાચવો")}</button>
+    </div>
+  );
+}
+function CrimePinScreen({ pinHash, onUnlock, bigBtn }) {
+  const { t } = useLang();
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const [fails, setFails] = useState(0);
+  const [waitUntil, setWaitUntil] = useState(0);
+  const [, tick] = useState(0);
+  useEffect(() => { if (waitUntil <= Date.now()) return; const id = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(id); }, [waitUntil]);
+  const left = Math.max(0, waitUntil - Date.now());
+  const submit = async () => {
+    if (pin.length !== 6 || left > 0) return;
+    const h = await nbCrimePinHash(pin);
+    if (h === pinHash) { onUnlock(); return; }
+    const f = fails + 1; setFails(f); setPin("");
+    if (f >= 5) { setWaitUntil(Date.now() + 60 * 1000); setFails(0); setErr(""); }
+    else setErr(t(`Wrong PIN. ${5 - f} tries left.`, `ખોટો PIN. ${5 - f} પ્રયત્ન બાકી.`));
+  };
+  return (
+    <div className="gu" style={{ textAlign: "center" }}>
+      <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 14 }}>🔒 {t("Enter the 6-digit PIN for this device.", "આ ડિવાઇસનો 6 અંકનો PIN નાખો.")}</div>
+      <input type="password" inputMode="numeric" pattern="[0-9]*" autoComplete="off" maxLength={6} autoFocus value={pin} disabled={left > 0}
+        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+        aria-label={t("PIN", "PIN")} className="mono" style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 28, letterSpacing: 12, padding: "10px 0", borderRadius: 10 }} />
+      {left > 0 ? <div style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 10 }}>{t(`Too many wrong tries. Wait ${Math.ceil(left / 1000)} s.`, `ઘણા ખોટા પ્રયત્નો. ${Math.ceil(left / 1000)} સેકન્ડ રાહ જુઓ.`)}</div>
+        : err && <div style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 10 }}>{err}</div>}
+      <button onClick={submit} disabled={pin.length !== 6 || left > 0} className="gu" style={{ ...bigBtn, opacity: pin.length === 6 && !left ? 1 : 0.5 }}>{t("Open", "ખોલો")}</button>
+      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 12, lineHeight: 1.5 }}>{t("Forgot the PIN? It can't be recovered. Clearing this site's data in the browser removes the PIN and all cases on this device — then restore your backup file.", "PIN ભૂલી ગયા? તે પાછો મળી શકતો નથી. બ્રાઉઝરમાં આ સાઇટનો ડેટા સાફ કરવાથી PIN અને આ ડિવાઇસના બધા ગુના જશે — પછી તમારી બેકઅપ ફાઇલ restore કરો.")}</div>
+    </div>
+  );
+}
+// ⚙️ Data: backup, restore, station details, PIN, dark mode, erase.
+function CrimeDataMenu({ meta, cases, onBackup, onClose, showToast, darkMode, setDarkMode, bigBtn }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [view, setView] = useState("menu"); // menu | station | pin
+  const [pin1, setPin1] = useState(""); const [pin2, setPin2] = useState("");
+  const [msg, setMsg] = useState("");
+  const fileRef = useRef(null);
+  const restore = (file) => {
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = async () => {
+      try {
+        const data = JSON.parse(String(r.result || ""));
+        if (!data || data.app !== "nokri-book-crime-review" || !Array.isArray(data.cases)) throw new Error("not a Crime Review backup");
+        const valid = data.cases.filter((c) => c && typeof c.id === "string" && c.id && c.crNo != null && typeof c.regDate === "string");
+        const current = {}; cases.forEach((c) => { current[c.id] = c; });
+        // Merge: a case already here is replaced only by a newer copy.
+        const toPut = valid.filter((c) => !current[c.id] || (Number(c.updatedAt) || 0) > (Number(current[c.id].updatedAt) || 0));
+        const added = toPut.filter((c) => !current[c.id]).length;
+        if (!window.confirm(t(`Restore from this backup?\n${valid.length} cases in the file — ${added} new, ${toPut.length - added} updated. Nothing on this device is deleted.`, `આ બેકઅપમાંથી restore કરવું છે?\nફાઇલમાં ${valid.length} ગુના — ${added} નવા, ${toPut.length - added} સુધારેલા. આ ડિવાઇસ પરથી કંઈ ડિલીટ નહીં થાય.`))) return;
+        await nbCrimeStore.putMany(toPut);
+        if (!meta.profile && data.station && data.station.stationName) await nbCrimeStore.setMeta("profile", data.station);
+        showToast(t(`Restored: ${added} new, ${toPut.length - added} updated`, `Restore થયું: ${added} નવા, ${toPut.length - added} સુધારેલા`));
+        onClose();
+      } catch (e) {
+        console.error("Restore failed:", e);
+        window.alert(t("This file isn't a Nokri Book Crime Review backup.", "આ ફાઇલ Nokri Book ગુના સમીક્ષાનો બેકઅપ નથી."));
+      }
+    };
+    r.readAsText(file);
+  };
+  const row = { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "13px 4px", fontSize: 14, color: "var(--text-primary)", cursor: "pointer" };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Data", "ડેટા")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 420, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{view === "station" ? t("Station details", "સ્ટેશનની વિગત") : view === "pin" ? t("PIN for this device", "આ ડિવાઇસ માટે PIN") : "⚙️ " + t("Data", "ડેટા")}</div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
+        </div>
+        {view === "menu" && (
+          <div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>{t(`${cases.length} cases on this device. Nothing is stored online.`, `આ ડિવાઇસ પર ${cases.length} ગુના. કંઈ ઓનલાઇન સચવાતું નથી.`)}</div>
+            <button onClick={() => { onBackup(); onClose(); }} style={row}>⬇ {t("Download backup file", "બેકઅપ ફાઇલ ડાઉનલોડ કરો")}</button>
+            <button onClick={() => fileRef.current && fileRef.current.click()} style={row}>⬆ {t("Restore from a backup file", "બેકઅપ ફાઇલમાંથી restore કરો")}</button>
+            <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={(e) => { restore(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+            <button onClick={() => setView("station")} style={row}>🏢 {t("Station details", "સ્ટેશનની વિગત")}</button>
+            <button onClick={() => { setView("pin"); setMsg(""); }} style={row}>🔒 {meta.pinHash ? t("Change or remove PIN", "PIN બદલો કે દૂર કરો") : t("Set a PIN for this device", "આ ડિવાઇસ માટે PIN સેટ કરો")}</button>
+            <button onClick={() => setDarkMode((d) => !d)} style={row}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
+            <button onClick={async () => {
+              if (!window.confirm(t("Erase ALL Crime Review data on this device (cases, station details, PIN)? Download a backup first — this can't be undone.", "આ ડિવાઇસનો બધો ગુના સમીક્ષા ડેટા (ગુના, સ્ટેશન, PIN) ભૂંસી નાખવો છે? પહેલાં બેકઅપ લો — આ પાછું નહીં થાય."))) return;
+              if (!window.confirm(t("Are you sure? All cases on this device will be deleted.", "ચોક્કસ? આ ડિવાઇસના બધા ગુના ડિલીટ થશે."))) return;
+              await nbCrimeStore.clearAll(); try { sessionStorage.removeItem("nb_crime_unlocked"); } catch (e) {} onClose();
+            }} style={{ ...row, color: "var(--status-error-text)", borderBottom: "none" }}>🗑️ {t("Erase all data on this device", "આ ડિવાઇસનો બધો ડેટા ભૂંસો")}</button>
+          </div>
+        )}
+        {view === "station" && <CrimeProfileForm initial={meta.profile} bigBtn={bigBtn} onSave={async (p) => { await nbCrimeStore.setMeta("profile", p); showToast(t("Saved", "સચવાયું")); setView("menu"); }} />}
+        {view === "pin" && (
+          <div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8, lineHeight: 1.5 }}>{t("The PIN is asked every time Crime Review is opened on this device. It is checked on the device only. If it is forgotten, it can't be recovered.", "આ ડિવાઇસ પર ગુના સમીક્ષા ખોલો ત્યારે દર વખતે PIN પૂછાશે. તે ફક્ત ડિવાઇસ પર ચકાસાય છે. ભૂલી જાઓ તો પાછો મળશે નહીં.")}</div>
+            <label style={nbCrLabel}>{t("New 6-digit PIN", "નવો 6 અંકનો PIN")}</label>
+            <input type="password" inputMode="numeric" maxLength={6} value={pin1} onChange={(e) => setPin1(e.target.value.replace(/\D/g, "").slice(0, 6))} className="mono" style={{ ...nbCrInput, fontSize: 18, letterSpacing: 6 }} />
+            <label style={nbCrLabel}>{t("Type it again", "ફરી લખો")}</label>
+            <input type="password" inputMode="numeric" maxLength={6} value={pin2} onChange={(e) => setPin2(e.target.value.replace(/\D/g, "").slice(0, 6))} className="mono" style={{ ...nbCrInput, fontSize: 18, letterSpacing: 6 }} />
+            {msg && <div style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 6 }}>{msg}</div>}
+            <button onClick={async () => {
+              if (pin1.length !== 6) { setMsg(t("The PIN must be 6 digits.", "PIN 6 અંકનો હોવો જોઈએ.")); return; }
+              if (pin1 !== pin2) { setMsg(t("The two PINs don't match.", "બંને PIN સરખા નથી.")); return; }
+              await nbCrimeStore.setMeta("pinHash", await nbCrimePinHash(pin1));
+              try { sessionStorage.setItem("nb_crime_unlocked", "1"); } catch (e) {}
+              showToast(t("PIN set", "PIN સેટ થયો")); setPin1(""); setPin2(""); setView("menu");
+            }} className="gu" style={bigBtn}>{t("Save PIN", "PIN સાચવો")}</button>
+            {meta.pinHash && <button onClick={async () => { if (!window.confirm(t("Remove the PIN? Anyone using this device can then open Crime Review.", "PIN દૂર કરવો છે? પછી આ ડિવાઇસ વાપરનાર કોઈપણ ગુના સમીક્ષા ખોલી શકશે."))) return; await nbCrimeStore.setMeta("pinHash", null); showToast(t("PIN removed", "PIN દૂર થયો")); setView("menu"); }}
+              className="gu" style={{ marginTop: 10, background: "transparent", border: "none", color: "var(--status-error-text)", fontSize: 13, cursor: "pointer" }}>{t("Remove PIN", "PIN દૂર કરો")}</button>}
+            <button onClick={() => setView("menu")} className="gu" style={{ display: "block", marginTop: 10, background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}>← {t("Back", "પાછા")}</button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -17480,8 +17411,14 @@ class ErrorBoundary extends React.Component {
 
 function RootApp() {
   const nbPath = useNbPath();
-  const crimeTok = nbPath.match(NB_CRIME_TOKEN_RE);
-  if (crimeTok) return <CrimeDeviceGate key={crimeTok[1]} token={crimeTok[1]} report={!!crimeTok[2]} />;
+  // Crime Review: separate offline app — no sign-in, nothing online.
+  const crimeOld = nbPath.match(NB_CRIME_OLD_RE);
+  if (crimeOld || (nbIsCrimePath(nbPath) && nbPath !== "/crime" && nbPath !== "/crime/report")) {
+    const to = (crimeOld && crimeOld[1]) || /\/report$/.test(nbPath) ? "/crime/report" : "/crime";
+    setTimeout(() => nbNavigate(to, { replace: true }), 0);
+    return null;
+  }
+  if (nbIsCrimePath(nbPath)) return <CrimeOfflineApp tab={nbPath === "/crime/report" ? "report" : "cases"} />;
   const nbOnAppPath = nbIsAppPath(nbPath);
   const params = new URLSearchParams(window.location.search);
   const viewPathMatch = nbPath.match(/^\/view\/([A-Za-z0-9]{10,64})(\/|$)/);
