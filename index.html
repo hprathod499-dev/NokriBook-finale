@@ -652,7 +652,9 @@ function nbCleanPath(p) {
   if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
   return p || "/";
 }
-function nbIsAppPath(p) { return p === "/app" || p.indexOf("/app/") === 0; }
+function nbIsAppPath(p) { return p === "/app" || p.indexOf("/app/") === 0 || nbIsCrimePath(p); }
+// Crime Review is its own app at /crime (no roster sidebar).
+function nbIsCrimePath(p) { return p === "/crime" || p.indexOf("/crime/") === 0; }
 function nbDecode(x) { try { return decodeURIComponent(x); } catch (e) { return x; } }
 // ---------- Routes for the share view and the admin apps ----------
 // Share link:     /view/<token>[/work-types/<id>|/staff|/calendar|/reports|/history]
@@ -738,7 +740,6 @@ function nbViewToPath(v) {
     case "report": return v.focus === "exports" ? "/app/reports/exports" : v.sort === "duties" ? "/app/reports/duties" : v.sort === "name" ? "/app/reports/staff" : "/app/reports";
     case "events": return v.tab === "reminders" ? "/app/events/reminders" : "/app/events";
     case "recycle": return "/app/recycle-bin";
-    case "crime": return v.tab === "report" ? "/app/crime/report" : "/app/crime";
     default: return "/app/dashboard";
   }
 }
@@ -755,8 +756,15 @@ function nbViewToPath(v) {
 function nbResolveRoute(path, signedIn) {
   if (NB_PUBLIC_PATHS.indexOf(path) !== -1) return signedIn ? { kind: "redirect", to: "__intended__" } : { kind: "public" };
   const NF = { kind: "notfound" };
-  // Short / mistyped addresses for Crime review.
-  if (/^\/(crime|crime-review|crimereview)$/i.test(path)) return { kind: "redirect", to: "/app/crime" };
+  // Crime Review app: /crime (cases) and /crime/report.
+  if (nbIsCrimePath(path)) {
+    if (path === "/crime") return { kind: "crime", tab: "cases", title: ["Crime Review", "ગુના સમીક્ષા"] };
+    if (path === "/crime/report") return { kind: "crime", tab: "report", title: ["Crime Review Report", "ગુના સમીક્ષા અહેવાલ"] };
+    return NF;
+  }
+  // Older / mistyped Crime Review addresses -> /crime
+  const crimeOld = path.match(/^\/(?:crime-?review|app\/crime(?:-?review)?|app\/district\/crime-review)(\/report)?$/i);
+  if (crimeOld) return { kind: "redirect", to: crimeOld[1] ? "/crime/report" : "/crime" };
   if (!nbIsAppPath(path)) return NF;
   const seg = path.split("/").filter(Boolean).slice(1).map(nbDecode);
   const n = seg.length, a = seg[0], b = seg[1], c = seg[2];
@@ -809,13 +817,6 @@ function nbResolveRoute(path, signedIn) {
       return NF;
     case "recycle-bin":
       return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
-    case "crime-review":
-    case "crimereview":
-      return { kind: "redirect", to: b === "report" ? "/app/crime/report" : "/app/crime" };
-    case "crime":
-      if (n === 1) return V({ mode: "crime" }, ["Crime Review", "ગુના સમીક્ષા"]);
-      if (n === 2 && b === "report") return V({ mode: "crime", tab: "report" }, ["Crime Review Report", "ગુના સમીક્ષા અહેવાલ"]);
-      return NF;
     case "settings":
       if (n === 1) return P("settings", null, ["Settings", "સેટિંગ્સ"]);
       if (n === 2 && ["station", "account", "appearance", "language", "security"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
@@ -4816,7 +4817,7 @@ function DutyRoster() {
       to = "/app/dashboard";
       try {
         const saved = sessionStorage.getItem(NB_INTENDED_KEY);
-        if (saved && /^\/app(\/|$)/.test(saved)) to = saved;
+        if (saved && /^\/(app|crime)(\/|$)/.test(saved)) to = saved;
         sessionStorage.removeItem(NB_INTENDED_KEY);
       } catch (e) {}
     }
@@ -4828,7 +4829,7 @@ function DutyRoster() {
     if (!user) ti = routePath === "/register" ? ["Register", "નોંધણી"] : routePath === "/forgot-password" ? ["Forgot Password", "પાસવર્ડ ભૂલી ગયા"] : ["Sign In", "સાઇન ઇન"];
     else if (route.kind === "view" || route.kind === "panel") ti = route.title;
     else if (route.kind === "notfound") ti = ["Page Not Found", "પેજ મળ્યું નથી"];
-    else if (route.kind === "admin") ti = route.title;
+    else if (route.kind === "admin" || route.kind === "crime") ti = route.title;
     else return;
     document.title = "Nokri Book — " + (lang === "gu" ? ti[1] : ti[0]);
   }, [route, routePath, lang, user]);
@@ -7743,11 +7744,19 @@ function DutyRoster() {
     return <LangContext.Provider value={langCtxValue}><VerifyEmailScreen user={user} signOutUser={signOutUser} /></LangContext.Provider>;
   }
   if (route.kind === "admin" && isSuperAdmin === false && isDistrictAdmin === false) {
-    // A station opening the district crime-review link goes to its own Crime review.
-    const toCrime = /^\/app\/district\/crime-review(\/|$)/.test(nbCleanPath(window.location.pathname));
-    setTimeout(() => nbNavigate(toCrime ? "/app/crime" : "/app/dashboard", { replace: true }), 0);
+    setTimeout(() => nbNavigate("/app/dashboard", { replace: true }), 0);
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
+  if (route.kind === "crime" && (isSuperAdmin || isDistrictAdmin)) {
+    return (
+      <LangContext.Provider value={langCtxValue}>
+        <CrimeReviewApp
+          mode={isDistrictAdmin ? "district" : "super"} districtId={districtAdminDistrictId} tab={route.tab}
+          email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme}
+        />
+      </LangContext.Provider>
+    );
+  }
   if (isSuperAdmin) {
     return (
       <LangContext.Provider value={langCtxValue}>
@@ -7831,6 +7840,18 @@ function DutyRoster() {
           >{t("Sign out", "સાઇન આઉટ")}</button>
         </div>
       </div>
+    );
+  }
+
+  // Crime Review is a separate app (own screen, no roster sidebar).
+  if (route.kind === "crime") {
+    return (
+      <LangContext.Provider value={langCtxValue}>
+        <CrimeReviewApp
+          mode="station" ownerUid={accountUid} stationName={data.stationName} district={data.district} state={data.state} tab={route.tab}
+          email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme}
+        />
+      </LangContext.Provider>
     );
   }
 
@@ -8087,13 +8108,6 @@ function DutyRoster() {
           )}
           {vm === "skipHistory" && (
             <SkipHistoryView key={nbHistorySearch(data, view) || ""} data={data} initialSearch={nbHistorySearch(data, view)} />
-          )}
-          {vm === "crime" && (
-            <CrimeReviewView
-              mode="station" ownerUid={accountUid} stationName={data.stationName} district={data.district} state={data.state}
-              initialTab={view.tab === "report" ? "report" : "cases"}
-              onTabChange={(tb) => setView(tb === "report" ? { mode: "crime", tab: "report" } : { mode: "crime" }, { replace: true })}
-            />
           )}
           {vm === "recycle" && (
             <RecycleBinView
@@ -8434,7 +8448,6 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
           )}
         </button>
         <button onClick={() => setView({ mode: "report" })} data-nb-path={nbViewToPath({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
-        <button onClick={() => setView({ mode: "crime" })} data-nb-path={nbViewToPath({ mode: "crime" })} style={navBtn(view.mode === "crime")} className="gu">🚔 {t("Crime review", "ગુના સમીક્ષા")}</button>
         <button onClick={() => setView({ mode: "recycle" })} data-nb-path={nbViewToPath({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
         <button data-tour="nb-tour-nav-settings" onClick={onSettings} style={navBtn(false)} className="gu">⚙️ {t("Settings", "સેટિંગ્સ")}</button>
       </div>
@@ -13055,7 +13068,6 @@ function CommandPalette({ data, onNavigate, onClose }) {
       { icon: "🔔", label: t("Events & reminders", "ઇવેન્ટ્સ અને રિમાઇન્ડર"), view: { mode: "events" } },
       { icon: "📅", label: t("Duty calendar", "ડ્યુટી કૅલેન્ડર"), view: { mode: "calendar" } },
       { icon: "📄", label: t("Monthly report", "માસિક અહેવાલ"), view: { mode: "report" } },
-      { icon: "🚔", label: t("Crime review", "ગુના સમીક્ષા"), view: { mode: "crime" } },
       { icon: "🗑️", label: t("Recycle bin", "રિસાયકલ બિન"), view: { mode: "recycle" } },
     ];
     (data.categories || []).forEach((c) => jumpTargets.push({ icon: "📁", label: c.label, view: { mode: "category", catId: c.id } }));
@@ -15903,8 +15915,6 @@ const NB_CRIME_TYPES = [
   { id: "missing-person", gu: "ગુમ થયેલ વ્યક્તિ", en: "Missing person", k: "gum thayel missing", limit: 60, victim: true },
   { id: "other", gu: "અન્ય", en: "Other", k: "anya other", limit: 60 },
 ];
-// /app/district/crime-review — station uids never contain "-", so this can't clash.
-const NB_CRIME_REVIEW_SEG = "crime-review";
 const NB_SUMMARY_TYPES = {
   A: { gu: "આરોપી મળી આવેલ નથી", en: "Accused not traced" },
   B: { gu: "ખોટી ફરિયાદ", en: "False complaint" },
@@ -16382,7 +16392,7 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
     <React.Fragment>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         {onBack && <button onClick={onBack} className="gu" style={{ ...iconBtnWide }}>← {t("Back", "પાછા")}</button>}
-        <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0, flex: 1 }}>🚔 {t("Crime review", "ગુના સમીક્ષા")}</h1>
+        <div style={{ flex: 1 }} />
         {!isDistrict && <button onClick={() => setEditing({})} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>+ {t("New case", "નવો ગુનો")}</button>}
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
@@ -16507,7 +16517,7 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
           {overdueList.length > 0 && (
             <div className="gu" style={{ marginTop: 12, fontSize: 12.5, background: "var(--bg-surface)", border: "1px solid var(--status-error-text)", borderRadius: 10, padding: "8px 12px" }}>
               <b style={{ color: "var(--status-error-text)" }}>⚠️ {t(`Charge-sheet overdue: ${overdueList.length}`, `ચાર્જશીટ મુદત વીતી: ${overdueList.length}`)}</b>
-              <div style={{ marginTop: 4 }}>{overdueList.map((c) => `${c.crNo}/${c.crYear} (${nbChargeStatus(c).days}/${nbChargeStatus(c).limit} ${t("days", "દિવસ")})`).join(" · ")}</div>
+              <div style={{ marginTop: 4 }}>{overdueList.map((c) => `${isDistrict ? stationNameOf(c.owner) + " " : ""}${c.crNo}/${c.crYear} (${nbChargeStatus(c).days}/${nbChargeStatus(c).limit} ${t("days", "દિવસ")})`).join(" · ")}</div>
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
@@ -16527,6 +16537,62 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
       {toast && <div className="gu" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
     </React.Fragment>
+  );
+}
+
+// The standalone Crime Review app at nokribook.in/crime — its own header,
+// no roster sidebar. Station: its own register. District admin: every
+// station of the district.
+function CrimeReviewApp({ mode, ownerUid, stationName, district, state, districtId, tab, email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
+  const { t, lang, setLang } = useLang();
+  const [stations, setStations] = useState(mode === "district" ? null : []);
+  useEffect(() => {
+    if (mode !== "district" || !districtId) return;
+    const unsub = db.collection("districts").doc(districtId).collection("stations").onSnapshot(
+      (snap) => { const list = []; snap.forEach((d) => list.push({ uid: d.id, ...d.data() })); setStations(list.filter((x) => x.stationApprovalStatus !== "pending").sort((a, b) => (a.stationName || "").localeCompare(b.stationName || ""))); },
+      () => setStations([])
+    );
+    return () => unsub();
+  }, [mode, districtId]);
+  useEffect(() => {
+    if (theme && theme !== "classic") document.documentElement.setAttribute("data-color-theme", theme);
+    else document.documentElement.removeAttribute("data-color-theme");
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+  }, [theme, darkMode]);
+  const sub = mode === "district" ? `${districtId} — ${t("District", "જિલ્લો")}` : [stationName, district].filter(Boolean).join(", ");
+  const langBtn = (code, label) => (
+    <button onClick={() => setLang(code)} className={code === "gu" ? "gu" : ""} style={{ background: lang === code ? "var(--accent)" : "transparent", color: lang === code ? "var(--accent-text)" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, fontWeight: 700 }}>{label}</button>
+  );
+  let body;
+  if (mode === "super") {
+    body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Crime Review is used by police stations and District Admins. Open it with a station or district admin account.", "ગુના સમીક્ષા પોલીસ સ્ટેશન અને જિલ્લા એડમિન માટે છે. સ્ટેશન કે જિલ્લા એડમિન એકાઉન્ટથી ખોલો.")}</div>;
+  } else if (mode === "station" && !(district || "").trim()) {
+    body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Set your station and district in Nokri Book first (Settings → Station), then open Crime Review again.", "પહેલાં Nokri Book માં તમારું સ્ટેશન અને જિલ્લો સેટ કરો (સેટિંગ્સ → સ્ટેશન), પછી ફરી ગુના સમીક્ષા ખોલો.")}</div>;
+  } else if (mode === "district" && stations === null) {
+    body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>;
+  } else {
+    body = (
+      <CrimeReviewView
+        mode={mode} ownerUid={ownerUid} stationName={stationName} district={mode === "district" ? districtId : district} state={state}
+        districtId={districtId} stations={stations}
+        initialTab={tab === "report" ? "report" : "cases"}
+        onTabChange={(tb) => nbNavigate(tb === "report" ? "/crime/report" : "/crime", { replace: true })}
+      />
+    );
+  }
+  return (
+    <div className="crime-review-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap", position: "sticky", top: 0, zIndex: 40 }}>
+        <div style={{ fontSize: 26 }}>🚔</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="disp gu" style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2 }}>{t("Crime Review", "ગુના સમીક્ષા")}</div>
+          {sub && <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>{langBtn("en", "EN")}{langBtn("gu", "ગુ")}</div>
+        <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
+      </div>
+      <div style={{ padding: "20px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>{body}</div>
+    </div>
   );
 }
 
@@ -16679,7 +16745,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   }, [stationUidsKey]);
 
   useEffect(() => {
-    if (!selectedUid || selectedUid === NB_CRIME_REVIEW_SEG) { setSelectedData(undefined); return; }
+    if (!selectedUid) { setSelectedData(undefined); return; }
     setSelectedData(undefined);
     // publicRosters/{uid} — the same public-safe, no-phone-numbers
     // document a normal share-link visitor reads — NOT accounts/{uid}.
@@ -16709,33 +16775,11 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
 
   const selectedStation = (stations || []).find((s) => s.uid === selectedUid);
 
-  if (selectedUid === NB_CRIME_REVIEW_SEG) {
-    return (
-      <div className="district-admin-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("Crime review", "ગુના સમીક્ષા")}</div>
-          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
-        </div>
-        <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
-          <CrimeReviewView
-            mode="district" districtId={districtId} district={districtId}
-            stations={(stations || []).filter((s) => s.stationApprovalStatus !== "pending").sort((a, b) => (a.stationName || "").localeCompare(b.stationName || ""))}
-            initialTab={(districtSegs || [])[1] === "report" ? "report" : "cases"}
-            onTabChange={(tb) => nbNavigate("/app/district/" + NB_CRIME_REVIEW_SEG + (tb === "report" ? "/report" : ""), { replace: true })}
-            onBack={() => nbNavigate("/app/district")}
-          />
-        </div>
-      </div>
-    );
-  }
-
   if (!selectedUid) {
     return (
       <div className="district-admin-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
           <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("District Dashboard", "જિલ્લા ડેશબોર્ડ")}</div>
-          <div style={{ flex: 1 }} />
-          <button onClick={() => nbNavigate("/app/district/" + NB_CRIME_REVIEW_SEG)} data-nb-path={"/app/district/" + NB_CRIME_REVIEW_SEG} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 13, fontWeight: 700 }}>🚔 {t("Crime review", "ગુના સમીક્ષા")}</button>
           <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
         </div>
         <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
