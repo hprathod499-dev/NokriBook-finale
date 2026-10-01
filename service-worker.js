@@ -24,7 +24,7 @@
 //    refresh the cached shell instead of being discarded for "not ok".
 //  - Precaching adds files one at a time, so one missing file can no longer
 //    stop index.html itself from being cached.
-const CACHE_NAME = "nokri-book-shell-v4";
+const CACHE_NAME = "nokri-book-shell-v5";
 const SHELL_URL = "/index.html";
 const APP_SHELL = [
   "/",
@@ -79,7 +79,10 @@ self.addEventListener("fetch", (event) => {
   // Opening / reloading / deep-linking to any page.
   if (req.mode === "navigate" || url.pathname.endsWith("/index.html") || url.pathname === "/") {
     event.respondWith(
-      fetch(req)
+      // cache: "no-store" skips the browser's own 10-minute HTTP cache of
+      // the page, so a new deploy shows up on the very next open.
+      fetch(req.url, { cache: "no-store", credentials: "same-origin" })
+        .catch(() => fetch(req))
         .then((res) => {
           // Keep ONE fresh copy of the shell, no matter which URL was opened.
           if (isShellResponse(res)) {
