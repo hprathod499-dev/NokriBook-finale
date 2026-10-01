@@ -678,6 +678,12 @@ function nbSubPathFromView(v) {
   return key ? "/" + key : "";
 }
 function nbShareUrl(token) { return `${window.location.origin}/view/${token}`; }
+function nbCrimeUrl(token) { return `${window.location.origin}/crime/${token}`; }
+function nbNewCrimeCode() {
+  const b = new Uint32Array(1); crypto.getRandomValues(b);
+  return String(b[0] % 1000000).padStart(6, "0");
+}
+const NB_CRIME_TOKEN_RE = /^\/crime\/([A-Za-z0-9]{20,64})(\/report)?$/;
 function nbIsIsoDate(x) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
   const d = new Date(x + "T00:00:00Z");
@@ -756,11 +762,14 @@ function nbViewToPath(v) {
 function nbResolveRoute(path, signedIn) {
   if (NB_PUBLIC_PATHS.indexOf(path) !== -1) return signedIn ? { kind: "redirect", to: "__intended__" } : { kind: "public" };
   const NF = { kind: "notfound" };
-  // Crime Review app: /crime (cases) and /crime/report.
+  // Crime Review app: /crime[/report] or a station's own link /crime/<token>[/report].
   if (nbIsCrimePath(path)) {
-    if (path === "/crime") return { kind: "crime", tab: "cases", title: ["Crime Review", "ગુના સમીક્ષા"] };
-    if (path === "/crime/report") return { kind: "crime", tab: "report", title: ["Crime Review Report", "ગુના સમીક્ષા અહેવાલ"] };
-    return NF;
+    const cs = path.split("/").filter(Boolean).slice(1);
+    let linkToken = null;
+    if (cs[0] && cs[0] !== "report") { if (!/^[A-Za-z0-9]{12,64}$/.test(cs[0])) return NF; linkToken = cs.shift(); }
+    if (cs.length > 1 || (cs[0] && cs[0] !== "report")) return NF;
+    const report = cs[0] === "report";
+    return { kind: "crime", tab: report ? "report" : "cases", linkToken, title: report ? ["Crime Review Report", "ગુના સમીક્ષા અહેવાલ"] : ["Crime Review", "ગુના સમીક્ષા"] };
   }
   // Older / mistyped Crime Review addresses -> /crime
   const crimeOld = path.match(/^\/(?:crime-?review|app\/crime(?:-?review)?|app\/district\/crime-review)(\/report)?$/i);
@@ -819,7 +828,7 @@ function nbResolveRoute(path, signedIn) {
       return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
     case "settings":
       if (n === 1) return P("settings", null, ["Settings", "સેટિંગ્સ"]);
-      if (n === 2 && ["station", "account", "appearance", "language", "security"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
+      if (n === 2 && ["station", "account", "appearance", "language", "security", "crime"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
       return NF;
     case "help":
       return n === 1 ? P("help", null, ["Help", "મદદ"]) : NF;
@@ -3685,12 +3694,73 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+// Settings → Manage crime app: this station's own Crime Review link plus
+// its 6-digit code. Made automatically the first time the section is
+// opened. Anyone opening the link must type the code once per device
+// (checked by the database rules, not just this page). A new code locks
+// out every device that was unlocked with the old one.
+function CrimeAppLinkBox({ token, code, onCrimeLink, hasStation }) {
+  const { t } = useLang();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [copied, setCopied] = useState("");
+  const run = async (kind) => {
+    setBusy(true); setErr("");
+    try { await onCrimeLink(kind); }
+    catch (e) { console.error("Crime link failed:", e); setErr(t("Couldn't save — check your connection. If it keeps failing, the new Firestore rules may not be published yet.", "સાચવી શકાયું નહીં — જોડાણ તપાસો. વારંવાર થાય તો નવા Firestore rules કદાચ publish થયા નથી.")); }
+    setBusy(false);
+  };
+  useEffect(() => { if (hasStation && (!token || !code) && !busy) run("ensure"); }, [token, code, hasStation]);
+  if (!hasStation) {
+    return <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 8 }}>{t("Set your station and district above first — the crime app link is made for your station.", "પહેલાં ઉપર તમારું સ્ટેશન અને જિલ્લો સેટ કરો — ક્રાઇમ એપની લિંક તમારા સ્ટેશન માટે બને છે.")}</div>;
+  }
+  if (!token || !code) return <div className="gu" style={{ fontSize: 12.5, color: err ? "var(--status-error-text)" : "var(--text-secondary)", marginTop: 8 }}>{err || t("Making your link…", "તમારી લિંક બની રહી છે…")}</div>;
+  const url = nbCrimeUrl(token);
+  const copy = async (text, what) => {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (e2) {} ta.remove(); }
+    setCopied(what); setTimeout(() => setCopied(""), 2000);
+  };
+  const btn = { flex: "1 1 0", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", whiteSpace: "nowrap", textAlign: "center", textDecoration: "none" };
+  const small = { background: "transparent", border: "none", padding: 0, fontSize: 12, cursor: "pointer", textAlign: "left" };
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6, lineHeight: 1.5 }}>
+        {t("Your station's Crime Review link. Whoever opens it must enter the 6-digit code below once on their device — then it opens Crime Review for this station only (no roster, no login).", "તમારા સ્ટેશનની ગુના સમીક્ષા લિંક. જે ખોલે તેણે પોતાના ડિવાઇસ પર એક વાર નીચેનો 6 અંકનો કોડ નાખવો પડશે — પછી ફક્ત આ સ્ટેશનની ગુના સમીક્ષા ખુલશે (રોસ્ટર નહીં, લોગિન નહીં).")}
+      </div>
+      <div className="mono" onClick={() => copy(url, "link")} title={t("Tap to copy", "કૉપિ કરવા ટેપ કરો")} style={{ fontSize: 12, background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", wordBreak: "break-all", cursor: "pointer", color: "var(--text-primary)" }}>{url}</div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <button onClick={() => copy(url, "link")} className="gu" style={btn}>{copied === "link" ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy link", "લિંક કૉપિ")}</button>
+        <a href={"https://wa.me/?text=" + encodeURIComponent(t("Crime Review — ", "ગુના સમીક્ષા — ") + url)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}>💬 WhatsApp</a>
+        <a href={url} target="_blank" rel="noopener" className="gu" style={btn}>↗ {t("Open", "ખોલો")}</a>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px" }}>
+        <div style={{ flex: 1 }}>
+          <div className="gu" style={{ fontSize: 11, color: "var(--text-secondary)" }}>{t("6-digit code", "6 અંકનો કોડ")}</div>
+          <div className="mono" style={{ fontSize: 24, fontWeight: 700, letterSpacing: 4, color: "var(--text-primary)" }}>{code.slice(0, 3)} {code.slice(3)}</div>
+        </div>
+        <button onClick={() => copy(code, "code")} className="gu" style={{ ...btn, flex: "0 0 auto", padding: "8px 12px" }}>{copied === "code" ? "✓" : "📋 " + t("Copy", "કૉપિ")}</button>
+      </div>
+      <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.5 }}>
+        {t("Tell the code separately (not in the same message as the link). Anyone with both can see and edit this station's cases.", "કોડ અલગથી જણાવો (લિંકવાળા મેસેજમાં નહીં). જેની પાસે બંને હોય તે આ સ્ટેશનના ગુના જોઈ અને સુધારી શકે.")}
+      </div>
+      {err && <div className="gu" style={{ fontSize: 12, color: "var(--status-error-text)", marginTop: 6 }}>{err}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+        <button disabled={busy} onClick={() => { if (window.confirm(t("Make a new code? Every device that opened Crime Review with the old code will be locked and must enter the new code.", "નવો કોડ બનાવવો છે? જૂના કોડથી ખોલેલા બધા ડિવાઇસ લૉક થઈ જશે અને નવો કોડ નાખવો પડશે."))) run("code"); }}
+          className="gu" style={{ ...small, color: "var(--accent-strong)", fontWeight: 600 }}>🔢 {t("New code (locks all devices)", "નવો કોડ (બધા ડિવાઇસ લૉક)")}</button>
+        <button disabled={busy} onClick={() => { if (window.confirm(t("Make a new link and code? The old link stops working and every device is locked.", "નવી લિંક અને કોડ બનાવવા છે? જૂની લિંક બંધ થશે અને બધા ડિવાઇસ લૉક થશે."))) run("link"); }}
+          className="gu" style={{ ...small, color: "var(--status-error-text)" }}>🔄 {t("New link + code (old link stops working)", "નવી લિંક + કોડ (જૂની લિંક બંધ)")}</button>
+      </div>
+    </div>
+  );
+}
+function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, crimeLinkToken, crimeLinkCode, onCrimeLink, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   const POLICE_LOCATIONS_GU = useMasterLocations();
   useEscToClose(onClose);
   const [themeOpen, setThemeOpen] = useState(initialSection === "appearance");
   const [dataOpen, setDataOpen] = useState(initialSection === "security");
+  const [crimeOpen, setCrimeOpen] = useState(initialSection === "crime");
   const [langOpen, setLangOpen] = useState(initialSection === "language");
   const [showImportStaff, setShowImportStaff] = useState(false);
   // Local drafts of the station-details fields, kept separate from props
@@ -4054,6 +4124,23 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                   )}
                 </div>
               )}
+            </div>
+          )}
+          {onCrimeLink && (
+            <div style={{ padding: "12px 20px", borderBottom: DIVIDER }}>
+              <button
+                onClick={() => setCrimeOpen((v) => !v)}
+                aria-expanded={crimeOpen}
+                className="disp gu"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13,
+                  background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)",
+                }}
+              >
+                <span style={{ display: "inline-block", transform: crimeOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+                {t("Manage crime app", "ક્રાઇમ એપ મેનેજ કરો")}
+              </button>
+              {crimeOpen && <CrimeAppLinkBox token={crimeLinkToken} code={crimeLinkCode} onCrimeLink={onCrimeLink} hasStation={!!(district || "").trim()} />}
             </div>
           )}
           {onHelp && (
@@ -4697,7 +4784,8 @@ function DutyRoster() {
     try { return localStorage.getItem("nb_account_deleted") === "1"; } catch (e) { return false; }
   });
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(setUser);
+    // A Crime Review device (anonymous sign-in) is never a roster user.
+    const unsub = auth.onAuthStateChanged((u) => setUser(u && u.isAnonymous ? null : u));
     return () => unsub();
   }, []);
   // Sign-in itself (Google / email+password) is
@@ -5788,6 +5876,7 @@ function DutyRoster() {
     if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
     if (data && data.shareToken) cleanup.push(db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {}));
     cleanup.push(nbReleaseStationNames(accountUid));
+    if (data && data.crimeLinkToken) cleanup.push(db.collection("crimeLinks").doc(data.crimeLinkToken).delete().catch(() => {}));
     // Crime-review cases belong to this station only.
     cleanup.push(db.collection("crimeCases").where("owner", "==", accountUid).get()
       .then((snap) => Promise.all(snap.docs.map((d) => d.ref.delete().catch(() => {})))).catch(() => {}));
@@ -5856,6 +5945,29 @@ function DutyRoster() {
   // Share menu (WhatsApp / Copy link): turns sharing on with a fresh
   // token the first time, and returns the link straight away so WhatsApp
   // can open inside the same tap (popup blockers need that).
+  // Crime Review link: crimeLinks/{token} = { owner, code, station... }.
+  // kind "ensure" (make if missing), "code" (new code), "link" (new link + code).
+  const crimeLinkDoc = (cur, token, code) => ({ owner: accountUid, code, stationName: cur.stationName || "", district: cur.district || "", state: cur.state || "", updatedAt: Date.now() });
+  const makeCrimeLink = async (kind) => {
+    const cur = dataRef.current || {};
+    const oldToken = cur.crimeLinkToken || null;
+    const token = kind === "link" || !oldToken ? nbNewShareToken().slice(0, 24) : oldToken;
+    const code = kind === "ensure" && cur.crimeLinkCode && token === oldToken ? cur.crimeLinkCode : nbNewCrimeCode();
+    await db.collection("crimeLinks").doc(token).set(crimeLinkDoc(cur, token, code));
+    if (oldToken && oldToken !== token) await db.collection("crimeLinks").doc(oldToken).delete().catch(() => {});
+    try { localStorage.setItem("nb_crime_link_sync", [token, code, cur.stationName, cur.district, cur.state].join("|")); } catch (e) {}
+    persist({ ...dataRef.current, crimeLinkToken: token, crimeLinkCode: code });
+  };
+  // Keep the link's station name / district in step with Settings.
+  useEffect(() => {
+    if (!accountUid || !data || !data.crimeLinkToken || !data.crimeLinkCode) return;
+    const sig = [data.crimeLinkToken, data.crimeLinkCode, data.stationName, data.district, data.state].join("|");
+    let last = null; try { last = localStorage.getItem("nb_crime_link_sync"); } catch (e) {}
+    if (last === sig) return;
+    db.collection("crimeLinks").doc(data.crimeLinkToken).set(crimeLinkDoc(data, data.crimeLinkToken, data.crimeLinkCode))
+      .then(() => { try { localStorage.setItem("nb_crime_link_sync", sig); } catch (e) {} })
+      .catch((e) => console.warn("Crime link sync failed:", e && e.code));
+  }, [accountUid, data && data.crimeLinkToken, data && data.crimeLinkCode, data && data.stationName, data && data.district, data && data.state]);
   const ensureShareUrl = () => {
     const cur = dataRef.current || {};
     if (cur.shareEnabled && cur.shareToken) return nbShareUrl(cur.shareToken);
@@ -7751,7 +7863,7 @@ function DutyRoster() {
     return (
       <LangContext.Provider value={langCtxValue}>
         <CrimeReviewApp
-          mode={isDistrictAdmin ? "district" : "super"} districtId={districtAdminDistrictId} tab={route.tab}
+          mode={isDistrictAdmin ? "district" : "super"} districtId={districtAdminDistrictId} tab={route.tab} linkToken={route.linkToken}
           email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme}
         />
       </LangContext.Provider>
@@ -7849,6 +7961,7 @@ function DutyRoster() {
       <LangContext.Provider value={langCtxValue}>
         <CrimeReviewApp
           mode="station" ownerUid={accountUid} stationName={data.stationName} district={data.district} state={data.state} tab={route.tab}
+          linkToken={route.linkToken} linkValid={!route.linkToken || route.linkToken === data.crimeLinkToken}
           email={user.email} signOutUser={signOutUser} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme}
         />
       </LangContext.Provider>
@@ -8161,6 +8274,8 @@ function DutyRoster() {
       {showSettingsPanel && (
         <SettingsPanel
           storagePct={storagePct}
+          crimeLinkToken={data.crimeLinkToken || null} crimeLinkCode={data.crimeLinkCode || null}
+          onCrimeLink={makeCrimeLink}
           initialSection={route.section}
           user={user}
           signOutUser={signOutUser} formatAllData={formatAllData}
@@ -16017,6 +16132,8 @@ function useCrimeCases({ ownerUid, districtId }) {
 
 // ---------- small inputs ----------
 const nbCrInput = { width: "100%", boxSizing: "border-box", fontSize: 13 };
+// iPad / iPhone date boxes ignore width:100% unless min-width is cleared.
+const nbCrDate = { ...nbCrInput, display: "block", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", appearance: "none", minHeight: 36, textAlign: "left" };
 const nbCrLabel = { display: "block", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", margin: "10px 0 4px" };
 function CrimeTypePicker({ value, customValue, onChange, allowAll, allowCustom = true, compact }) {
   const { t, lang } = useLang();
@@ -16132,7 +16249,7 @@ function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts })
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("C.R. / FIR number", "ગુના નંબર")}</label><input type="text" value={c.crNo} onChange={(e) => set("crNo", e.target.value.slice(0, 20))} className="mono" style={nbCrInput} placeholder="25" /></div>
               <div style={{ flex: "0 1 90px" }}><label style={nbCrLabel}>{t("Year", "વર્ષ")}</label><input type="text" value={c.crYear} onChange={(e) => set("crYear", e.target.value.replace(/\D/g, "").slice(0, 4))} className="mono" style={nbCrInput} /></div>
-              <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Registered on", "ગુનો દાખલ તારીખ")}</label><input type="date" value={c.regDate} onChange={(e) => set("regDate", e.target.value)} style={nbCrInput} /></div>
+              <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Registered on", "ગુનો દાખલ તારીખ")}</label><input type="date" value={c.regDate} onChange={(e) => set("regDate", e.target.value)} style={nbCrDate} /></div>
             </div>
             <label style={nbCrLabel}>{t("Crime type", "ગુનાનો પ્રકાર")}</label>
             <CrimeTypePicker value={c.crimeType} customValue={c.crimeTypeCustom} onChange={(id, custom) => setC((p) => ({ ...p, crimeType: id, crimeTypeCustom: custom, chargeLimit: (nbCrimeType(id) || {}).limit || p.chargeLimit || 60 }))} />
@@ -16163,7 +16280,7 @@ function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts })
                 <PeopleRows rows={c.accused || []} onChange={(v) => set("accused", v)} withArrest label={t("Add accused", "આરોપી ઉમેરો")} />
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("Charge-sheet no.", "ચાર્જશીટ નંબર")}</label><input type="text" value={c.chargesheetNo} onChange={(e) => set("chargesheetNo", e.target.value.slice(0, 30))} className="mono" style={nbCrInput} /></div>
-                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}</label><input type="date" value={c.chargesheetDate} onChange={(e) => set("chargesheetDate", e.target.value)} style={nbCrInput} /></div>
+                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}</label><input type="date" value={c.chargesheetDate} onChange={(e) => set("chargesheetDate", e.target.value)} style={nbCrDate} /></div>
                   <div style={{ flex: "0 1 120px" }}><label style={nbCrLabel}>{t("Time limit", "સમય મર્યાદા")}</label>
                     <select value={c.chargeLimit} onChange={(e) => set("chargeLimit", Number(e.target.value))} className="gu" style={{ ...nbCrInput }}>
                       <option value={60}>60 {t("days", "દિવસ")}</option><option value={90}>90 {t("days", "દિવસ")}</option>
@@ -16197,7 +16314,7 @@ function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts })
                 ))}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("Summary number", "સમરી નંબર")}</label><input type="text" value={c.summaryNo} onChange={(e) => set("summaryNo", e.target.value.slice(0, 30))} className="mono" style={nbCrInput} /></div>
-                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Summary date", "સમરી તારીખ")}</label><input type="date" value={c.summaryDate} onChange={(e) => set("summaryDate", e.target.value)} style={nbCrInput} /></div>
+                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Summary date", "સમરી તારીખ")}</label><input type="date" value={c.summaryDate} onChange={(e) => set("summaryDate", e.target.value)} style={nbCrDate} /></div>
                 </div>
               </React.Fragment>
             )}
@@ -16390,36 +16507,38 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
 
   return (
     <React.Fragment>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+      {/* one row: tabs on the left, "+ New case" on the right */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
         {onBack && <button onClick={onBack} className="gu" style={{ ...iconBtnWide }}>← {t("Back", "પાછા")}</button>}
-        <div style={{ flex: 1 }} />
-        {!isDistrict && <button onClick={() => setEditing({})} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>+ {t("New case", "નવો ગુનો")}</button>}
-      </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
         <button onClick={() => setTab("cases")} style={catTabBtn(tab === "cases")} className="gu">📁 {t("Cases", "ગુનાઓ")}</button>
         <button onClick={() => setTab("report")} style={catTabBtn(tab === "report")} className="gu">📊 {t("Review report", "સમીક્ષા અહેવાલ")}</button>
+        <div style={{ flex: 1 }} />
+        {!isDistrict && <button onClick={() => setEditing({})} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap" }}>+ {t("New case", "નવો ગુનો")}</button>}
       </div>
 
       {/* filters: crime head + time span (+ station for district) */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 14, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
-        <div style={{ flex: "2 1 220px" }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Crime head", "ગુનાનો પ્રકાર")}</label>
+      <div style={{ marginBottom: 14, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div style={{ flex: "2 1 240px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Crime head", "ગુનાનો પ્રકાર")}</label>
           <CrimeTypePicker value={typeId.startsWith("custom:") ? "custom" : typeId} customValue={typeId.startsWith("custom:") ? typeId.slice(7) : ""} onChange={(id, custom) => setTypeId(id === "custom" ? "custom:" + custom : id)} allowAll allowCustom={false} />
         </div>
-        <div style={{ flex: "1 1 130px" }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("From", "થી")}</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={nbCrInput} /></div>
-        <div style={{ flex: "1 1 130px" }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("To", "સુધી")}</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={nbCrInput} /></div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {[[t("This month", "આ મહિનો"), nbMonthRange(0)], [t("Last month", "ગયો મહિનો"), nbMonthRange(-1)], [t("This year", "આ વર્ષ"), [`${new Date().getFullYear()}-01-01`, `${new Date().getFullYear()}-12-31`]], [t("All", "બધું"), ["", ""]]].map(([lbl, [a, b]]) => (
-            <button key={lbl} onClick={() => { setFrom(a); setTo(b); }} className="gu" style={{ ...iconBtnWide, fontSize: 11.5 }}>{lbl}</button>
-          ))}
-        </div>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("From", "થી")}</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={nbCrDate} /></div>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("To", "સુધી")}</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={nbCrDate} /></div>
         {isDistrict && (
-          <div style={{ flex: "1 1 180px" }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Station", "સ્ટેશન")}</label>
+          <div style={{ flex: "1 1 180px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Station", "સ્ટેશન")}</label>
             <select value={station} onChange={(e) => setStation(e.target.value)} className="gu" style={nbCrInput}>
               <option value="all">{t("All stations", "બધા સ્ટેશન")}</option>
               {(stations || []).map((s) => <option key={s.uid} value={s.uid}>{s.stationName || s.uid}</option>)}
             </select>
           </div>
         )}
+      </div>
+      {/* quick date ranges — their own row so they never overlap the dates */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+        {[[t("This month", "આ મહિનો"), nbMonthRange(0)], [t("Last month", "ગયો મહિનો"), nbMonthRange(-1)], [t("This year", "આ વર્ષ"), [`${new Date().getFullYear()}-01-01`, `${new Date().getFullYear()}-12-31`]], [t("All dates", "બધી તારીખો"), ["", ""]]].map(([lbl, [a, b]]) => (
+          <button key={lbl} onClick={() => { setFrom(a); setTo(b); }} className="gu" style={{ ...catTabBtn(from === a && to === b), fontSize: 12, padding: "6px 12px" }}>{lbl}</button>
+        ))}
+      </div>
       </div>
 
       {error && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, marginBottom: 10 }}>{t("Couldn't load cases: ", "ગુનાઓ લોડ થઈ શક્યા નહીં: ") + error}</div>}
@@ -16543,7 +16662,8 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
 // The standalone Crime Review app at nokribook.in/crime — its own header,
 // no roster sidebar. Station: its own register. District admin: every
 // station of the district.
-function CrimeReviewApp({ mode, ownerUid, stationName, district, state, districtId, tab, email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
+function CrimeReviewApp({ mode, ownerUid, stationName, district, state, districtId, tab, linkToken, linkValid = true, deviceMode, onLock, email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
+  const base = linkToken ? "/crime/" + linkToken : "/crime";
   const { t, lang, setLang } = useLang();
   const [stations, setStations] = useState(mode === "district" ? null : []);
   useEffect(() => {
@@ -16564,7 +16684,16 @@ function CrimeReviewApp({ mode, ownerUid, stationName, district, state, district
     <button onClick={() => setLang(code)} className={code === "gu" ? "gu" : ""} style={{ background: lang === code ? "var(--accent)" : "transparent", color: lang === code ? "var(--accent-text)" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", fontSize: 11.5, fontWeight: 700 }}>{label}</button>
   );
   let body;
-  if (mode === "super") {
+  if (!linkValid) {
+    body = (
+      <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>
+        <div style={{ fontSize: 34, marginBottom: 10 }}>🔗</div>
+        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>{t("This Crime Review link isn't valid for this account", "આ ગુના સમીક્ષા લિંક આ એકાઉન્ટ માટે માન્ય નથી")}</div>
+        <div style={{ fontSize: 13, marginBottom: 16 }}>{t("It belongs to another station, or a new link was made in Settings → Manage crime app.", "તે બીજા સ્ટેશનની છે, અથવા સેટિંગ્સ → ક્રાઇમ એપ મેનેજ કરો માં નવી લિંક બનાવવામાં આવી છે.")}</div>
+        <button onClick={() => nbNavigate("/crime", { replace: true })} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13.5, fontWeight: 700 }}>{t("Open my Crime Review", "મારી ગુના સમીક્ષા ખોલો")}</button>
+      </div>
+    );
+  } else if (mode === "super") {
     body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Crime Review is used by police stations and District Admins. Open it with a station or district admin account.", "ગુના સમીક્ષા પોલીસ સ્ટેશન અને જિલ્લા એડમિન માટે છે. સ્ટેશન કે જિલ્લા એડમિન એકાઉન્ટથી ખોલો.")}</div>;
   } else if (mode === "station" && !(district || "").trim()) {
     body = <div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }}>{t("Set your station and district in Nokri Book first (Settings → Station), then open Crime Review again.", "પહેલાં Nokri Book માં તમારું સ્ટેશન અને જિલ્લો સેટ કરો (સેટિંગ્સ → સ્ટેશન), પછી ફરી ગુના સમીક્ષા ખોલો.")}</div>;
@@ -16576,7 +16705,7 @@ function CrimeReviewApp({ mode, ownerUid, stationName, district, state, district
         mode={mode} ownerUid={ownerUid} stationName={stationName} district={mode === "district" ? districtId : district} state={state}
         districtId={districtId} stations={stations}
         initialTab={tab === "report" ? "report" : "cases"}
-        onTabChange={(tb) => nbNavigate(tb === "report" ? "/crime/report" : "/crime", { replace: true })}
+        onTabChange={(tb) => nbNavigate(tb === "report" ? base + "/report" : base, { replace: true })}
       />
     );
   }
@@ -16589,10 +16718,136 @@ function CrimeReviewApp({ mode, ownerUid, stationName, district, state, district
           {sub && <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
         </div>
         <div style={{ display: "flex", gap: 4 }}>{langBtn("en", "EN")}{langBtn("gu", "ગુ")}</div>
-        <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
+        {deviceMode
+          ? <button onClick={onLock} title={t("Lock this device", "આ ડિવાઇસ લૉક કરો")} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>🔒 {t("Lock", "લૉક")}</button>
+          : <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />}
       </div>
       <div style={{ padding: "20px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>{body}</div>
     </div>
+  );
+}
+
+// nokribook.in/crime/<token> — a station's Crime Review link.
+// Signed-in Nokri Book users go to their own /crime. Everyone else gets an
+// anonymous sign-in on this device and must type the station's 6-digit
+// code once; the database rules only let this device see that station's
+// cases while its saved code still matches (a new code locks it out).
+const NB_CRIME_LOCK_KEY = "nb_crime_code_lock";
+function CrimeDeviceGate({ token, report }) {
+  const [lang, setLang] = useState(() => { try { return localStorage.getItem("nb_lang") || "en"; } catch (e) { return "en"; } });
+  useEffect(() => { try { localStorage.setItem("nb_lang", lang); } catch (e) {} }, [lang]);
+  const t = useCallback((en, gu) => (lang === "gu" && gu ? gu : en), [lang]);
+  const langCtx = useMemo(() => ({ lang, setLang, t }), [lang, t]);
+  const darkMode = (() => { try { return localStorage.getItem("nb_dark_mode") === "1"; } catch (e) { return false; } })();
+  useEffect(() => { document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light"); }, [darkMode]);
+  const [user, setUser] = useState(undefined);
+  const [phase, setPhase] = useState("loading"); // loading | code | open | error
+  const [link, setLink] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [, tick] = useState(0);
+  useEffect(() => { document.title = "Nokri Book — " + t("Crime Review", "ગુના સમીક્ષા"); }, [t]);
+  useEffect(() => auth.onAuthStateChanged((u) => {
+    if (!u) {
+      setUser(null);
+      auth.signInAnonymously().catch((e) => { console.error("Anonymous sign-in failed:", e); setPhase("error"); setMsg(e && e.code === "auth/operation-not-allowed" ? "anon-off" : "net"); });
+      return;
+    }
+    if (!u.isAnonymous) { nbNavigate(report ? "/crime/report" : "/crime", { replace: true }); return; }
+    setUser(u);
+  }), []);
+  const loadLink = () => db.collection("crimeLinks").doc(token).get().then((snap) => {
+    if (!snap.exists) throw Object.assign(new Error("gone"), { code: "permission-denied" });
+    setLink(snap.data()); setPhase("open");
+  });
+  useEffect(() => {
+    if (!user) return;
+    db.collection("crimeAccess").doc(user.uid).get()
+      .then((snap) => {
+        if (snap.exists && snap.data().token === token) return loadLink().catch(() => { setMsg("changed"); setPhase("code"); });
+        setPhase("code");
+      })
+      .catch(() => setPhase("code"));
+  }, [user, token]);
+  const lockInfo = () => { try { return JSON.parse(localStorage.getItem(NB_CRIME_LOCK_KEY) || "{}"); } catch (e) { return {}; } };
+  const lockedFor = () => Math.max(0, (lockInfo().until || 0) - Date.now());
+  useEffect(() => { if (lockedFor() <= 0) return; const id = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(id); });
+  const submit = async () => {
+    if (busy || code.length !== 6 || lockedFor() > 0 || !user) return;
+    setBusy(true); setMsg("");
+    try {
+      await db.collection("crimeAccess").doc(user.uid).set({ token, code, createdAt: Date.now() });
+      await loadLink();
+      try { localStorage.removeItem(NB_CRIME_LOCK_KEY); } catch (e) {}
+    } catch (e) {
+      const info = lockInfo(); const fails = (info.fails || 0) + 1;
+      const next = fails >= 5 ? { fails: 0, until: Date.now() + 10 * 60 * 1000 } : { fails, until: 0 };
+      try { localStorage.setItem(NB_CRIME_LOCK_KEY, JSON.stringify(next)); } catch (e2) {}
+      setMsg(fails >= 5 ? "locked" : "wrong:" + (5 - fails)); setCode("");
+    }
+    setBusy(false);
+  };
+  const onLock = async () => {
+    if (!window.confirm(t("Lock this device? The 6-digit code will be needed again.", "આ ડિવાઇસ લૉક કરવું છે? ફરી 6 અંકનો કોડ જોઈશે."))) return;
+    try { await db.collection("crimeAccess").doc(user.uid).delete(); } catch (e) {}
+    auth.signOut();
+  };
+  if (phase === "open" && link) {
+    return (
+      <LangContext.Provider value={langCtx}>
+        <CrimeReviewApp mode="station" deviceMode onLock={onLock} ownerUid={link.owner} stationName={link.stationName} district={link.district} state={link.state}
+          tab={report ? "report" : "cases"} linkToken={token} darkMode={darkMode} />
+      </LangContext.Provider>
+    );
+  }
+  const left = lockedFor();
+  const message =
+    msg === "anon-off" ? t("Crime Review links are not switched on yet (the station's admin must enable Anonymous sign-in in Firebase).", "ગુના સમીક્ષા લિંક હજુ ચાલુ નથી (Firebase માં Anonymous sign-in ચાલુ કરવું પડશે).")
+    : msg === "net" ? t("Couldn't connect. Check the internet and reload.", "જોડાણ થઈ શક્યું નહીં. ઇન્ટરનેટ તપાસી ફરી લોડ કરો.")
+    : msg === "changed" ? t("The code for this link was changed. Enter the new code.", "આ લિંકનો કોડ બદલાયો છે. નવો કોડ નાખો.")
+    : msg === "locked" ? ""
+    : msg.indexOf("wrong:") === 0 ? t(`Wrong code, or this link is no longer valid. ${msg.slice(6)} tries left.`, `ખોટો કોડ, અથવા આ લિંક હવે માન્ય નથી. ${msg.slice(6)} પ્રયત્ન બાકી.`)
+    : "";
+  return (
+    <LangContext.Provider value={langCtx}>
+      <div style={{ minHeight: "100vh", background: "var(--bg-page)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+        <div style={{ width: 380, maxWidth: "100%", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "28px 24px", textAlign: "center", boxShadow: "0 10px 40px rgba(0,0,0,0.08)" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginTop: -12, marginRight: -8 }}>
+            {[["en", "EN"], ["gu", "ગુ"]].map(([c, l]) => (
+              <button key={c} onClick={() => setLang(c)} className={c === "gu" ? "gu" : ""} style={{ background: lang === c ? "var(--accent)" : "transparent", color: lang === c ? "var(--accent-text)" : "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 8px", fontSize: 11.5, fontWeight: 700 }}>{l}</button>
+            ))}
+          </div>
+          <div style={{ fontSize: 40 }}>🚔</div>
+          <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, margin: "6px 0 4px" }}>{t("Crime Review", "ગુના સમીક્ષા")}</div>
+          {phase === "loading" && <div className="gu" style={{ color: "var(--text-secondary)", fontSize: 13, padding: 16 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
+          {phase === "error" && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, padding: "12px 0" }}>{message}</div>}
+          {phase === "code" && (
+            <React.Fragment>
+              <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16, lineHeight: 1.5 }}>
+                🔒 {t("Enter the 6-digit code. Ask your station — it is in Nokri Book → Settings → Manage crime app.", "6 અંકનો કોડ નાખો. તમારા સ્ટેશનને પૂછો — તે Nokri Book → સેટિંગ્સ → ક્રાઇમ એપ મેનેજ કરો માં છે.")}
+              </div>
+              <input
+                type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={6} autoFocus
+                value={code} disabled={left > 0 || busy}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+                aria-label={t("6-digit code", "6 અંકનો કોડ")} placeholder="••••••"
+                className="mono" style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 30, letterSpacing: 12, padding: "10px 0", borderRadius: 10 }}
+              />
+              {left > 0
+                ? <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 10 }}>{t(`Too many wrong tries. Try again in ${Math.ceil(left / 60000)} min.`, `ઘણા ખોટા પ્રયત્નો. ${Math.ceil(left / 60000)} મિનિટ પછી ફરી પ્રયત્ન કરો.`)}</div>
+                : message && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 10 }}>{message}</div>}
+              <button onClick={submit} disabled={busy || code.length !== 6 || left > 0} className="gu"
+                style={{ width: "100%", marginTop: 16, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 10, padding: "12px 0", fontSize: 14.5, fontWeight: 700, opacity: busy || code.length !== 6 || left > 0 ? 0.5 : 1 }}>
+                {busy ? t("Checking…", "ચકાસી રહ્યા છીએ…") : t("Open Crime Review", "ગુના સમીક્ષા ખોલો")}
+              </button>
+              <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 12 }}>{t("Asked only once on this device.", "આ ડિવાઇસ પર ફક્ત એક વાર પૂછાશે.")}</div>
+            </React.Fragment>
+          )}
+        </div>
+      </div>
+    </LangContext.Provider>
   );
 }
 
@@ -17045,6 +17300,8 @@ class ErrorBoundary extends React.Component {
 
 function RootApp() {
   const nbPath = useNbPath();
+  const crimeTok = nbPath.match(NB_CRIME_TOKEN_RE);
+  if (crimeTok) return <CrimeDeviceGate key={crimeTok[1]} token={crimeTok[1]} report={!!crimeTok[2]} />;
   const nbOnAppPath = nbIsAppPath(nbPath);
   const params = new URLSearchParams(window.location.search);
   const viewPathMatch = nbPath.match(/^\/view\/([A-Za-z0-9]{10,64})(\/|$)/);
