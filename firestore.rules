@@ -75,7 +75,8 @@ service cloud.firestore {
     function publicRosterKeysOk(d) {
       return d.keys().hasOnly([
         'v', 'stationName', 'categories', 'membership', 'staff',
-        'leaveTypes', 'outstationTypes', 'designations', 'skipLog'
+        'leaveTypes', 'outstationTypes', 'designations', 'skipLog',
+        'z', 'zv'
       ]);
     }
 
@@ -194,7 +195,7 @@ service cloud.firestore {
           && d.keys().hasOnly([
                'v', 'stationName', 'categories', 'membership', 'staff',
                'leaveTypes', 'outstationTypes', 'designations', 'skipLog',
-               'owner'
+               'owner', 'z', 'zv'
              ])
           && a.get('shareEnabled', false) == true
           && a.get('shareToken', null) == token;
