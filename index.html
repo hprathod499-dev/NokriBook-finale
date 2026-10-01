@@ -16746,12 +16746,19 @@ function CrimeDeviceGate({ token, report }) {
   const [msg, setMsg] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [errCode, setErrCode] = useState("");
   const [, tick] = useState(0);
   useEffect(() => { document.title = "Nokri Book — " + t("Crime Review", "ગુના સમીક્ષા"); }, [t]);
   useEffect(() => auth.onAuthStateChanged((u) => {
     if (!u) {
       setUser(null);
-      auth.signInAnonymously().catch((e) => { console.error("Anonymous sign-in failed:", e); setPhase("error"); setMsg(e && e.code === "auth/operation-not-allowed" ? "anon-off" : "net"); });
+      auth.signInAnonymously().catch((e) => {
+        console.error("Anonymous sign-in failed:", e);
+        const c = (e && e.code) || "";
+        setErrCode(c);
+        setPhase("error");
+        setMsg(c === "auth/operation-not-allowed" || c === "auth/admin-restricted-operation" ? "anon-off" : c === "auth/network-request-failed" ? "net" : "other");
+      });
       return;
     }
     if (!u.isAnonymous) { nbNavigate(report ? "/crime/report" : "/crime", { replace: true }); return; }
@@ -16805,6 +16812,7 @@ function CrimeDeviceGate({ token, report }) {
   const message =
     msg === "anon-off" ? t("Crime Review links are not switched on yet (the station's admin must enable Anonymous sign-in in Firebase).", "ગુના સમીક્ષા લિંક હજુ ચાલુ નથી (Firebase માં Anonymous sign-in ચાલુ કરવું પડશે).")
     : msg === "net" ? t("Couldn't connect. Check the internet and reload.", "જોડાણ થઈ શક્યું નહીં. ઇન્ટરનેટ તપાસી ફરી લોડ કરો.")
+    : msg === "other" ? t("Couldn't open Crime Review.", "ગુના સમીક્ષા ખુલી શકી નહીં.")
     : msg === "changed" ? t("The code for this link was changed. Enter the new code.", "આ લિંકનો કોડ બદલાયો છે. નવો કોડ નાખો.")
     : msg === "locked" ? ""
     : msg.indexOf("wrong:") === 0 ? t(`Wrong code, or this link is no longer valid. ${msg.slice(6)} tries left.`, `ખોટો કોડ, અથવા આ લિંક હવે માન્ય નથી. ${msg.slice(6)} પ્રયત્ન બાકી.`)
@@ -16821,7 +16829,13 @@ function CrimeDeviceGate({ token, report }) {
           <div style={{ fontSize: 40 }}>🚔</div>
           <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, margin: "6px 0 4px" }}>{t("Crime Review", "ગુના સમીક્ષા")}</div>
           {phase === "loading" && <div className="gu" style={{ color: "var(--text-secondary)", fontSize: 13, padding: 16 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
-          {phase === "error" && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, padding: "12px 0" }}>{message}</div>}
+          {phase === "error" && (
+            <div className="gu" style={{ padding: "12px 0" }}>
+              <div style={{ color: "var(--status-error-text)", fontSize: 13 }}>{message}</div>
+              {errCode && <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{errCode}</div>}
+              <button onClick={() => window.location.reload()} className="gu" style={{ marginTop: 14, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13.5, fontWeight: 700 }}>{t("Retry", "ફરી પ્રયત્ન કરો")}</button>
+            </div>
+          )}
           {phase === "code" && (
             <React.Fragment>
               <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16, lineHeight: 1.5 }}>
