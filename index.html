@@ -1782,6 +1782,14 @@ const PINNED_VIEW_KEY = "nb_pinned_view_uid";
 // tree just before every write and converts any `undefined` it finds
 // into `null`, so a stray undefined never has the chance to silently
 // take an entire save down with it.
+// JSON with object keys sorted, so two copies of the same data always
+// produce the same text (Firestore may hand fields back in another order).
+function nbStableStr(v) {
+  if (v === undefined) return "null";
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return "[" + v.map(nbStableStr).join(",") + "]";
+  return "{" + Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => JSON.stringify(k) + ":" + nbStableStr(v[k])).join(",") + "}";
+}
 function deepStripUndefined(value) {
   if (Array.isArray(value)) return value.map(deepStripUndefined);
   if (value && typeof value === "object" && !(value instanceof Date)) {
@@ -5437,28 +5445,74 @@ function DutyRoster() {
   // to read.
   // publicRosters/{uid}: read by this station's district/super admin only.
   // sharedRosters/{shareToken}: the public share link.
+  // SAVING FIREBASE WRITES: the two copies are only written when their
+  // content actually changed (each save used to write them twice — once
+  // after the save, once more when the save echoed back), and a burst of
+  // edits is published together at most every 15 s. Turning Share on/off
+  // or a new link still happens immediately. The first publish of each
+  // session first compares with what the server already holds (2 reads
+  // instead of 2 writes).
   const lastShareTokenRef = useRef(null);
+  const pubPendingRef = useRef(null);
+  const pubTimerRef = useRef(null);
+  const pubSigRef = useRef(null);       // what the server holds: "off" or token|content
+  const pubCheckedRef = useRef(false);
+  const NB_PUB_DELAY_MS = 15000;
+  const flushPublicRoster = () => {
+    if (pubTimerRef.current) { clearTimeout(pubTimerRef.current); pubTimerRef.current = null; }
+    const next = pubPendingRef.current;
+    pubPendingRef.current = null;
+    if (!next || !publicRosterDocRef) return;
+    if (!next.shareEnabled) {
+      if (pubSigRef.current === "off") return;
+      publicRosterDocRef.delete()
+        .then(() => { pubSigRef.current = "off"; })
+        .catch((e) => console.error("Public roster removal failed:", e));
+      return;
+    }
+    const token = next.shareToken || null;
+    const pub = deepStripUndefined(derivePublicData(next));
+    const packedPub = nbPackPublic(pub);
+    const packedShared = token ? nbPackPublic({ ...pub, owner: accountUid }) : null;
+    const sig = (token || "") + "|" + nbStableStr(packedPub);
+    if (sig === pubSigRef.current) return;
+    const write = (isRetry) => Promise.all([
+      publicRosterDocRef.set(packedPub),
+      token ? db.collection("sharedRosters").doc(token).set(packedShared) : Promise.resolve(),
+    ])
+      .then(() => { pubSigRef.current = sig; })
+      .catch((e) => {
+        console.error("Public roster sync failed:", e);
+        if (!isRetry) setTimeout(() => write(true), 4000);
+      });
+    if (pubCheckedRef.current) { write(false); return; }
+    pubCheckedRef.current = true;
+    Promise.all([publicRosterDocRef.get(), token ? db.collection("sharedRosters").doc(token).get() : Promise.resolve(null)])
+      .then(([a, b]) => {
+        const same = a && a.exists && nbStableStr(a.data()) === nbStableStr(packedPub)
+          && (!token || (b && b.exists && nbStableStr(b.data()) === nbStableStr(packedShared)));
+        if (same) pubSigRef.current = sig;
+        else write(false);
+      })
+      .catch(() => write(false));
+  };
   const syncPublicRoster = (next) => {
     if (!publicRosterDocRef) return;
     const token = next.shareEnabled && next.shareToken ? next.shareToken : null;
     if (lastShareTokenRef.current && lastShareTokenRef.current !== token) {
       db.collection("sharedRosters").doc(lastShareTokenRef.current).delete().catch(() => {});
+      pubSigRef.current = null;
     }
     lastShareTokenRef.current = token;
-    const trySync = (isRetry) => {
-      const pub = next.shareEnabled ? deepStripUndefined(derivePublicData(next)) : null;
-      const op = next.shareEnabled
-        ? Promise.all([
-            publicRosterDocRef.set(nbPackPublic(pub)),
-            token ? db.collection("sharedRosters").doc(token).set(nbPackPublic({ ...pub, owner: accountUid })) : Promise.resolve(),
-          ])
-        : publicRosterDocRef.delete();
-      op.catch((e) => {
-        console.error("Public roster sync failed:", e);
-        if (!isRetry) setTimeout(() => trySync(true), 4000);
-      });
-    };
-    trySync(false);
+    pubPendingRef.current = next;
+    // Share turned off, or not yet published under this link: right away.
+    const urgent = !next.shareEnabled || !token || (pubSigRef.current || "").indexOf(token + "|") !== 0;
+    if (urgent) { flushPublicRoster(); return; }
+    // When the wait ends, publish the newest data (not the copy from now).
+    if (!pubTimerRef.current) pubTimerRef.current = setTimeout(() => {
+      if (pubPendingRef.current && dataRef.current) pubPendingRef.current = dataRef.current;
+      flushPublicRoster();
+    }, NB_PUB_DELAY_MS);
   };
 
   // Keeps a small, non-sensitive "digest" of this station in sync under
@@ -5472,14 +5526,53 @@ function DutyRoster() {
   // person changes which district this station belongs to, the digest
   // under the OLD district gets deleted instead of silently lingering as
   // a stale, orphaned entry that district would still see.
+  // SAVING FIREBASE WRITES: the digest is written only when one of its
+  // numbers really changed (it used to be rewritten on every save and every
+  // 5 minutes), with a burst of saves combined into one write after 30 s.
+  // It is still refreshed at least every 2 hours while the app is open, so
+  // the district's "App last used" stays meaningful. The station-name
+  // registry entry is checked once per app open (the save itself already
+  // registers a changed name), instead of being rewritten every time.
   const districtDigestPathRef = useRef(null);
-  const syncDistrictDigest = (next) => {
-    if (!accountUid) return;
+  const digestPendingRef = useRef(null);
+  const digestTimerRef = useRef(null);
+  const digestSigRef = useRef(null);
+  const digestWrittenAtRef = useRef(0);
+  const digestCheckedPathRef = useRef(null);
+  const digestClaimedKeyRef = useRef(null);
+  const NB_DIGEST_DELAY_MS = 30000;
+  const NB_DIGEST_HEARTBEAT_MS = 2 * 60 * 60 * 1000;
+  const digestIdSigRef = useRef(null);
+  // The parts the district must see at once (formatting, approval, block,
+  // station name / district). Only the duty counts are batched.
+  const nbDigestIdSig = (n) => nbStableStr({
+    stationName: n.stationName || null, state: n.state || null, district: (n.district || "").trim(),
+    stationApprovalStatus: n.stationApprovalStatus || null, stationRequestedAt: n.stationRequestedAt || null,
+    blocked: !!n.blocked, lastFormat: n.lastFormat || null,
+  });
+  const syncDistrictDigest = (next, opts) => {
+    if (!accountUid || !next) return;
+    digestPendingRef.current = next;
+    const idSig = nbDigestIdSig(next);
+    const important = digestIdSigRef.current !== null && idSig !== digestIdSigRef.current;
+    digestIdSigRef.current = idSig;
+    if ((opts && opts.now) || important) { flushDistrictDigest(); return; }
+    if (!digestTimerRef.current) digestTimerRef.current = setTimeout(() => {
+      if (digestPendingRef.current && dataRef.current) digestPendingRef.current = dataRef.current;
+      flushDistrictDigest();
+    }, NB_DIGEST_DELAY_MS);
+  };
+  const flushDistrictDigest = () => {
+    if (digestTimerRef.current) { clearTimeout(digestTimerRef.current); digestTimerRef.current = null; }
+    const next = digestPendingRef.current;
+    digestPendingRef.current = null;
+    if (!next || !accountUid) return;
     const districtId = (next.district || "").trim();
     const newPath = districtId ? `districts/${districtId}/stations/${accountUid}` : null;
     const prevPath = districtDigestPathRef.current;
     if (prevPath && prevPath !== newPath) {
       db.doc(prevPath).delete().catch(() => {});
+      digestSigRef.current = null;
     }
     districtDigestPathRef.current = newPath;
     if (!newPath) return;
@@ -5501,7 +5594,7 @@ function DutyRoster() {
         });
       });
     });
-    const digest = {
+    const body = {
       stationName: next.stationName || null,
       state: (next.state || "").trim() || null,
       district: districtId,
@@ -5519,32 +5612,67 @@ function DutyRoster() {
       stationApprovalStatus: next.stationApprovalStatus || null,
       stationRequestedAt: next.stationRequestedAt || null,
       blocked: !!next.blocked,
-      updatedAt: Date.now(),
       ...(next.lastFormat ? { lastFormat: next.lastFormat } : {}),
     };
-    // Names-only entry (no counts, no staff) so other stations signing up
-    // in this district can see which station names are already taken.
-    // Claim this station name (one per district), release any old one,
-    // then publish the digest — the rules only accept a digest whose
-    // name this account actually holds.
+    const sig = newPath + "|" + nbStableStr(body);
+    if (sig === digestSigRef.current && Date.now() - digestWrittenAtRef.current < NB_DIGEST_HEARTBEAT_MS) return;
+    // Station-name registry: once per app open (and whenever the name or
+    // district changes) — only written if it isn't already ours.
     const key = nbStationKey(next);
-    const claim = key
-      ? db.collection("stationRegistry").doc(key).set({
-          uid: accountUid,
-          state: typeof next.state === "string" ? next.state : "",
-          district: next.district,
-          stationName: next.stationName,
-          updatedAt: Date.now(),
-        }).catch((e) => console.warn("Station name claim failed (already registered by another station, or not on the approved list):", e))
+    const claim = key && digestClaimedKeyRef.current !== key
+      ? db.collection("stationRegistry").doc(key).get()
+          .then((snap) => {
+            if (snap.exists && snap.data().uid === accountUid) return;
+            return db.collection("stationRegistry").doc(key).set({
+              uid: accountUid,
+              state: typeof next.state === "string" ? next.state : "",
+              district: next.district,
+              stationName: next.stationName,
+              updatedAt: Date.now(),
+            });
+          })
+          .then(() => nbReleaseStationNames(accountUid, key))
+          .then(() => { digestClaimedKeyRef.current = key; })
+          .catch((e) => console.warn("Station name claim failed (already registered by another station, or not on the approved list):", e))
       : Promise.resolve();
-    const trySync = (isRetry) => {
-      db.doc(newPath).set(digest).catch((e) => {
-        console.error("District digest sync failed:", e);
-        if (!isRetry) setTimeout(() => trySync(true), 4000);
-      });
+    const write = (isRetry) => {
+      const at = Date.now();
+      db.doc(newPath).set({ ...body, updatedAt: at })
+        .then(() => { digestSigRef.current = sig; digestWrittenAtRef.current = at; })
+        .catch((e) => {
+          console.error("District digest sync failed:", e);
+          if (!isRetry) setTimeout(() => write(true), 4000);
+        });
     };
-    claim.then(() => nbReleaseStationNames(accountUid, key)).then(() => trySync(false));
+    claim.then(() => {
+      if (digestCheckedPathRef.current === newPath) { write(false); return; }
+      // First time this session: the server may already hold exactly this.
+      digestCheckedPathRef.current = newPath;
+      db.doc(newPath).get()
+        .then((snap) => {
+          const d = snap.exists ? snap.data() : null;
+          if (d && typeof d.updatedAt === "number" && Date.now() - d.updatedAt < NB_DIGEST_HEARTBEAT_MS) {
+            const { updatedAt, ...rest } = d;
+            if (nbStableStr(rest) === nbStableStr(body)) { digestSigRef.current = sig; digestWrittenAtRef.current = updatedAt; return; }
+          }
+          write(false);
+        })
+        .catch(() => write(false));
+    });
   };
+  // Leaving the page / switching apps: publish anything still waiting.
+  const nbFlushRef = useRef(null);
+  nbFlushRef.current = () => {
+    if (pubTimerRef.current) { if (pubPendingRef.current && dataRef.current) pubPendingRef.current = dataRef.current; flushPublicRoster(); }
+    if (digestTimerRef.current) { if (digestPendingRef.current && dataRef.current) digestPendingRef.current = dataRef.current; flushDistrictDigest(); }
+  };
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden" && nbFlushRef.current) nbFlushRef.current(); };
+    const onPageHide = () => { if (nbFlushRef.current) nbFlushRef.current(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
+    return () => { document.removeEventListener("visibilitychange", onHide); window.removeEventListener("pagehide", onPageHide); };
+  }, []);
   // The digest above only gets rewritten when THIS station's own device
   // makes a save — fine for staffCount (rarely changes), but "on duty
   // today" and "this month's duties" are date-driven: a station that
@@ -5563,7 +5691,7 @@ function DutyRoster() {
   useEffect(() => {
     if (!digestInitRef.current && data) {
       digestInitRef.current = true;
-      syncDistrictDigest(data);
+      syncDistrictDigest(data, { now: true });
     }
   }, [data]);
   useEffect(() => {
@@ -5870,6 +5998,10 @@ function DutyRoster() {
   const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
   const deleteMyAccountAndData = async () => {
     if (!user || !accountUid) return;
+    // Cancel any waiting publish so nothing is re-created after deletion.
+    if (pubTimerRef.current) { clearTimeout(pubTimerRef.current); pubTimerRef.current = null; }
+    if (digestTimerRef.current) { clearTimeout(digestTimerRef.current); digestTimerRef.current = null; }
+    pubPendingRef.current = null; digestPendingRef.current = null;
     const cleanup = [db.doc(`accounts/${accountUid}`).delete().catch(() => {})];
     if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
     const districtId = (data && data.district || "").trim();
@@ -16115,18 +16247,50 @@ function nbMonthRange(offset = 0) {
 }
 
 // Live list of cases: a station's own, or (district admin) the district's.
-function useCrimeCases({ ownerUid, districtId }) {
+// SAVING FIREBASE READS: only cases registered on/after `since` are loaded
+// (the screen sets it to 1 January of the year before the chosen "From"
+// date, which also covers "previous period" and "same period last year"),
+// plus every case still waiting for a charge-sheet, however old, so the
+// overdue list stays complete. `since` = null loads everything ("All dates").
+// The date-limited query needs a Firestore index (owner/district + regDate);
+// until that index exists it quietly falls back to loading everything.
+function useCrimeCases({ ownerUid, districtId, since }) {
   const [cases, setCases] = useState(null);
   const [error, setError] = useState(null);
   useEffect(() => {
     if (!ownerUid && !districtId) { setCases([]); return; }
-    const q = ownerUid ? db.collection("crimeCases").where("owner", "==", ownerUid) : db.collection("crimeCases").where("district", "==", districtId);
-    const unsub = q.onSnapshot(
-      (snap) => { const list = []; snap.forEach((d) => list.push({ id: d.id, ...d.data() })); list.sort((a, b) => (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.crNo) || 0) - (Number(a.crNo) || 0)); setCases(list); setError(null); },
-      (e) => { console.error("Crime cases load failed:", e); setError(e.message || "error"); setCases([]); }
-    );
-    return () => unsub();
-  }, [ownerUid, districtId]);
+    const base = () => (ownerUid ? db.collection("crimeCases").where("owner", "==", ownerUid) : db.collection("crimeCases").where("district", "==", districtId));
+    const parts = { main: null, inv: since ? null : {}, det: since ? null : {} };
+    const publish = () => {
+      if (parts.main === null || parts.inv === null || parts.det === null) return;
+      const all = { ...parts.inv, ...parts.det, ...parts.main };
+      const list = Object.values(all);
+      list.sort((a, b) => (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.crNo) || 0) - (Number(a.crNo) || 0));
+      setCases(list); setError(null);
+    };
+    const toMap = (snap) => { const m = {}; snap.forEach((d) => { m[d.id] = { id: d.id, ...d.data() }; }); return m; };
+    const fail = (e) => { console.error("Crime cases load failed:", e); setError(e.message || "error"); setCases([]); };
+    const unsubs = [];
+    const listenMain = (useSince) => {
+      const q = useSince ? base().where("regDate", ">=", since) : base();
+      unsubs.push(q.onSnapshot(
+        (snap) => { parts.main = toMap(snap); publish(); },
+        (e) => {
+          if (useSince && e && e.code === "failed-precondition") {
+            console.warn("Crime Review: date index not created yet — loading all cases. Create it: Firestore > Indexes > Composite: crimeCases (" + (ownerUid ? "owner" : "district") + " Ascending, regDate Ascending).");
+            listenMain(false);
+          } else fail(e);
+        }
+      ));
+    };
+    listenMain(!!since);
+    if (since) {
+      // Older cases still waiting for a charge-sheet (for the overdue list).
+      unsubs.push(base().where("status", "==", "investigation").onSnapshot((snap) => { parts.inv = toMap(snap); publish(); }, fail));
+      unsubs.push(base().where("status", "==", "detected").where("chargesheetDate", "==", "").onSnapshot((snap) => { parts.det = toMap(snap); publish(); }, fail));
+    }
+    return () => unsubs.forEach((u) => { try { u(); } catch (e) {} });
+  }, [ownerUid, districtId, since]);
   return { cases, error };
 }
 
@@ -16372,7 +16536,12 @@ async function downloadCrimeReviewPdf({ title, subtitle, head, rows, stationName
 function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, state, stations, initialTab, onTabChange, onBack }) {
   const { t, lang } = useLang();
   const isDistrict = mode === "district";
-  const { cases, error } = useCrimeCases(isDistrict ? { districtId } : { ownerUid });
+  const [monthFrom, monthTo] = nbMonthRange(0);
+  const [from, setFrom] = useState(monthFrom);
+  const [to, setTo] = useState(monthTo);
+  // Load from 1 January of the year before "From" (enough for comparisons).
+  const since = from ? `${Number(from.slice(0, 4)) - 1}-01-01` : null;
+  const { cases, error } = useCrimeCases(isDistrict ? { districtId, since } : { ownerUid, since });
   const [tab, setTabRaw] = useState(initialTab || "cases");
   useEffect(() => { if (initialTab) setTabRaw(initialTab); }, [initialTab]);
   const setTab = (v) => { setTabRaw(v); if (onTabChange) onTabChange(v); };
@@ -16381,10 +16550,7 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
   const [pdfReady, setPdfReady] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   // filters (shared by both tabs)
-  const [monthFrom, monthTo] = nbMonthRange(0);
   const [typeId, setTypeId] = useState("all");
-  const [from, setFrom] = useState(monthFrom);
-  const [to, setTo] = useState(monthTo);
   const [station, setStation] = useState("all");
   const [statusF, setStatusF] = useState("all");
   const [search, setSearch] = useState("");

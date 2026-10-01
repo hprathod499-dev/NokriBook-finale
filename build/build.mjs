@@ -26,7 +26,7 @@ const OUT = path.join(ROOT, "_site");
 const ASSETS = path.join(OUT, "assets");
 
 // Files/folders in the repo root that are NOT part of the website.
-const SKIP = new Set([".git", ".github", "android", "build", "node_modules", "_site", "README.md", ".gitignore", "firestore.rules", "index.html"]);
+const SKIP = new Set([".git", ".github", "android", "build", "node_modules", "_site", "README.md", ".gitignore", "firestore.rules", "firestore.indexes.json", "index.html"]);
 
 const kb = (n) => (n / 1024).toFixed(0) + " KB";
 const fail = (msg) => { console.error("BUILD FAILED: " + msg); process.exit(1); };
