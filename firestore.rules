@@ -346,6 +346,49 @@ service cloud.firestore {
             && isAdminHere());
     }
 
+    // ============================================================
+    // CRIME REVIEW  —  crimeCases/{caseId}
+    // One document per FIR. Written only by the station that owns it;
+    // read by that station, its District Admin and the Super Admin.
+    // Kept outside accounts/{uid} so it never uses the 1 MB roster space.
+    // ============================================================
+    match /crimeCases/{caseId} {
+
+      function caseOk(d) {
+        let a = accountOf(request.auth.uid);
+        return d.keys().hasOnly([
+                 'owner', 'district', 'state', 'stationName', 'createdAt', 'updatedAt',
+                 'crNo', 'crYear', 'regDate', 'sections', 'place',
+                 'complainantName', 'complainantAddress', 'crimeType', 'crimeTypeCustom',
+                 'propertyLost', 'propertyRecovered', 'status', 'accused', 'victims',
+                 'chargeLimit', 'chargesheetNo', 'chargesheetDate', 'court', 'ccNo', 'ccYear',
+                 'summaryType', 'summaryNo', 'summaryDate', 'remarks'
+               ])
+          && d.owner == request.auth.uid
+          && a.get('blocked', false) == false
+          && d.district == a.get('district', null)
+          && d.district is string && d.district != ''
+          && d.crNo is string && d.crNo.size() > 0 && d.crNo.size() <= 20
+          && d.regDate is string && d.regDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          && d.crimeType is string && d.crimeType.size() <= 40
+          && d.status in ['investigation', 'detected', 'undetected']
+          && d.accused is list && d.accused.size() <= 200
+          && d.victims is list && d.victims.size() <= 200;
+      }
+
+      allow get, list: if signedIn()
+        && (resource.data.owner == request.auth.uid
+            || isDistrictAdminFor(resource.data.district)
+            || isSuperAdmin());
+
+      allow create: if signedIn() && caseOk(request.resource.data);
+      allow update: if signedIn()
+        && resource.data.owner == request.auth.uid
+        && caseOk(request.resource.data);
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+
     // Super Admin's "all pending requests" (collectionGroup query).
     match /{path=**}/stations/{stationUid} {
       allow read: if isSuperAdmin();
