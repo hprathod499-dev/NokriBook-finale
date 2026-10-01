@@ -755,6 +755,8 @@ function nbViewToPath(v) {
 function nbResolveRoute(path, signedIn) {
   if (NB_PUBLIC_PATHS.indexOf(path) !== -1) return signedIn ? { kind: "redirect", to: "__intended__" } : { kind: "public" };
   const NF = { kind: "notfound" };
+  // Short / mistyped addresses for Crime review.
+  if (/^\/(crime|crime-review|crimereview)$/i.test(path)) return { kind: "redirect", to: "/app/crime" };
   if (!nbIsAppPath(path)) return NF;
   const seg = path.split("/").filter(Boolean).slice(1).map(nbDecode);
   const n = seg.length, a = seg[0], b = seg[1], c = seg[2];
@@ -807,6 +809,9 @@ function nbResolveRoute(path, signedIn) {
       return NF;
     case "recycle-bin":
       return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
+    case "crime-review":
+    case "crimereview":
+      return { kind: "redirect", to: b === "report" ? "/app/crime/report" : "/app/crime" };
     case "crime":
       if (n === 1) return V({ mode: "crime" }, ["Crime Review", "ગુના સમીક્ષા"]);
       if (n === 2 && b === "report") return V({ mode: "crime", tab: "report" }, ["Crime Review Report", "ગુના સમીક્ષા અહેવાલ"]);
@@ -7738,7 +7743,9 @@ function DutyRoster() {
     return <LangContext.Provider value={langCtxValue}><VerifyEmailScreen user={user} signOutUser={signOutUser} /></LangContext.Provider>;
   }
   if (route.kind === "admin" && isSuperAdmin === false && isDistrictAdmin === false) {
-    setTimeout(() => nbNavigate("/app/dashboard", { replace: true }), 0);
+    // A station opening the district crime-review link goes to its own Crime review.
+    const toCrime = /^\/app\/district\/crime-review(\/|$)/.test(nbCleanPath(window.location.pathname));
+    setTimeout(() => nbNavigate(toCrime ? "/app/crime" : "/app/dashboard", { replace: true }), 0);
   }
   if (isSuperAdmin === undefined || isDistrictAdmin === undefined) return <div style={{position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)"}}>Loading…</div>;
   if (isSuperAdmin) {
