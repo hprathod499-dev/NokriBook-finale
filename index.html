@@ -3279,15 +3279,27 @@ function unavailLabel(data, u) {
 // would silently vanish from the calendar while Manage Staff still shows
 // them correctly away — that's exactly the bug this guards against. The
 // current field is pushed on last, so it's the first one checked below.
+//
+// When MORE THAN ONE period covers the date — e.g. a 10-day Earned Leave
+// taken in the middle of a 2-month Outstation — the most specific one
+// wins: the one that started latest (the leave began after the
+// outstation did); if two started the same day, the shorter one; if
+// still equal, the one recorded last. Before, whichever was the "current"
+// period (the still-running outstation) always won, so the leave days
+// showed as outstation.
 function unavailableOnDate(staffRec, dateStr) {
   if (!staffRec) return null;
   const periods = [...(staffRec.unavailableHistory || [])];
   if (staffRec.unavailable) periods.push(staffRec.unavailable);
-  for (let i = periods.length - 1; i >= 0; i--) {
-    const p = periods[i];
-    if (p && p.from && dateStr >= p.from && (!p.to || dateStr <= p.to)) return p;
-  }
-  return null;
+  let best = null;
+  periods.forEach((p) => {
+    if (!(p && p.from && dateStr >= p.from && (!p.to || dateStr <= p.to))) return;
+    if (!best || p.from > best.from) { best = p; return; }
+    if (p.from < best.from) return;
+    const pEnd = p.to || "9999-12-31", bEnd = best.to || "9999-12-31";
+    if (pEnd <= bEnd) best = p;
+  });
+  return best;
 }
 
 // Shared by setUnavailable (Manage Staff) and the optional "also mark
