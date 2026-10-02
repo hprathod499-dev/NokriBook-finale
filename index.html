@@ -825,7 +825,7 @@ function nbResolveRoute(path, signedIn) {
       return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
     case "settings":
       if (n === 1) return P("settings", null, ["Settings", "સેટિંગ્સ"]);
-      if (n === 2 && ["station", "account", "appearance", "language", "security"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
+      if (n === 2 && ["station", "account", "appearance", "language", "security", "users"].indexOf(b) !== -1) return P("settings", b, ["Settings", "સેટિંગ્સ"]);
       return NF;
     case "help":
       return n === 1 ? P("help", null, ["Help", "મદદ"]) : NF;
@@ -3731,7 +3731,295 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
     </span>
   );
 }
-function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
+// ---------- ACTIVITY LOG ----------
+function nbActor(user, role) {
+  if (!user) return { uid: null, name: "—", role };
+  return { uid: user.uid, name: user.displayName || user.email || "—", role };
+}
+// What changed between two versions of the station data, as a short list.
+function nbDescribeChanges(a, b) {
+  const items = [];
+  if (!a || !b) return items;
+  const catLabel = (d, id) => ((d.categories || []).find((c) => c.id === id) || {}).label || id;
+  const nameOf = (num) => ((b.staff || {})[num] || (a.staff || {})[num] || {}).name || num;
+  const ca = Object.fromEntries((a.categories || []).map((c) => [c.id, c.label]));
+  const cb = Object.fromEntries((b.categories || []).map((c) => [c.id, c.label]));
+  Object.keys(cb).forEach((id) => { if (!(id in ca)) items.push({ k: "catAdd", c: cb[id] }); else if (ca[id] !== cb[id]) items.push({ k: "catRen", c: ca[id], to: cb[id] }); });
+  Object.keys(ca).forEach((id) => { if (!(id in cb)) items.push({ k: "catDel", c: ca[id] }); });
+  const keyOf = (e) => (typeof e === "string" ? e : e.date + "|" + (e.ts || 0));
+  const allCats = new Set([...Object.keys(a.membership || {}), ...Object.keys(b.membership || {})]);
+  allCats.forEach((cid) => {
+    const ma = {}, mb = {};
+    ((a.membership || {})[cid] || []).forEach((m) => { ma[m.number] = m; });
+    ((b.membership || {})[cid] || []).forEach((m) => { mb[m.number] = m; });
+    const added = {}, removed = {};
+    new Set([...Object.keys(ma), ...Object.keys(mb)]).forEach((num) => {
+      const ha = (ma[num] && ma[num].history) || [], hb = (mb[num] && mb[num].history) || [];
+      if (ha === hb) return;
+      const ka = new Set(ha.map(keyOf)), kb = new Set(hb.map(keyOf));
+      hb.forEach((e) => { if (!ka.has(keyOf(e))) { const d = historyDate(e); (added[d] = added[d] || new Set()).add(num); } });
+      ha.forEach((e) => { if (!kb.has(keyOf(e))) { const d = historyDate(e); (removed[d] = removed[d] || new Set()).add(num); } });
+    });
+    const lbl = catLabel(b, cid) || catLabel(a, cid);
+    const pack = (obj, k) => {
+      const dates = Object.keys(obj).sort();
+      if (!dates.length) return;
+      const people = new Set(); dates.forEach((d) => obj[d].forEach((n) => people.add(n)));
+      items.push({ k, c: lbl, n: Array.from(people).slice(0, 10).map(nameOf), more: Math.max(0, people.size - 10), from: dates[0], to: dates[dates.length - 1] });
+    };
+    pack(added, "duty+"); pack(removed, "duty-");
+  });
+  const sa = a.staff || {}, sb = b.staff || {};
+  Object.keys(sb).forEach((num) => {
+    const x = sa[num], y = sb[num];
+    if (!x) { items.push({ k: "staff+", n: [y.name || num] }); return; }
+    if (x === y) return;
+    if ((x.name || "") !== (y.name || "")) items.push({ k: "staffRen", n: [x.name || num], to: y.name || num });
+    const ua = (x.unavailableHistory || []).map((p) => p.kind + p.typeId + p.from + p.to), ub = (y.unavailableHistory || []).map((p) => p.kind + p.typeId + p.from + p.to);
+    (y.unavailableHistory || []).forEach((p, i) => { if (!ua.includes(ub[i])) items.push({ k: "away+", n: [y.name || num], t: unavailLabel(b, p) || p.kind, from: p.from, to: p.to || null }); });
+    (x.unavailableHistory || []).forEach((p, i) => { if (!ub.includes(ua[i])) items.push({ k: "away-", n: [y.name || num], t: unavailLabel(a, p) || p.kind, from: p.from, to: p.to || null }); });
+    ["phone", "designation", "retirementDate", "attachEnd", "leaveAllowance", "skip"].forEach((f) => { if (JSON.stringify(x[f] || null) !== JSON.stringify(y[f] || null)) items.push({ k: "staffEdit", n: [y.name || num], f }); });
+  });
+  Object.keys(sa).forEach((num) => { if (!sb[num]) items.push({ k: "staff-", n: [sa[num].name || num] }); });
+  const ba = Object.fromEntries((a.bandobasts || []).map((x) => [x.id, x])), bb = Object.fromEntries((b.bandobasts || []).map((x) => [x.id, x]));
+  Object.keys(bb).forEach((id) => { if (!ba[id]) items.push({ k: "bb+", c: bb[id].title || "" }); else if (ba[id] !== bb[id] && JSON.stringify(ba[id]) !== JSON.stringify(bb[id])) items.push({ k: "bb~", c: bb[id].title || "" }); });
+  Object.keys(ba).forEach((id) => { if (!bb[id]) items.push({ k: "bb-", c: ba[id].title || "" }); });
+  ["stationName", "district", "state", "shareEnabled", "joinCode"].forEach((f) => { if ((a[f] || null) !== (b[f] || null)) items.push({ k: "setting", f }); });
+  if (JSON.stringify(a.leaveTypes) !== JSON.stringify(b.leaveTypes) || JSON.stringify(a.outstationTypes) !== JSON.stringify(b.outstationTypes) || JSON.stringify(a.designations) !== JSON.stringify(b.designations)) items.push({ k: "lists" });
+  if ((a.events || []) !== (b.events || []) && JSON.stringify(a.events || []) !== JSON.stringify(b.events || [])) items.push({ k: "events" });
+  const nFmt = !a.lastFormat || !b.lastFormat ? (a.lastFormat || null) !== (b.lastFormat || null) : a.lastFormat.at !== b.lastFormat.at;
+  if (nFmt && b.lastFormat) items.push({ k: "format" });
+  return items.slice(0, 25);
+}
+const NB_ACTIVITY_MAX = 250;
+function nbWithActivity(prev, next, actor, kind) {
+  try {
+    const items = kind ? [{ k: kind }] : nbDescribeChanges(prev, next);
+    if (!items.length) return next;
+    const entry = { ts: Date.now(), by: actor.name, uid: actor.uid, role: actor.role, items };
+    return { ...next, activityLog: [entry, ...((next.activityLog || prev && prev.activityLog) || [])].slice(0, NB_ACTIVITY_MAX) };
+  } catch (e) { console.warn("Activity log skipped:", e); return next; }
+}
+function nbActivityText(it, t) {
+  const who = (it.n || []).join(", ") + (it.more ? ` +${it.more}` : "");
+  const span = it.from ? formatDMY(it.from) + (it.to && it.to !== it.from ? " – " + formatDMY(it.to) : "") : "";
+  const F = { phone: t("mobile", "મોબાઇલ"), designation: t("designation", "હોદ્દો"), retirementDate: t("retirement date", "નિવૃત્તિ તારીખ"), attachEnd: t("attachment date", "જોડાણ તારીખ"), leaveAllowance: t("leave allowance", "રજા મર્યાદા"), skip: t("skip", "સ્કિપ"), stationName: t("station name", "સ્ટેશનનું નામ"), district: t("district", "જિલ્લો"), state: t("state", "રાજ્ય"), shareEnabled: t("sharing", "શેરિંગ"), joinCode: t("join code", "જોડાવાનો કોડ") };
+  switch (it.k) {
+    case "duty+": return t(`Assigned ${it.c}: ${who} (${span})`, `${it.c} સોંપી: ${who} (${span})`);
+    case "duty-": return t(`Removed ${it.c} duty: ${who} (${span})`, `${it.c} ડ્યુટી કાઢી: ${who} (${span})`);
+    case "away+": return t(`${it.t}: ${who} (${formatDMY(it.from)}${it.to ? " – " + formatDMY(it.to) : ""})`, `${it.t}: ${who} (${formatDMY(it.from)}${it.to ? " – " + formatDMY(it.to) : ""})`);
+    case "away-": return t(`Deleted ${it.t}: ${who} (${formatDMY(it.from)})`, `${it.t} કાઢી: ${who} (${formatDMY(it.from)})`);
+    case "staff+": return t(`Added staff: ${who}`, `સ્ટાફ ઉમેર્યો: ${who}`);
+    case "staff-": return t(`Removed staff: ${who}`, `સ્ટાફ કાઢ્યો: ${who}`);
+    case "staffRen": return t(`Renamed ${who} → ${it.to}`, `નામ બદલ્યું ${who} → ${it.to}`);
+    case "staffEdit": return t(`Changed ${F[it.f] || it.f} of ${who}`, `${who} નો ${F[it.f] || it.f} બદલ્યો`);
+    case "catAdd": return t(`New work type: ${it.c}`, `નવો કામનો પ્રકાર: ${it.c}`);
+    case "catDel": return t(`Deleted work type: ${it.c}`, `કામનો પ્રકાર ડિલીટ: ${it.c}`);
+    case "catRen": return t(`Renamed work type ${it.c} → ${it.to}`, `કામનો પ્રકાર ${it.c} → ${it.to}`);
+    case "bb+": return t(`New bandobast: ${it.c}`, `નવો બંદોબસ્ત: ${it.c}`);
+    case "bb~": return t(`Changed bandobast: ${it.c}`, `બંદોબસ્ત બદલ્યો: ${it.c}`);
+    case "bb-": return t(`Deleted bandobast: ${it.c}`, `બંદોબસ્ત ડિલીટ: ${it.c}`);
+    case "setting": return t(`Changed ${F[it.f] || it.f}`, `${F[it.f] || it.f} બદલ્યું`);
+    case "lists": return t("Changed leave / outstation types or designations", "રજા / બહારગામ પ્રકાર કે હોદ્દા બદલ્યા");
+    case "events": return t("Changed events", "ઇવેન્ટ્સ બદલ્યા");
+    case "format": return t("Formatted data", "ડેટા ફોર્મેટ કર્યો");
+    case "undo": return t("Undo", "પૂર્વવત્");
+    case "redo": return t("Redo", "ફરીથી");
+    default: return t("Other change", "બીજો ફેરફાર");
+  }
+}
+function ActivityLogModal({ data, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [q, setQ] = useState("");
+  const [who, setWho] = useState("all");
+  const log = data.activityLog || [];
+  const people = Array.from(new Set(log.map((e) => e.by))).filter(Boolean);
+  const rows = log.filter((e) => (who === "all" || e.by === who) && (!q.trim() || e.items.map((it) => nbActivityText(it, t)).join(" ").toLowerCase().includes(q.trim().toLowerCase())));
+  const roleLbl = (r) => (r === "editor" ? t("editor", "એડિટર") : r === "viewer" ? t("viewer", "દર્શક") : t("owner", "માલિક"));
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Activity log", "પ્રવૃત્તિ લૉગ")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", padding: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>🕓 {t("Activity log", "પ્રવૃત્તિ લૉગ")}</div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
+        </div>
+        <div style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search: name, work type…", "શોધો: નામ, કામનો પ્રકાર…")} className="gu" style={{ flex: "2 1 200px", fontSize: 13 }} />
+          <select value={who} onChange={(e) => setWho(e.target.value)} className="gu" style={{ fontSize: 13 }}>
+            <option value="all">{t("Everyone", "બધા")}</option>
+            {people.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {!rows.length && <div style={{ color: "var(--text-tertiary)", padding: 20, textAlign: "center", fontSize: 13 }}>{log.length ? t("Nothing matches.", "કંઈ મળ્યું નહીં.") : t("No changes recorded yet. From now on every change is listed here with who made it.", "હજુ કોઈ ફેરફાર નોંધાયો નથી. હવેથી દરેક ફેરફાર કોણે કર્યો તે સાથે અહીં દેખાશે.")}</div>}
+          {rows.map((e, i) => (
+            <div key={e.ts + "-" + i} style={{ borderBottom: "1px solid var(--border-soft)", padding: "9px 2px" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(e.ts).toLocaleString()} · <b style={{ color: "var(--text-secondary)" }}>{e.by}</b> ({roleLbl(e.role)})</div>
+              {e.items.map((it, j) => <div key={j} style={{ fontSize: 13, marginTop: 2 }}>{nbActivityText(it, t)}</div>)}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{t(`Keeps the last ${NB_ACTIVITY_MAX} changes.`, `છેલ્લા ${NB_ACTIVITY_MAX} ફેરફાર રાખે છે.`)}</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- STATION USERS (join code, requests, members) ----------
+function nbNewJoinCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const b = new Uint8Array(8); crypto.getRandomValues(b);
+  return Array.from(b).map((x) => chars[x % chars.length]).join("");
+}
+function StationUsersSection({ access, divider, initialOpen }) {
+  const { t } = useLang();
+  const { uid, accountUid, isOwner, role, memberOf, data, persist, showToast, user, onJoin } = access;
+  const [open, setOpen] = useState(!!initialOpen);
+  const [requests, setRequests] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open || !isOwner || !uid) return;
+    const u1 = db.collection("joinRequests").where("owner", "==", uid).onSnapshot((qs) => { const l = []; qs.forEach((d) => l.push({ id: d.id, ...d.data() })); setRequests(l); }, (e) => console.warn("join requests:", e && e.code));
+    const u2 = db.collection("stationMembers").where("owner", "==", uid).onSnapshot((qs) => { const l = []; qs.forEach((d) => l.push({ id: d.id, ...d.data() })); setMembers(l.sort((a, b) => (a.name || "").localeCompare(b.name || ""))); }, (e) => console.warn("members:", e && e.code));
+    return () => { u1(); u2(); };
+  }, [open, isOwner, uid]);
+  const roleLbl = (r) => (r === "editor" ? t("Editor — can make changes", "એડિટર — ફેરફાર કરી શકે") : t("Viewer — can only look", "દર્શક — ફક્ત જોઈ શકે"));
+  const run = async (fn) => { setBusy(true); try { await fn(); } catch (e) { console.error(e); showToast(t("Couldn't save — check the connection (and that the new Firestore rules are published).", "સાચવી શકાયું નહીં — જોડાણ તપાસો (અને નવા Firestore rules publish થયા છે)."), "error"); } setBusy(false); };
+  const makeCode = () => run(async () => {
+    const code = nbNewJoinCode();
+    await db.collection("joinCodes").doc(code).set({ owner: uid, createdAt: Date.now() });
+    if (data.joinCode && data.joinCode !== code) await db.collection("joinCodes").doc(data.joinCode).delete().catch(() => {});
+    persist({ ...data, joinCode: code });
+  });
+  const stopCode = () => run(async () => {
+    if (data.joinCode) await db.collection("joinCodes").doc(data.joinCode).delete().catch(() => {});
+    persist({ ...data, joinCode: null });
+  });
+  const approve = (r, asRole) => run(async () => {
+    const batch = db.batch();
+    batch.set(db.collection("stationMembers").doc(r.id), { owner: uid, role: asRole, name: (r.name || "").slice(0, 80), email: (r.email || "").slice(0, 120), joinedAt: Date.now() });
+    batch.delete(db.collection("joinRequests").doc(r.id));
+    await batch.commit();
+    showToast(t(`${r.name || r.email} added as ${asRole}`, `${r.name || r.email} ઉમેરાયા`));
+  });
+  const reject = (r) => run(() => db.collection("joinRequests").doc(r.id).delete());
+  const setRole = (m, r) => run(() => db.collection("stationMembers").doc(m.id).update({ role: r }));
+  const remove = (m) => { if (window.confirm(t(`Remove ${m.name || m.email}? They lose access to this station straight away.`, `${m.name || m.email} ને કાઢવા છે? તેમની પહોંચ તરત બંધ થશે.`))) run(() => db.collection("stationMembers").doc(m.id).delete()); };
+  const leave = () => { if (window.confirm(t("Leave this station? You'll need a new code and approval to come back.", "આ સ્ટેશન છોડવું છે? પાછા આવવા નવો કોડ અને મંજૂરી જોઈશે."))) run(() => db.collection("stationMembers").doc(uid).delete()); };
+  const small = { ...iconBtnWide, fontSize: 12 };
+  return (
+    <div style={{ padding: "12px 20px", borderBottom: divider }}>
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="disp gu" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)" }}>
+        <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+        👥 {t("Station users", "સ્ટેશન વપરાશકર્તાઓ")}
+        {isOwner && requests.length > 0 && <span style={{ fontSize: 10.5, background: "var(--accent)", color: "var(--accent-text)", borderRadius: 10, padding: "1px 7px" }}>{requests.length}</span>}
+      </button>
+      {open && !isOwner && (
+        <div className="gu" style={{ marginTop: 10, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          {t("You use this station as ", "તમે આ સ્ટેશન આ રીતે વાપરો છો: ")}<b>{roleLbl(role)}</b>.
+          <div><button onClick={leave} disabled={busy} className="gu" style={{ ...small, marginTop: 8, color: "var(--status-error-text)" }}>{t("Leave this station", "આ સ્ટેશન છોડો")}</button></div>
+        </div>
+      )}
+      {open && isOwner && (
+        <div className="gu" style={{ marginTop: 10, fontSize: 12.5 }}>
+          <div style={{ color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 8 }}>{t("Let other people (writer, PSO, PI) use this station with their own login. They sign in to Nokri Book, enter this code, and you approve them here.", "બીજા લોકો (રાઇટર, PSO, PI) પોતાના લોગિનથી આ સ્ટેશન વાપરી શકે. તેઓ Nokri Book માં સાઇન ઇન કરી આ કોડ નાખે, અને તમે અહીં મંજૂરી આપો.")}</div>
+          {data.joinCode ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px" }}>
+              <span>{t("Join code", "જોડાવાનો કોડ")}:</span>
+              <b className="mono" style={{ fontSize: 18, letterSpacing: 2 }}>{data.joinCode}</b>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => { try { navigator.clipboard.writeText(data.joinCode); showToast(t("Code copied", "કોડ કૉપિ થયો")); } catch (e) {} }} style={small}>📋</button>
+              <button onClick={makeCode} disabled={busy} style={small}>{t("New code", "નવો કોડ")}</button>
+              <button onClick={stopCode} disabled={busy} style={{ ...small, color: "var(--status-error-text)" }}>{t("Turn off", "બંધ")}</button>
+            </div>
+          ) : (
+            <button onClick={makeCode} disabled={busy} className="gu" style={{ ...small, fontSize: 13, padding: "7px 12px" }}>🔑 {t("Make a join code", "જોડાવાનો કોડ બનાવો")}</button>
+          )}
+          {requests.length > 0 && <div style={{ fontWeight: 700, margin: "12px 0 4px" }}>{t("Waiting for approval", "મંજૂરી બાકી")}</div>}
+          {requests.map((r) => (
+            <div key={r.id} style={{ border: "1px solid var(--accent-strong)", borderRadius: 8, padding: "8px 10px", marginBottom: 6 }}>
+              <div><b>{r.name || "—"}</b> <span style={{ color: "var(--text-tertiary)" }}>{r.email}</span></div>
+              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                <button onClick={() => approve(r, "editor")} disabled={busy} style={small}>✓ {t("Approve as Editor", "એડિટર તરીકે મંજૂર")}</button>
+                <button onClick={() => approve(r, "viewer")} disabled={busy} style={small}>✓ {t("Approve as Viewer", "દર્શક તરીકે મંજૂર")}</button>
+                <button onClick={() => reject(r)} disabled={busy} style={{ ...small, color: "var(--status-error-text)" }}>{t("Reject", "નામંજૂર")}</button>
+              </div>
+            </div>
+          ))}
+          {members.length > 0 && <div style={{ fontWeight: 700, margin: "12px 0 4px" }}>{t("People with access", "પહોંચ ધરાવતા લોકો")}</div>}
+          {members.map((m) => (
+            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", borderBottom: "1px solid var(--border-soft)", padding: "6px 0" }}>
+              <div style={{ flex: "1 1 160px", minWidth: 0 }}><b>{m.name || "—"}</b> <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{m.email}</span></div>
+              <select value={m.role} onChange={(e) => setRole(m, e.target.value)} disabled={busy} className="gu" style={{ fontSize: 12 }}>
+                <option value="editor">{t("Editor", "એડિટર")}</option>
+                <option value="viewer">{t("Viewer", "દર્શક")}</option>
+              </select>
+              <button onClick={() => remove(m)} disabled={busy} style={{ ...small, color: "var(--status-error-text)" }}>{t("Remove", "કાઢો")}</button>
+            </div>
+          ))}
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
+            <button onClick={onJoin} className="gu" style={{ ...small }}>{t("Join another station with a code…", "કોડથી બીજા સ્ટેશન સાથે જોડાઓ…")}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function JoinStationModal({ user, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [code, setCode] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(null);
+  useEffect(() => {
+    if (!user) return;
+    return db.collection("joinRequests").doc(user.uid).onSnapshot((snap) => setPending(snap.exists ? snap.data() : null), () => setPending(null));
+  }, [user]);
+  const send = async () => {
+    const c = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (c.length < 6) { setMsg(t("Enter the code from your station.", "તમારા સ્ટેશનનો કોડ નાખો.")); return; }
+    setBusy(true); setMsg("");
+    try {
+      const snap = await db.collection("joinCodes").doc(c).get();
+      if (!snap.exists) { setMsg(t("This code is not valid. Ask your station for the current code.", "આ કોડ માન્ય નથી. તમારા સ્ટેશનને હાલનો કોડ પૂછો.")); setBusy(false); return; }
+      const owner = snap.data().owner;
+      if (owner === user.uid) { setMsg(t("That's your own station's code.", "આ તમારા પોતાના સ્ટેશનનો કોડ છે.")); setBusy(false); return; }
+      await db.collection("joinRequests").doc(user.uid).set({ owner, code: c, name: (user.displayName || "").slice(0, 80), email: (user.email || "").slice(0, 120), at: Date.now() });
+    } catch (e) { console.error(e); setMsg(t("Couldn't send the request — check the connection.", "વિનંતી મોકલી શકાઈ નહીં — જોડાણ તપાસો.")); }
+    setBusy(false);
+  };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Join a station", "સ્ટેશન સાથે જોડાઓ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
+      <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 400, maxWidth: "100%", padding: 22 }}>
+        <div className="disp" style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>🔑 {t("Join your station", "તમારા સ્ટેશન સાથે જોડાઓ")}</div>
+        {pending ? (
+          <React.Fragment>
+            <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--text-secondary)" }}>⏳ {t("Request sent. Ask the station owner to approve you in Nokri Book → Settings → Station users. This screen opens the station by itself once you're approved.", "વિનંતી મોકલાઈ. સ્ટેશન માલિકને Nokri Book → સેટિંગ્સ → સ્ટેશન વપરાશકર્તાઓ માં મંજૂરી આપવા કહો. મંજૂરી મળતાં સ્ટેશન આપમેળે ખુલશે.")}</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => db.collection("joinRequests").doc(user.uid).delete().catch(() => {})} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel request", "વિનંતી રદ કરો")}</button>
+              <button onClick={onClose} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700 }}>{t("Close", "બંધ કરો")}</button>
+            </div>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 12 }}>{t("Enter the join code. The station owner finds it in Settings → Station users.", "જોડાવાનો કોડ નાખો. સ્ટેશન માલિકને તે સેટિંગ્સ → સ્ટેશન વપરાશકર્તાઓ માં મળશે.")}</div>
+            <input type="text" autoFocus value={code} onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 12))} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="ABCD2345" className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 22, letterSpacing: 4, textAlign: "center", padding: "8px 0" }} />
+            {msg && <div style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 8 }}>{msg}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={onClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+              <button onClick={send} disabled={busy} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700 }}>{busy ? "…" : t("Send request", "વિનંતી મોકલો")}</button>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, stationAccess, onShowActivity, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
   const POLICE_LOCATIONS_GU = useMasterLocations();
   useEscToClose(onClose);
@@ -4101,6 +4389,10 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                 </div>
               )}
             </div>
+          )}
+          {stationAccess && <StationUsersSection access={stationAccess} divider={DIVIDER} initialOpen={initialSection === "users"} />}
+          {onShowActivity && (
+            <button onClick={() => { onClose(); onShowActivity(); }} className="gu" style={{ ...rowBtn, color: "var(--text-primary)" }}>🕓 {t("Activity log — who changed what", "પ્રવૃત્તિ લૉગ — કોણે શું બદલ્યું")}</button>
           )}
           {onHelp && (
             <button onClick={() => { onClose(); onHelp(); }} className="gu" style={{ ...rowBtn, color: "var(--text-primary)" }}>{t("Top Questions", "ટોચના પ્રશ્નો")}</button>
@@ -4801,12 +5093,26 @@ function DutyRoster() {
     );
     return () => unsub();
   }, [user]);
-  // Every signed-in person just works inside their own account with full
-  // edit access — there's no per-member editor/viewer role system, so this
-  // never looks anyone up in memberships/{uid}.
-  const accountUid = (user && isDistrictAdmin === false && isSuperAdmin === false) ? user.uid : null;
-  const myRole = "owner";
-  const canEdit = true;
+  // STATION USERS: someone approved through a station's join code has a
+  // stationMembers/{uid} = { owner, role: "editor" | "viewer" } record and
+  // works inside THAT station's account instead of their own. Owners (and
+  // everyone else) keep using their own account exactly as before.
+  const [memberOf, setMemberOf] = useState(undefined); // undefined = checking, null = not a member
+  useEffect(() => {
+    if (!user) { setMemberOf(undefined); return; }
+    if (isDistrictAdmin !== false || isSuperAdmin !== false) return;
+    const unsub = db.collection("stationMembers").doc(user.uid).onSnapshot(
+      (snap) => setMemberOf(snap.exists && snap.data() && snap.data().owner ? snap.data() : null),
+      (e) => { console.warn("Station member check failed:", e && e.code); setMemberOf(null); }
+    );
+    return () => unsub();
+  }, [user, isDistrictAdmin, isSuperAdmin]);
+  const accountUid = (user && isDistrictAdmin === false && isSuperAdmin === false && memberOf !== undefined) ? (memberOf ? memberOf.owner : user.uid) : null;
+  const myRole = memberOf ? (memberOf.role === "editor" ? "editor" : "viewer") : "owner";
+  const canEdit = myRole !== "viewer";
+  const isStationOwner = !memberOf;
+  const memberRef = useRef(null);
+  memberRef.current = memberOf || null;
   // Stable per signed-in session — recomputed each render but points at the
   // same Firestore doc the whole time someone's signed in.
   const docRef = accountUid ? accountDocRef(accountUid) : null;
@@ -5119,7 +5425,7 @@ function DutyRoster() {
             // confirmed, never a snapshot that's merely this device's
             // local cache (which could be older than the real current
             // document on a device that hasn't fully synced yet).
-            if (needsWrite && !snap.metadata.fromCache) ref.set(nbPackAccount(normalized)).catch(() => {});
+            if (needsWrite && !snap.metadata.fromCache && !memberRef.current) ref.set(nbPackAccount(normalized)).catch(() => {});
             // Self-heals publicRosters/{uid} on every load/remote update,
             // not just local edits — otherwise an account that already
             // had sharing turned on BEFORE this publicRosters mechanism
@@ -5129,7 +5435,7 @@ function DutyRoster() {
             // also keeps it correct if a second device changes something
             // while this one is just sitting open.
             syncPublicRoster(normalized);
-          } else if (d.roster && !migratedRef.current && !snap.metadata.fromCache) {
+          } else if (d.roster && !migratedRef.current && !snap.metadata.fromCache && !memberRef.current) {
             // Same fromCache reasoning as the "brand new account" branch
             // below: a device whose local cache still holds this
             // account's PRE-migration document (e.g. it hasn't
@@ -5150,6 +5456,9 @@ function DutyRoster() {
             syncPublicRoster(migrated);
             writeToFirestore(migrated);
           }
+        } else if (!snap.metadata.fromCache && memberRef.current) {
+          // A station user whose station no longer exists — nothing to load.
+          setConnError(true);
         } else if (!snap.metadata.fromCache) {
           // Brand new account, GENUINELY confirmed by the server (not
           // just absent from this device's local cache) — start blank.
@@ -5449,6 +5758,7 @@ function DutyRoster() {
   };
   const syncPublicRoster = (next) => {
     if (!publicRosterDocRef) return;
+    if (memberRef.current && memberRef.current.role !== "editor") return; // viewers never write
     const token = next.shareEnabled && next.shareToken ? next.shareToken : null;
     if (lastShareTokenRef.current && lastShareTokenRef.current !== token) {
       db.collection("sharedRosters").doc(lastShareTokenRef.current).delete().catch(() => {});
@@ -5491,6 +5801,22 @@ function DutyRoster() {
   const digestWrittenAtRef = useRef(0);
   const digestCheckedPathRef = useRef(null);
   const digestClaimedKeyRef = useRef(null);
+  // Switching to another station (joined with a code, or removed from one):
+  // forget everything that belonged to the previous one, so nothing from
+  // it (Undo history, pending publishes) can ever be written into this one.
+  const prevAccountRef = useRef(accountUid);
+  useEffect(() => {
+    if (prevAccountRef.current === accountUid) return;
+    prevAccountRef.current = accountUid;
+    setUndoStack([]); setRedoStack([]);
+    if (pubTimerRef.current) { clearTimeout(pubTimerRef.current); pubTimerRef.current = null; }
+    if (digestTimerRef.current) { clearTimeout(digestTimerRef.current); digestTimerRef.current = null; }
+    pubPendingRef.current = null; digestPendingRef.current = null;
+    pubSigRef.current = null; pubCheckedRef.current = false; lastShareTokenRef.current = null;
+    digestSigRef.current = null; digestCheckedPathRef.current = null; digestClaimedKeyRef.current = null; districtDigestPathRef.current = null;
+    digestInitRef.current = false;
+    setData(null);
+  }, [accountUid]);
   const NB_DIGEST_DELAY_MS = 30000;
   const NB_DIGEST_HEARTBEAT_MS = 2 * 60 * 60 * 1000;
   const digestIdSigRef = useRef(null);
@@ -5503,6 +5829,7 @@ function DutyRoster() {
   });
   const syncDistrictDigest = (next, opts) => {
     if (!accountUid || !next) return;
+    if (memberRef.current && memberRef.current.role !== "editor") return; // viewers never write
     digestPendingRef.current = next;
     const idSig = nbDigestIdSig(next);
     const important = digestIdSigRef.current !== null && idSig !== digestIdSigRef.current;
@@ -5570,7 +5897,7 @@ function DutyRoster() {
     // Station-name registry: once per app open (and whenever the name or
     // district changes) — only written if it isn't already ours.
     const key = nbStationKey(next);
-    const claim = key && digestClaimedKeyRef.current !== key
+    const claim = key && digestClaimedKeyRef.current !== key && !memberRef.current
       ? db.collection("stationRegistry").doc(key).get()
           .then((snap) => {
             if (snap.exists && snap.data().uid === accountUid) return;
@@ -5813,7 +6140,7 @@ function DutyRoster() {
       return stack.length > MAX_HISTORY_STATES ? stack.slice(stack.length - MAX_HISTORY_STATES) : stack;
     });
     setRedoStack([]);
-    writeToFirestore(next);
+    writeToFirestore(nbWithActivity(dataRef.current, next, nbActor(user, myRole)));
   };
 
   // "Request new station" (OrgSetupGateModal) starts life pending — usable
@@ -5829,7 +6156,7 @@ function DutyRoster() {
   // state flip the person didn't take an action to cause, not something
   // they'd ever want to "undo".
   useEffect(() => {
-    if (!data || !accountUid) return;
+    if (!data || !accountUid || memberRef.current) return;
     if (data.stationApprovalStatus !== "pending" || data.blocked) return;
     const requestedAt = data.stationRequestedAt ? new Date(data.stationRequestedAt).getTime() : null;
     if (requestedAt && (Date.now() - requestedAt) > 5 * 24 * 60 * 60 * 1000) {
@@ -5861,6 +6188,9 @@ function DutyRoster() {
   // glance past, but an error (e.g. why the automatic EmailJS send just
   // failed) needs enough time to actually be read.
   const showToast = (msg, type) => {
+    // A viewer can't change anything, so a "done" message would be untrue
+    // (and would hide the "view only" message persist() just showed).
+    if (!canEdit && type !== "error") return;
     if (type !== "error") lastActionRef.current = msg;
     setToast({ msg, type: type || "info" });
     setTimeout(() => setToast(null), type === "error" ? 6000 : 2200);
@@ -5937,6 +6267,8 @@ function DutyRoster() {
   // this to put the actual station's name on it instead of a generic
   // "Nokri Book" heading).
   const [showStationGate, setShowStationGate] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   // ---------- Delete my account (Auth account + every Firestore doc it
   // owns — the accounts/{uid} document, publicRosters/{uid}, and this
   // station's digest under districts/{district}/stations/{uid}, if any).
@@ -5959,6 +6291,10 @@ function DutyRoster() {
     if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
     if (data && data.shareToken) cleanup.push(db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {}));
     cleanup.push(nbReleaseStationNames(accountUid));
+    // Station users of this station, pending requests and the join code.
+    cleanup.push(db.collection("stationMembers").where("owner", "==", accountUid).get().then((qs) => Promise.all(qs.docs.map((d) => d.ref.delete().catch(() => {})))).catch(() => {}));
+    cleanup.push(db.collection("joinRequests").where("owner", "==", accountUid).get().then((qs) => Promise.all(qs.docs.map((d) => d.ref.delete().catch(() => {})))).catch(() => {}));
+    if (data && data.joinCode) cleanup.push(db.collection("joinCodes").doc(data.joinCode).delete().catch(() => {}));
     await Promise.all(cleanup);
     const doDelete = () => user.delete();
     try {
@@ -6486,7 +6822,7 @@ function DutyRoster() {
       const prevState = stack[stack.length - 1];
       const actionDesc = lastActionRef.current;
       setRedoStack((r) => [...r, data]);
-      writeToFirestore(prevState);
+      writeToFirestore(nbWithActivity(dataRef.current, { ...prevState, activityLog: dataRef.current.activityLog }, nbActor(user, myRole), "undo"));
       showToastRaw(actionDesc ? t(`Undone: ${actionDesc}`, `પૂર્વવત્ થયું: ${actionDesc}`) : t("Undone — last change reverted", "પૂર્વવત્ થયું — છેલ્લો ફેરફાર રદ થયો"));
       return stack.slice(0, -1);
     });
@@ -6498,7 +6834,7 @@ function DutyRoster() {
       const nextState = stack[stack.length - 1];
       const actionDesc = lastActionRef.current;
       setUndoStack((u) => [...u, data]);
-      writeToFirestore(nextState);
+      writeToFirestore(nbWithActivity(dataRef.current, { ...nextState, activityLog: dataRef.current.activityLog }, nbActor(user, myRole), "redo"));
       showToastRaw(actionDesc ? t(`Redone: ${actionDesc}`, `ફરીથી કરાયું: ${actionDesc}`) : t("Redone", "ફરીથી કરાયું"));
       return stack.slice(0, -1);
     });
@@ -8236,9 +8572,11 @@ function DutyRoster() {
                 <button onClick={() => { exportBackup(); setDataMenuPos(null); setBackupMenuPos(null); }}
                   style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, cursor: "pointer" }} className="gu"
                 >⬇ {langCtxValue.t("Backup", "બેકઅપ")}</button>
+{isStationOwner && (
                 <button onClick={() => { setDataMenuPos(null); setBackupMenuPos(null); importBackupRef.current && importBackupRef.current.click(); }}
                   style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
                 >⬆ {langCtxValue.t("Restore", "પુનઃસ્થાપિત કરો")}</button>
+                )}
               </div>
             )}
             <input
@@ -8246,7 +8584,7 @@ function DutyRoster() {
               style={{ display: "none" }}
               onChange={(e) => { importBackup(e.target.files[0]); e.target.value = ""; }}
             />
-            <button onClick={() => setShowSharePanel((v) => !v)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} aria-label={langCtxValue.t("Share", "શેર")} style={{
+            {isStationOwner && <button onClick={() => setShowSharePanel((v) => !v)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} aria-label={langCtxValue.t("Share", "શેર")} style={{
               ...undoRedoBtn(true),
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               background: data.shareEnabled ? "var(--status-success-bg)" : "var(--bg-surface)",
@@ -8257,7 +8595,7 @@ function DutyRoster() {
                 <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
                 <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" /><line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
               </svg>
-            </button>
+            </button>}
             <button onClick={() => setShowAboutPanel(true)} title={langCtxValue.t("About this app", "આ એપ વિશે")} aria-label={langCtxValue.t("About this app", "આ એપ વિશે")} style={{
               ...undoRedoBtn(true),
               // Deliberately keeps the same 6px top/bottom padding as
@@ -8390,9 +8728,11 @@ function DutyRoster() {
           storagePct={storagePct}
           initialSection={route.section}
           user={user}
-          signOutUser={signOutUser} formatAllData={formatAllData}
-          onDeleteAccount={() => setShowDeleteAccountModal(true)}
-          stationName={data.stationName} onSaveStationName={(name) => persist({ ...dataRef.current, stationName: name })}
+          signOutUser={signOutUser} formatAllData={isStationOwner ? formatAllData : null}
+          onDeleteAccount={isStationOwner ? () => setShowDeleteAccountModal(true) : null}
+          stationAccess={{ uid: user && user.uid, accountUid, isOwner: isStationOwner, role: myRole, memberOf, data, persist, showToast, user, onJoin: () => { setShowSettingsPanel(false); setShowJoin(true); } }}
+          onShowActivity={() => setShowActivity(true)}
+          stationName={data.stationName} onSaveStationName={isStationOwner ? (name) => persist({ ...dataRef.current, stationName: name }) : null}
           state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s, ...(s !== (dataRef.current.state || "") ? { district: "", stationName: "" } : {}) })}
           district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d, ...(d !== (dataRef.current.district || "") ? { stationName: "" } : {}) })}
           stationApprovalStatus={data.stationApprovalStatus}
@@ -8429,7 +8769,7 @@ function DutyRoster() {
         />
       )}
 
-      {storagePct >= 99 && !showFormatModal && (
+      {storagePct >= 99 && !showFormatModal && isStationOwner && (
         <div role="alertdialog" aria-modal="true" aria-label={t("Storage full", "સ્ટોરેજ ભરાઈ ગયું")} style={{ position: "fixed", inset: 0, zIndex: 150, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 22, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}>
             <div style={{ fontSize: 32, marginBottom: 6 }}>⚠️</div>
@@ -8484,8 +8824,13 @@ function DutyRoster() {
         />
       )}
 
-      {showStationGate && (
-        <OrgSetupGateModal
+      {showJoin && <JoinStationModal user={user} onClose={() => setShowJoin(false)} />}
+      {showActivity && <ActivityLogModal data={data} onClose={() => setShowActivity(false)} />}
+      {!canEdit && (
+        <div className="gu" style={{ position: "fixed", bottom: 12, right: 12, zIndex: 60, background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>👁 {t("View only", "ફક્ત જોવા માટે")}</div>
+      )}
+      {showStationGate && !memberOf && (
+        <OrgSetupGateModal onJoin={() => { setShowStationGate(false); setShowJoin(true); }}
           initialStationName={data.stationName || "પોલીસ સ્ટેશન"}
           onSubmit={async ({ stationName, state, district, isRequest }) => {
             if (!(await stationNameIsFree({ state, district, stationName }))) { nameTakenToast(); return; }
@@ -14064,7 +14409,7 @@ function WelcomeModal({ onStartTour }) {
 // FormatAllDataModal) before falling through to the old free-text station
 // name field, since almost every account really is a police station and
 // this makes picking "Other" by mistake genuinely hard to do.
-function OrgSetupGateModal({ initialStationName, onSubmit }) {
+function OrgSetupGateModal({ initialStationName, onSubmit, onJoin }) {
   const { t } = useLang();
   const POLICE_LOCATIONS_GU = useMasterLocations();
   const [step, setStep] = useState("who"); // "who" | "otherConfirm" | "otherName" | "police"
@@ -14176,6 +14521,11 @@ function OrgSetupGateModal({ initialStationName, onSubmit }) {
             >🏢 {t("Other", "બીજું કંઈક")}</button>
           </div>
           <button onClick={() => setStep(who === "police" ? "police" : "otherConfirm")} style={primaryBtn(true)} className="gu">{t("Continue →", "ચાલુ રાખો →")}</button>
+          {onJoin && (
+            <button onClick={onJoin} className="gu" style={{ display: "block", width: "100%", marginTop: 12, background: "transparent", border: "1px dashed var(--border)", borderRadius: 10, padding: "11px 10px", fontSize: 13, color: "var(--text-primary)", cursor: "pointer" }}>
+              🔑 {t("My station already uses Nokri Book — join it with a code", "મારું સ્ટેશન પહેલેથી Nokri Book વાપરે છે — કોડથી જોડાઓ")}
+            </button>
+          )}
         </div>
       </div>
     );

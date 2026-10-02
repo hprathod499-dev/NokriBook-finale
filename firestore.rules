@@ -40,6 +40,25 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/accounts/$(u)).data;
     }
 
+    // STATION USERS: stationMembers/{memberUid} = { owner, role } is
+    // created only by the station owner, after the person asked to join
+    // with the owner's join code. Editors can change the roster; viewers
+    // can only read it.
+    function memberPath() {
+      return /databases/$(database)/documents/stationMembers/$(request.auth.uid);
+    }
+    function isMemberOf(owner) {
+      return signedIn() && exists(memberPath())
+        && get(memberPath()).data.owner == owner;
+    }
+    function isEditorOf(owner) {
+      return isMemberOf(owner) && get(memberPath()).data.role == 'editor';
+    }
+    // The owner, or an editor of that station.
+    function canEditStation(owner) {
+      return signedIn() && (request.auth.uid == owner || isEditorOf(owner));
+    }
+
     function strOr(v) {
       return v is string ? v : '';
     }
@@ -133,7 +152,7 @@ service cloud.firestore {
           || getAfter(/databases/$(database)/documents/stationRegistry/$(stationKey(n))).data.uid == uid;
       }
 
-      allow read: if isOwner();
+      allow read: if isOwner() || isMemberOf(uid);
 
       allow create: if isOwner()
         && stationClaimOk()
@@ -149,6 +168,13 @@ service cloud.firestore {
         && ownerApprovalChangeOk()
         && pendingWindowOk()
         && stationClaimOk();
+
+      // Station editor: the roster (compressed in z) only — never the
+      // station name/district, approval, block, sharing or format fields.
+      allow update: if isEditorOf(uid)
+        && !isBlockedDoc(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['z', 'zv', '_rev', 'lastModifiedAt', 'v']);
 
       // Admin: approve / block only.
       allow update: if isAdminOf(resource.data)
@@ -168,14 +194,13 @@ service cloud.firestore {
     // ============================================================
     match /publicRosters/{uid} {
       allow get: if signedIn()
-        && (request.auth.uid == uid || isAdminOf(accountOf(uid)));
+        && (request.auth.uid == uid || isMemberOf(uid) || isAdminOf(accountOf(uid)));
       allow list: if false;
 
-      allow create, update: if signedIn()
-        && request.auth.uid == uid
+      allow create, update: if canEditStation(uid)
         && publicRosterKeysOk(request.resource.data);
 
-      allow delete: if signedIn() && request.auth.uid == uid;
+      allow delete: if canEditStation(uid);
     }
 
 
@@ -188,10 +213,10 @@ service cloud.firestore {
       allow list: if false;        // nobody can enumerate links
 
       function shareWriteOk() {
-        let a = accountOf(request.auth.uid);
         let d = request.resource.data;
+        let a = accountOf(d.owner);
         return signedIn()
-          && d.owner == request.auth.uid
+          && canEditStation(d.owner)
           && d.keys().hasOnly([
                'v', 'stationName', 'categories', 'membership', 'staff',
                'leaveTypes', 'outstationTypes', 'designations', 'skipLog',
@@ -202,9 +227,9 @@ service cloud.firestore {
       }
 
       allow create: if shareWriteOk();
-      allow update: if resource.data.owner == request.auth.uid && shareWriteOk();
+      allow update: if resource.data.owner == request.resource.data.owner && shareWriteOk();
       allow delete: if signedIn()
-        && (resource == null || resource.data.owner == request.auth.uid);
+        && (resource == null || canEditStation(resource.data.owner));
     }
 
 
@@ -307,8 +332,7 @@ service cloud.firestore {
       function ownerDigestOk() {
         let a = accountOf(stationUid);
         let d = request.resource.data;
-        return signedIn()
-          && request.auth.uid == stationUid
+        return canEditStation(stationUid)
           && (a.get('district', null) == districtId
               || a.get('districtId', null) == districtId)
           && d.keys().hasOnly([
@@ -329,6 +353,7 @@ service cloud.firestore {
       }
 
       allow read: if (signedIn() && request.auth.uid == stationUid)
+        || isMemberOf(stationUid)
         || isAdminHere();
 
       allow create, update: if ownerDigestOk();
@@ -345,6 +370,60 @@ service cloud.firestore {
         || (resource.data.get('stationApprovalStatus', null) == "pending"
             && isAdminHere());
     }
+
+    // ============================================================
+    // STATION USERS  —  joinCodes / joinRequests / stationMembers
+    // ============================================================
+    // joinCodes/{code} = { owner }: anyone signed in can look up one exact
+    // code (to send a request); nobody can list them.
+    match /joinCodes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && code.size() >= 8
+        && request.resource.data.keys().hasOnly(['owner', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    // joinRequests/{uid}: a signed-in person asks to join, proving the code.
+    match /joinRequests/{reqUid} {
+      allow get: if signedIn()
+        && (request.auth.uid == reqUid || resource.data.owner == request.auth.uid);
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create, update: if signedIn()
+        && request.auth.uid == reqUid
+        && request.resource.data.keys().hasOnly(['owner', 'code', 'name', 'email', 'at'])
+        && request.resource.data.owner is string
+        && request.resource.data.owner != request.auth.uid
+        && request.resource.data.code is string
+        && exists(/databases/$(database)/documents/joinCodes/$(request.resource.data.code))
+        && get(/databases/$(database)/documents/joinCodes/$(request.resource.data.code)).data.owner == request.resource.data.owner;
+      allow delete: if signedIn()
+        && (request.auth.uid == reqUid || resource.data.owner == request.auth.uid);
+    }
+
+    // stationMembers/{uid}: only the owner adds (from a real request),
+    // changes the role, or removes; the member can leave.
+    match /stationMembers/{memberUid} {
+      allow get: if signedIn()
+        && (request.auth.uid == memberUid || resource.data.owner == request.auth.uid);
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create: if signedIn()
+        && memberUid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['owner', 'role', 'name', 'email', 'joinedAt'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.role in ['editor', 'viewer']
+        && exists(/databases/$(database)/documents/joinRequests/$(memberUid))
+        && get(/databases/$(database)/documents/joinRequests/$(memberUid)).data.owner == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
+        && request.resource.data.role in ['editor', 'viewer'];
+      allow delete: if signedIn()
+        && (request.auth.uid == memberUid || resource.data.owner == request.auth.uid);
+    }
+
 
     // Super Admin's "all pending requests" (collectionGroup query).
     match /{path=**}/stations/{stationUid} {
