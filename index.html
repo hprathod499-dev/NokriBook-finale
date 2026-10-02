@@ -2376,13 +2376,13 @@ function FormatChoiceModal({ onChoose, onClose }) {
     </div>
   );
 }
-// A single "⬇ Export ▾" button that opens a tiny menu with "Export CSV"
+// A single "⬇ Export ▾" button that opens a tiny menu with "Download Word"
 // and "Download PDF" as two rows — replaces having those as two separate
 // buttons side by side, everywhere the app offers both for the same data
 // (Manage staff, Skip history). Closes on outside click or Escape, same
 // as every other small popover menu in the app (e.g. the per-row "Manage
 // leave" menu in Manage staff).
-function ExportMenuButton({ disabled, pdfBusy, onExportCsv, onExportWord, onDownloadPdf }) {
+function ExportMenuButton({ disabled, pdfBusy, onExportWord, onDownloadPdf }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -2405,9 +2405,7 @@ function ExportMenuButton({ disabled, pdfBusy, onExportCsv, onExportWord, onDown
       >⬇ {t("Export", "એક્સપોર્ટ")} ▾</button>
       {open && (
         <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 20, minWidth: 150 }}>
-          {onExportWord
-            ? <button onClick={() => { setOpen(false); onExportWord(); }} className="gu" style={{ ...itemStyle, borderBottom: "1px solid var(--border-soft)" }}>📘 {t("Download Word", "Word ડાઉનલોડ કરો")}</button>
-            : <button onClick={() => { setOpen(false); onExportCsv(); }} className="gu" style={{ ...itemStyle, borderBottom: "1px solid var(--border-soft)" }}>📄 {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>}
+          {onExportWord && <button onClick={() => { setOpen(false); onExportWord(); }} className="gu" style={{ ...itemStyle, borderBottom: "1px solid var(--border-soft)" }}>📘 {t("Download Word", "Word ડાઉનલોડ કરો")}</button>}
           <button onClick={() => { setOpen(false); onDownloadPdf(); }} disabled={pdfBusy} className="gu" style={itemStyle}>📕 {pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
         </div>
       )}
@@ -2616,6 +2614,35 @@ function downloadStaffDirectoryDocx(staffList, stationName, district) {
   a.href = url; a.download = `mahekam-patra-${todayStr()}.docx`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+// ---------- Generic table → Word (.docx), same look as every PDF ----------
+// Station name + district centred on top, bold title, optional subtitle and
+// note lines, then one table with a light-grey bold heading and black grid.
+// Column widths follow the longest text in each column; wide tables (more
+// than 8 columns) go landscape, same rule as the PDFs.
+function nbSaveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function nbTableDocx({ title, subtitle, head, rows, stationName, district, extraLines, filename }) {
+  const landscape = head.length > 8;
+  const total = landscape ? 14900 : 10000;
+  const str = (v) => (v == null ? "" : String(v));
+  const weights = head.map((h, i) => Math.min(36, Math.max(4, str(h).length, ...rows.slice(0, 300).map((r) => str(r[i]).length))));
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  const widths = weights.map((w) => Math.round((total * w) / sum));
+  const isShort = (i) => weights[i] <= 6;
+  const blocks = [];
+  if (stationName) blocks.push({ text: stationName, b: true, sz: 30, center: true, after: 0 });
+  if (district) blocks.push({ text: district, center: true, sz: 22 });
+  blocks.push({ text: title, b: true, sz: 28, center: true, after: 40 });
+  blocks.push({ text: (subtitle ? subtitle + " · " : "") + "Generated " + nbPdfStamp(), center: true, sz: 20, after: (extraLines && extraLines.length) ? 80 : 200 });
+  (extraLines || []).forEach((l, i, arr) => blocks.push({ text: l, sz: 19, after: i === arr.length - 1 ? 200 : 40 }));
+  blocks.push({ table: true, widths, head: head.map(str), rows: rows.map((r) => head.map((_, i) => ({ t: str(r[i]), center: isShort(i) }))) });
+  nbSaveBlob(nbDocxFromBlocks(blocks, { landscape }), filename);
 }
 // ---------- Skip-history PDF (Skip history's "Download PDF") ----------
 // `rows` here are pre-built arrays matching the exact same columns as the
@@ -3091,47 +3118,6 @@ function formatDMY(dateStr) {
   if (!dateStr) return "";
   const [y, m, d] = dateStr.split("-");
   return `${d}/${m}/${y}`;
-}
-// Turns rows of plain values into a downloaded .csv file — quotes any cell
-// containing a comma, quote, or newline (doubling inner quotes per the CSV
-// spec) so names/notes with commas don't corrupt the columns. Used by every
-// "Export CSV" button across the app (staff directory, skip log, duty
-// history) so the format stays identical everywhere.
-// Shared by every "Export CSV" button in the app (work-type history, staff
-// directory, skip log) so a CSV's opening lines always match what the PDF
-// version of the same export already shows: station name, then district
-// right under it (skipped when there isn't one — an "Other" org has no
-// district), then a blank spacer line before the real header row. Kept as
-// one function instead of each export inlining its own "[stationName],
-// []" so the two can't quietly drift apart — e.g. one export gaining a
-// district line while another is edited without it.
-function csvHeaderRows(stationName, district) {
-  const rows = [];
-  if (stationName) {
-    rows.push([stationName]);
-    if (district) rows.push([district]);
-    rows.push([]);
-  }
-  return rows;
-}
-function downloadCsv(filename, rows) {
-  const escapeCell = (v) => {
-    let s = v === null || v === undefined ? "" : String(v);
-    // Block spreadsheet formula injection (=, +, -, @ ...) but leave plain
-    // numbers / phone numbers like "+91 98..." or "-5" untouched.
-    if (/^[=+\-@\t\r]/.test(s) && !/^[+\-]?[\d\s()]+$/.test(s)) s = "'" + s;
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const csv = rows.map((row) => row.map(escapeCell).join(",")).join("\r\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 // Turns any typed-in phone number into the digits-only, country-code-
 // prefixed format WhatsApp's click-to-chat links need. Assumes a bare
@@ -11257,12 +11243,14 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
               <React.Fragment>
                 <button onClick={() => setSelectMode(true)} style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600 }} className="gu">{t("Select", "પસંદ કરો")}</button>
                 <button
-                  onClick={() => downloadCsv(
-                    `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.csv`,
-                    [...csvHeaderRows(stationName, district), ["#", "From", "To", "Days", "Number", "Name", "Note"], ...filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, [r.note, r.extraNote].filter(Boolean).join(" — ")])]
-                  )}
+                  onClick={() => nbTableDocx({
+                    title: catLabel + " — history", stationName, district,
+                    filename: `nokri-book-${catLabel.toLowerCase().replace(/\s+/g, "-")}-history.docx`,
+                    head: ["#", "From", "To", "Days", "Number", "Name", "Note"],
+                    rows: filteredRows.map((r, i) => [filteredRows.length - i, formatDMY(r.from), formatDMY(r.to), r.days, r.number, r.name, [r.note, r.extraNote].filter(Boolean).join(" — ")]),
+                  })}
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu"
-                >⬇ {t("Export CSV", "CSV એક્સપોર્ટ કરો")}</button>
+                >⬇ {t("Word", "Word")}</button>
                 <button onClick={onClearHistory} title={t("Clear all history entries for this work type", "આ કામના પ્રકાર માટે તમામ ઇતિહાસ એન્ટ્રીઓ સાફ કરો")} aria-label={t("Clear all history entries for this work type", "આ કામના પ્રકાર માટે તમામ ઇતિહાસ એન્ટ્રીઓ સાફ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu">
                   {t("Clear history", "ઇતિહાસ સાફ કરો")}
                 </button>
@@ -11447,7 +11435,20 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
   }, [data, year, search, onlyOver]);
   const th = { padding: "7px 8px", fontSize: 11.5, color: "var(--text-secondary)", borderBottom: "1px solid var(--border)", textAlign: "center", whiteSpace: "nowrap", position: "sticky", top: 0, background: "var(--bg-surface)" };
   const td = { padding: "6px 8px", fontSize: 12.5, borderBottom: "1px solid var(--border-soft)", textAlign: "center", whiteSpace: "nowrap" };
-  const doCsv = () => downloadCsv(`nokri-book-leave-balance-${year}.csv`, [...csvHeaderRows(data.stationName, data.district), ["Number", "Name", ...types.map((lt) => lt.label + " (used/allowed)")], ...rows.map((r) => [r.s.number, r.s.name, ...r.cells.map((c) => `${c.used}/${c.allow == null ? "-" : c.allow}`)])]);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfReady, setPdfReady] = useState(null);
+  const leaveExport = () => ({
+    title: "Leave Record", subtitle: `Year ${year} · Casual Leave limit ${NB_CL_DAYS} days`, stationName: data.stationName, district: data.district,
+    head: ["#", "Number", "Name", ...types.map((lt) => lt.label + (nbIsCasualLeave(lt) ? ` (of ${NB_CL_DAYS})` : ""))],
+    rows: rows.map((r, i) => [i + 1, r.s.number, r.s.name, ...r.cells.map((c) => (nbIsCasualLeave(types.find((lt) => lt.id === c.id)) ? `${c.used}/${NB_CL_DAYS}` : String(c.used)))]),
+  });
+  const doWord = () => nbTableDocx({ ...leaveExport(), filename: `nokri-book-leave-record-${year}.docx` });
+  const doPdf = async () => {
+    setPdfBusy(true);
+    try { setPdfReady(await downloadCrimeReviewPdf({ ...leaveExport(), filename: `nokri-book-leave-record-${year}.pdf` })); }
+    catch (e) { window.alert(t("Could not make the PDF — check your connection and try again.", "PDF બની શક્યું નહીં — જોડાણ તપાસીને ફરી પ્રયત્ન કરો.")); }
+    finally { setPdfBusy(false); }
+  };
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Leave balance", "રજા બેલેન્સ")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 900, maxWidth: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
@@ -11464,8 +11465,10 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
           <button onClick={() => setYear((y) => y + 1)} style={iconBtnWide}>›</button>
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("Search name or number", "નામ કે નંબર શોધો")} className="gu" style={{ flex: "1 1 160px", fontSize: 13 }} />
           <label style={{ fontSize: 12.5, display: "flex", gap: 5, alignItems: "center" }}><input type="checkbox" checked={onlyOver} onChange={(e) => setOnlyOver(e.target.checked)} /> {t("Only over limit", "ફક્ત મર્યાદા બહાર")}</label>
-          <button onClick={doCsv} style={iconBtnWide}>⬇ CSV</button>
+          <button onClick={doWord} style={iconBtnWide}>⬇ Word</button>
+          <button onClick={doPdf} disabled={pdfBusy} style={iconBtnWide}>{pdfBusy ? "…" : "⬇ PDF"}</button>
         </div>
+        {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
         <div style={{ overflow: "auto", flex: 1, border: "1px solid var(--border)", borderRadius: 10 }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={{ ...th, textAlign: "left" }}>{t("Name", "નામ")}</th>{types.map((lt) => <th key={lt.id} style={th}>{lt.label}</th>)}</tr></thead>
@@ -11655,7 +11658,8 @@ function nbZip(files) { // [{name, text}] -> Blob (stored, no compression)
   const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(offset), ...u16(0)]);
   return new Blob([...parts, ...central, end], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
 }
-function nbDocxFromBlocks(blocks) {
+function nbDocxFromBlocks(blocks, opts) {
+  const landscape = !!(opts && opts.landscape);
   const esc = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const run = (txt, o) => {
     o = o || {};
@@ -11676,7 +11680,7 @@ function nbDocxFromBlocks(blocks) {
   };
   let body = "";
   blocks.forEach((bl) => { body += bl.table ? table(bl.widths, bl.head, bl.rows) : para(bl.text, bl); });
-  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1000" w:right="900" w:bottom="1000" w:left="900" w:header="500" w:footer="500" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr>${landscape ? '<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>' : '<w:pgSz w:w="11906" w:h="16838"/>'}<w:pgMar w:top="1000" w:right="900" w:bottom="1000" w:left="900" w:header="500" w:footer="500" w:gutter="0"/></w:sectPr></w:body></w:document>`;
   return nbZip([
     { name: "[Content_Types].xml", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>' },
     { name: "_rels/.rels", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
@@ -14943,7 +14947,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit, onJoin }) {
         <div className="modal-card" style={card}>
           <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>🏢 {t("Your station/branch name", "તમારા સ્ટેશન/શાખાનું નામ")}</div>
           <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 18px" }} className="gu">
-            {t("This name appears at the top of every PDF and CSV export.", "આ નામ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે.")}
+            {t("This name appears at the top of every PDF and Word export.", "આ નામ દરેક PDF અને Word એક્સપોર્ટની ટોચ પર દેખાય છે.")}
           </p>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Name", "નામ")}</label>
           <input
@@ -14964,7 +14968,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit, onJoin }) {
       <div className="modal-card" style={card}>
         <div className="disp gu" style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>👮 {t("Your police station", "તમારું પોલીસ સ્ટેશન")}</div>
         <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 18px" }} className="gu">
-          {t("Pick your state, district, and station — this appears at the top of every PDF and CSV export.", "તમારું રાજ્ય, જિલ્લો અને સ્ટેશન પસંદ કરો — આ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે.")}
+          {t("Pick your state, district, and station — this appears at the top of every PDF and Word export.", "તમારું રાજ્ય, જિલ્લો અને સ્ટેશન પસંદ કરો — આ દરેક PDF અને CSV એક્સપોર્ટની ટોચ પર દેખાય છે.")}
         </p>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("State", "રાજ્ય")}</label>
         <select value={selState} onChange={(e) => setSelState(e.target.value)} className="gu" style={selectStyle}>
@@ -15804,10 +15808,10 @@ function SkipHistoryView({ data, initialSearch }) {
             <ExportMenuButton
               disabled={entries.length === 0}
               pdfBusy={pdfBusy}
-              onExportCsv={() => downloadCsv(
-                "nokri-book-skip-history.csv",
-                [...csvHeaderRows(data.stationName, data.district), ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], ...exportRows]
-              )}
+              onExportWord={() => nbTableDocx({
+                title: "Skip History", stationName: data.stationName, district: data.district, filename: `nokri-book-skip-history-${todayStr()}.docx`,
+                head: ["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"], rows: exportRows,
+              })}
               onDownloadPdf={handleDownloadPdf}
             />
           </div>
@@ -17846,24 +17850,33 @@ function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts })
 }
 
 // ---------- report PDF / CSV ----------
-async function downloadCrimeReviewPdf({ title, subtitle, head, rows, stationName, district, extraLines }) {
+async function downloadCrimeReviewPdf({ title, subtitle, head, rows, stationName, district, extraLines, filename }) {
   await nbEnsureJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: head.length > 8 ? "landscape" : "portrait" });
   const FONT_PT = NB_PDF_FONT_PT;
   await ensureGujaratiCanvasFont();
   const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — " + title, stationName, district), subtitle, extraLines);
+  // Gujarati cells are drawn as images over blanked text, so autoTable can't
+  // size those columns itself — reserve room from the longest text instead.
+  const columnStyles = {};
+  head.forEach((_, i) => {
+    let longest = 0;
+    rows.forEach((r) => { const v = r[i]; if (v != null && needsImageRender(v)) longest = Math.max(longest, String(v).length); });
+    if (longest) columnStyles[i] = { minCellWidth: Math.min(70, 6 + longest * FONT_PT * 0.19) };
+  });
   doc.autoTable({
     rowPageBreak: "avoid",
     startY: headerY,
     head: [head],
     body: rows,
+    columnStyles,
     styles: { fontSize: FONT_PT, valign: "top" },
     headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     didParseCell: (h) => { if (h.section === "body" && needsImageRender(h.cell.raw)) h.cell.text = []; },
     didDrawCell: (h) => { if (h.section === "body" && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
   });
-  return { doc, filename: `nokri-book-crime-review-${todayStr()}.pdf` };
+  return { doc, filename: filename || `nokri-book-crime-review-${todayStr()}.pdf` };
 }
 
 // ---------- the Crime Review page (station or district) ----------
@@ -17983,14 +17996,21 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
     } catch (e) { console.error("Crime review PDF failed:", e); window.alert(t("Could not make the PDF — check your connection and try again.", "PDF બની શક્યું નહીં — જોડાણ તપાસીને ફરી પ્રયત્ન કરો.")); }
     finally { setPdfBusy(false); }
   };
-  const doCsv = () => {
+  const doWord = () => {
     const { head, rows } = exportRows();
-    downloadCsv(`nokri-book-crime-review-${from}-to-${to}.csv`, [...csvHeaderRows(isDistrict ? (district || districtId) : stationName, isDistrict ? null : district), [typeLabel + " · " + rangeLabel], [], head, ...rows]);
+    nbTableDocx({ title: "Crime Review", subtitle: typeLabel + " · " + rangeLabel, head, rows, stationName, district, filename: `nokri-book-crime-review-${from}-to-${to}.docx` });
   };
-  const doCasesCsv = () => {
+  const casesExport = () => {
     const head = ["C.R. no", "Year", "Registered", "Station", "Crime type", "Sections", "Place", "Complainant", "Status", "Summary", "Accused (arrested/total)", "Property lost", "Recovered", "Charge-sheet no", "Charge-sheet date", "Days to charge-sheet", "Court", "C.C. no/year", "Victims (age)"];
     const rows = visibleCases.map((c) => { const cs = nbChargeStatus(c); return [c.crNo, c.crYear, formatDMY(c.regDate), isDistrict ? stationNameOf(c.owner) : stationName, nbCaseTypeLabel(c, lang), c.sections, c.place, c.complainantName, c.status, c.summaryType || "", `${(c.accused || []).filter((a) => a.arrested).length}/${(c.accused || []).length}`, c.propertyLost || 0, c.propertyRecovered || 0, c.chargesheetNo, c.chargesheetDate ? formatDMY(c.chargesheetDate) : "", c.chargesheetDate ? cs.days : "", c.court, c.ccNo ? `${c.ccNo}/${c.ccYear}` : "", (c.victims || []).map((v) => v.age).filter((a) => a != null).join(" ")]; });
-    downloadCsv(`nokri-book-crime-cases-${todayStr()}.csv`, [...csvHeaderRows(isDistrict ? (district || districtId) : stationName, null), head, ...rows]);
+    return { title: "Crime Cases", subtitle: `${rows.length} case(s)`, head, rows, stationName, district };
+  };
+  const doCasesWord = () => nbTableDocx({ ...casesExport(), filename: `nokri-book-crime-cases-${todayStr()}.docx` });
+  const doCasesPdf = async () => {
+    setPdfBusy(true);
+    try { setPdfReady(await downloadCrimeReviewPdf({ ...casesExport(), filename: `nokri-book-crime-cases-${todayStr()}.pdf` })); }
+    catch (e) { window.alert(t("Could not make the PDF — check your connection and try again.", "PDF બની શક્યું નહીં — જોડાણ તપાસીને ફરી પ્રયત્ન કરો.")); }
+    finally { setPdfBusy(false); }
   };
   const statusBadge = (c) => {
     const cs = nbChargeStatus(c);
@@ -18052,7 +18072,8 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
               <option value="undetected">{t("Undetected (summary)", "અનડિટેક્ટ (સમરી)")}</option>
               <option value="overdue">{t("Charge-sheet overdue", "ચાર્જશીટ મુદત વીતી")}</option>
             </select>
-            <button onClick={doCasesCsv} className="gu" style={{ ...iconBtnWide }}>⬇ CSV</button>
+            <button onClick={doCasesWord} className="gu" style={{ ...iconBtnWide }}>⬇ Word</button>
+            <button onClick={doCasesPdf} disabled={pdfBusy} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : "⬇ PDF"}</button>
           </div>
           {visibleCases.length === 0 ? (
             <div className="gu" style={{ color: "var(--text-tertiary)", padding: 24, textAlign: "center", background: "var(--bg-surface)", border: "1px dashed var(--border)", borderRadius: 10 }}>
@@ -18140,7 +18161,7 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
             <label className="gu" style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 5 }}><input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} /> {t("Compare with previous period & last year", "ગયા સમયગાળા અને ગયા વર્ષ સાથે સરખામણી")}</label>
             <div style={{ flex: 1 }} />
             <button onClick={doPdf} disabled={pdfBusy || !from || !to} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : "⬇ PDF"}</button>
-            <button onClick={doCsv} disabled={!from || !to} className="gu" style={{ ...iconBtnWide }}>⬇ Excel (CSV)</button>
+            <button onClick={doWord} disabled={!from || !to} className="gu" style={{ ...iconBtnWide }}>⬇ Word</button>
           </div>
           {(!from || !to) && <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Choose a From and To date for comparison and exports.", "સરખામણી અને એક્સપોર્ટ માટે થી / સુધી તારીખ પસંદ કરો.")}</div>}
         </React.Fragment>
