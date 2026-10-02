@@ -2215,7 +2215,7 @@ function drawPdfHeader(doc, title, stationName, district) {
     }
   }
   doc.setFontSize(11);
-  if (needsImageRender(title)) drawLeftAlignedTextImage(doc, title, 14, headerY, 11);
+  if (/[\u0A80-\u0AFF]/.test(title)) drawLeftAlignedTextImage(doc, title, 14, headerY, 11);
   else doc.text(title, 14, headerY);
   return headerY + 8;
 }
@@ -11544,14 +11544,39 @@ function nbBandobastText(data, b, lang) {
   L.push((gu ? "કુલ સ્ટાફ: " : "Total staff: ") + n);
   return L.join("\n");
 }
+// Only the columns that actually have something in them are exported:
+// no point names -> no Point column (people listed straight), no
+// designations -> no Designation column, and so on. Empty points are left out.
+function nbBandobastLayout(data, b) {
+  const points = nbBandobastRows(data, b).filter((p) => p.name || p.note || p.people.length);
+  const people = points.flatMap((p) => p.people);
+  const usePoint = points.some((p) => p.name || p.note);
+  const cols = [{ k: "sr", en: "#", gu: "ક્રમ" }];
+  if (usePoint) cols.push({ k: "point", en: "Point", gu: "પોઇન્ટ" });
+  if (people.some((x) => x.desg)) cols.push({ k: "desg", en: "Designation", gu: "હોદ્દો" });
+  if (people.some((x) => x.number)) cols.push({ k: "number", en: "Buckle no.", gu: "બકલ નં." });
+  if (people.some((x) => x.name) || cols.length === 1) cols.push({ k: "name", en: "Name", gu: "નામ" });
+  // rows: one per person; the point cell spans its people
+  const rows = []; let sr = 0, pi = 0;
+  if (usePoint) {
+    points.forEach((pt) => {
+      pi++;
+      const label = `${pi}. ${pt.name || "—"}`;
+      const list = pt.people.length ? pt.people : [null];
+      list.forEach((x, j) => rows.push({ sr: x ? String(++sr) : "", point: j === 0 ? { label, note: pt.note, span: list.length } : null, pointCont: j > 0, desg: x ? x.desg : "", number: x ? x.number : "", name: x ? x.name : "—" }));
+    });
+  } else {
+    people.forEach((x) => rows.push({ sr: String(++sr), desg: x.desg, number: x.number, name: x.name }));
+  }
+  return { cols, rows, usePoint, pointCount: usePoint ? points.length : 0, total: people.length };
+}
 async function downloadBandobastPdf(data, b) {
   await ensureGujaratiCanvasFont();
   await nbEnsureJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
-  const points = nbBandobastRows(data, b);
-  const total = points.reduce((n, p) => n + p.people.length, 0);
+  const L = nbBandobastLayout(data, b);
   // Header lines may be Gujarati, so each is drawn Gujarati-safe.
   let y = drawPdfHeader(doc, "Nokri Book — Bandobast", data.stationName, data.district);
   doc.setTextColor(0, 0, 0);
@@ -11561,47 +11586,51 @@ async function downloadBandobastPdf(data, b) {
     else { doc.setFontSize(size); doc.text(txt, 14, y); }
     y += size * 0.3528 * 1.6;
   };
-  line(b.title || "Bandobast", 12);
+  if (b.title) line(b.title, 12);
   line(nbBandobastWhen(b), 9.5);
   line(b.place, 9.5);
-  line(`${points.length} points · ${total} staff · Generated ${nbPdfStamp()}`, 8.5);
+  line(`${L.usePoint ? L.pointCount + " points · " : ""}${L.total} staff · Generated ${nbPdfStamp()}`, 8.5);
   y += 2;
-  // # | Point (merged over its staff rows) | Designation | Buckle no | Name
-  const body = [];
-  let sr = 0;
-  points.forEach((pt, i) => {
-    const label = `${i + 1}. ${pt.name || "—"}` + (pt.note ? ` (${pt.note})` : "");
-    const rows = pt.people.length ? pt.people : [{ desg: "", number: "", name: "—" }];
-    rows.forEach((x, j) => {
-      const row = [];
-      row.push(pt.people.length ? String(++sr) : "");
-      if (j === 0) row.push({ content: label, rowSpan: rows.length });
-      row.push(x.desg, x.number, x.name);
-      body.push(row);
+  const idx = (k) => L.cols.findIndex((c) => c.k === k);
+  const pointIdx = idx("point");
+  const POINT_W = 52;
+  const body = L.rows.map((r) => {
+    const row = [];
+    L.cols.forEach((c) => {
+      if (c.k === "point") { if (r.point) row.push({ content: r.point.label + (r.point.note ? ` (${r.point.note})` : ""), rowSpan: r.point.span }); return; }
+      row.push(r[c.k] == null ? "" : r[c.k]);
     });
+    return row;
+  });
+  const colStyles = {};
+  L.cols.forEach((c, i) => {
+    if (c.k === "sr") colStyles[i] = { cellWidth: 10, halign: "center" };
+    if (c.k === "point") colStyles[i] = { cellWidth: POINT_W, fontStyle: "bold" };
+    if (c.k === "desg") colStyles[i] = { cellWidth: 28 };
+    if (c.k === "number") colStyles[i] = { cellWidth: 24, halign: "center" };
   });
   const raw = (c) => (c && typeof c === "object" ? c.content : c);
   doc.autoTable({
     rowPageBreak: "avoid", startY: y,
-    head: [["#", "Point", "Designation", "Buckle no.", "Name"]],
-    body,
+    head: [L.cols.map((c) => c.en)],
+    body: body.length ? body : [L.cols.map((c, i) => (i === L.cols.length - 1 ? "—" : ""))],
     theme: "grid",
     // Print-friendly (black & white): light grey heading, pure black text,
     // black grid, plain white rows.
     styles: { fontSize: FONT_PT, valign: "middle", textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2, fillColor: [255, 255, 255] },
     headStyles: { fillColor: [217, 217, 217], textColor: [0, 0, 0], fontStyle: "bold", lineColor: [0, 0, 0], lineWidth: 0.2 },
     alternateRowStyles: { fillColor: [255, 255, 255] },
-    columnStyles: { 0: { cellWidth: 10, halign: "center" }, 1: { cellWidth: 52, fontStyle: "bold" }, 2: { cellWidth: 26 }, 3: { cellWidth: 24, halign: "center" } },
+    columnStyles: colStyles,
     margin: { left: 14, right: 14, bottom: 16 },
     didParseCell: (h) => {
       if (h.section !== "body" || !needsImageRender(raw(h.cell.raw))) return;
-      h.cell.text = h.column.index === 1 ? new Array(renderWrappedTextToImage(String(raw(h.cell.raw)), FONT_PT, 52 - 2).lineCount).fill(" ") : [];
+      h.cell.text = h.column.index === pointIdx ? new Array(renderWrappedTextToImage(String(raw(h.cell.raw)), FONT_PT, POINT_W - 2).lineCount).fill(" ") : [];
     },
     didDrawCell: (h) => {
       if (h.section !== "body") return;
       const v = raw(h.cell.raw);
       if (v == null || v === "" || !needsImageRender(v)) return;
-      if (h.column.index === 1) drawWrappedTextImageInCell(doc, h.cell, renderWrappedTextToImage(String(v), FONT_PT, 52 - 2), FONT_PT);
+      if (h.column.index === pointIdx) drawWrappedTextImageInCell(doc, h.cell, renderWrappedTextToImage(String(v), FONT_PT, POINT_W - 2), FONT_PT);
       else drawTextImageInCell(doc, h.cell, renderTextToImage(String(v), FONT_PT), FONT_PT);
     },
   });
@@ -11657,26 +11686,25 @@ function nbDocxFromBlocks(blocks) {
   ]);
 }
 function downloadBandobastDocx(data, b) {
-  const points = nbBandobastRows(data, b);
-  const total = points.reduce((n, p) => n + p.people.length, 0);
+  const L = nbBandobastLayout(data, b);
   const blocks = [];
   if (data.stationName) blocks.push({ text: data.stationName, b: true, sz: 30, center: true, after: 0 });
   if (data.district) blocks.push({ text: data.district, center: true, sz: 22 });
-  blocks.push({ text: "બંદોબસ્ત / Bandobast: " + (b.title || ""), b: true, sz: 26, center: true });
+  blocks.push({ text: "બંદોબસ્ત / Bandobast" + (b.title ? ": " + b.title : ""), b: true, sz: 26, center: true });
   blocks.push({ text: nbBandobastWhen(b) + (b.place ? " · " + b.place : ""), center: true, sz: 22, after: 200 });
-  const rows = []; let sr = 0;
-  points.forEach((pt, i) => {
-    const label = `${i + 1}. ${pt.name || "—"}` + (pt.note ? "\n" + pt.note : "");
-    const people = pt.people.length ? pt.people : [{ desg: "", number: "", name: "—" }];
-    people.forEach((x, j) => rows.push([
-      { t: pt.people.length ? String(++sr) : "", center: true },
-      { t: j === 0 ? label : "", b: true, vMerge: people.length > 1 ? (j === 0 ? "restart" : "continue") : null },
-      { t: x.desg }, { t: x.number, center: true }, { t: x.name },
-    ]));
-  });
-  blocks.push({ table: true, widths: [600, 2900, 1600, 1300, 3700], head: ["ક્રમ", "પોઇન્ટ / Point", "હોદ્દો / Designation", "બકલ નં. / Buckle no.", "નામ / Name"], rows });
+  const W = { sr: 600, point: 2900, desg: 1600, number: 1300 };
+  const fixed = L.cols.filter((c) => c.k !== "name").reduce((n, c) => n + (W[c.k] || 0), 0);
+  const widths = L.cols.map((c) => (c.k === "name" ? Math.max(2400, 10100 - fixed) : W[c.k]));
+  const rows = L.rows.map((r) => L.cols.map((c) => {
+    if (c.k === "point") {
+      const span = r.point ? r.point.span : 0;
+      return { t: r.point ? r.point.label + (r.point.note ? "\n" + r.point.note : "") : "", b: true, vMerge: r.point ? (span > 1 ? "restart" : null) : "continue" };
+    }
+    return { t: r[c.k] == null ? "" : r[c.k], center: c.k === "sr" || c.k === "number" };
+  }));
+  blocks.push({ table: true, widths, head: L.cols.map((c) => (c.k === "sr" ? c.gu : `${c.gu} / ${c.en}`)), rows });
   blocks.push({ text: "", after: 120 });
-  blocks.push({ text: `કુલ પોઇન્ટ / Points: ${points.length}    કુલ સ્ટાફ / Total staff: ${total}`, b: true });
+  blocks.push({ text: (L.usePoint ? `કુલ પોઇન્ટ / Points: ${L.pointCount}    ` : "") + `કુલ સ્ટાફ / Total staff: ${L.total}`, b: true });
   const blob = nbDocxFromBlocks(blocks);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
