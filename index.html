@@ -11368,6 +11368,9 @@ const NB_CL_DAYS = 12;
 function nbIsCasualLeave(lt) {
   return !!lt && (lt.id === "leave1" || /casual|કેઝ્યુઅલ|આકસ્મિક|^\s*c\.?\s*l\.?\s*$/i.test(lt.label || ""));
 }
+function nbIsPublicHoliday(lt) {
+  return !!lt && /public\s*holiday|જાહેર\s*રજા|^\s*p\.?\s*h\.?\s*$/i.test(lt.label || "");
+}
 function nbLeaveAllowance(data, staffRec, typeId) {
   const lt = (data.leaveTypes || []).find((x) => x.id === typeId);
   return nbIsCasualLeave(lt) ? NB_CL_DAYS : null;
@@ -11404,7 +11407,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
   const [search, setSearch] = useState("");
   const [onlyOver, setOnlyOver] = useState(false);
   const [editPerson, setEditPerson] = useState(null);
-  const types = data.leaveTypes || [];
+  const types = (data.leaveTypes || []).filter((lt) => nbIsCasualLeave(lt) || nbIsPublicHoliday(lt));
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return Object.values(data.staff || {})
@@ -12308,24 +12311,6 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
                       title={t("View full duty history across every work type", "દરેક કામના પ્રકારમાં સંપૂર્ણ ડ્યુટી ઇતિહાસ જુઓ")}
                       style={{ color: DUTY_HEAT_COLOR[heat], fontWeight: heat === "green" ? 400 : 600, cursor: "pointer", borderBottom: "1px dashed currentColor" }}
                     >{s.name}</span>
-                    {(() => {
-                      const yr = new Date().getFullYear();
-                      const used = nbLeaveUsed(data.staff[s.number] || s, yr);
-                      const parts = (data.leaveTypes || []).filter((lt) => used[lt.id] || nbIsCasualLeave(lt)).map((lt) => {
-                        const n = used[lt.id] || 0;
-                        const cl = nbIsCasualLeave(lt);
-                        if (cl && !n && !Object.keys(used).length) return null;
-                        return { key: lt.id, text: `${nbLeaveAbbr(lt)} ${n}${cl ? "/" + NB_CL_DAYS : ""}`, title: `${lt.label}: ${n} ${t("days in", "દિવસ,")} ${yr}`, over: cl && n > NB_CL_DAYS, cl };
-                      }).filter(Boolean);
-                      if (!parts.length) return null;
-                      return (
-                        <div style={{ fontSize: 10.5, marginTop: 3, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                          {parts.map((p) => (
-                            <span key={p.key} title={p.title} className="mono" style={{ padding: "0 5px", borderRadius: 4, border: "1px solid " + (p.over ? "var(--status-error-text)" : "var(--border)"), color: p.over ? "var(--status-error-text)" : "var(--text-secondary)", fontWeight: p.cl ? 700 : 500 }}>{p.text}</span>
-                          ))}
-                        </div>
-                      );
-                    })()}
                   </td>
                   <td style={{ ...td, minWidth: 140 }}>
                     <select
@@ -12878,6 +12863,28 @@ function PersonHistoryModal({ data, number, onClose }) {
             <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{totalLast3Months}</div>
             <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{t("Last 3 months", "છેલ્લા 3 મહિના")}</div>
           </div>
+          {(() => {
+            const yr = new Date().getFullYear();
+            const used = nbLeaveUsed(staffRec, yr);
+            const items = (data.leaveTypes || []).filter((lt) => used[lt.id] || nbIsCasualLeave(lt)).map((lt) => {
+              const n = used[lt.id] || 0;
+              const cl = nbIsCasualLeave(lt);
+              return { key: lt.id, label: lt.label, n, cl, over: cl && n > NB_CL_DAYS };
+            });
+            if (!items.length) return null;
+            return (
+              <div style={{ width: "100%", background: "var(--bg-surface-2)", borderRadius: 8, padding: "8px 12px" }}>
+                <div className="gu" style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 6 }}>🗓️ {t(`Leave in ${yr}`, `${yr} માં રજા`)}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {items.map((it) => (
+                    <span key={it.key} className="gu" style={{ fontSize: 11.5, borderRadius: 20, padding: "3px 10px", border: "1px solid " + (it.over ? "var(--status-error-text)" : "var(--border)"), color: it.over ? "var(--status-error-text)" : "var(--text-primary)", fontWeight: it.cl ? 700 : 500, background: "var(--bg-surface)" }}>
+                      {it.label}: <span className="mono">{it.n}{it.cl ? "/" + NB_CL_DAYS : ""}</span> {t("days", "દિવસ")}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           {Object.keys(byCategory).length > 0 && (
             <div style={{ flex: 1, minWidth: 200, display: "flex", flexWrap: "wrap", gap: 6, alignContent: "flex-start" }}>
               {Object.entries(byCategory).map(([catLabel, info]) => (
