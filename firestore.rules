@@ -155,7 +155,7 @@ service cloud.firestore {
       allow read: if isOwner() || isMemberOf(uid);
 
       // NEW SIGN-UPS PAUSED: no new station accounts can be created.
-      // To reopen, change `false` below to `true` (and NB_SIGNUPS_CLOSED
+      // To reopen, delete `false &&` below (and set NB_SIGNUPS_CLOSED
       // in index.html to false).
       allow create: if false
         && isOwner()
