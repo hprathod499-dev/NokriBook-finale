@@ -1996,7 +1996,7 @@ function renderTextToImage(text, fontSizePt) {
   const ctx = canvas.getContext("2d");
   ctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "#1a1a1a";
+  ctx.fillStyle = "#000000";
   ctx.fillText(raw, Math.round(scale), height / 2);
   // The canvas itself is deliberately oversized (1.5x fontPx tall) for
   // crisp scaling headroom — but that padding means "canvas height" is a
@@ -2107,7 +2107,7 @@ function renderWrappedTextToImage(text, fontSizePt, maxWidthMm) {
   const ctx = canvas.getContext("2d");
   ctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "#1a1a1a";
+  ctx.fillStyle = "#000000";
   lines.forEach((line, i) => { ctx.fillText(line, Math.round(scale), lineHeight * i + lineHeight / 2); });
   return { dataUrl: canvas.toDataURL("image/png"), width, height, lineCount: lines.length };
 }
@@ -11520,6 +11520,7 @@ async function downloadBandobastPdf(data, b) {
   const total = points.reduce((n, p) => n + p.people.length, 0);
   // Header lines may be Gujarati, so each is drawn Gujarati-safe.
   let y = drawPdfHeader(doc, "Nokri Book — Bandobast", data.stationName, data.district);
+  doc.setTextColor(0, 0, 0);
   const line = (txt, size) => {
     if (!txt) return;
     if (needsImageRender(txt)) drawLeftAlignedTextImage(doc, txt, 14, y, size);
@@ -11551,8 +11552,11 @@ async function downloadBandobastPdf(data, b) {
     head: [["#", "Point", "Designation", "Buckle no.", "Name"]],
     body,
     theme: "grid",
-    styles: { fontSize: FONT_PT, valign: "middle", lineColor: [180, 180, 180], lineWidth: 0.2 },
-    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" },
+    // Print-friendly (black & white): light grey heading, pure black text,
+    // black grid, plain white rows.
+    styles: { fontSize: FONT_PT, valign: "middle", textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2, fillColor: [255, 255, 255] },
+    headStyles: { fillColor: [217, 217, 217], textColor: [0, 0, 0], fontStyle: "bold", lineColor: [0, 0, 0], lineWidth: 0.2 },
+    alternateRowStyles: { fillColor: [255, 255, 255] },
     columnStyles: { 0: { cellWidth: 10, halign: "center" }, 1: { cellWidth: 52, fontStyle: "bold" }, 2: { cellWidth: 26 }, 3: { cellWidth: 24, halign: "center" } },
     margin: { left: 14, right: 14, bottom: 16 },
     didParseCell: (h) => {
@@ -11594,7 +11598,7 @@ function nbDocxFromBlocks(blocks) {
   const esc = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const run = (txt, o) => {
     o = o || {};
-    const rpr = `<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Shruti"/>${o.b ? "<w:b/><w:bCs/>" : ""}${o.color ? `<w:color w:val="${o.color}"/>` : ""}<w:sz w:val="${o.sz || 22}"/><w:szCs w:val="${o.sz || 22}"/></w:rPr>`;
+    const rpr = `<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Shruti"/>${o.b ? "<w:b/><w:bCs/>" : ""}<w:color w:val="${o.color || "000000"}"/><w:sz w:val="${o.sz || 22}"/><w:szCs w:val="${o.sz || 22}"/></w:rPr>`;
     return String(txt == null ? "" : txt).split("\n").map((line, i) => `<w:r>${rpr}${i ? "<w:br/>" : ""}<w:t xml:space="preserve">${esc(line)}</w:t></w:r>`).join("");
   };
   const para = (txt, o) => { o = o || {}; return `<w:p><w:pPr><w:spacing w:after="${o.after == null ? 80 : o.after}"/>${o.center ? '<w:jc w:val="center"/>' : ""}</w:pPr>${run(txt, o)}</w:p>`; };
@@ -11603,9 +11607,9 @@ function nbDocxFromBlocks(blocks) {
     return `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${o.vMerge ? `<w:vMerge${o.vMerge === "restart" ? ' w:val="restart"' : ""}/>` : ""}${o.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fill}"/>` : ""}<w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:spacing w:after="0"/>${o.center ? '<w:jc w:val="center"/>' : ""}</w:pPr>${run(txt, o)}</w:p></w:tc>`;
   };
   const table = (widths, head, rows) => {
-    const border = '<w:top w:val="single" w:sz="4" w:color="999999"/><w:left w:val="single" w:sz="4" w:color="999999"/><w:bottom w:val="single" w:sz="4" w:color="999999"/><w:right w:val="single" w:sz="4" w:color="999999"/><w:insideH w:val="single" w:sz="4" w:color="999999"/><w:insideV w:val="single" w:sz="4" w:color="999999"/>';
+    const border = '<w:top w:val="single" w:sz="6" w:color="000000"/><w:left w:val="single" w:sz="6" w:color="000000"/><w:bottom w:val="single" w:sz="6" w:color="000000"/><w:right w:val="single" w:sz="6" w:color="000000"/><w:insideH w:val="single" w:sz="4" w:color="000000"/><w:insideV w:val="single" w:sz="4" w:color="000000"/>';
     let x = `<w:tbl><w:tblPr><w:tblW w:w="${widths.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblBorders>${border}</w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${widths.map((w) => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>`;
-    x += `<w:tr><w:trPr><w:tblHeader/></w:trPr>${head.map((h, i) => cell(h, widths[i], { b: true, fill: "0E1620", color: "FFFFFF", center: true })).join("")}</w:tr>`;
+    x += `<w:tr><w:trPr><w:tblHeader/></w:trPr>${head.map((h, i) => cell(h, widths[i], { b: true, fill: "D9D9D9", color: "000000", center: true })).join("")}</w:tr>`;
     rows.forEach((r) => { x += `<w:tr><w:trPr><w:cantSplit/></w:trPr>${r.map((c, i) => cell(c.t, widths[i], c)).join("")}</w:tr>`; });
     return x + "</w:tbl>";
   };
