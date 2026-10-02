@@ -750,6 +750,7 @@ function nbViewToPath(v) {
     case "report": return v.focus === "exports" ? "/app/reports/exports" : v.sort === "duties" ? "/app/reports/duties" : v.sort === "name" ? "/app/reports/staff" : "/app/reports";
     case "events": return v.tab === "reminders" ? "/app/events/reminders" : "/app/events";
     case "recycle": return "/app/recycle-bin";
+    case "bandobast": return v.id ? "/app/bandobast/" + enc(v.id) : "/app/bandobast";
     default: return "/app/dashboard";
   }
 }
@@ -815,6 +816,10 @@ function nbResolveRoute(path, signedIn) {
     case "events":
       if (n === 1) return V({ mode: "events" }, ["Events", "ઇવેન્ટ્સ"]);
       if (n === 2 && b === "reminders") return V({ mode: "events", tab: "reminders" }, ["Reminders", "રિમાઇન્ડર"]);
+      return NF;
+    case "bandobast":
+      if (n === 1) return V({ mode: "bandobast" }, ["Bandobast", "બંદોબસ્ત"]);
+      if (n === 2) return V({ mode: "bandobast", id: b }, ["Bandobast", "બંદોબસ્ત"]);
       return NF;
     case "recycle-bin":
       return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
@@ -6568,6 +6573,9 @@ function DutyRoster() {
           return snap ? { ...m, history: snap.history } : m;
         }),
       };
+    } else if (item.type === "bandobast") {
+      const b = item.payload;
+      if (b && b.id) next = { ...next, bandobasts: [b, ...((next.bandobasts || []).filter((x) => x.id !== b.id))] };
     } else if (item.type === "unavailable") {
       const prevRec = next.staff[item.payload.number];
       if (prevRec) {
@@ -7498,6 +7506,18 @@ function DutyRoster() {
     if (cleaned && cleaned.length !== 10) { showToast(t("Enter a valid 10-digit mobile number", "10 અંકનો માન્ય મોબાઇલ નંબર દાખલ કરો")); return; }
     persist({ ...dataRef.current, staff: { ...data.staff, [number]: { ...cur, phone: cleaned || null } } });
   };
+  const saveBandobast = (b) => {
+    const list = dataRef.current.bandobasts || [];
+    const clean = { ...b, updatedAt: Date.now() };
+    persist({ ...dataRef.current, bandobasts: list.some((x) => x.id === b.id) ? list.map((x) => (x.id === b.id ? clean : x)) : [clean, ...list] });
+  };
+  const deleteBandobast = (id) => {
+    const list = dataRef.current.bandobasts || [];
+    const cur = list.find((x) => x.id === id);
+    if (!cur) return;
+    persist(withRecycled({ ...dataRef.current, bandobasts: list.filter((x) => x.id !== id) }, { type: "bandobast", label: "Bandobast: " + (cur.title || ""), payload: cur }));
+    showToast(t("Bandobast deleted — moved to Recycle bin", "બંદોબસ્ત ડિલીટ — રિસાયકલ બિનમાં ખસેડાયો"));
+  };
   const setStaffDates = (number, patch) => {
     const cur = dataRef.current.staff[number];
     if (!cur) return;
@@ -8061,7 +8081,8 @@ function DutyRoster() {
     (view.mode === "staff" && view.staffId && !(data.staff || {})[view.staffId]) ||
     (view.mode === "category" && view.catId && !(data.categories || []).some((c) => c.id === view.catId)) ||
     (view.mode === "skipHistory" && view.historyId && !(data.skipLog || []).some((e) => e.id === view.historyId)) ||
-    (view.mode === "calendar" && view.batchId && !nbGroupBatchDate(data, view.batchId))
+    (view.mode === "calendar" && view.batchId && !nbGroupBatchDate(data, view.batchId)) ||
+    (view.mode === "bandobast" && view.id && !(data.bandobasts || []).some((x) => x.id === view.id))
   ));
   const vm = routeNotFound ? "__none" : view.mode;
 
@@ -8309,6 +8330,11 @@ function DutyRoster() {
           )}
           {vm === "skipHistory" && (
             <SkipHistoryView key={nbHistorySearch(data, view) || ""} data={data} initialSearch={nbHistorySearch(data, view)} />
+          )}
+          {vm === "bandobast" && (
+            <BandobastView data={data} openId={view.id || null}
+              onOpen={(id) => setView(id ? { mode: "bandobast", id } : { mode: "bandobast" })}
+              saveBandobast={saveBandobast} deleteBandobast={deleteBandobast} assignGroupDuty={assignGroupDuty} showToast={showToast} />
           )}
           {vm === "recycle" && (
             <RecycleBinView
@@ -8649,6 +8675,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
           )}
         </button>
         <button onClick={() => setView({ mode: "report" })} data-nb-path={nbViewToPath({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
+        <button onClick={() => setView({ mode: "bandobast" })} data-nb-path={nbViewToPath({ mode: "bandobast" })} style={navBtn(view.mode === "bandobast")} className="gu">🚧 {t("Bandobast", "બંદોબસ્ત")}</button>
         <button onClick={() => setView({ mode: "recycle" })} data-nb-path={nbViewToPath({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
         <button data-tour="nb-tour-nav-settings" onClick={onSettings} style={navBtn(false)} className="gu">⚙️ {t("Settings", "સેટિંગ્સ")}</button>
       </div>
@@ -11081,6 +11108,190 @@ function StaffDatesModal({ st, onSave, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- BANDOBAST SHEET ----------
+// { id, title, from, to, time, place, points: [{ id, name, note, staff: [number] }], recordedCat }
+function nbBandobastText(data, b, lang) {
+  const gu = lang === "gu";
+  const desg = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
+  const L = [];
+  if (data.stationName) L.push("*" + [data.stationName, data.district].filter(Boolean).join(", ") + "*");
+  L.push("*" + (gu ? "બંદોબસ્ત: " : "Bandobast: ") + (b.title || "") + "*");
+  L.push(formatDMY(b.from) + (b.to && b.to !== b.from ? " – " + formatDMY(b.to) : "") + (b.time ? " · " + b.time : "") + (b.place ? " · " + b.place : ""));
+  let n = 0;
+  (b.points || []).forEach((pt, i) => {
+    L.push("");
+    L.push(`📍 *${i + 1}. ${pt.name || "—"}*${pt.note ? " — " + pt.note : ""}`);
+    (pt.staff || []).forEach((num) => { const st = data.staff[num] || {}; n++; L.push(`   • ${desg(st.designation) ? desg(st.designation) + " " : ""}${st.name || num} (${num})`); });
+  });
+  L.push("");
+  L.push((gu ? "કુલ સ્ટાફ: " : "Total staff: ") + n);
+  return L.join("\n");
+}
+async function downloadBandobastPdf(data, b) {
+  await ensureGujaratiCanvasFont();
+  await nbEnsureJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const FONT_PT = NB_PDF_FONT_PT;
+  const desg = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
+  const sub = (b.title || "") + " · " + formatDMY(b.from) + (b.to && b.to !== b.from ? " – " + formatDMY(b.to) : "") + (b.time ? " · " + b.time : "");
+  const y = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Bandobast", data.stationName, data.district), sub, b.place ? [b.place] : []);
+  const body = [];
+  (b.points || []).forEach((pt, i) => {
+    const staff = pt.staff || [];
+    if (!staff.length) body.push([i + 1, pt.name || "", pt.note || "", "", "", ""]);
+    staff.forEach((num, j) => { const st = data.staff[num] || {}; body.push([j === 0 ? i + 1 : "", j === 0 ? pt.name || "" : "", j === 0 ? pt.note || "" : "", desg(st.designation), st.name || "", num]); });
+  });
+  doc.autoTable({
+    rowPageBreak: "avoid", startY: y,
+    head: [["#", "Point", "Note", "Designation", "Name", "Number"]], body,
+    styles: { fontSize: FONT_PT, valign: "top" },
+    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+    didParseCell: (h) => { if (h.section === "body" && needsImageRender(h.cell.raw)) h.cell.text = []; },
+    didDrawCell: (h) => { if (h.section === "body" && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
+  });
+  return { doc, filename: `nokri-book-bandobast-${b.from || todayStr()}.pdf` };
+}
+function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, assignGroupDuty, showToast }) {
+  const { t, lang } = useLang();
+  const list = (data.bandobasts || []).slice().sort((a, b) => (b.from || "").localeCompare(a.from || ""));
+  const cur = openId ? list.find((x) => x.id === openId) : null;
+  const [draft, setDraft] = useState(null);
+  useEffect(() => { setDraft(cur ? JSON.parse(JSON.stringify(cur)) : null); }, [openId, cur && cur.updatedAt]);
+  const [addTo, setAddTo] = useState(null); // point id
+  const [q, setQ] = useState("");
+  const [pdf, setPdf] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [recCat, setRecCat] = useState("");
+  const dirty = draft && cur && JSON.stringify(draft) !== JSON.stringify(cur);
+  const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+  const setPoint = (id, patch) => setDraft((d) => ({ ...d, points: d.points.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+  const create = () => {
+    const b = { id: "bb" + uid(), title: "", from: todayStr(), to: todayStr(), time: "", place: "", points: [{ id: uid(), name: "", note: "", staff: [] }], createdAt: Date.now() };
+    saveBandobast(b); onOpen(b.id);
+  };
+  const assignedWhere = useMemo(() => { const m = {}; (draft ? draft.points : []).forEach((p) => (p.staff || []).forEach((n) => { (m[n] = m[n] || []).push(p.id); })); return m; }, [draft]);
+  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => String(st.number).toLowerCase().includes(s) || (st.name || "").toLowerCase().includes(s)).slice(0, 8); }, [q, data.staff]);
+  const inp = { fontSize: 13, boxSizing: "border-box" };
+  if (!cur || !draft) {
+    return (
+      <React.Fragment>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0, flex: 1 }}>🚧 {t("Bandobast", "બંદોબસ્ત")}</h1>
+          <button onClick={create} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13.5, fontWeight: 700 }}>+ {t("New bandobast", "નવો બંદોબસ્ત")}</button>
+        </div>
+        {!list.length && <div className="gu" style={{ color: "var(--text-tertiary)", padding: 24, textAlign: "center", border: "1px dashed var(--border)", borderRadius: 10 }}>{t("No bandobast yet. Make one for a festival, VIP visit or election: list the points and put staff on each.", "હજુ કોઈ બંદોબસ્ત નથી. તહેવાર, VIP મુલાકાત કે ચૂંટણી માટે બનાવો: પોઇન્ટ લખો અને દરેક પર સ્ટાફ મૂકો.")}</div>}
+        {list.map((b) => {
+          const n = (b.points || []).reduce((s2, p) => s2 + (p.staff || []).length, 0);
+          return (
+            <button key={b.id} onClick={() => onOpen(b.id)} className="gu" style={{ display: "flex", width: "100%", textAlign: "left", gap: 10, alignItems: "center", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8, color: "var(--text-primary)", cursor: "pointer" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{b.title || t("(untitled)", "(નામ વગર)")}</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{formatDMY(b.from)}{b.to && b.to !== b.from ? " – " + formatDMY(b.to) : ""}{b.place ? " · " + b.place : ""}</div>
+              </div>
+              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{(b.points || []).length} {t("points", "પોઇન્ટ")} · {n} {t("staff", "સ્ટાફ")}</span>
+            </button>
+          );
+        })}
+      </React.Fragment>
+    );
+  }
+  const total = draft.points.reduce((s2, p) => s2 + (p.staff || []).length, 0);
+  const text = nbBandobastText(data, draft, lang);
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", textDecoration: "none", whiteSpace: "nowrap" };
+  return (
+    <React.Fragment>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <button onClick={() => { if (dirty && !window.confirm(t("Leave without saving?", "સાચવ્યા વગર બહાર જવું છે?"))) return; onOpen(null); }} className="gu" style={iconBtnWide}>← {t("All bandobast", "બધા બંદોબસ્ત")}</button>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => { saveBandobast(draft); showToast(t("Saved", "સચવાયું")); }} disabled={!dirty} className="gu" style={{ background: dirty ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13.5, fontWeight: 700 }}>{dirty ? t("Save", "સાચવો") : "✓ " + t("Saved", "સચવાયું")}</button>
+      </div>
+      <div className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <input type="text" value={draft.title} onChange={(e) => set("title", e.target.value.slice(0, 120))} placeholder={t("Bandobast name, e.g. Navratri 2026", "બંદોબસ્તનું નામ, દા.ત. નવરાત્રી 2026")} className="gu" style={{ ...inp, width: "100%", fontSize: 16, fontWeight: 700 }} />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          <label style={{ fontSize: 12 }}>{t("From", "થી")}<br /><input type="date" value={draft.from} onChange={(e) => set("from", e.target.value)} style={inp} /></label>
+          <label style={{ fontSize: 12 }}>{t("To", "સુધી")}<br /><input type="date" value={draft.to || draft.from} onChange={(e) => set("to", e.target.value)} style={inp} /></label>
+          <label style={{ fontSize: 12, flex: "1 1 120px" }}>{t("Time", "સમય")}<br /><input type="text" value={draft.time} onChange={(e) => set("time", e.target.value.slice(0, 40))} placeholder="18:00 – 02:00" style={{ ...inp, width: "100%" }} /></label>
+          <label style={{ fontSize: 12, flex: "2 1 180px" }}>{t("Place / reporting", "સ્થળ / હાજરી")}<br /><input type="text" value={draft.place} onChange={(e) => set("place", e.target.value.slice(0, 120))} className="gu" style={{ ...inp, width: "100%" }} /></label>
+        </div>
+      </div>
+      {draft.points.map((pt, i) => (
+        <div key={pt.id} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12, marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <b className="mono">{i + 1}.</b>
+            <input type="text" value={pt.name} onChange={(e) => setPoint(pt.id, { name: e.target.value.slice(0, 100) })} placeholder={t("Point name, e.g. Bus stand", "પોઇન્ટનું નામ, દા.ત. બસ સ્ટેન્ડ")} className="gu" style={{ ...inp, flex: 2 }} />
+            <input type="text" value={pt.note} onChange={(e) => setPoint(pt.id, { note: e.target.value.slice(0, 120) })} placeholder={t("Note (optional)", "નોંધ (વૈકલ્પિક)")} className="gu" style={{ ...inp, flex: 2 }} />
+            <button onClick={() => { if (!(pt.staff || []).length || window.confirm(t("Remove this point?", "આ પોઇન્ટ કાઢવો છે?"))) setDraft((d) => ({ ...d, points: d.points.filter((p) => p.id !== pt.id) })); }} style={iconBtn} aria-label={t("Remove point", "પોઇન્ટ કાઢો")}>✕</button>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {(pt.staff || []).map((num) => {
+              const st = data.staff[num] || {};
+              const away = st.number ? unavailableOnDate(st, draft.from) : null;
+              const twice = (assignedWhere[num] || []).length > 1;
+              return (
+                <span key={num} style={{ fontSize: 12.5, background: away || twice ? "var(--status-warning-bg)" : "var(--bg-surface-2)", border: "1px solid var(--border-soft)", borderRadius: 14, padding: "3px 6px 3px 10px", display: "inline-flex", alignItems: "center", gap: 4 }}
+                  title={away ? t("On ", "પર ") + unavailLabel(data, away) : twice ? t("Also on another point", "બીજા પોઇન્ટ પર પણ") : ""}>
+                  {away ? "⚠ " : twice ? "⧉ " : ""}{st.name || num} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{num}</span>
+                  <button onClick={() => setPoint(pt.id, { staff: pt.staff.filter((x) => x !== num) })} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, padding: "0 2px" }} aria-label={t("Remove", "કાઢો")}>✕</button>
+                </span>
+              );
+            })}
+            <button onClick={() => { setAddTo(pt.id); setQ(""); }} className="gu" style={{ ...iconBtnWide, borderRadius: 14 }}>+ {t("Staff", "સ્ટાફ")}</button>
+          </div>
+          {addTo === pt.id && (
+            <div style={{ marginTop: 8 }}>
+              <input type="text" autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setAddTo(null); if (e.key === "Enter" && matches[0]) { const n = matches[0].number; if (!pt.staff.includes(n)) setPoint(pt.id, { staff: [...pt.staff, n] }); setQ(""); } }} placeholder={t("Buckle number or name — Enter adds the first match", "બકલ નંબર કે નામ — Enter થી પહેલું ઉમેરાશે")} className="gu" style={{ ...inp, width: "100%" }} />
+              {matches.map((st) => {
+                const away = unavailableOnDate(st, draft.from);
+                const on = pt.staff.includes(st.number);
+                return (
+                  <button key={st.number} disabled={on} onClick={() => { setPoint(pt.id, { staff: [...pt.staff, st.number] }); setQ(""); }} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "7px 4px", fontSize: 13, color: on ? "var(--text-tertiary)" : "var(--text-primary)", cursor: on ? "default" : "pointer" }}>
+                    {st.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{st.number}</span>
+                    {away && <span style={{ color: "var(--status-error-text)", fontSize: 11.5 }}> · {unavailLabel(data, away)}</span>}
+                    {(assignedWhere[st.number] || []).length > 0 && !on && <span style={{ color: "var(--status-warning-text)", fontSize: 11.5 }}> · {t("already on another point", "બીજા પોઇન્ટ પર છે")}</span>}
+                    {on && " ✓"}
+                  </button>
+                );
+              })}
+              <button onClick={() => setAddTo(null)} className="gu" style={{ ...iconBtnWide, marginTop: 6 }}>{t("Done", "પૂર્ણ")}</button>
+            </div>
+          )}
+        </div>
+      ))}
+      <button onClick={() => setDraft((d) => ({ ...d, points: [...d.points, { id: uid(), name: "", note: "", staff: [] }] }))} className="gu" style={{ ...iconBtnWide, fontSize: 13, padding: "8px 14px" }}>+ {t("Add point", "પોઇન્ટ ઉમેરો")}</button>
+      <div className="gu" style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <b>{t(`${draft.points.length} points · ${total} staff`, `${draft.points.length} પોઇન્ટ · ${total} સ્ટાફ`)}</b>
+        <div style={{ flex: 1 }} />
+        <button onClick={async () => { try { await navigator.clipboard.writeText(text); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1800); }} className="gu" style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
+        <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}>💬 WhatsApp</a>
+        <button onClick={async () => { try { setPdf(await downloadBandobastPdf(data, draft)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } }} className="gu" style={btn}>⬇ PDF</button>
+      </div>
+      <div className="gu" style={{ marginTop: 16, padding: 12, border: "1px solid var(--border)", borderRadius: 10, background: "var(--bg-surface)" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{t("Count it as duty (optional)", "ડ્યુટી તરીકે ગણો (વૈકલ્પિક)")}</div>
+        {draft.recordedCat ? (
+          <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>✓ {t("Recorded in", "નોંધાયું")}: {((data.categories || []).find((c) => c.id === draft.recordedCat) || {}).label || "—"}</div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select value={recCat} onChange={(e) => setRecCat(e.target.value)} className="gu" style={{ fontSize: 13 }}>
+              <option value="">{t("Choose work type…", "કામનો પ્રકાર પસંદ કરો…")}</option>
+              {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+            <button disabled={!recCat || !total} onClick={() => {
+              if (dirty) { window.alert(t("Save first.", "પહેલાં સાચવો.")); return; }
+              const people = Array.from(new Set(draft.points.flatMap((p) => p.staff || []))).map((num) => ({ number: num, name: (data.staff[num] || {}).name || num }));
+              if (!window.confirm(t(`Add this bandobast to the duty history of ${people.length} staff under this work type, for ${formatDMY(draft.from)}${draft.to && draft.to !== draft.from ? " – " + formatDMY(draft.to) : ""}?`, `${people.length} સ્ટાફના ડ્યુટી ઇતિહાસમાં આ કામના પ્રકાર હેઠળ ઉમેરવું છે?`))) return;
+              assignGroupDuty(recCat, people, draft.from, draft.to || draft.from, "🚧 " + (draft.title || t("Bandobast", "બંદોબસ્ત")), null, false);
+              saveBandobast({ ...draft, recordedCat: recCat });
+            }} className="gu" style={{ ...btn, opacity: recCat && total ? 1 : 0.5 }}>{t("Record in duty history", "ડ્યુટી ઇતિહાસમાં નોંધો")}</button>
+          </div>
+        )}
+      </div>
+      <button onClick={() => { if (window.confirm(t("Delete this bandobast? It goes to the Recycle bin.", "આ બંદોબસ્ત ડિલીટ કરવો છે? તે રિસાયકલ બિનમાં જશે."))) { deleteBandobast(draft.id); onOpen(null); } }} className="gu" style={{ marginTop: 18, background: "transparent", border: "none", color: "var(--status-error-text)", fontSize: 13, cursor: "pointer" }}>🗑️ {t("Delete bandobast", "બંદોબસ્ત ડિલીટ કરો")}</button>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+    </React.Fragment>
   );
 }
 
@@ -13679,6 +13890,7 @@ function CommandPalette({ data, onNavigate, onClose }) {
       { icon: "🔔", label: t("Events & reminders", "ઇવેન્ટ્સ અને રિમાઇન્ડર"), view: { mode: "events" } },
       { icon: "📅", label: t("Duty calendar", "ડ્યુટી કૅલેન્ડર"), view: { mode: "calendar" } },
       { icon: "📄", label: t("Monthly report", "માસિક અહેવાલ"), view: { mode: "report" } },
+      { icon: "🚧", label: t("Bandobast", "બંદોબસ્ત"), view: { mode: "bandobast" } },
       { icon: "🗑️", label: t("Recycle bin", "રિસાયકલ બિન"), view: { mode: "recycle" } },
     ];
     (data.categories || []).forEach((c) => jumpTargets.push({ icon: "📁", label: c.label, view: { mode: "category", catId: c.id } }));
@@ -14998,6 +15210,7 @@ const RECYCLE_TYPE_META = {
   staff: { icon: "🚨", label: "Staff", labelGu: "સ્ટાફ" },
   membership: { icon: "📋", label: "Roster entry", labelGu: "રોસ્ટર એન્ટ્રી" },
   history: { icon: "🕓", label: "History", labelGu: "ઇતિહાસ" },
+  bandobast: { icon: "🚧", label: "Bandobast", labelGu: "બંદોબસ્ત" },
 };
 
 function RecycleBinView({ data, onRestore, onDeleteForever, onEmpty }) {
