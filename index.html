@@ -11480,18 +11480,31 @@ function StaffDatesModal({ st, onSave, onClose }) {
 
 // ---------- BANDOBAST SHEET ----------
 // { id, title, from, to, time, place, points: [{ id, name, note, staff: [number] }], recordedCat }
+function nbBandobastRows(data, b) {
+  const desg = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
+  return (b.points || []).map((pt) => ({
+    name: pt.name || "", note: pt.note || "",
+    people: (pt.staff || []).map((x) => {
+      if (x && typeof x === "object") return { desg: x.desg || "", number: "", name: x.name || "" };
+      const st = (data.staff || {})[x] || {};
+      return { desg: desg(st.designation), number: String(x), name: st.name || "" };
+    }),
+  }));
+}
+function nbBandobastWhen(b) {
+  return formatDMY(b.from) + (b.to && b.to !== b.from ? " – " + formatDMY(b.to) : "") + (b.time ? " · " + b.time : "");
+}
 function nbBandobastText(data, b, lang) {
   const gu = lang === "gu";
-  const desg = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
   const L = [];
   if (data.stationName) L.push("*" + [data.stationName, data.district].filter(Boolean).join(", ") + "*");
   L.push("*" + (gu ? "બંદોબસ્ત: " : "Bandobast: ") + (b.title || "") + "*");
-  L.push(formatDMY(b.from) + (b.to && b.to !== b.from ? " – " + formatDMY(b.to) : "") + (b.time ? " · " + b.time : "") + (b.place ? " · " + b.place : ""));
+  L.push(nbBandobastWhen(b) + (b.place ? " · " + b.place : ""));
   let n = 0;
-  (b.points || []).forEach((pt, i) => {
+  nbBandobastRows(data, b).forEach((pt, i) => {
     L.push("");
     L.push(`📍 *${i + 1}. ${pt.name || "—"}*${pt.note ? " — " + pt.note : ""}`);
-    (pt.staff || []).forEach((num) => { const st = data.staff[num] || {}; n++; L.push(`   • ${desg(st.designation) ? desg(st.designation) + " " : ""}${st.name || num} (${num})`); });
+    pt.people.forEach((x) => { n++; L.push(`   ${[x.desg, x.number, x.name].filter(Boolean).join(" ")}`); });
   });
   L.push("");
   L.push((gu ? "કુલ સ્ટાફ: " : "Total staff: ") + n);
@@ -11503,24 +11516,135 @@ async function downloadBandobastPdf(data, b) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
-  const desg = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
-  const sub = (b.title || "") + " · " + formatDMY(b.from) + (b.to && b.to !== b.from ? " – " + formatDMY(b.to) : "") + (b.time ? " · " + b.time : "");
-  const y = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Bandobast", data.stationName, data.district), sub, b.place ? [b.place] : []);
+  const points = nbBandobastRows(data, b);
+  const total = points.reduce((n, p) => n + p.people.length, 0);
+  // Header lines may be Gujarati, so each is drawn Gujarati-safe.
+  let y = drawPdfHeader(doc, "Nokri Book — Bandobast", data.stationName, data.district);
+  const line = (txt, size) => {
+    if (!txt) return;
+    if (needsImageRender(txt)) drawLeftAlignedTextImage(doc, txt, 14, y, size);
+    else { doc.setFontSize(size); doc.text(txt, 14, y); }
+    y += size * 0.3528 * 1.6;
+  };
+  line(b.title || "Bandobast", 12);
+  line(nbBandobastWhen(b), 9.5);
+  line(b.place, 9.5);
+  line(`${points.length} points · ${total} staff · Generated ${nbPdfStamp()}`, 8.5);
+  y += 2;
+  // # | Point (merged over its staff rows) | Designation | Buckle no | Name
   const body = [];
-  (b.points || []).forEach((pt, i) => {
-    const staff = pt.staff || [];
-    if (!staff.length) body.push([i + 1, pt.name || "", pt.note || "", "", "", ""]);
-    staff.forEach((num, j) => { const st = data.staff[num] || {}; body.push([j === 0 ? i + 1 : "", j === 0 ? pt.name || "" : "", j === 0 ? pt.note || "" : "", desg(st.designation), st.name || "", num]); });
+  let sr = 0;
+  points.forEach((pt, i) => {
+    const label = `${i + 1}. ${pt.name || "—"}` + (pt.note ? ` (${pt.note})` : "");
+    const rows = pt.people.length ? pt.people : [{ desg: "", number: "", name: "—" }];
+    rows.forEach((x, j) => {
+      const row = [];
+      row.push(pt.people.length ? String(++sr) : "");
+      if (j === 0) row.push({ content: label, rowSpan: rows.length });
+      row.push(x.desg, x.number, x.name);
+      body.push(row);
+    });
   });
+  const raw = (c) => (c && typeof c === "object" ? c.content : c);
   doc.autoTable({
     rowPageBreak: "avoid", startY: y,
-    head: [["#", "Point", "Note", "Designation", "Name", "Number"]], body,
-    styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
-    didParseCell: (h) => { if (h.section === "body" && needsImageRender(h.cell.raw)) h.cell.text = []; },
-    didDrawCell: (h) => { if (h.section === "body" && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
+    head: [["#", "Point", "Designation", "Buckle no.", "Name"]],
+    body,
+    theme: "grid",
+    styles: { fontSize: FONT_PT, valign: "middle", lineColor: [180, 180, 180], lineWidth: 0.2 },
+    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" },
+    columnStyles: { 0: { cellWidth: 10, halign: "center" }, 1: { cellWidth: 52, fontStyle: "bold" }, 2: { cellWidth: 26 }, 3: { cellWidth: 24, halign: "center" } },
+    margin: { left: 14, right: 14, bottom: 16 },
+    didParseCell: (h) => {
+      if (h.section !== "body" || !needsImageRender(raw(h.cell.raw))) return;
+      h.cell.text = h.column.index === 1 ? new Array(renderWrappedTextToImage(String(raw(h.cell.raw)), FONT_PT, 52 - 2).lineCount).fill(" ") : [];
+    },
+    didDrawCell: (h) => {
+      if (h.section !== "body") return;
+      const v = raw(h.cell.raw);
+      if (v == null || v === "" || !needsImageRender(v)) return;
+      if (h.column.index === 1) drawWrappedTextImageInCell(doc, h.cell, renderWrappedTextToImage(String(v), FONT_PT, 52 - 2), FONT_PT);
+      else drawTextImageInCell(doc, h.cell, renderTextToImage(String(v), FONT_PT), FONT_PT);
+    },
   });
   return { doc, filename: `nokri-book-bandobast-${b.from || todayStr()}.pdf` };
+}
+// ---------- Word (.docx) — built here, no library: a tiny zip of XML ----------
+function nbCrc32(bytes) {
+  let c, crc = 0xffffffff;
+  if (!nbCrc32.t) { nbCrc32.t = new Uint32Array(256); for (let n = 0; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; nbCrc32.t[n] = c >>> 0; } }
+  for (let i = 0; i < bytes.length; i++) crc = nbCrc32.t[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function nbZip(files) { // [{name, text}] -> Blob (stored, no compression)
+  const enc = new TextEncoder(); const parts = []; const central = []; let offset = 0;
+  const u16 = (v) => [v & 255, (v >>> 8) & 255], u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+  files.forEach((f) => {
+    const name = enc.encode(f.name), data = enc.encode(f.text), crc = nbCrc32(data);
+    const head = [...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)];
+    parts.push(new Uint8Array(head), name, data);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), name);
+    offset += head.length + name.length + data.length;
+  });
+  const cdSize = central.reduce((n, x) => n + x.length, 0);
+  const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(offset), ...u16(0)]);
+  return new Blob([...parts, ...central, end], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+}
+function nbDocxFromBlocks(blocks) {
+  const esc = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const run = (txt, o) => {
+    o = o || {};
+    const rpr = `<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Shruti"/>${o.b ? "<w:b/><w:bCs/>" : ""}${o.color ? `<w:color w:val="${o.color}"/>` : ""}<w:sz w:val="${o.sz || 22}"/><w:szCs w:val="${o.sz || 22}"/></w:rPr>`;
+    return String(txt == null ? "" : txt).split("\n").map((line, i) => `<w:r>${rpr}${i ? "<w:br/>" : ""}<w:t xml:space="preserve">${esc(line)}</w:t></w:r>`).join("");
+  };
+  const para = (txt, o) => { o = o || {}; return `<w:p><w:pPr><w:spacing w:after="${o.after == null ? 80 : o.after}"/>${o.center ? '<w:jc w:val="center"/>' : ""}</w:pPr>${run(txt, o)}</w:p>`; };
+  const cell = (txt, w, o) => {
+    o = o || {};
+    return `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${o.vMerge ? `<w:vMerge${o.vMerge === "restart" ? ' w:val="restart"' : ""}/>` : ""}${o.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fill}"/>` : ""}<w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:spacing w:after="0"/>${o.center ? '<w:jc w:val="center"/>' : ""}</w:pPr>${run(txt, o)}</w:p></w:tc>`;
+  };
+  const table = (widths, head, rows) => {
+    const border = '<w:top w:val="single" w:sz="4" w:color="999999"/><w:left w:val="single" w:sz="4" w:color="999999"/><w:bottom w:val="single" w:sz="4" w:color="999999"/><w:right w:val="single" w:sz="4" w:color="999999"/><w:insideH w:val="single" w:sz="4" w:color="999999"/><w:insideV w:val="single" w:sz="4" w:color="999999"/>';
+    let x = `<w:tbl><w:tblPr><w:tblW w:w="${widths.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblBorders>${border}</w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${widths.map((w) => `<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>`;
+    x += `<w:tr><w:trPr><w:tblHeader/></w:trPr>${head.map((h, i) => cell(h, widths[i], { b: true, fill: "0E1620", color: "FFFFFF", center: true })).join("")}</w:tr>`;
+    rows.forEach((r) => { x += `<w:tr><w:trPr><w:cantSplit/></w:trPr>${r.map((c, i) => cell(c.t, widths[i], c)).join("")}</w:tr>`; });
+    return x + "</w:tbl>";
+  };
+  let body = "";
+  blocks.forEach((bl) => { body += bl.table ? table(bl.widths, bl.head, bl.rows) : para(bl.text, bl); });
+  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1000" w:right="900" w:bottom="1000" w:left="900" w:header="500" w:footer="500" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  return nbZip([
+    { name: "[Content_Types].xml", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>' },
+    { name: "_rels/.rels", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+    { name: "word/document.xml", text: docXml },
+  ]);
+}
+function downloadBandobastDocx(data, b) {
+  const points = nbBandobastRows(data, b);
+  const total = points.reduce((n, p) => n + p.people.length, 0);
+  const blocks = [];
+  if (data.stationName) blocks.push({ text: data.stationName, b: true, sz: 30, center: true, after: 0 });
+  if (data.district) blocks.push({ text: data.district, center: true, sz: 22 });
+  blocks.push({ text: "બંદોબસ્ત / Bandobast: " + (b.title || ""), b: true, sz: 26, center: true });
+  blocks.push({ text: nbBandobastWhen(b) + (b.place ? " · " + b.place : ""), center: true, sz: 22, after: 200 });
+  const rows = []; let sr = 0;
+  points.forEach((pt, i) => {
+    const label = `${i + 1}. ${pt.name || "—"}` + (pt.note ? "\n" + pt.note : "");
+    const people = pt.people.length ? pt.people : [{ desg: "", number: "", name: "—" }];
+    people.forEach((x, j) => rows.push([
+      { t: pt.people.length ? String(++sr) : "", center: true },
+      { t: j === 0 ? label : "", b: true, vMerge: people.length > 1 ? (j === 0 ? "restart" : "continue") : null },
+      { t: x.desg }, { t: x.number, center: true }, { t: x.name },
+    ]));
+  });
+  blocks.push({ table: true, widths: [600, 2900, 1600, 1300, 3700], head: ["ક્રમ", "પોઇન્ટ / Point", "હોદ્દો / Designation", "બકલ નં. / Buckle no.", "નામ / Name"], rows });
+  blocks.push({ text: "", after: 120 });
+  blocks.push({ text: `કુલ પોઇન્ટ / Points: ${points.length}    કુલ સ્ટાફ / Total staff: ${total}`, b: true });
+  const blob = nbDocxFromBlocks(blocks);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `nokri-book-bandobast-${b.from || todayStr()}.docx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, assignGroupDuty, showToast }) {
   const { t, lang } = useLang();
@@ -11540,7 +11664,9 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
     const b = { id: "bb" + uid(), title: "", from: todayStr(), to: todayStr(), time: "", place: "", points: [{ id: uid(), name: "", note: "", staff: [] }], createdAt: Date.now() };
     saveBandobast(b); onOpen(b.id);
   };
-  const assignedWhere = useMemo(() => { const m = {}; (draft ? draft.points : []).forEach((p) => (p.staff || []).forEach((n) => { (m[n] = m[n] || []).push(p.id); })); return m; }, [draft]);
+  const assignedWhere = useMemo(() => { const m = {}; (draft ? draft.points : []).forEach((p) => (p.staff || []).forEach((n) => { if (typeof n !== "string") return; (m[n] = m[n] || []).push(p.id); })); return m; }, [draft]);
+  const [manName, setManName] = useState("");
+  const [manDesg, setManDesg] = useState("");
   const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => String(st.number).toLowerCase().includes(s) || (st.name || "").toLowerCase().includes(s)).slice(0, 8); }, [q, data.staff]);
   const inp = { fontSize: 13, boxSizing: "border-box" };
   if (!cur || !draft) {
@@ -11595,6 +11721,14 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
             {(pt.staff || []).map((num) => {
+              if (num && typeof num === "object") {
+                return (
+                  <span key={num.m} style={{ fontSize: 12.5, background: "var(--bg-surface-2)", border: "1px dashed var(--border)", borderRadius: 14, padding: "3px 6px 3px 10px", display: "inline-flex", alignItems: "center", gap: 4 }} title={t("Added by name (no buckle number)", "નામથી ઉમેર્યું (બકલ નંબર નથી)")}>
+                    {num.desg ? <span style={{ color: "var(--status-warning-text)", fontSize: 11 }}>{num.desg}</span> : null} {num.name}
+                    <button onClick={() => setPoint(pt.id, { staff: pt.staff.filter((x) => x !== num) })} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, padding: "0 2px" }} aria-label={t("Remove", "કાઢો")}>✕</button>
+                  </span>
+                );
+              }
               const st = data.staff[num] || {};
               const away = st.number ? unavailableOnDate(st, draft.from) : null;
               const twice = (assignedWhere[num] || []).length > 1;
@@ -11623,6 +11757,13 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
                   </button>
                 );
               })}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Without buckle number:", "બકલ નંબર વગર:")}</span>
+                <input type="text" list="nb-bb-desg" value={manDesg} onChange={(e) => setManDesg(e.target.value.slice(0, 30))} placeholder={t("Designation", "હોદ્દો")} className="gu" style={{ ...inp, width: 110 }} />
+                <datalist id="nb-bb-desg">{(data.designations || []).map((d) => <option key={d.id} value={d.label} />)}</datalist>
+                <input type="text" value={manName} onChange={(e) => setManName(e.target.value.slice(0, 80))} onKeyDown={(e) => { if (e.key === "Enter" && manName.trim()) { setPoint(pt.id, { staff: [...pt.staff, { m: uid(), name: manName.trim(), desg: manDesg.trim() }] }); setManName(""); } }} placeholder={t("Name", "નામ")} className="gu" style={{ ...inp, flex: "1 1 140px" }} />
+                <button disabled={!manName.trim()} onClick={() => { setPoint(pt.id, { staff: [...pt.staff, { m: uid(), name: manName.trim(), desg: manDesg.trim() }] }); setManName(""); }} className="gu" style={{ ...iconBtnWide }}>+ {t("Add", "ઉમેરો")}</button>
+              </div>
               <button onClick={() => setAddTo(null)} className="gu" style={{ ...iconBtnWide, marginTop: 6 }}>{t("Done", "પૂર્ણ")}</button>
             </div>
           )}
@@ -11635,6 +11776,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
         <button onClick={async () => { try { await navigator.clipboard.writeText(text); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1800); }} className="gu" style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
         <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}>💬 WhatsApp</a>
         <button onClick={async () => { try { setPdf(await downloadBandobastPdf(data, draft)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } }} className="gu" style={btn}>⬇ PDF</button>
+        <button onClick={() => { try { downloadBandobastDocx(data, draft); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} className="gu" style={btn}>⬇ Word</button>
       </div>
       <div className="gu" style={{ marginTop: 16, padding: 12, border: "1px solid var(--border)", borderRadius: 10, background: "var(--bg-surface)" }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{t("Count it as duty (optional)", "ડ્યુટી તરીકે ગણો (વૈકલ્પિક)")}</div>
@@ -11648,7 +11790,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
             </select>
             <button disabled={!recCat || !total} onClick={() => {
               if (dirty) { window.alert(t("Save first.", "પહેલાં સાચવો.")); return; }
-              const people = Array.from(new Set(draft.points.flatMap((p) => p.staff || []))).map((num) => ({ number: num, name: (data.staff[num] || {}).name || num }));
+              const people = Array.from(new Set(draft.points.flatMap((p) => (p.staff || []).filter((x) => typeof x === "string")))).map((num) => ({ number: num, name: (data.staff[num] || {}).name || num }));
               if (!window.confirm(t(`Add this bandobast to the duty history of ${people.length} staff under this work type, for ${formatDMY(draft.from)}${draft.to && draft.to !== draft.from ? " – " + formatDMY(draft.to) : ""}?`, `${people.length} સ્ટાફના ડ્યુટી ઇતિહાસમાં આ કામના પ્રકાર હેઠળ ઉમેરવું છે?`))) return;
               assignGroupDuty(recCat, people, draft.from, draft.to || draft.from, "🚧 " + (draft.title || t("Bandobast", "બંદોબસ્ત")), null, false);
               saveBandobast({ ...draft, recordedCat: recCat });
