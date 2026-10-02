@@ -11646,6 +11646,78 @@ function downloadBandobastDocx(data, b) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+// "Remaining staff" for a bandobast point: everyone not yet on any point,
+// with search + designation filter (same as Import Staff), pick and add.
+function BandobastRemainingModal({ data, draft, point, onAdd, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [q, setQ] = useState("");
+  const [desg, setDesg] = useState("");
+  const [hideAway, setHideAway] = useState(true);
+  const [sel, setSel] = useState(() => new Set());
+  const used = useMemo(() => { const u = new Set(); draft.points.forEach((p) => (p.staff || []).forEach((x) => { if (typeof x === "string") u.add(x); })); return u; }, [draft]);
+  const desgLabel = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
+  const all = useMemo(() => Object.values(data.staff || {}).filter((s) => !used.has(s.number))
+    .map((s) => ({ s, away: unavailableOnDate(s, draft.from) }))
+    .sort((a, b) => (desgLabel(a.s.designation) || "~").localeCompare(desgLabel(b.s.designation) || "~") || (a.s.name || "").localeCompare(b.s.name || "")), [data.staff, used, draft.from]);
+  const list = all.filter(({ s, away }) => (!hideAway || !away) && (!desg || s.designation === desg)
+    && (!q.trim() || (s.name || "").toLowerCase().includes(q.trim().toLowerCase()) || String(s.number).toLowerCase().includes(q.trim().toLowerCase())));
+  const awayCount = all.filter((x) => x.away).length;
+  const toggle = (n, on) => setSel((cur) => { const nx = new Set(cur); if (on) nx.add(n); else nx.delete(n); return nx; });
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Remaining staff", "બાકી સ્ટાફ")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 480, maxWidth: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px 0" }}>
+          <div>
+            <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{t("Remaining staff", "બાકી સ્ટાફ")} ({all.length})</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Not on any point yet · add to", "હજુ કોઈ પોઇન્ટ પર નથી · ઉમેરો")}: <b>{point.name || "—"}</b></div>
+          </div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+        </div>
+        <div style={{ padding: "12px 20px 0", display: "flex", gap: 8 }}>
+          <input type="text" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search staff…", "સ્ટાફ શોધો…")} className="gu" style={{ flex: 1, minWidth: 0, fontSize: 12.5 }} />
+          {(data.designations || []).length > 0 && (
+            <select value={desg} onChange={(e) => setDesg(e.target.value)} className="gu" style={{ fontSize: 12, width: 110, flexShrink: 0 }}>
+              <option value="">{t("All", "બધા")}</option>
+              {data.designations.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+            </select>
+          )}
+        </div>
+        {awayCount > 0 && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 20px 0", fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
+            <input type="checkbox" checked={hideAway} onChange={(e) => setHideAway(e.target.checked)} /> {t(`Hide ${awayCount} on leave / outstation that day`, `તે દિવસે રજા / બહારગામ ${awayCount} છુપાવો`)}
+          </label>
+        )}
+        {list.length === 0 ? (
+          <div style={{ padding: "24px 20px", fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>{all.length ? t("No match", "કોઈ મેળ નથી") : t("Everyone is already on a point.", "બધા પહેલેથી કોઈ પોઇન્ટ પર છે.")}</div>
+        ) : (
+          <React.Fragment>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              <input type="checkbox" checked={list.every(({ s }) => sel.has(s.number))} onChange={(e) => setSel((cur) => { const nx = new Set(cur); list.forEach(({ s }) => (e.target.checked ? nx.add(s.number) : nx.delete(s.number))); return nx; })} />
+              {t("Select all shown", "દેખાતા બધા પસંદ કરો")} ({list.length})
+            </label>
+            <div style={{ overflowY: "auto", flex: 1, borderTop: "1px solid var(--border-soft)" }}>
+              {list.map(({ s, away }) => (
+                <label key={s.number} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 20px", fontSize: 12.5, cursor: "pointer", borderBottom: "1px solid var(--border-soft)", background: away ? "var(--status-warning-bg)" : "transparent" }}>
+                  <input type="checkbox" checked={sel.has(s.number)} onChange={(e) => toggle(s.number, e.target.checked)} />
+                  <span style={{ minWidth: 48, color: "var(--status-warning-text)", fontSize: 11.5 }}>{desgLabel(s.designation)}</span>
+                  <span className="mono" style={{ minWidth: 42, color: "var(--text-tertiary)", fontSize: 11.5 }}>{s.number}</span>
+                  <span style={{ flex: 1 }}>{s.name}</span>
+                  {away && <span style={{ fontSize: 11, color: "var(--status-error-text)" }}>{unavailLabel(data, away)}</span>}
+                </label>
+              ))}
+            </div>
+          </React.Fragment>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "12px 20px" }}>
+          <button onClick={onClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+          <button disabled={!sel.size} onClick={() => { onAdd(all.map((x) => x.s.number).filter((n) => sel.has(n))); onClose(); }} className="gu" style={{ background: sel.size ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700 }}>{t(`Add ${sel.size}`, `${sel.size} ઉમેરો`)}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, assignGroupDuty, showToast }) {
   const { t, lang } = useLang();
   const list = (data.bandobasts || []).slice().sort((a, b) => (b.from || "").localeCompare(a.from || ""));
@@ -11665,6 +11737,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
     saveBandobast(b); onOpen(b.id);
   };
   const assignedWhere = useMemo(() => { const m = {}; (draft ? draft.points : []).forEach((p) => (p.staff || []).forEach((n) => { if (typeof n !== "string") return; (m[n] = m[n] || []).push(p.id); })); return m; }, [draft]);
+  const [remainingFor, setRemainingFor] = useState(null);
   const [manName, setManName] = useState("");
   const [manDesg, setManDesg] = useState("");
   const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => String(st.number).toLowerCase().includes(s) || (st.name || "").toLowerCase().includes(s)).slice(0, 8); }, [q, data.staff]);
@@ -11741,6 +11814,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
               );
             })}
             <button onClick={() => { setAddTo(pt.id); setQ(""); }} className="gu" style={{ ...iconBtnWide, borderRadius: 14 }}>+ {t("Staff", "સ્ટાફ")}</button>
+            <button onClick={() => setRemainingFor(pt.id)} className="gu" style={{ ...iconBtnWide, borderRadius: 14 }}>👥 {t("Remaining staff", "બાકી સ્ટાફ")}</button>
           </div>
           {addTo === pt.id && (
             <div style={{ marginTop: 8 }}>
@@ -11800,6 +11874,11 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
       </div>
       <button onClick={() => { if (window.confirm(t("Delete this bandobast? It goes to the Recycle bin.", "આ બંદોબસ્ત ડિલીટ કરવો છે? તે રિસાયકલ બિનમાં જશે."))) { deleteBandobast(draft.id); onOpen(null); } }} className="gu" style={{ marginTop: 18, background: "transparent", border: "none", color: "var(--status-error-text)", fontSize: 13, cursor: "pointer" }}>🗑️ {t("Delete bandobast", "બંદોબસ્ત ડિલીટ કરો")}</button>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      {remainingFor && draft.points.some((p) => p.id === remainingFor) && (
+        <BandobastRemainingModal data={data} draft={draft} point={draft.points.find((p) => p.id === remainingFor)}
+          onAdd={(nums) => setDraft((d) => ({ ...d, points: d.points.map((p) => (p.id === remainingFor ? { ...p, staff: [...(p.staff || []), ...nums.filter((n) => !(p.staff || []).includes(n))] } : p)) }))}
+          onClose={() => setRemainingFor(null)} />
+      )}
     </React.Fragment>
   );
 }
