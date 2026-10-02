@@ -7136,7 +7136,7 @@ function DutyRoster() {
   // changing." Assigning them a duty is an explicit statement that
   // they're available, so both flags come off in the same update, same
   // as setPresentInCategory already does for the status dropdown.
-  const assignDuty = (catId, number, name, note, date) => {
+  const assignDuty = (catId, number, name, note, date, night) => {
     const dutyDate = date || todayStr();
     const staffRec = data.staff[number];
     const conflict = unavailableOnDate(staffRec, dutyDate);
@@ -7148,7 +7148,7 @@ function DutyRoster() {
       ))) return;
     }
     if (!confirmDutyOverride(data, number, dutyDate, catId, name)) return;
-    const entry = { date: dutyDate, ts: Date.now(), note: (note || "").trim() || null, batch: uid() };
+    const entry = { date: dutyDate, ts: Date.now(), note: (note || "").trim() || null, batch: uid(), ...(night ? { night: true } : {}) };
     const list = data.membership[catId] || [];
     persist({
       ...dataRef.current,
@@ -7215,7 +7215,7 @@ function DutyRoster() {
   // as assignDuty above; the only real difference is handling someone
   // who isn't already on this category's roster yet, which for a brand
   // new (or rarely used) category is the common case.
-  const assignMiscDuty = (number, name, dutyType, extraNote, date) => {
+  const assignMiscDuty = (number, name, dutyType, extraNote, date, night) => {
     if (!data) return;
     const cleanType = (dutyType || "").trim();
     if (!cleanType) { showToast(t("Describe the duty before assigning it", "સોંપતા પહેલા ડ્યુટીનું વર્ણન કરો"), "error"); return; }
@@ -7238,7 +7238,7 @@ function DutyRoster() {
     // places built to show both (see CategoryHistoryTable and
     // PersonHistoryModal below) without disturbing anywhere that only
     // knows about `note`.
-    const entry = { date: dutyDate, ts: Date.now(), note: cleanType, extraNote: (extraNote || "").trim() || null, batch: uid() };
+    const entry = { date: dutyDate, ts: Date.now(), note: cleanType, extraNote: (extraNote || "").trim() || null, batch: uid(), ...(night ? { night: true } : {}) };
     const list = data.membership[MISC_CATEGORY_ID] || [];
     const already = list.some((m) => m.number === num);
     const updatedList = already
@@ -7265,7 +7265,7 @@ function DutyRoster() {
   // separate success toast for every day, which is exactly the kind of
   // thing that shouldn't need N interruptions for what is, to the person
   // doing it, one action).
-  const assignMiscDutyRange = (number, name, dutyType, extraNote, fromDate, toDate) => {
+  const assignMiscDutyRange = (number, name, dutyType, extraNote, fromDate, toDate, night) => {
     if (!data) return;
     const cleanType = (dutyType || "").trim();
     if (!cleanType) { showToast(t("Describe the duty before assigning it", "સોંપતા પહેલા ડ્યુટીનું વર્ણન કરો"), "error"); return; }
@@ -7298,7 +7298,7 @@ function DutyRoster() {
     const cleanExtraNote = (extraNote || "").trim() || null;
     const baseTs = Date.now();
     const batch = uid();
-    const entries = dutyDates.map((d, i) => ({ date: d, ts: baseTs + i, note: cleanType, extraNote: cleanExtraNote, batch }));
+    const entries = dutyDates.map((d, i) => ({ date: d, ts: baseTs + i, note: cleanType, extraNote: cleanExtraNote, batch, ...(night ? { night: true } : {}) }));
     const list = data.membership[MISC_CATEGORY_ID] || [];
     const already = list.some((m) => m.number === num);
     const updatedList = already
@@ -7333,7 +7333,7 @@ function DutyRoster() {
   // marked Outstation for the exact same date range in the same update —
   // so a long out-of-town duty stint doesn't need a separate manual entry
   // per person in Manage Staff afterward.
-  const assignGroupDuty = (catId, people, fromDate, toDate, note, outstationTypeId) => {
+  const assignGroupDuty = (catId, people, fromDate, toDate, note, outstationTypeId, night) => {
     if (!data) return;
     const cat = (data.categories || []).find((c) => c.id === catId);
     if (!cat) { showToast(t("Pick a work type first", "પહેલા કામનો પ્રકાર પસંદ કરો")); return; }
@@ -7369,7 +7369,7 @@ function DutyRoster() {
     const noteText = (note || "").trim() || null;
     const baseTs = Date.now();
     const batch = uid();
-    const entries = dutyDates.map((d, i) => ({ date: d, ts: baseTs + i, note: noteText, batch, viaGroupDuty: true }));
+    const entries = dutyDates.map((d, i) => ({ date: d, ts: baseTs + i, note: noteText, batch, viaGroupDuty: true, ...(night ? { night: true } : {}) }));
     const nextStaff = { ...data.staff };
     const existingList = data.membership[catId] || [];
     const existingNumbers = new Set(existingList.map((m) => m.number));
@@ -8922,7 +8922,7 @@ function AssignDutyView({ initialSubTab, onSubTabChange, data, assignDuty, assig
           {assignTarget && (
             <AssignDutyModal
               name={assignTarget.name}
-              onConfirm={(note, date) => { assignDuty(assignTarget.catId, assignTarget.number, assignTarget.name, note, date); setAssignTarget(null); }}
+              onConfirm={(note, date, night) => { assignDuty(assignTarget.catId, assignTarget.number, assignTarget.name, note, date, night); setAssignTarget(null); }}
               onCancel={() => setAssignTarget(null)}
             />
           )}
@@ -9004,6 +9004,7 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
   const [nameInput, setNameInput] = useState("");
   const [dutyType, setDutyType] = useState("");
   const [extraNote, setExtraNote] = useState("");
+  const [night, setNight] = useState(false);
   // "one" = single day, "multi" = a fixed from/to range, "noend" = starts on
   // a date and logs every day through today — same three-way pattern as
   // Group duty and Record Leave, so all three assignment screens behave
@@ -9031,9 +9032,9 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
     if (!canAssign) return;
     const name = lookupPreview || nameInput.trim();
     if (dateMode === "one") {
-      assignMiscDuty(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), date);
+      assignMiscDuty(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), date, night);
     } else {
-      assignMiscDutyRange(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), dateFrom, effectiveDateTo);
+      assignMiscDutyRange(numberInput.trim(), name, dutyType.trim(), extraNote.trim(), dateFrom, effectiveDateTo, night);
     }
     setNumberInput("");
     setNameInput("");
@@ -9135,6 +9136,7 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
           </div>
         )}
 
+        <NightToggle value={night} onChange={setNight} />
         <button
           onClick={handleAssign}
           disabled={!canAssign}
@@ -9367,6 +9369,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   const [dateMode, setDateMode] = useState("one");
   const [note, setNote] = useState("");
   const [markOutstation, setMarkOutstation] = useState(false);
+  const [night, setNight] = useState(false);
   const outstationTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
   const [outstationTypeId, setOutstationTypeId] = useState("");
   const [showInfo, setShowInfo] = useState(false);
@@ -9427,7 +9430,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
 
   const handleAssign = () => {
     if (!canAssign) return;
-    assignGroupDuty(catId, people, dateFrom, effectiveDateTo, note, markOutstation ? effectiveOutstationTypeId : null);
+    assignGroupDuty(catId, people, dateFrom, effectiveDateTo, note, markOutstation ? effectiveOutstationTypeId : null, night);
     setLastAssigned({ catLabel: cat ? cat.label : "", dateFrom, dateTo: effectiveDateTo, people });
     setPeople([]);
     setNote("");
@@ -9684,6 +9687,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
           </div>
         )}
 
+        <NightToggle value={night} onChange={setNight} />
         <button
           onClick={handleAssign}
           disabled={!canAssign}
@@ -10212,7 +10216,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
       {assignTarget && (
         <AssignDutyModal
           name={assignTarget.name}
-          onConfirm={(note, date) => { assignDuty(catId, assignTarget.number, assignTarget.name, note, date); setAssignTarget(null); }}
+          onConfirm={(note, date, night) => { assignDuty(catId, assignTarget.number, assignTarget.name, note, date, night); setAssignTarget(null); }}
           onCancel={() => setAssignTarget(null)}
         />
       )}
@@ -10484,10 +10488,21 @@ function DeleteAccountModal({ staffCount, onConfirm, onCancel }) {
     </div>
   );
 }
+// Day / Night switch shown on every assignment.
+function NightToggle({ value, onChange }) {
+  const { t } = useLang();
+  return (
+    <div style={{ display: "flex", gap: 6, margin: "8px 0 12px" }} role="group" aria-label={t("Day or night duty", "દિવસ કે રાત્રિ ડ્યુટી")}>
+      <button type="button" onClick={() => onChange(false)} style={catTabBtn(!value)} className="gu">☀️ {t("Day", "દિવસ")}</button>
+      <button type="button" onClick={() => onChange(true)} style={catTabBtn(!!value)} className="gu">🌙 {t("Night", "રાત્રિ")}</button>
+    </div>
+  );
+}
 function AssignDutyModal({ name, onConfirm, onCancel }) {
   const { t } = useLang();
   useEscToClose(onCancel);
   const [note, setNote] = useState("");
+  const [night, setNight] = useState(false);
   const [date, setDate] = useState(addDaysStr(todayStr(), 1));
   const quickBtn = (active) => ({
     fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
@@ -10506,6 +10521,7 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
           <button onClick={() => setDate(addDaysStr(todayStr(), 1))} style={quickBtn(date === addDaysStr(todayStr(), 1))} className="gu">{t("Tomorrow", "આવતીકાલે")}</button>
         </div>
 
+        <NightToggle value={night} onChange={setNight} />
         <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 10px" }} className="gu">{t("Add a note if this assignment needs a justification on record — optional, skip it if it doesn't.", "જો આ સોંપણી માટે કારણ નોંધવું જરૂરી હોય તો નોંધ ઉમેરો — વૈકલ્પિક, જરૂર ન હોય તો છોડી દો.")}</p>
         <textarea
           value={note}
@@ -10517,8 +10533,8 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
         />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13 }} className="gu">{t("Cancel", "રદ કરો")}</button>
-          <button onClick={() => onConfirm("", date)} title={t("Assign this duty with no note", "નોંધ વગર આ ડ્યુટી સોંપો")} aria-label={t("Assign this duty with no note", "નોંધ વગર આ ડ્યુટી સોંપો")} style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("No note — assign", "નોંધ નહીં — સોંપો")}</button>
-          <button onClick={() => onConfirm(note, date)} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
+          <button onClick={() => onConfirm("", date, night)} title={t("Assign this duty with no note", "નોંધ વગર આ ડ્યુટી સોંપો")} aria-label={t("Assign this duty with no note", "નોંધ વગર આ ડ્યુટી સોંપો")} style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("No note — assign", "નોંધ નહીં — સોંપો")}</button>
+          <button onClick={() => onConfirm(note, date, night)} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
         </div>
       </div>
     </div>
@@ -10533,7 +10549,8 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
   const { t } = useLang();
   const [periodFrom, periodTo] = periodRangeOf(period);
   const rows = useMemo(() => {
-    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, count: groupedDutyCountInRange(p.history, periodFrom, periodTo) }));
+    const withCounts = roster.map((p) => ({ number: p.number, name: p.name, count: groupedDutyCountInRange(p.history, periodFrom, periodTo),
+      night: (p.history || []).filter((e) => e && typeof e === "object" && e.night && (!periodFrom || historyDate(e) >= periodFrom) && (!periodTo || historyDate(e) <= periodTo)).length }));
     const total = withCounts.reduce((sum, p) => sum + p.count, 0);
     return withCounts
       .map((p) => ({ ...p, pct: total > 0 ? (p.count / total) * 100 : 0 }))
@@ -10546,7 +10563,7 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties", "ડ્યુટીઓ")}</th><th style={{ ...th, minWidth: 180 }}>{t("Share of all duties here", "અહીંની બધી ડ્યુટીનો હિસ્સો")}</th>
+              <th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Number", "નંબર")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties", "ડ્યુટીઓ")}</th><th style={{ ...th, textAlign: "center" }}>🌙 {t("Night", "રાત્રિ")}</th><th style={{ ...th, minWidth: 180 }}>{t("Share of all duties here", "અહીંની બધી ડ્યુટીનો હિસ્સો")}</th>
             </tr>
           </thead>
           <tbody>
@@ -10560,6 +10577,7 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
                 <td style={{ ...td, minWidth: 140 }} className="gu">{r.name}</td>
                 <td style={td} className="mono">{r.number}</td>
                 <td style={{ ...td, textAlign: "center" }} className="mono">{r.count}</td>
+                <td style={{ ...td, textAlign: "center", color: r.night ? "var(--text-primary)" : "var(--text-tertiary)" }} className="mono">{r.night}</td>
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--border-soft)", overflow: "hidden", minWidth: 60 }}>
@@ -12365,6 +12383,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
             catId: c.id, catLabel: c.label, number: m.number, name,
             designation: staffRec ? desgLabelOf(staffRec.designation) : "",
             note: historyNote(entry), extraNote: historyExtraNote(entry), idx,
+            night: !!(entry && typeof entry === "object" && entry.night),
           });
         });
       });
@@ -12854,7 +12873,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                                 style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
                                 title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
                               >{r.name}</span>
-                            ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
+                            ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.night ? <span title={t("Night duty", "રાત્રિ ડ્યુટી")}> 🌙</span> : null}{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
                             {range && (
                               <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
                             )}
@@ -13030,7 +13049,7 @@ function ReportView({ initialSort, focus, data }) {
         if (!staffRec) return;
         (m.history || []).forEach((entry) => {
           const date = historyDate(entry);
-          if (date.slice(0, 7) === month) out.push({ name: staffRec.name, designation: desgLabelOf(staffRec.designation), category: c.label, date, note: historyNote(entry) });
+          if (date.slice(0, 7) === month) out.push({ name: staffRec.name, designation: desgLabelOf(staffRec.designation), category: c.label, date, note: historyNote(entry), night: !!(entry && entry.night) });
         });
       });
     });
@@ -13099,8 +13118,8 @@ function ReportView({ initialSort, focus, data }) {
       // fragment too, showing the row twice across the page break.
       rowPageBreak: "avoid",
       startY: headerY,
-      head: [["#", "Name", "Designation", "Total duties"]],
-      body: summaryNames.map((name, i) => [i + 1, name, grouped[name][0].designation, grouped[name].length]),
+      head: [["#", "Name", "Designation", "Total duties", "Night"]],
+      body: summaryNames.map((name, i) => [i + 1, name, grouped[name][0].designation, grouped[name].length, grouped[name].filter((r) => r.night).length]),
       styles: { fontSize: FONT_PT, valign: "top" },
       headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
       // autoTable sizes "auto" columns from each cell's text width — but
@@ -13235,10 +13254,11 @@ function ReportView({ initialSort, focus, data }) {
                 <span style={{ fontSize: 11, fontWeight: 500, color: "var(--status-warning-text)" }}>({grouped[name][0].designation})</span>
               )}
               <span className="mono" style={{ fontSize: 11, fontWeight: 700, background: "var(--status-warning-bg)", color: "var(--status-warning-text)", borderRadius: 10, padding: "1px 8px" }}>{grouped[name].length}</span>
+              {grouped[name].some((r) => r.night) && <span className="mono" title={t("Night duties this month", "આ મહિને રાત્રિ ડ્યુટી")} style={{ fontSize: 11, fontWeight: 700, background: "#1f2a44", color: "#dfe6ff", borderRadius: 10, padding: "1px 8px" }}>🌙 {grouped[name].filter((r) => r.night).length}</span>}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {grouped[name].map((r, i) => (
-                <span key={i} className="mono" title={r.note || ""} style={{ fontSize: 11.5, background: "var(--bg-surface-2)", border: "1px solid var(--border-soft)", borderRadius: 5, padding: "3px 8px" }}>{r.category} · {formatDMY(r.date)}{r.note ? " 📝" : ""}</span>
+                <span key={i} className="mono" title={r.note || ""} style={{ fontSize: 11.5, background: "var(--bg-surface-2)", border: "1px solid var(--border-soft)", borderRadius: 5, padding: "3px 8px" }}>{r.night ? "🌙 " : ""}{r.category} · {formatDMY(r.date)}{r.note ? " 📝" : ""}</span>
               ))}
             </div>
           </div>
