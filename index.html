@@ -13845,6 +13845,77 @@ function ReportView({ initialSort, focus, data }) {
         if (hookData.column.index === 6) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 40 - 2), FONT_PT);
       },
     });
+    // ---- Separate page: every Leave / Outstation in this month ----
+    {
+      const mStart = month + "-01";
+      const [yy, mm] = month.split("-").map(Number);
+      const mEnd = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, "0")}`;
+      const leaveRows = [];
+      Object.values(data.staff || {}).forEach((st) => {
+        const seen = new Set();
+        const periods = [...(st.unavailableHistory || [])];
+        if (st.unavailable) periods.push(st.unavailable);
+        periods.forEach((u) => {
+          if (!u || !u.from) return;
+          const kind = unavailKind(u);
+          if (kind !== "Leave" && kind !== "Outstation") return;
+          const key = kind + "|" + (u.typeId || "") + "|" + u.from;
+          if (seen.has(key)) return;
+          seen.add(key);
+          const end = u.to || (todayStr() < mEnd ? todayStr() : mEnd);
+          if (u.from > mEnd || end < mStart) return;
+          const a = u.from > mStart ? u.from : mStart, b = end < mEnd ? end : mEnd;
+          const days = b >= a ? daysBetween(a, b) + 1 : 0;
+          leaveRows.push({ name: st.name || st.number, number: st.number, designation: desgLabelOf(st.designation), kind, type: unavailLabel(data, u) || kind, from: u.from, to: u.to || null, days });
+        });
+      });
+      (data.events || []).forEach((ev) => {
+        if (!ev.start || !["Leave", "Outstation", "Training"].includes(ev.type)) return;
+        const end = ev.end || ev.start;
+        if (ev.start > mEnd || end < mStart) return;
+        const a = ev.start > mStart ? ev.start : mStart, b = end < mEnd ? end : mEnd;
+        const st = (data.staff || {})[ev.number] || {};
+        leaveRows.push({ name: ev.name || st.name || "", number: ev.number || "", designation: desgLabelOf(st.designation), kind: ev.type === "Leave" ? "Leave" : "Outstation", type: EVENT_TYPE_LABEL[ev.type] || ev.type, from: ev.start, to: end, days: daysBetween(a, b) + 1 });
+      });
+      leaveRows.sort((x, y) => (x.kind === y.kind ? 0 : x.kind === "Leave" ? -1 : 1) || x.from.localeCompare(y.from) || String(x.name).localeCompare(String(y.name)));
+      doc.addPage();
+      doc.setFontSize(13); doc.setTextColor(0);
+      doc.text("Leave & Outstation — " + nbPdfMonthLabel(month), 14, 18);
+      const byType = {};
+      leaveRows.forEach((r) => { byType[r.type] = (byType[r.type] || 0) + r.days; });
+      const totalLeave = leaveRows.filter((r) => r.kind === "Leave").reduce((n, r) => n + r.days, 0);
+      const totalOut = leaveRows.filter((r) => r.kind === "Outstation").reduce((n, r) => n + r.days, 0);
+      doc.setFontSize(9);
+      doc.text(`${leaveRows.length} entries · Leave ${totalLeave} days · Outstation ${totalOut} days (days counted inside this month)`, 14, 25);
+      const imgCols = [1, 2, 4];
+      doc.autoTable({
+        rowPageBreak: "avoid",
+        startY: 30,
+        head: [["#", "Name", "Designation", "Number", "Leave / Outstation type", "From", "To", "Days this month"]],
+        body: leaveRows.length
+          ? leaveRows.map((r, i) => [i + 1, r.name, r.designation, r.number, r.type, formatDMY(r.from), r.to ? formatDMY(r.to) : "Ongoing", r.days])
+          : [["", "No leave or outstation recorded in this month", "", "", "", "", "", ""]],
+        styles: { fontSize: FONT_PT, valign: "top" },
+        headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+        columnStyles: { 1: { minCellWidth: 36 }, 2: { minCellWidth: 18 }, 4: { minCellWidth: 28 } },
+        didParseCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && needsImageRender(h.cell.raw)) h.cell.text = []; },
+        didDrawCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
+      });
+      const typeRows = Object.entries(byType).sort((x, y) => y[1] - x[1]);
+      if (typeRows.length) {
+        doc.autoTable({
+          rowPageBreak: "avoid",
+          startY: doc.lastAutoTable.finalY + 10,
+          pageBreak: "avoid",
+          head: [["Type", "Total days this month"]],
+          body: typeRows,
+          styles: { fontSize: FONT_PT, valign: "top" },
+          headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 }, tableWidth: 110,
+          didParseCell: (h) => { if (h.section === "body" && h.column.index === 0 && needsImageRender(h.cell.raw)) h.cell.text = []; },
+          didDrawCell: (h) => { if (h.section === "body" && h.column.index === 0 && h.cell.raw && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
+        });
+      }
+    }
     setPdfReady({ doc, filename: `nokri-book-monthly-report-${month}.pdf` });
   };
 
