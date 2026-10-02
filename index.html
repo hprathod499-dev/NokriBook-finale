@@ -7614,6 +7614,19 @@ function DutyRoster() {
     persist({ ...dataRef.current, leaveTypes: list.filter((t) => t.id !== id) });
     showToast(t(`Deleted leave type "${cur ? cur.label : id}"`, `રજાનો પ્રકાર "${cur ? cur.label : id}" ડિલીટ થયો`));
   };
+  const setLeaveTypeAllowance = (id, n) => {
+    const list = dataRef.current.leaveTypes || DEFAULT_LEAVE_TYPES;
+    persist({ ...dataRef.current, leaveTypes: list.map((x) => x.id === id ? (n == null ? (({ allowance, ...rest }) => rest)(x) : { ...x, allowance: n }) : x) });
+  };
+  const setStaffLeaveAllowance = (number, typeId, n) => {
+    const cur = dataRef.current.staff[number];
+    if (!cur) return;
+    const la = { ...(cur.leaveAllowance || {}) };
+    if (n == null) delete la[typeId]; else la[typeId] = n;
+    const next = { ...cur };
+    if (Object.keys(la).length) next.leaveAllowance = la; else delete next.leaveAllowance;
+    persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: next } });
+  };
   const toggleLeaveTypeIndefinite = (id) => {
     const list = data.leaveTypes || DEFAULT_LEAVE_TYPES;
     persist({ ...dataRef.current, leaveTypes: list.map((t) => t.id === id ? { ...t, indefinite: !t.indefinite } : t) });
@@ -8210,6 +8223,7 @@ function DutyRoster() {
               setPresentEverywhere={setPresentEverywhere}
               renameLeaveType={renameLeaveType} renameOutstationType={renameOutstationType}
               addLeaveType={addLeaveType} deleteLeaveType={deleteLeaveType} toggleLeaveTypeIndefinite={toggleLeaveTypeIndefinite}
+              setLeaveTypeAllowance={setLeaveTypeAllowance} setStaffLeaveAllowance={setStaffLeaveAllowance}
               addOutstationType={addOutstationType} deleteOutstationType={deleteOutstationType} toggleOutstationTypeIndefinite={toggleOutstationTypeIndefinite}
               addDesignation={addDesignation} renameDesignation={renameDesignation} deleteDesignation={deleteDesignation} setStaffDesignation={setStaffDesignation}
               reorderList={reorderList}
@@ -9152,6 +9166,11 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
   const addToQueue = () => {
     if (!canAdd) return;
     const num = numberInput.trim();
+    if (kind === "Leave") {
+      const queued = queue.filter((q) => q.number === num && q.kind === "Leave").map((q) => ({ kind: "Leave", typeId: q.typeId, from: q.from, to: q.to }));
+      const over = nbLeaveOverLimit(data, num, typeId, from, effectiveTo, queued, t);
+      if (over && !window.confirm(over + "\n\n" + t("Add this leave anyway?", "છતાં આ રજા ઉમેરવી છે?"))) return;
+    }
     setQueue((q) => [...q, { number: num, name: lookupName, kind, typeId, typeLabel: selectedType ? selectedType.label : "", from, to: effectiveTo }]);
     setNumberInput("");
   };
@@ -10803,11 +10822,164 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
   );
 }
 
+// ---------- LEAVE BALANCE ----------
+// Allowance per year is set on each leave type (leaveTypes[i].allowance,
+// days per calendar year); one person can have a different number
+// (staff.leaveAllowance[typeId]). Days used = calendar days of that
+// person's Leave periods of that type inside the year (an open-ended
+// leave counts up to today). Overlapping periods are counted once.
+function nbDaysInYear(from, to, year) {
+  const ys = `${year}-01-01`, ye = `${year}-12-31`;
+  const a = from > ys ? from : ys;
+  const end = to || todayStr();
+  const b = end < ye ? end : ye;
+  if (!a || !b || b < a) return [];
+  const out = []; const d = new Date(a + "T00:00:00"); const stop = new Date(b + "T00:00:00");
+  while (d <= stop) { out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); d.setDate(d.getDate() + 1); }
+  return out;
+}
+function nbLeaveUsed(staffRec, year, extraPeriods) {
+  const byType = {};
+  const periods = [...((staffRec && staffRec.unavailableHistory) || [])];
+  if (staffRec && staffRec.unavailable && !periods.some((p) => p.from === staffRec.unavailable.from && p.typeId === staffRec.unavailable.typeId)) periods.push(staffRec.unavailable);
+  (extraPeriods || []).forEach((p) => periods.push(p));
+  periods.forEach((p) => {
+    if (!p || !p.from || unavailKind(p) !== "Leave") return;
+    const k = p.typeId || "_";
+    if (!byType[k]) byType[k] = new Set();
+    nbDaysInYear(p.from, p.to, year).forEach((d) => byType[k].add(d));
+  });
+  const out = {}; Object.keys(byType).forEach((k) => { out[k] = byType[k].size; });
+  return out;
+}
+function nbLeaveAllowance(data, staffRec, typeId) {
+  const own = staffRec && staffRec.leaveAllowance && staffRec.leaveAllowance[typeId];
+  if (typeof own === "number") return own;
+  const lt = (data.leaveTypes || []).find((x) => x.id === typeId);
+  return lt && typeof lt.allowance === "number" ? lt.allowance : null;
+}
+// Text warning if adding this leave takes someone over their allowance.
+function nbLeaveOverLimit(data, number, typeId, from, to, alreadyQueued, t) {
+  const st = (data.staff || {})[number];
+  if (!st || !from) return null;
+  const years = new Set([from.slice(0, 4), (to || from).slice(0, 4)]);
+  const msgs = [];
+  years.forEach((y) => {
+    const allow = nbLeaveAllowance(data, st, typeId);
+    if (allow == null) return;
+    const used = nbLeaveUsed(st, Number(y), [...(alreadyQueued || []), { kind: "Leave", typeId, from, to: to || from }])[typeId] || 0;
+    if (used > allow) {
+      const lt = (data.leaveTypes || []).find((x) => x.id === typeId);
+      msgs.push(t(`${st.name}: ${lt ? lt.label : "Leave"} ${y} — ${used} of ${allow} days (${used - allow} over).`, `${st.name}: ${lt ? lt.label : "રજા"} ${y} — ${allow} માંથી ${used} દિવસ (${used - allow} વધારે).`));
+    }
+  });
+  return msgs.length ? msgs.join("\n") : null;
+}
+function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeaveAllowance }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [search, setSearch] = useState("");
+  const [onlyOver, setOnlyOver] = useState(false);
+  const [editPerson, setEditPerson] = useState(null);
+  const types = data.leaveTypes || [];
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return Object.values(data.staff || {})
+      .filter((s) => !q || (s.name || "").toLowerCase().includes(q) || String(s.number).includes(q))
+      .map((s) => {
+        const used = nbLeaveUsed(s, year);
+        const cells = types.map((lt) => { const u = used[lt.id] || 0; const a = nbLeaveAllowance(data, s, lt.id); return { id: lt.id, used: u, allow: a, over: a != null && u > a, custom: !!(s.leaveAllowance && typeof s.leaveAllowance[lt.id] === "number") }; });
+        return { s, cells, any: cells.some((c) => c.used > 0), over: cells.some((c) => c.over) };
+      })
+      .filter((r) => !onlyOver || r.over)
+      .sort((a, b) => Number(b.over) - Number(a.over) || Number(b.any) - Number(a.any) || (a.s.name || "").localeCompare(b.s.name || ""));
+  }, [data, year, search, onlyOver]);
+  const th = { padding: "7px 8px", fontSize: 11.5, color: "var(--text-secondary)", borderBottom: "1px solid var(--border)", textAlign: "center", whiteSpace: "nowrap", position: "sticky", top: 0, background: "var(--bg-surface)" };
+  const td = { padding: "6px 8px", fontSize: 12.5, borderBottom: "1px solid var(--border-soft)", textAlign: "center", whiteSpace: "nowrap" };
+  const doCsv = () => downloadCsv(`nokri-book-leave-balance-${year}.csv`, [...csvHeaderRows(data.stationName, data.district), ["Number", "Name", ...types.map((lt) => lt.label + " (used/allowed)")], ...rows.map((r) => [r.s.number, r.s.name, ...r.cells.map((c) => `${c.used}/${c.allow == null ? "-" : c.allow}`)])]);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Leave balance", "રજા બેલેન્સ")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 900, maxWidth: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>🗓️ {t("Leave balance", "રજા બેલેન્સ")}</div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
+        </div>
+        {/* yearly allowance per leave type */}
+        <div style={{ margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{t("Days allowed per year (same for everyone)", "વર્ષમાં મળવાપાત્ર દિવસો (બધા માટે સરખા)")}</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {types.map((lt) => (
+              <label key={lt.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                {lt.label}
+                <input type="number" min="0" max="366" value={typeof lt.allowance === "number" ? lt.allowance : ""} placeholder="—"
+                  onChange={(e) => setLeaveTypeAllowance(lt.id, e.target.value === "" ? null : Math.max(0, Math.min(366, Math.round(Number(e.target.value)))))}
+                  style={{ width: 64, fontSize: 13 }} />
+              </label>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Leave a box empty for no limit. Tap a person below to give them a different number.", "મર્યાદા ન હોય તો ખાનું ખાલી રાખો. કોઈ એક વ્યક્તિ માટે જુદો આંકડો આપવા નીચે તેના પર ટેપ કરો.")}</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+          <button onClick={() => setYear((y) => y - 1)} style={iconBtnWide}>‹</button>
+          <b className="mono">{year}</b>
+          <button onClick={() => setYear((y) => y + 1)} style={iconBtnWide}>›</button>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("Search name or number", "નામ કે નંબર શોધો")} className="gu" style={{ flex: "1 1 160px", fontSize: 13 }} />
+          <label style={{ fontSize: 12.5, display: "flex", gap: 5, alignItems: "center" }}><input type="checkbox" checked={onlyOver} onChange={(e) => setOnlyOver(e.target.checked)} /> {t("Only over limit", "ફક્ત મર્યાદા બહાર")}</label>
+          <button onClick={doCsv} style={iconBtnWide}>⬇ CSV</button>
+        </div>
+        <div style={{ overflow: "auto", flex: 1, border: "1px solid var(--border)", borderRadius: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><th style={{ ...th, textAlign: "left" }}>{t("Name", "નામ")}</th>{types.map((lt) => <th key={lt.id} style={th}>{lt.label}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.s.number} onClick={() => setEditPerson(r.s.number)} style={{ cursor: "pointer" }}>
+                  <td style={{ ...td, textAlign: "left" }}>{r.s.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{r.s.number}</span></td>
+                  {r.cells.map((c) => (
+                    <td key={c.id} style={{ ...td, color: c.over ? "var(--status-error-text)" : c.used ? "var(--text-primary)" : "var(--text-tertiary)", fontWeight: c.over ? 700 : 400 }}>
+                      {c.used}{c.allow != null ? " / " + c.allow : ""}{c.allow != null && !c.over ? <span style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}> ({c.allow - c.used} {t("left", "બાકી")})</span> : null}{c.custom ? " *" : ""}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {!rows.length && <tr><td colSpan={types.length + 1} style={{ ...td, color: "var(--text-tertiary)" }}>{t("No one matches.", "કોઈ મળ્યું નથી.")}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("used / allowed in the year · * = this person has their own number", "વર્ષમાં વપરાયેલ / મળવાપાત્ર · * = આ વ્યક્તિ માટે જુદો આંકડો")}</div>
+      </div>
+      {editPerson && (() => {
+        const st = data.staff[editPerson];
+        if (!st) return null;
+        return (
+          <div className="modal-backdrop" onClick={(e) => { e.stopPropagation(); setEditPerson(null); }} style={{ position: "fixed", inset: 0, background: "#00000044", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130, padding: 16 }}>
+            <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 20 }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>{st.name} <span className="mono" style={{ color: "var(--text-tertiary)" }}>#{st.number}</span></div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Days allowed per year for this person only. Empty = same as everyone.", "ફક્ત આ વ્યક્તિ માટે વર્ષમાં મળવાપાત્ર દિવસો. ખાલી = બધા જેટલા.")}</div>
+              {types.map((lt) => {
+                const own = st.leaveAllowance && typeof st.leaveAllowance[lt.id] === "number" ? st.leaveAllowance[lt.id] : "";
+                return (
+                  <label key={lt.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 13, margin: "6px 0" }}>
+                    <span>{lt.label} <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}>({t("everyone", "બધા")}: {typeof lt.allowance === "number" ? lt.allowance : "—"})</span></span>
+                    <input type="number" min="0" max="366" value={own} placeholder="—" onChange={(e) => setStaffLeaveAllowance(st.number, lt.id, e.target.value === "" ? null : Math.max(0, Math.min(366, Math.round(Number(e.target.value)))))} style={{ width: 70, fontSize: 13 }} />
+                  </label>
+                );
+              })}
+              <button onClick={() => setEditPerson(null)} className="gu" style={{ marginTop: 10, width: "100%", background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 0", fontWeight: 700 }}>{t("Done", "પૂર્ણ")}</button>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImportToggle,
   data, createStaff, renameStaff, setStaffPhone, deleteStaffGlobally, setUnavailable, clearUnavailable,
   setPresentEverywhere,
   renameLeaveType, renameOutstationType,
   addLeaveType, deleteLeaveType, toggleLeaveTypeIndefinite,
+  setLeaveTypeAllowance, setStaffLeaveAllowance,
   addOutstationType, deleteOutstationType, toggleOutstationTypeIndefinite,
   addDesignation, renameDesignation, deleteDesignation, setStaffDesignation,
   changeUnavailableDuration,
@@ -10826,6 +10998,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   useEffect(() => { setShowImportStaffRaw(!!initialShowImport); }, [initialShowImport]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
+  const [showLeaveBalance, setShowLeaveBalance] = useState(false);
   const [search, setSearch] = useState(initialSearch || "");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
@@ -11071,6 +11244,8 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
             border: "1px solid " + (showFullActions ? "var(--accent-strong)" : "var(--border)"),
           }} className="gu"
         >{t("Edit staff", "સ્ટાફ સંપાદિત કરો")}</button>
+        {setLeaveTypeAllowance && <button onClick={() => setShowLeaveBalance(true)} className="gu" style={{ marginLeft: 6, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>🗓️ {t("Leave balance", "રજા બેલેન્સ")}</button>}
+        {showLeaveBalance && <LeaveBalanceModal data={data} onClose={() => setShowLeaveBalance(false)} setLeaveTypeAllowance={setLeaveTypeAllowance} setStaffLeaveAllowance={setStaffLeaveAllowance} />}
       </div>
       {/* Only while the staff list is genuinely empty — brand-new account,
           nothing to import into anyone's way of yet. Once even one person
@@ -11538,7 +11713,13 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               <button
                 onClick={() => {
                   if (modalMode === "edit") changeUnavailableDuration(modalFor, modalKind, modalTypeId, modalFrom, modalTo);
-                  else setUnavailable(modalFor, modalKind, modalTypeId, modalFrom, modalTo);
+                  else {
+                    if (modalKind === "Leave") {
+                      const over = nbLeaveOverLimit(data, modalFor, modalTypeId, modalFrom, modalTo, null, t);
+                      if (over && !window.confirm(over + "\n\n" + t("Save this leave anyway?", "છતાં આ રજા સાચવવી છે?"))) return;
+                    }
+                    setUnavailable(modalFor, modalKind, modalTypeId, modalFrom, modalTo);
+                  }
                   setModalFor(null);
                 }}
                 style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu"
