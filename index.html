@@ -17595,6 +17595,106 @@ function CrimePinScreen({ pinHash, onUnlock, bigBtn }) {
     </div>
   );
 }
+
+// ---------- Crime Review: import cases from a CSV (Excel "Save As CSV") ----------
+const NB_CRIME_CSV_COLS = [
+  ["crNo", "C.R. No", "ગુના નંબર"], ["crYear", "Year", "વર્ષ"], ["regDate", "Registered date (DD/MM/YYYY)", "દાખલ તારીખ"],
+  ["crimeType", "Crime type", "ગુનાનો પ્રકાર"], ["sections", "Sections", "કલમ"], ["place", "Place", "સ્થળ"],
+  ["complainantName", "Complainant name", "ફરિયાદીનું નામ"], ["complainantAddress", "Complainant address", "ફરિયાદીનું સરનામું"],
+  ["propertyLost", "Property lost (Rs)", "ગયેલ માલ"], ["propertyRecovered", "Property recovered (Rs)", "મળેલ માલ"],
+  ["status", "Status (Investigation / Detected / Undetected)", "સ્થિતિ"], ["summaryType", "Summary (A/B/C)", "સમરી"],
+  ["accused", "Accused names (separate with ;)", "આરોપી"], ["arrested", "Accused arrested (number)", "પકડાયેલ આરોપી"],
+  ["chargesheetNo", "Charge-sheet no", "ચાર્જશીટ નંબર"], ["chargesheetDate", "Charge-sheet date (DD/MM/YYYY)", "ચાર્જશીટ તારીખ"],
+  ["court", "Court", "કોર્ટ"], ["ccNo", "C.C. no", "સી.સી. નંબર"], ["ccYear", "C.C. year", "સી.સી. વર્ષ"], ["remarks", "Remarks", "નોંધ"],
+];
+function nbParseCsv(text) {
+  const rows = []; let row = [], cell = "", q = false;
+  text = String(text || "").replace(/^﻿/, "");
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((c) => String(c).trim() !== ""));
+}
+function nbParseDateLoose(v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
+  if (m) { const y = m[3].length === 2 ? "20" + m[3] : m[3]; const d = `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`; return nbIsIsoDate(d) ? d : null; }
+  if (/^\d{5}$/.test(s)) { const dt = new Date(Date.UTC(1899, 11, 30) + Number(s) * 86400000); return dt.toISOString().slice(0, 10); } // Excel serial
+  return null;
+}
+function nbCrimeTypeFromText(txt) {
+  const s = String(txt || "").trim();
+  if (!s) return null;
+  const low = s.toLowerCase();
+  const exact = NB_CRIME_TYPES.find((c) => c.id === low || c.gu === s || c.en.toLowerCase() === low);
+  if (exact) return { crimeType: exact.id, crimeTypeCustom: "", limit: exact.limit };
+  let fuzzy = NB_CRIME_TYPES.find((c) => nbCrimeTypeMatches(c, low));
+  // Otherwise the longest single word that matches (e.g. "Cheating, online").
+  if (!fuzzy) low.split(/[\s,;/()-]+/).filter((w) => w.length >= 3).sort((a, b) => b.length - a.length).some((w) => (fuzzy = NB_CRIME_TYPES.find((c) => nbCrimeTypeMatches(c, w))));
+  if (fuzzy) return { crimeType: fuzzy.id, crimeTypeCustom: "", limit: fuzzy.limit };
+  return { crimeType: "custom", crimeTypeCustom: s.slice(0, 60), limit: 60 };
+}
+// -> { cases: [...], errors: ["Row 5: ..."] }
+function nbCrimeCsvToCases(text, profile) {
+  const rows = nbParseCsv(text);
+  if (!rows.length) return { cases: [], errors: ["The file is empty."] };
+  const norm = (h) => String(h || "").toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z0-9઀-૿]+/g, "");
+  const head = rows[0].map(norm);
+  const idx = {};
+  NB_CRIME_CSV_COLS.forEach(([k, en, gu]) => { const i = head.findIndex((h) => h && (h === norm(en) || h === norm(gu) || h === k.toLowerCase())); if (i >= 0) idx[k] = i; });
+  if (idx.crNo == null || idx.regDate == null) return { cases: [], errors: ["Could not find the 'C.R. No' and 'Registered date' columns. Use the template's first row as the header."] };
+  const get = (r, k) => (idx[k] == null ? "" : String(r[idx[k]] == null ? "" : r[idx[k]]).trim());
+  const num = (v) => { const n = Number(String(v).replace(/[,₹\s]/g, "")); return v === "" || isNaN(n) ? null : Math.max(0, n); };
+  const out = [], errors = [];
+  rows.slice(1).forEach((r, i) => {
+    const line = i + 2;
+    const crNo = get(r, "crNo").slice(0, 20);
+    const regDate = nbParseDateLoose(get(r, "regDate"));
+    if (!crNo) { errors.push(`Row ${line}: no C.R. number`); return; }
+    if (!regDate) { errors.push(`Row ${line}: date "${get(r, "regDate")}" not understood (use DD/MM/YYYY)`); return; }
+    const ct = nbCrimeTypeFromText(get(r, "crimeType")) || { crimeType: "other", crimeTypeCustom: "", limit: 60 };
+    const st = get(r, "status").toLowerCase();
+    const status = /undetect|અનડિટેક્ટ|summary|સમરી/.test(st) ? "undetected" : /detect|ડિટેક્ટ/.test(st) ? "detected" : "investigation";
+    const names = get(r, "accused").split(/[;\n]/).map((x) => x.trim()).filter(Boolean).slice(0, 200);
+    const arrestedN = Math.min(names.length, Math.max(0, Number(get(r, "arrested")) || 0));
+    const csDate = nbParseDateLoose(get(r, "chargesheetDate"));
+    const sum = get(r, "summaryType").toUpperCase().replace(/[^ABC]/g, "").slice(0, 1) || null;
+    out.push({
+      ...NB_EMPTY_CASE,
+      crNo, crYear: (get(r, "crYear").replace(/\D/g, "").slice(0, 4)) || regDate.slice(0, 4), regDate,
+      crimeType: ct.crimeType, crimeTypeCustom: ct.crimeTypeCustom, chargeLimit: ct.limit || 60,
+      sections: get(r, "sections").slice(0, 200), place: get(r, "place").slice(0, 200),
+      complainantName: get(r, "complainantName").slice(0, 120), complainantAddress: get(r, "complainantAddress").slice(0, 300),
+      propertyLost: num(get(r, "propertyLost")), propertyRecovered: num(get(r, "propertyRecovered")),
+      status, summaryType: status === "undetected" ? sum : null,
+      accused: status === "detected" ? names.map((n, j) => ({ name: n.slice(0, 120), gender: "", age: null, arrested: j < arrestedN })) : [],
+      chargesheetNo: status === "detected" ? get(r, "chargesheetNo").slice(0, 30) : "", chargesheetDate: status === "detected" && csDate ? csDate : "",
+      court: status === "detected" ? get(r, "court").slice(0, 80) : "", ccNo: status === "detected" ? get(r, "ccNo").slice(0, 30) : "", ccYear: status === "detected" ? get(r, "ccYear").replace(/\D/g, "").slice(0, 4) : "",
+      remarks: get(r, "remarks").slice(0, 300),
+      district: (profile && profile.district) || "", state: (profile && profile.state) || "", stationName: (profile && profile.stationName) || "",
+      id: nbNewCaseId() + "i" + i, createdAt: Date.now(), updatedAt: Date.now(),
+    });
+  });
+  return { cases: out, errors };
+}
+function nbCrimeTemplateCsv() {
+  const head = NB_CRIME_CSV_COLS.map((c) => c[1]);
+  const ex = ["25", "2026", "05/09/2026", "Theft", "303(2)", "Main bazaar", "Ramesh Patel", "Dhari", "50000", "30000", "Detected", "", "Suresh K; Mahesh P", "1", "12", "20/10/2026", "Dhari", "130", "2026", ""];
+  const ex2 = ["26", "2026", "07/09/2026", "ચોરી", "", "", "", "", "15000", "", "Undetected", "A", "", "", "", "", "", "", "", ""];
+  const esc = (v) => (/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
+  return "﻿" + [head, ex, ex2].map((r) => r.map(esc).join(",")).join("\r\n");
+}
 // ⚙️ Data: backup, restore, station details, PIN, dark mode, erase.
 function CrimeDataMenu({ meta, cases, onBackup, onClose, showToast, darkMode, setDarkMode, bigBtn }) {
   const { t } = useLang();
@@ -17603,6 +17703,26 @@ function CrimeDataMenu({ meta, cases, onBackup, onClose, showToast, darkMode, se
   const [pin1, setPin1] = useState(""); const [pin2, setPin2] = useState("");
   const [msg, setMsg] = useState("");
   const fileRef = useRef(null);
+  const csvRef = useRef(null);
+  const importCsv = (file) => {
+    if (!file) return;
+    if (/\.xlsx?$/i.test(file.name)) { window.alert(t("Please save the Excel sheet as CSV first: File → Save As → \"CSV UTF-8\".", "પહેલાં Excel શીટને CSV તરીકે સાચવો: File → Save As → \"CSV UTF-8\".")); return; }
+    const r = new FileReader();
+    r.onload = async () => {
+      const { cases: rows, errors } = nbCrimeCsvToCases(String(r.result || ""), meta.profile);
+      const have = new Set(cases.map((c) => String(c.crNo).trim() + "/" + String(c.crYear)));
+      const fresh = rows.filter((c) => !have.has(c.crNo + "/" + c.crYear));
+      const dup = rows.length - fresh.length;
+      const msg = t(`${rows.length} cases read from the file.\n${fresh.length} new will be added${dup ? `, ${dup} already here (same C.R. no / year) will be skipped` : ""}.${errors.length ? `\n${errors.length} rows could not be read:\n` + errors.slice(0, 6).join("\n") : ""}`,
+        `ફાઇલમાંથી ${rows.length} ગુના વાંચ્યા.\n${fresh.length} નવા ઉમેરાશે${dup ? `, ${dup} પહેલેથી છે (એ જ ગુના નંબર / વર્ષ) તે છોડી દેવાશે` : ""}.${errors.length ? `\n${errors.length} લાઇન વાંચી શકાઈ નહીં:\n` + errors.slice(0, 6).join("\n") : ""}`);
+      if (!fresh.length) { window.alert(msg); return; }
+      if (!window.confirm(msg + "\n\n" + t("Add them?", "ઉમેરવા છે?"))) return;
+      await nbCrimeStore.putMany(fresh);
+      showToast(t(`Imported ${fresh.length} cases`, `${fresh.length} ગુના ઉમેરાયા`));
+      onClose();
+    };
+    r.readAsText(file);
+  };
   const restore = (file) => {
     if (!file) return;
     const r = new FileReader();
@@ -17641,6 +17761,9 @@ function CrimeDataMenu({ meta, cases, onBackup, onClose, showToast, darkMode, se
             <button onClick={() => { onBackup(); onClose(); }} style={row}>⬇ {t("Download backup file", "બેકઅપ ફાઇલ ડાઉનલોડ કરો")}</button>
             <button onClick={() => fileRef.current && fileRef.current.click()} style={row}>⬆ {t("Restore from a backup file", "બેકઅપ ફાઇલમાંથી restore કરો")}</button>
             <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={(e) => { restore(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+            <button onClick={() => csvRef.current && csvRef.current.click()} style={row}>📥 {t("Import cases from Excel (CSV file)", "Excel (CSV ફાઇલ) માંથી ગુના ઉમેરો")}</button>
+            <input ref={csvRef} type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={(e) => { importCsv(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+            <button onClick={() => nbDownloadText("nokri-book-crime-import-template.csv", nbCrimeTemplateCsv(), "text/csv;charset=utf-8")} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>⬇ {t("Download blank Excel template (CSV)", "ખાલી Excel નમૂનો (CSV) ડાઉનલોડ કરો")}</button>
             <button onClick={() => setView("station")} style={row}>🏢 {t("Station details", "સ્ટેશનની વિગત")}</button>
             <button onClick={() => { setView("pin"); setMsg(""); }} style={row}>🔒 {meta.pinHash ? t("Change or remove PIN", "PIN બદલો કે દૂર કરો") : t("Set a PIN for this device", "આ ડિવાઇસ માટે PIN સેટ કરો")}</button>
             <button onClick={() => setDarkMode((d) => !d)} style={row}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
