@@ -7161,6 +7161,45 @@ function DutyRoster() {
     showToast(t(`Duty assigned to ${name} for ${formatDMY(dutyDate)}`, `${formatDMY(dutyDate)} માટે ${name} ને ડ્યુટી સોંપાઈ`));
   };
 
+  // DUTY SWAP: person A's duty in work type `catId` on `date` is given to
+  // person B (A's entry for that day is removed, B gets the same entry
+  // with "swapped" noted). Two-way: B's duty that day in `backCatId` goes
+  // to A. lastDuty is re-derived for everyone touched, so fairness stays
+  // correct. One save, so Undo reverts the whole swap.
+  const swapDuty = (catId, aNum, bNum, date, backCatId) => {
+    const cur = dataRef.current;
+    const staff = cur.staff || {};
+    const A = staff[aNum], B = staff[bNum];
+    if (!A || !B || aNum === bNum) return false;
+    const now = Date.now();
+    const lastOf = (hist) => { let d = null; (hist || []).forEach((e) => { const x = historyDate(e); if (!d || x > d) d = x; }); return d; };
+    const moveDay = (membership, cat, fromNum, toNum, otherName) => {
+      const list = membership[cat] || [];
+      const fromM = list.find((m) => m.number === fromNum);
+      if (!fromM) return null;
+      const taken = (fromM.history || []).filter((e) => historyDate(e) === date);
+      if (!taken.length) return null;
+      if (list.some((m) => m.number === toNum && isOnDutyOn(m, date))) return "dup";
+      const src = typeof taken[0] === "string" ? { date } : taken[0];
+      const entry = { ...src, date, ts: now, batch: uid(), swappedWith: fromNum, note: ((src.note ? src.note + " · " : "") + "⇄ " + otherName).slice(0, 500) };
+      let next = list.map((m) => m.number === fromNum ? (() => { const h = (m.history || []).filter((e) => historyDate(e) !== date); return { ...m, history: h, lastDuty: lastOf(h) }; })() : m);
+      if (next.some((m) => m.number === toNum)) next = next.map((m) => m.number === toNum ? (() => { const h = [...(m.history || []), entry]; return { ...m, skip: false, history: h, lastDuty: lastOf(h) }; })() : m);
+      else next = [...next, { number: toNum, lastDuty: date, history: [entry], skip: false }];
+      return { ...membership, [cat]: next };
+    };
+    let membership = moveDay(cur.membership, catId, aNum, bNum, A.name || aNum);
+    if (membership === "dup") { showToast(t(`${B.name} already has a duty in this work type that day`, `${B.name} ને તે દિવસે આ કામમાં પહેલેથી ડ્યુટી છે`), "error"); return false; }
+    if (!membership) return false;
+    if (backCatId) {
+      const back = moveDay(membership, backCatId, bNum, aNum, B.name || bNum);
+      if (back === "dup") { showToast(t(`${A.name} already has a duty in that work type that day`, `${A.name} ને તે દિવસે તે કામમાં પહેલેથી ડ્યુટી છે`), "error"); return false; }
+      if (back) membership = back;
+    }
+    persist({ ...cur, membership });
+    showToast(backCatId ? t(`Swapped: ${A.name} ⇄ ${B.name} (${formatDMY(date)})`, `અદલાબદલી: ${A.name} ⇄ ${B.name} (${formatDMY(date)})`) : t(`${A.name}'s duty given to ${B.name} (${formatDMY(date)})`, `${A.name} ની ડ્યુટી ${B.name} ને આપી (${formatDMY(date)})`));
+    return true;
+  };
+
   // A fixed, always-the-same category id — auto-created the first time
   // anyone assigns a Miscellaneous duty, so it behaves exactly like any
   // other work type from then on (shows up in the sidebar, has its own
@@ -8231,7 +8270,7 @@ function DutyRoster() {
               exportBackup={exportBackup}
             />
           )}
-          {vm === "calendar" && <CalendarView initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
+          {vm === "calendar" && <CalendarView swapDuty={swapDuty} initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
           {vm === "report" && <ReportView data={data} initialSort={view.sort} focus={view.focus} />}
           {vm === "events" && (
             <EventsView
@@ -12216,8 +12255,64 @@ const calNavBtn = {
   background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, width: 26, height: 26,
   fontSize: 14, color: "var(--text-primary)", display: "flex", alignItems: "center", justifyContent: "center",
 };
-function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry }) {
+// ⇄ on a Duty calendar entry: give A's duty that day to B, or swap both ways.
+function SwapDutyModal({ data, date, from, onClose, onSwap }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [q, setQ] = useState("");
+  const [pick, setPick] = useState(null);
+  const [backCat, setBackCat] = useState("");
+  const catLabel = (id) => ((data.categories || []).find((c) => c.id === id) || {}).label || id;
+  const matches = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return [];
+    return Object.values(data.staff || {}).filter((p) => p.number !== from.number && (String(p.number).toLowerCase().includes(s) || (p.name || "").toLowerCase().includes(s))).slice(0, 8);
+  }, [q, data, from.number]);
+  const picked = pick ? data.staff[pick] : null;
+  const pickedDuties = useMemo(() => !pick ? [] : (data.categories || []).filter((c) => (data.membership[c.id] || []).some((m) => m.number === pick && isOnDutyOn(m, date))).map((c) => c.id), [pick, data, date]);
+  const away = picked ? unavailableOnDate(picked, date) : null;
+  useEffect(() => { setBackCat(pickedDuties.length === 1 ? pickedDuties[0] : ""); }, [pick]);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Swap duty", "ડ્યુટી અદલાબદલી")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 440, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div className="disp" style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>⇄ {t("Swap duty", "ડ્યુટી અદલાબદલી")}</div>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>{t(`${from.name}'s ${catLabel(from.catId)} duty on ${formatDMY(date)} — give it to:`, `${from.name} ની ${formatDMY(date)} ની ${catLabel(from.catId)} ડ્યુટી — કોને આપવી:`)}</div>
+        {!picked ? (
+          <React.Fragment>
+            <input type="text" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Buckle number or name", "બકલ નંબર કે નામ")} className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }} />
+            <div style={{ marginTop: 6 }}>
+              {matches.map((p) => (
+                <button key={p.number} onClick={() => setPick(p.number)} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "9px 4px", fontSize: 13.5, color: "var(--text-primary)", cursor: "pointer" }}>
+                  {p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>#{p.number}</span>
+                </button>
+              ))}
+            </div>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{picked.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 12 }}>#{picked.number}</span> <button onClick={() => setPick(null)} style={{ ...iconBtnWide, marginLeft: 6 }}>{t("Change", "બદલો")}</button></div>
+            {away && <div style={{ fontSize: 12.5, color: "var(--status-error-text)", marginTop: 6 }}>⚠ {t(`${picked.name} is marked ${unavailLabel(data, away)} on this day.`, `${picked.name} આ દિવસે ${unavailLabel(data, away)} તરીકે નોંધાયેલ છે.`)}</div>}
+            {pickedDuties.length > 0 ? (
+              <div style={{ marginTop: 10, fontSize: 13 }}>
+                <div style={{ marginBottom: 4 }}>{t(`${picked.name} also has a duty that day. Give it to ${from.name} (two-way swap)?`, `${picked.name} ને પણ તે દિવસે ડ્યુટી છે. તે ${from.name} ને આપવી (બંને તરફ અદલાબદલી)?`)}</div>
+                <label style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0" }}><input type="radio" checked={!backCat} onChange={() => setBackCat("")} /> {t("No — only give this one duty", "ના — ફક્ત આ એક ડ્યુટી આપો")}</label>
+                {pickedDuties.map((id) => <label key={id} style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0" }}><input type="radio" checked={backCat === id} onChange={() => setBackCat(id)} /> {t(`Yes — ${from.name} takes ${catLabel(id)}`, `હા — ${from.name} ${catLabel(id)} સંભાળે`)}</label>)}
+              </div>
+            ) : <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>{t(`${picked.name} has no other duty that day — ${from.name} will be free.`, `${picked.name} ને તે દિવસે બીજી ડ્યુટી નથી — ${from.name} છૂટા થશે.`)}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={onClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+              <button onClick={() => { if (away && !window.confirm(t(`${picked.name} is on ${unavailLabel(data, away)}. Give the duty anyway?`, `${picked.name} ${unavailLabel(data, away)} પર છે. છતાં ડ્યુટી આપવી છે?`))) return; onSwap(pick, backCat || null); }} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700 }}>{backCat ? t("Swap", "અદલાબદલી કરો") : t("Give duty", "ડ્યુટી આપો")}</button>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty }) {
   const canDelete = !!(deleteHistoryEntries && deleteUnavailableHistoryEntry);
+  const [swapFor, setSwapFor] = useState(null); // { catId, number, name, catLabel }
   const { t, lang } = useLang();
   const [month, setMonth] = useState((initialDate || todayStr()).slice(0, 7));
   const [selectedDate, setSelectedDateRaw] = useState(initialDate || todayStr());
@@ -12572,6 +12667,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
   return (
     <React.Fragment>
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
+      {swapFor && <SwapDutyModal data={data} date={selectedDate} from={swapFor} onClose={() => setSwapFor(null)} onSwap={(bNum, backCatId) => { if (swapDuty(swapFor.catId, swapFor.number, bNum, selectedDate, backCatId)) setSwapFor(null); }} />}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</h1>
@@ -12787,6 +12883,14 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                               style={{ fontSize: 11.5, color: "var(--text-tertiary)", cursor: "pointer" }}
                               title={t("Tap to see the note for this duty", "આ ડ્યુટીની નોંધ જોવા ટેપ કરો")}
                             >📝</span>
+                          )}
+                          {swapDuty && !isOutstationHere && !entrySelectMode && !deleteMode && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSwapFor({ catId: r.catId, number: r.number, name: r.name }); }}
+                              title={t("Swap / give this duty to someone else", "આ ડ્યુટી અદલાબદલી કરો / બીજાને આપો")}
+                              aria-label={t("Swap duty", "ડ્યુટી અદલાબદલી")}
+                              style={{ ...iconBtn, padding: "2px 7px", fontSize: 12 }}
+                            >⇄</button>
                           )}
                           {deleteMode && deleteHistoryEntries && !entrySelectMode && (
                             <button
