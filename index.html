@@ -2545,15 +2545,15 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
     rowPageBreak: "avoid",
     startY: headerY,
     // # | Designation | Buckle no | Name | Mobile | Status | Duties this month
-    head: [["#", "Designation", "Buckle no.", "Name", "Mobile", "Status", "Duties this month"]],
-    body: staffList.map((s, i) => [i + 1, s.desgLabel || "—", s.number, s.name, displayPhone(s.phone) || "—", s.statusLabel, s.dutiesThisMonth]),
+    head: [["#", "Designation", "Buckle no.", "Name", "Mobile", "Status"]],
+    body: staffList.map((s, i) => [i + 1, s.desgLabel || "—", s.number, s.name, displayPhone(s.phone) || "—", s.statusLabel]),
     theme: "grid",
     // Print-friendly: light grey heading, pure black text and grid.
     styles: { fontSize: FONT_PT, valign: "top", textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2, fillColor: [255, 255, 255] },
     headStyles: { fillColor: [217, 217, 217], textColor: [0, 0, 0], fontStyle: "bold", lineColor: [0, 0, 0], lineWidth: 0.2 },
     alternateRowStyles: { fillColor: [255, 255, 255] },
     margin: { left: 14, right: 14, bottom: 16 },
-    columnStyles: { 0: { cellWidth: 9, halign: "center" }, 1: { minCellWidth: 22 }, 2: { halign: "center" }, 3: { minCellWidth: 42 }, 5: { minCellWidth: 24 }, 6: { halign: "center" } },
+    columnStyles: { 0: { cellWidth: 9, halign: "center" }, 1: { minCellWidth: 22 }, 2: { halign: "center" }, 3: { minCellWidth: 50 }, 5: { minCellWidth: 28 } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [1, 3, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
         hookData.cell.text = [];
@@ -2578,11 +2578,11 @@ function downloadStaffDirectoryDocx(staffList, stationName, district) {
   blocks.push({ text: `${staffList.length} staff · ${formatDMY(todayStr())}`, center: true, sz: 20, after: 200 });
   blocks.push({
     table: true,
-    widths: [450, 1350, 1100, 2950, 1800, 1350, 1100],
-    head: ["#", "Designation", "Buckle no.", "Name", "Mobile", "Status", "Duties this month"],
+    widths: [500, 1450, 1150, 3500, 1950, 1550],
+    head: ["#", "Designation", "Buckle no.", "Name", "Mobile", "Status"],
     rows: staffList.map((s, i) => [
       { t: String(i + 1), center: true }, { t: s.desgLabel || "—" }, { t: s.number, center: true }, { t: s.name },
-      { t: displayPhone(s.phone) || "—", center: true }, { t: s.statusLabel }, { t: String(s.dutiesThisMonth), center: true },
+      { t: displayPhone(s.phone) || "—", center: true }, { t: s.statusLabel },
     ]),
   });
   const blob = nbDocxFromBlocks(blocks);
@@ -3281,8 +3281,6 @@ function computeAllReminders(data, lang) {
     list.push({ key, eventId: key, milestone: kind, event: { id: key, type: "StaffDate", name: st.name, number: st.number, start: date, end: date }, message: gu ? msgGu : msgEn, status: acks[key] ? "Acknowledged" : "Pending" });
   };
   Object.values(data.staff || {}).forEach((st) => {
-    if (st.retirementDate) staffReminder(st, "retire", st.retirementDate, 30, `${st.name} (${st.number}) retires on ${formatDMY(st.retirementDate)}.`, `${st.name} (${st.number}) ${formatDMY(st.retirementDate)} ના રોજ નિવૃત્ત થાય છે.`);
-    if (st.attachEnd) staffReminder(st, "attach", st.attachEnd, 7, `${st.name} (${st.number}): ${st.attachNote || "deputation / attachment"} ends on ${formatDMY(st.attachEnd)}.`, `${st.name} (${st.number}): ${st.attachNote || "પ્રતિનિયુક્તિ / જોડાણ"} ${formatDMY(st.attachEnd)} ના રોજ પૂરું થાય છે.`);
     const u = st.unavailable;
     if (u && unavailKind(u) === "Outstation" && u.to && u.from && daysBetween(u.from, u.to) >= 14) {
       const lbl = unavailLabel(data, u) || "Outstation";
@@ -11364,11 +11362,23 @@ function nbLeaveUsed(staffRec, year, extraPeriods) {
   const out = {}; Object.keys(byType).forEach((k) => { out[k] = byType[k].size; });
   return out;
 }
+// Only Casual Leave has a limit: strictly 12 days a calendar year, for
+// everyone. Every other leave type is recorded and counted, no limit.
+const NB_CL_DAYS = 12;
+function nbIsCasualLeave(lt) {
+  return !!lt && (lt.id === "leave1" || /casual|કેઝ્યુઅલ|આકસ્મિક|^\s*c\.?\s*l\.?\s*$/i.test(lt.label || ""));
+}
 function nbLeaveAllowance(data, staffRec, typeId) {
-  const own = staffRec && staffRec.leaveAllowance && staffRec.leaveAllowance[typeId];
-  if (typeof own === "number") return own;
   const lt = (data.leaveTypes || []).find((x) => x.id === typeId);
-  return lt && typeof lt.allowance === "number" ? lt.allowance : null;
+  return nbIsCasualLeave(lt) ? NB_CL_DAYS : null;
+}
+// Short name for a leave type shown next to a person ("CL", "EL", "LRD SL").
+function nbLeaveAbbr(lt) {
+  const label = (lt && lt.label) || "";
+  if (nbIsCasualLeave(lt)) return "CL";
+  if (!/^[\x00-\x7F]+$/.test(label)) return label.length > 10 ? label.slice(0, 10) + "…" : label;
+  const words = label.replace(/\bleave\b/i, "L").split(/\s+/).filter(Boolean);
+  return words.map((w) => (/^[A-Z]{2,}$/.test(w) ? w + " " : w[0].toUpperCase())).join("").trim();
 }
 // Text warning if adding this leave takes someone over their allowance.
 function nbLeaveOverLimit(data, number, typeId, from, to, alreadyQueued, t) {
@@ -11414,23 +11424,11 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
     <div role="dialog" aria-modal="true" aria-label={t("Leave balance", "રજા બેલેન્સ")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 900, maxWidth: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>🗓️ {t("Leave balance", "રજા બેલેન્સ")}</div>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>🗓️ {t("Leave record", "રજા રેકોર્ડ")}</div>
           <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
         </div>
-        {/* yearly allowance per leave type */}
-        <div style={{ margin: "12px 0", padding: 12, border: "1px solid var(--border)", borderRadius: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{t("Days allowed per year (same for everyone)", "વર્ષમાં મળવાપાત્ર દિવસો (બધા માટે સરખા)")}</div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {types.map((lt) => (
-              <label key={lt.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
-                {lt.label}
-                <input type="number" min="0" max="366" value={typeof lt.allowance === "number" ? lt.allowance : ""} placeholder="—"
-                  onChange={(e) => setLeaveTypeAllowance(lt.id, e.target.value === "" ? null : Math.max(0, Math.min(366, Math.round(Number(e.target.value)))))}
-                  style={{ width: 64, fontSize: 13 }} />
-              </label>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Leave a box empty for no limit. Tap a person below to give them a different number.", "મર્યાદા ન હોય તો ખાનું ખાલી રાખો. કોઈ એક વ્યક્તિ માટે જુદો આંકડો આપવા નીચે તેના પર ટેપ કરો.")}</div>
+        <div style={{ margin: "12px 0", padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12.5, color: "var(--text-secondary)" }}>
+          {t(`Casual Leave (CL): strictly ${NB_CL_DAYS} days a year for everyone. All other leave is recorded and counted.`, `આકસ્મિક રજા (CL): દરેક માટે વર્ષમાં સખત ${NB_CL_DAYS} દિવસ. બાકીની બધી રજા નોંધાય અને ગણાય છે.`)}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
           <button onClick={() => setYear((y) => y - 1)} style={iconBtnWide}>‹</button>
@@ -11445,11 +11443,11 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
             <thead><tr><th style={{ ...th, textAlign: "left" }}>{t("Name", "નામ")}</th>{types.map((lt) => <th key={lt.id} style={th}>{lt.label}</th>)}</tr></thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.s.number} onClick={() => setEditPerson(r.s.number)} style={{ cursor: "pointer" }}>
+                <tr key={r.s.number}>
                   <td style={{ ...td, textAlign: "left" }}>{r.s.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{r.s.number}</span></td>
                   {r.cells.map((c) => (
                     <td key={c.id} style={{ ...td, color: c.over ? "var(--status-error-text)" : c.used ? "var(--text-primary)" : "var(--text-tertiary)", fontWeight: c.over ? 700 : 400 }}>
-                      {c.used}{c.allow != null ? " / " + c.allow : ""}{c.allow != null && !c.over ? <span style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}> ({c.allow - c.used} {t("left", "બાકી")})</span> : null}{c.custom ? " *" : ""}
+                      {c.used}{c.allow != null ? " / " + c.allow : ""}{c.allow != null && !c.over ? <span style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}> ({c.allow - c.used} {t("left", "બાકી")})</span> : null}
                     </td>
                   ))}
                 </tr>
@@ -11458,7 +11456,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
             </tbody>
           </table>
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("used / allowed in the year · * = this person has their own number", "વર્ષમાં વપરાયેલ / મળવાપાત્ર · * = આ વ્યક્તિ માટે જુદો આંકડો")}</div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t(`Days taken in the year · CL shows taken / ${NB_CL_DAYS}`, `વર્ષમાં લીધેલ દિવસ · CL માં લીધેલ / ${NB_CL_DAYS}`)}</div>
       </div>
       {editPerson && (() => {
         const st = data.staff[editPerson];
@@ -11486,34 +11484,6 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
   );
 }
 
-function StaffDatesModal({ st, onSave, onClose }) {
-  const { t } = useLang();
-  useEscToClose(onClose);
-  const [ret, setRet] = useState(st.retirementDate || "");
-  const [att, setAtt] = useState(st.attachEnd || "");
-  const [note, setNote] = useState(st.attachNote || "");
-  const lab = { display: "block", fontSize: 12, color: "var(--text-secondary)", margin: "12px 0 4px" };
-  return (
-    <div role="dialog" aria-modal="true" aria-label={t("Staff dates", "સ્ટાફ તારીખો")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 20 }}>
-        <div className="disp" style={{ fontSize: 15, fontWeight: 700 }}>📅 {st.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 12 }}>#{st.number}</span></div>
-        <label style={lab}>{t("Retirement date (reminder 30 days before)", "નિવૃત્તિ તારીખ (30 દિવસ પહેલાં યાદ)")}</label>
-        <input type="date" value={ret} onChange={(e) => setRet(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
-        <label style={lab}>{t("Deputation / attachment ends (reminder 7 days before)", "પ્રતિનિયુક્તિ / જોડાણ પૂરું (7 દિવસ પહેલાં યાદ)")}</label>
-        <input type="date" value={att} onChange={(e) => setAtt(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
-        <input type="text" value={note} onChange={(e) => setNote(e.target.value.slice(0, 80))} placeholder={t("What is it? e.g. Attached to LCB", "શું છે? દા.ત. LCB માં જોડાણ")} className="gu" style={{ width: "100%", boxSizing: "border-box", marginTop: 6, fontSize: 13 }} />
-        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{t("Long outstations (15+ days) remind you 2 days before they end — no need to enter them here.", "લાંબા બહારગામ (15+ દિવસ) પૂરા થાય તેના 2 દિવસ પહેલાં આપમેળે યાદ આવશે.")}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-          <button onClick={onClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
-          <button onClick={() => onSave({ retirementDate: ret || null, attachEnd: att || null, attachNote: att ? note.trim() || null : null })} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700 }}>{t("Save", "સાચવો")}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------- BANDOBAST SHEET ----------
-// { id, title, from, to, time, place, points: [{ id, name, note, staff: [number] }], recordedCat }
 function nbBandobastRows(data, b) {
   const desg = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
   return (b.points || []).map((pt) => ({
@@ -11974,7 +11944,6 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [showLeaveBalance, setShowLeaveBalance] = useState(false);
-  const [datesFor, setDatesFor] = useState(null);
   const [search, setSearch] = useState(initialSearch || "");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
@@ -12220,8 +12189,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
             border: "1px solid " + (showFullActions ? "var(--accent-strong)" : "var(--border)"),
           }} className="gu"
         >{t("Edit staff", "સ્ટાફ સંપાદિત કરો")}</button>
-        {setLeaveTypeAllowance && <button onClick={() => setShowLeaveBalance(true)} className="gu" style={{ marginLeft: 6, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>🗓️ {t("Leave balance", "રજા બેલેન્સ")}</button>}
-        {datesFor && data.staff[datesFor] && <StaffDatesModal st={data.staff[datesFor]} onSave={(patch) => { setStaffDates(datesFor, patch); setDatesFor(null); }} onClose={() => setDatesFor(null)} />}
+        {setLeaveTypeAllowance && <button onClick={() => setShowLeaveBalance(true)} className="gu" style={{ marginLeft: 6, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>🗓️ {t("Leave record", "રજા રેકોર્ડ")}</button>}
         {showLeaveBalance && <LeaveBalanceModal data={data} onClose={() => setShowLeaveBalance(false)} setLeaveTypeAllowance={setLeaveTypeAllowance} setStaffLeaveAllowance={setStaffLeaveAllowance} />}
       </div>
       {/* Only while the staff list is genuinely empty — brand-new account,
@@ -12340,6 +12308,24 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
                       title={t("View full duty history across every work type", "દરેક કામના પ્રકારમાં સંપૂર્ણ ડ્યુટી ઇતિહાસ જુઓ")}
                       style={{ color: DUTY_HEAT_COLOR[heat], fontWeight: heat === "green" ? 400 : 600, cursor: "pointer", borderBottom: "1px dashed currentColor" }}
                     >{s.name}</span>
+                    {(() => {
+                      const yr = new Date().getFullYear();
+                      const used = nbLeaveUsed(data.staff[s.number] || s, yr);
+                      const parts = (data.leaveTypes || []).filter((lt) => used[lt.id] || nbIsCasualLeave(lt)).map((lt) => {
+                        const n = used[lt.id] || 0;
+                        const cl = nbIsCasualLeave(lt);
+                        if (cl && !n && !Object.keys(used).length) return null;
+                        return { key: lt.id, text: `${nbLeaveAbbr(lt)} ${n}${cl ? "/" + NB_CL_DAYS : ""}`, title: `${lt.label}: ${n} ${t("days in", "દિવસ,")} ${yr}`, over: cl && n > NB_CL_DAYS, cl };
+                      }).filter(Boolean);
+                      if (!parts.length) return null;
+                      return (
+                        <div style={{ fontSize: 10.5, marginTop: 3, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {parts.map((p) => (
+                            <span key={p.key} title={p.title} className="mono" style={{ padding: "0 5px", borderRadius: 4, border: "1px solid " + (p.over ? "var(--status-error-text)" : "var(--border)"), color: p.over ? "var(--status-error-text)" : "var(--text-secondary)", fontWeight: p.cl ? 700 : 500 }}>{p.text}</span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td style={{ ...td, minWidth: 140 }}>
                     <select
@@ -12359,15 +12345,6 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
                       <span onClick={() => setStaffPhone(s.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{displayPhone(s.phone)}</span>
                     ) : (
                       <button onClick={() => setStaffPhone(s.number)} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "underline", padding: 0 }} className="gu">+ {t("Add number", "નંબર ઉમેરો")}</button>
-                    )}
-                    {setStaffDates && (
-                      <div style={{ marginTop: 4 }}>
-                        <button onClick={() => setDatesFor(s.number)} className="gu" style={{ background: "transparent", border: "none", padding: 0, fontSize: 11, color: s.retirementDate || s.attachEnd ? "var(--text-secondary)" : "var(--text-tertiary)", textDecoration: "underline", textAlign: "left", fontFamily: "inherit" }}>
-                          {s.retirementDate || s.attachEnd
-                            ? [s.retirementDate ? t("Retires ", "નિવૃત્તિ ") + formatDMY(s.retirementDate) : null, s.attachEnd ? (s.attachNote || t("Attachment", "જોડાણ")) + " → " + formatDMY(s.attachEnd) : null].filter(Boolean).join(" · ")
-                            : "📅 " + t("Dates", "તારીખો")}
-                        </button>
-                      </div>
                     )}
                   </td>
                   <td style={td}>
