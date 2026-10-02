@@ -2215,7 +2215,8 @@ function drawPdfHeader(doc, title, stationName, district) {
     }
   }
   doc.setFontSize(11);
-  doc.text(title, 14, headerY);
+  if (needsImageRender(title)) drawLeftAlignedTextImage(doc, title, 14, headerY, 11);
+  else doc.text(title, 14, headerY);
   return headerY + 8;
 }
 // ---------- PDF library: loaded only when a PDF is first made ----------
@@ -2530,7 +2531,10 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Staff Directory", stationName, district), null, [`${staffList.length} staff`]);
+  // Title "મહેકમ પત્ર" centred and larger, under the station name.
+  const hy = drawPdfHeader(doc, "", stationName, district);
+  drawCenteredStationName(doc, "મહેકમ પત્ર", hy - 1, 14);
+  const headerY = nbPdfIntro(doc, hy + 6, null, [`${staffList.length} staff`]);
 
   doc.autoTable({
     // Never let a row (in particular one made tall by a wrapped
@@ -2563,14 +2567,14 @@ async function downloadStaffDirectoryPdf(staffList, stationName, district) {
     },
   });
 
-  return { doc, filename: `nokri-book-staff-directory-${todayStr()}.pdf` };
+  return { doc, filename: `mahekam-patra-${todayStr()}.pdf` };
 }
 // Same table as the staff PDF, as a Word (.docx) file.
 function downloadStaffDirectoryDocx(staffList, stationName, district) {
   const blocks = [];
   if (stationName) blocks.push({ text: stationName, b: true, sz: 30, center: true, after: 0 });
   if (district) blocks.push({ text: district, center: true, sz: 22 });
-  blocks.push({ text: "સ્ટાફ યાદી / Staff Directory", b: true, sz: 26, center: true, after: 40 });
+  blocks.push({ text: "મહેકમ પત્ર", b: true, sz: 28, center: true, after: 40 });
   blocks.push({ text: `${staffList.length} staff · ${formatDMY(todayStr())}`, center: true, sz: 20, after: 200 });
   blocks.push({
     table: true,
@@ -2584,7 +2588,7 @@ function downloadStaffDirectoryDocx(staffList, stationName, district) {
   const blob = nbDocxFromBlocks(blocks);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `nokri-book-staff-directory-${todayStr()}.docx`;
+  a.href = url; a.download = `mahekam-patra-${todayStr()}.docx`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
