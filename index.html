@@ -8592,10 +8592,128 @@ function navBtn(active) {
 // Only work types that have someone assigned *today* show up here at all;
 // anything not yet assigned today is left out entirely (use Assign Duty
 // for that). Kept deliberately simple: no Assign controls here.
+// ---------- DAILY DUTY ORDER ----------
+// Everyone on duty on a date, grouped by work type, plus who is on
+// leave / outstation — as WhatsApp-ready text and a PDF for roll call.
+function nbDutyOrderRows(data, date) {
+  const desg = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
+  const groups = [];
+  (data.categories || []).forEach((c) => {
+    const people = [];
+    (data.membership[c.id] || []).forEach((m) => {
+      if (!isOnDutyOn(m, date)) return;
+      const st = (data.staff || {})[m.number] || {};
+      const entry = (m.history || []).find((e) => historyDate(e) === date);
+      people.push({ number: m.number, name: st.name || m.name || "", desg: desg(st.designation), note: entry ? historyNote(entry) : "", night: !!(entry && entry.night) });
+    });
+    if (people.length) groups.push({ label: c.label, people });
+  });
+  const away = [];
+  Object.values(data.staff || {}).forEach((st) => {
+    const u = unavailableOnDate(st, date);
+    if (!u) return;
+    const kind = unavailKind(u);
+    if (kind !== "Leave" && kind !== "Outstation") return;
+    away.push({ number: st.number, name: st.name || "", desg: desg(st.designation), kind, label: unavailLabel(data, u) || kind, to: u.to || null });
+  });
+  away.sort((a, b) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label) || a.name.localeCompare(b.name));
+  return { groups, away };
+}
+function nbDutyOrderText(data, date, includeAway, lang) {
+  const gu = lang === "gu";
+  const { groups, away } = nbDutyOrderRows(data, date);
+  const lines = [];
+  const station = [data.stationName, data.district].filter(Boolean).join(", ");
+  if (station) lines.push("*" + station + "*");
+  lines.push((gu ? "*ડ્યુટી ઓર્ડર — " : "*Duty order — ") + formatDMY(date) + "*");
+  groups.forEach((g) => {
+    lines.push("");
+    lines.push("▪️ *" + g.label + "*");
+    g.people.forEach((p, i) => lines.push(`${i + 1}. ${p.desg ? p.desg + " " : ""}${p.name} (${p.number})${p.night ? (gu ? " 🌙 રાત્રિ" : " 🌙 Night") : ""}${p.note ? " — " + p.note : ""}`));
+  });
+  if (!groups.length) { lines.push(""); lines.push(gu ? "આ તારીખે કોઈ ડ્યુટી સોંપાયેલી નથી." : "No duties assigned for this date."); }
+  if (includeAway && away.length) {
+    lines.push("");
+    lines.push(gu ? "*રજા / બહારગામ*" : "*On leave / outstation*");
+    away.forEach((a) => lines.push(`• ${a.desg ? a.desg + " " : ""}${a.name} (${a.number}) — ${a.label}${a.to ? (gu ? " (" + formatDMY(a.to) + " સુધી)" : " (till " + formatDMY(a.to) + ")") : ""}`));
+  }
+  return lines.join("\n");
+}
+async function downloadDutyOrderPdf(data, date, includeAway) {
+  await ensureGujaratiCanvasFont();
+  await nbEnsureJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const FONT_PT = NB_PDF_FONT_PT;
+  const { groups, away } = nbDutyOrderRows(data, date);
+  let y = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Duty Order", data.stationName, data.district), formatDMY(date));
+  const draw = (head, body) => {
+    doc.autoTable({
+      rowPageBreak: "avoid", startY: y, head: [head], body,
+      styles: { fontSize: FONT_PT, valign: "top" },
+      headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+      didParseCell: (h) => { if (h.section === "body" && needsImageRender(h.cell.raw)) h.cell.text = []; },
+      didDrawCell: (h) => { if (h.section === "body" && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
+    });
+    y = doc.lastAutoTable.finalY + 6;
+  };
+  const body = [];
+  groups.forEach((g) => g.people.forEach((p, i) => body.push([i === 0 ? g.label : "", i + 1, p.desg, p.name, p.number, (p.night ? "Night" : "") + (p.note ? (p.night ? " · " : "") + p.note : "")])));
+  draw(["Work type", "#", "Designation", "Name", "Number", "Note"], body.length ? body : [["—", "", "", "No duties assigned", "", ""]]);
+  if (includeAway && away.length) draw(["#", "Designation", "Name", "Number", "Leave / Outstation", "Till"], away.map((a, i) => [i + 1, a.desg, a.name, a.number, a.label, a.to ? formatDMY(a.to) : "—"]));
+  return { doc, filename: `nokri-book-duty-order-${date}.pdf` };
+}
+function DutyOrderModal({ data, onClose }) {
+  const { t, lang } = useLang();
+  useEscToClose(onClose);
+  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const [date, setDate] = useState(todayStr());
+  const [orderLang, setOrderLang] = useState(lang === "gu" ? "gu" : "en");
+  const [includeAway, setIncludeAway] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [pdf, setPdf] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const text = useMemo(() => nbDutyOrderText(data, date, includeAway, orderLang), [data, date, includeAway, orderLang]);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); } catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (e2) {} ta.remove(); }
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+  const btn = { flex: "1 1 0", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 6px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", textAlign: "center", textDecoration: "none", whiteSpace: "nowrap" };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Duty order", "ડ્યુટી ઓર્ડર")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 560, maxWidth: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>📋 {t("Duty order", "ડ્યુટી ઓર્ડર")}</div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", margin: "12px 0" }}>
+          <button onClick={() => setDate(todayStr())} style={catTabBtn(date === todayStr())} className="gu">{t("Today", "આજે")}</button>
+          <button onClick={() => setDate(tomorrow)} style={catTabBtn(date === tomorrow)} className="gu">{t("Tomorrow", "આવતીકાલે")}</button>
+          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ fontSize: 13 }} />
+          <div style={{ flex: 1 }} />
+          <button onClick={() => setOrderLang("gu")} style={catTabBtn(orderLang === "gu")} className="gu">ગુજરાતી</button>
+          <button onClick={() => setOrderLang("en")} style={catTabBtn(orderLang === "en")}>English</button>
+        </div>
+        <label className="gu" style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          <input type="checkbox" checked={includeAway} onChange={(e) => setIncludeAway(e.target.checked)} /> {t("Include staff on leave / outstation", "રજા / બહારગામ સ્ટાફ પણ બતાવો")}
+        </label>
+        <pre className="gu" style={{ flex: 1, minHeight: 160, overflowY: "auto", whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, lineHeight: 1.55, background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, margin: 0 }}>{text}</pre>
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <button onClick={copy} className="gu" style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
+          <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}>💬 WhatsApp</a>
+          <button disabled={busy} onClick={async () => { setBusy(true); try { setPdf(await downloadDutyOrderPdf(data, date, includeAway)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF — check your connection.", "PDF બની શક્યું નહીં — જોડાણ તપાસો.")); } setBusy(false); }} className="gu" style={btn}>{busy ? "…" : "⬇ PDF"}</button>
+        </div>
+      </div>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+    </div>
+  );
+}
+
 function HomeView({ data, goToCategory }) {
   const { t, lang } = useLang();
   const today = todayStr();
   const [showInfo, setShowInfo] = useState(false);
+  const [showOrder, setShowOrder] = useState(false);
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
     const doneToday = roster.find((p) => p.onDutyToday);
@@ -8607,7 +8725,10 @@ function HomeView({ data, goToCategory }) {
       <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Today's duty", "આજની ડ્યુટી")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowOrder(true)} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>📋 {t("Duty order", "ડ્યુટી ઓર્ડર")}</button>
       </div>
+      {showOrder && <DutyOrderModal data={data} onClose={() => setShowOrder(false)} />}
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
           {new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(todayStr())} — {t("only work types with a duty assigned today are shown here.", "ફક્ત જેમાં આજે ડ્યુટી સોંપાયેલી છે તે કામના પ્રકારો અહીં બતાવાય છે.")}
