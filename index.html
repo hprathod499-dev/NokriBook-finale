@@ -2223,8 +2223,32 @@ function drawPdfHeader(doc, title, stationName, district) {
 // jsPDF + autoTable are ~400 KB and only needed for exports, so they are
 // no longer downloaded on every app open.
 let _nbJsPdfPromise = null;
+// One table look for EVERY PDF in the app (station, district and shared
+// views): light-grey heading, pitch-black text, black grid, white rows —
+// prints cleanly in black & white. Applied by wrapping autoTable itself so
+// no export can drift from it.
+const NB_PDF_HEAD_FILL = [217, 217, 217];
+function nbPdfTableStyle(opts) {
+  const o = { ...(opts || {}) };
+  const line = { lineColor: [0, 0, 0], lineWidth: 0.2 };
+  o.theme = "grid";
+  o.styles = { ...(o.styles || {}), textColor: [0, 0, 0], fillColor: [255, 255, 255], ...line };
+  o.headStyles = { ...(o.headStyles || {}), fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold", ...line };
+  o.footStyles = { ...(o.footStyles || {}), fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold", ...line };
+  o.bodyStyles = { ...(o.bodyStyles || {}), textColor: [0, 0, 0] };
+  o.alternateRowStyles = { fillColor: [255, 255, 255] };
+  return o;
+}
+function nbPatchAutoTable() {
+  const api = window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API;
+  if (!api || !api.autoTable || api.autoTable.__nbStyled) return;
+  const orig = api.autoTable;
+  const wrapped = function (opts, ...rest) { return orig.call(this, typeof opts === "object" && opts ? nbPdfTableStyle(opts) : opts, ...rest); };
+  wrapped.__nbStyled = true;
+  api.autoTable = wrapped;
+}
 function nbEnsureJsPDF() {
-  if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) return Promise.resolve();
+  if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) { nbPatchAutoTable(); return Promise.resolve(); }
   if (_nbJsPdfPromise) return _nbJsPdfPromise;
   const load = (src, integrity) => new Promise((resolve, reject) => {
     const el = document.createElement("script");
@@ -2235,6 +2259,7 @@ function nbEnsureJsPDF() {
   });
   _nbJsPdfPromise = load("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js", "sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk")
     .then(() => load("https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js", "sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3"))
+    .then(() => nbPatchAutoTable())
     .catch((e) => { _nbJsPdfPromise = null; throw e; });
   return _nbJsPdfPromise;
 }
@@ -2438,7 +2463,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       p.lastDuty ? `${p.waiting}d` : "—", groupedDutyCountInRange(p.history, periodFrom, periodTo), p.statusLabel || p.status || "—",
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+    headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     columnStyles: { 1: { minCellWidth: 45 }, 7: { minCellWidth: 26 } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [1, 3, 7].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
@@ -2481,7 +2506,7 @@ async function downloadCategoryPdf(catLabel, roster, historyRows, period, statio
       r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+    headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     // Note gets a fixed cellWidth rather than minCellWidth — see the full
     // explanation above downloadPersonHistoryPdf's own columnStyles below
     // (a growing column's width differs between didParseCell's row-height
@@ -2624,7 +2649,7 @@ async function downloadSkipHistoryPdf(rows, stationName, district) {
     head: [["Date", "Time", "Skipped person", "Number", "Work type", "Skipped by", "By number", "Note"]],
     body: rows,
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+    headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     columnStyles: { 2: { minCellWidth: 34 }, 5: { minCellWidth: 30 } },
     didParseCell: (hookData) => {
       if (hookData.section === "body" && [2, 5].includes(hookData.column.index) && needsImageRender(hookData.cell.raw)) {
@@ -9157,7 +9182,7 @@ async function downloadDutyOrderPdf(data, date, includeAway) {
     doc.autoTable({
       rowPageBreak: "avoid", startY: y, head: [head], body,
       styles: { fontSize: FONT_PT, valign: "top" },
-      headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+      headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
       didParseCell: (h) => { if (h.section === "body" && needsImageRender(h.cell.raw)) h.cell.text = []; },
       didDrawCell: (h) => { if (h.section === "body" && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
     });
@@ -12740,7 +12765,7 @@ async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period
       g.catLabel, g.days, [g.note, g.extraNote].filter(Boolean).join(" — "),
     ]),
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+    headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     // Note's own width is FIXED (cellWidth, not minCellWidth) rather than
     // left to autoTable's normal auto-grow-to-fill-the-page sizing. The
     // wrap in didParseCell below (which decides how many blank lines to
@@ -13505,7 +13530,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
         head: [["#", "Name", "Number", "Type", "From", "To"]],
         body: exportRows.map((r, i) => [i + 1, r.name, r.number, r.type, formatDMY(r.start), r.end ? formatDMY(r.end) : "Ongoing"]),
         styles: { fontSize: CAL_FONT_PT, valign: "top" },
-        headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+        headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
         // Same reasoning as the Monthly Report and per-work-type PDFs:
         // didParseCell blanks these cells' native text so the image can
         // be drawn instead, which would otherwise make autoTable size
@@ -14031,7 +14056,7 @@ function ReportView({ initialSort, focus, data }) {
       head: [["#", "Name", "Designation", "Total duties", "Night"]],
       body: summaryNames.map((name, i) => [i + 1, name, grouped[name][0].designation, grouped[name].length, grouped[name].filter((r) => r.night).length]),
       styles: { fontSize: FONT_PT, valign: "top" },
-      headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+      headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
       // autoTable sizes "auto" columns from each cell's text width — but
       // didParseCell (below) blanks the Name/Designation cell text for
       // any Gujarati content so the image can be drawn instead, which
@@ -14072,7 +14097,7 @@ function ReportView({ initialSort, focus, data }) {
         r.days, [r.note, r.extraNote].filter(Boolean).join(" — "),
       ]),
       styles: { fontSize: FONT_PT, valign: "top" },
-      headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+      headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
       // Same reasoning as the summary table above: didParseCell blanks
       // these cells' text for the image-render path, so without an
       // explicit minCellWidth autoTable would size the column from
@@ -14164,7 +14189,7 @@ function ReportView({ initialSort, focus, data }) {
           ? leaveRows.map((r, i) => [i + 1, r.name, r.designation, r.number, r.type, formatDMY(r.from), r.to ? formatDMY(r.to) : "Ongoing", r.days])
           : [["", "No leave or outstation recorded in this month", "", "", "", "", "", ""]],
         styles: { fontSize: FONT_PT, valign: "top" },
-        headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+        headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
         columnStyles: { 1: { minCellWidth: 36 }, 2: { minCellWidth: 18 }, 4: { minCellWidth: 28 } },
         didParseCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && needsImageRender(h.cell.raw)) h.cell.text = []; },
         didDrawCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
@@ -14178,7 +14203,7 @@ function ReportView({ initialSort, focus, data }) {
           head: [["Type", "Total days this month"]],
           body: typeRows,
           styles: { fontSize: FONT_PT, valign: "top" },
-          headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 }, tableWidth: 110,
+          headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 }, tableWidth: 110,
           didParseCell: (h) => { if (h.section === "body" && h.column.index === 0 && needsImageRender(h.cell.raw)) h.cell.text = []; },
           didDrawCell: (h) => { if (h.section === "body" && h.column.index === 0 && h.cell.raw && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
         });
@@ -17834,7 +17859,7 @@ async function downloadCrimeReviewPdf({ title, subtitle, head, rows, stationName
     head: [head],
     body: rows,
     styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: [14, 22, 32], textColor: 255, fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+    headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
     didParseCell: (h) => { if (h.section === "body" && needsImageRender(h.cell.raw)) h.cell.text = []; },
     didDrawCell: (h) => { if (h.section === "body" && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
   });
