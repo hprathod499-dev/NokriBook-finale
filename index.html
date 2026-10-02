@@ -651,6 +651,13 @@ const { useState, useEffect, useMemo, useCallback, useRef } = React;
 // =====================================================================
 const NB_NAV_EVENT = "nb:navigate";
 const NB_INTENDED_KEY = "nb_intended_path";
+// NEW SIGN-UPS PAUSED. Existing accounts sign in as usual; anyone without
+// an account gets the "available shortly" screen. Also enforced by the
+// Firestore rules (no new accounts/{uid}). Set to false to reopen.
+const NB_SIGNUPS_CLOSED = true;
+function nbSignupsClosedMsg(t) {
+  return t("Nokri Book is not accepting new registrations right now. It will be available again shortly — please try later.", "Nokri Book હાલ નવી નોંધણી સ્વીકારતું નથી. ટૂંક સમયમાં ફરી ઉપલબ્ધ થશે — કૃપા કરીને પછી પ્રયત્ન કરો.");
+}
 const NB_PUBLIC_PATHS = ["/", "/login", "/register", "/forgot-password"];
 let NB_EXPLICIT_SIGNOUT = false;
 
@@ -4793,6 +4800,7 @@ function SignInScreen() {
       setError(t("Enter both email and password.", "ઇમેઇલ અને પાસવર્ડ બંને દાખલ કરો."));
       return;
     }
+    if (authAction === "signup" && NB_SIGNUPS_CLOSED) { setError(nbSignupsClosedMsg(t)); return; }
     setBusy(true);
     const action = authAction === "signup"
       ? auth.createUserWithEmailAndPassword(email.trim(), password)
@@ -5480,6 +5488,7 @@ function DutyRoster() {
           // "disappeared": they didn't disappear, they were overwritten
           // by this code within the first second of loading, before the
           // real snapshot could even render once.
+          if (NB_SIGNUPS_CLOSED) { setSignupClosedHit(true); return; }
           const initial = buildInitialData();
           // Was: `ref.set(initial).catch(() => {})` — a fire-and-forget
           // write with its failure silently swallowed. If that write
@@ -6267,6 +6276,7 @@ function DutyRoster() {
   // this to put the actual station's name on it instead of a generic
   // "Nokri Book" heading).
   const [showStationGate, setShowStationGate] = useState(false);
+  const [signupClosedHit, setSignupClosedHit] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   // ---------- Delete my account (Auth account + every Firestore doc it
@@ -8350,6 +8360,18 @@ function DutyRoster() {
   // whenever the connection genuinely recovers, the listener's own success
   // callback clears connError and loads the real data automatically anyway.
   if (!data) {
+    if (signupClosedHit) {
+      return (
+        <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "var(--bg-page)" }}>
+          <div style={{ maxWidth: 440, textAlign: "center" }} className="gu">
+            <div style={{ fontSize: 42, marginBottom: 12 }}>🛠️</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "var(--text-primary)", marginBottom: 10 }}>{t("Available again shortly", "ટૂંક સમયમાં ફરી ઉપલબ્ધ")}</div>
+            <div style={{ fontSize: 13.5, color: "var(--text-secondary)", marginBottom: 20, lineHeight: 1.6 }}>{nbSignupsClosedMsg(t)}</div>
+            <button onClick={signOutUser} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>{t("Sign out", "સાઇન આઉટ")}</button>
+          </div>
+        </div>
+      );
+    }
     if (connError) {
       return (
         <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
