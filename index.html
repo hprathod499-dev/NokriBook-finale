@@ -692,6 +692,9 @@ function nbSubPathFromView(v) {
   const key = Object.keys(NB_SUB_VIEW).find((k) => NB_SUB_VIEW[k] === v.mode);
   return key ? "/" + key : "";
 }
+// The website this copy of the app is running on (so PDFs and messages
+// name the right address wherever it is hosted).
+function nbSiteHost() { const h = (window.location && window.location.hostname) || ""; return !h || /^(localhost|127\.|0\.0\.0\.0)/.test(h) ? "nokribook.in" : h.replace(/^www\./, ""); }
 function nbShareUrl(token) { return `${window.location.origin}/view/${token}`; }
 // Older Crime Review addresses (and old /crime/<link> links) -> /crime
 const NB_CRIME_OLD_RE = /^\/(?:crime-?review|app\/crime(?:-?review)?|app\/district\/crime-review)(\/report)?$/i;
@@ -2314,7 +2317,7 @@ function nbPdfFooter(doc) {
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setTextColor(120);
-    doc.text("Nokri Book · nokribook.in", 14, h - 8);
+    doc.text("Nokri Book · " + nbSiteHost(), 14, h - 8);
     doc.text(`Page ${i} of ${n}`, w - 14, h - 8, { align: "right" });
     doc.setTextColor(0);
   }
@@ -4076,7 +4079,7 @@ function CodeLoginsManager({ uid, user, showToast }) {
   const del = (c) => { if (window.confirm(t(`Delete login code ${c.id}? Everyone using it is logged out straight away.`, `લોગિન કોડ ${c.id} ડિલીટ કરવો છે? તેનાથી લોગિન થયેલા બધા તરત બહાર થઈ જશે.`))) run(() => db.collection("codeLogins").doc(c.id).delete()); };
   const small = { ...iconBtnWide, fontSize: 12 };
   const secLabel = (k) => { const x = NB_SECTIONS.find((q) => q.k === k); return x ? x.icon + " " + (lang === "gu" ? x.gu : x.en) : k; };
-  const share = (c) => t(`Nokri Book login\nEmail: ${email}\nLogin code: ${c.id}\nOpen https://nokribook.in → type this email, and type the login code in the password box.`, `Nokri Book લોગિન\nઇમેઇલ: ${email}\nલોગિન કોડ: ${c.id}\nhttps://nokribook.in ખોલો → આ ઇમેઇલ નાખો, અને પાસવર્ડની જગ્યાએ લોગિન કોડ નાખો.`);
+  const share = (c) => t(`Nokri Book login\nEmail: ${email}\nLogin code: ${c.id}\nOpen https://${nbSiteHost()} → type this email, and type the login code in the password box.`, `Nokri Book લોગિન\nઇમેઇલ: ${email}\nલોગિન કોડ: ${c.id}\nhttps://${nbSiteHost()} ખોલો → આ ઇમેઇલ નાખો, અને પાસવર્ડની જગ્યાએ લોગિન કોડ નાખો.`);
   return (
     <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>🔑 {t("Login with station email + code", "સ્ટેશન ઇમેઇલ + કોડથી લોગિન")}</div>
