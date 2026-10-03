@@ -20063,7 +20063,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
 }
 
 // ---------- the Crime Register screen ----------
-function CrimeRegisterView({ profile, showToast }) {
+function CrimeRegisterView({ profile, showToast, look }) {
   const { t, lang } = useLang();
   const entries = useLocalEntries();
   const [settings, setSettingsState] = useState(null);
@@ -20097,7 +20097,7 @@ function CrimeRegisterView({ profile, showToast }) {
       {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} ym={ym} setYm={setYm} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
-      {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} />}
+      {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} />}
     </div>
   );
@@ -20290,11 +20290,38 @@ function CrimeMonthlyInputs({ ctx, ym, setYm, monthly, showToast }) {
     </div>
   );
 }
-function CrimeRegSettings({ settings, profile, showToast }) {
+function CrimeLookSettings({ look }) {
+  const { t } = useLang();
+  const cur = (THEME_OPTIONS.find((o) => o.value === look.theme) || THEME_OPTIONS[0]).value;
+  return (
+    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, maxWidth: 560, marginBottom: 14 }}>
+      <div className="disp gu" style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>🎨 {t("Theme", "થીમ")}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {THEME_OPTIONS.map((opt) => {
+          const active = opt.value === cur;
+          return (
+            <button key={opt.value} data-theme-opt={opt.value} onClick={() => look.setTheme(opt.value)} className="gu" style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "7px 8px", borderRadius: 8, cursor: "pointer", border: "2px solid " + (active ? "var(--accent-strong)" : "transparent"), background: "transparent", fontWeight: active ? 700 : 400 }}>
+              <ThemeSwatch sidebar={opt.sidebar} page={opt.page} accent={opt.accent} small />
+              <span style={{ flex: 1, fontSize: 13.5, color: "var(--text-primary)" }}>{t(...opt.label)}</span>
+              {active && <span style={{ color: "var(--accent-strong)", fontWeight: 700 }}>✓</span>}
+            </button>
+          );
+        })}
+      </div>
+      <label className="gu" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 13.5, cursor: "pointer" }}>
+        <input type="checkbox" data-dark-toggle="1" checked={look.darkMode} onChange={(e) => look.setDarkMode(e.target.checked)} />
+        🌙 {t("Dark mode", "ડાર્ક મોડ")}
+      </label>
+    </div>
+  );
+}
+function CrimeRegSettings({ settings, profile, showToast, look }) {
   const { t } = useLang();
   const [s, setS] = useState({ firPrefix: "", psShort: "", ...settings });
   const ex = nbFirNo({ no: "419", year: String(new Date().getFullYear()) }, s);
   return (
+    <>
+    {look && <CrimeLookSettings look={look} />}
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, maxWidth: 560 }}>
       <label style={nbCrLabel}>{t("FIR number prefix (station code)", "ગુ.ર.નં. ની શરૂઆત (પો.સ્ટે. કોડ)")}</label>
       <input type="text" inputMode="numeric" value={s.firPrefix} onChange={(e) => setS({ ...s, firPrefix: nbAsciiDigits(e.target.value).replace(/\D/g, "").slice(0, 12) })} className="mono" style={nbCrInput} placeholder="11193018" />
@@ -20306,7 +20333,106 @@ function CrimeRegSettings({ settings, profile, showToast }) {
         {t("Tip: enter old cases that are still pending (any year) once, with their reason. The 3-month and 6-month pending lists of the review then fill themselves.", "સૂચન: જૂના પેન્ડીંગ ગુના (કોઈપણ વર્ષના) તેના કારણ સાથે એક વાર ભરો. પછી રિવ્યુના ૩ માસ અને ૬ માસ ઉપરના પેન્ડીંગ પત્રક આપોઆપ ભરાશે.")}
       </div>
     </div>
+    </>
   );
+}
+
+// ---------- Crime Register: Google Drive backup ----------
+// Backups go to the person's OWN Google Drive, in a separate folder
+// ("Nokri Book Crime Register Backups"). The app can only see files it
+// created itself there (drive.file permission). Google sign-in is loaded
+// only when Drive is used, so the page stays offline otherwise.
+const NB_CR_DRIVE_FOLDER = "Nokri Book Crime Register Backups";
+const NB_CR_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+function nbLoadGsi() {
+  if (typeof google !== "undefined" && google.accounts && google.accounts.oauth2) return Promise.resolve();
+  if (nbLoadGsi.p) return nbLoadGsi.p;
+  nbLoadGsi.p = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+    s.onload = () => resolve(); s.onerror = () => { nbLoadGsi.p = null; reject(new Error("Couldn't reach Google — check the internet connection.")); };
+    document.head.appendChild(s);
+  });
+  return nbLoadGsi.p;
+}
+const nbCrDrive = {
+  cached() {
+    try { const c = JSON.parse(sessionStorage.getItem("nb_cr_drive_tok") || "null"); return c && Date.now() < c.exp ? c.tok : null; } catch (e) { return null; }
+  },
+  // interactive = may show Google's window (only from a button tap)
+  token(interactive) {
+    const c = this.cached();
+    if (c) return Promise.resolve(c);
+    if (!interactive) return Promise.reject(new Error("needs-tap"));
+    if (!window.GOOGLE_DRIVE_CLIENT_ID || /^YOUR_/.test(window.GOOGLE_DRIVE_CLIENT_ID)) return Promise.reject(new Error("Google Drive isn't set up for this app."));
+    return nbLoadGsi().then(() => new Promise((resolve, reject) => {
+      let triedConsent = false;
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: window.GOOGLE_DRIVE_CLIENT_ID, scope: NB_CR_DRIVE_SCOPE,
+        callback: (r) => {
+          if (r && r.access_token) {
+            try { sessionStorage.setItem("nb_cr_drive_tok", JSON.stringify({ tok: r.access_token, exp: Date.now() + Math.max(60, (r.expires_in || 3300) - 300) * 1000 })); } catch (e) {}
+            resolve(r.access_token);
+          } else if (!triedConsent) { triedConsent = true; client.requestAccessToken({ prompt: "consent" }); }
+          else reject(new Error("Google didn't give access."));
+        },
+        error_callback: (err) => reject(new Error((err && (err.message || err.type)) || "Google sign-in was closed.")),
+      });
+      client.requestAccessToken({ prompt: "" });
+    }));
+  },
+  async api(tok, url, opts) {
+    const r = await fetch(url, { ...(opts || {}), headers: { Authorization: "Bearer " + tok, ...((opts && opts.headers) || {}) } });
+    if (r.status === 401) { try { sessionStorage.removeItem("nb_cr_drive_tok"); } catch (e) {} throw new Error("needs-tap"); }
+    if (!r.ok) { const b = await r.json().catch(() => null); throw new Error((b && b.error && b.error.message) || "Google Drive error " + r.status); }
+    return r;
+  },
+  async folder(tok) {
+    let id = null; try { id = localStorage.getItem("nb_cr_drive_folder"); } catch (e) {}
+    if (id) return id;
+    const q = encodeURIComponent(`name='${NB_CR_DRIVE_FOLDER}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    const l = await (await this.api(tok, `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id)`)).json();
+    if (l.files && l.files[0]) id = l.files[0].id;
+    else id = (await (await this.api(tok, "https://www.googleapis.com/drive/v3/files", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: NB_CR_DRIVE_FOLDER, mimeType: "application/vnd.google-apps.folder" }) })).json()).id;
+    try { localStorage.setItem("nb_cr_drive_folder", id); } catch (e) {}
+    return id;
+  },
+  // one file per day, updated in place
+  async upload(tok, json) {
+    const folder = await this.folder(tok);
+    const name = `crime-register-backup-${todayStr()}.json`;
+    const q = encodeURIComponent(`name='${name}' and '${folder}' in parents and trashed=false`);
+    const l = await (await this.api(tok, `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id)`)).json();
+    const id = l.files && l.files[0] && l.files[0].id;
+    const bd = "nbcr" + uid();
+    const meta = id ? { name } : { name, parents: [folder] };
+    const body = `--${bd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${bd}\r\nContent-Type: application/json\r\n\r\n${json}\r\n--${bd}--`;
+    await this.api(tok, id ? `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart` : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method: id ? "PATCH" : "POST", headers: { "Content-Type": `multipart/related; boundary=${bd}` }, body });
+  },
+  async list(tok) {
+    const folder = await this.folder(tok);
+    const q = encodeURIComponent(`'${folder}' in parents and trashed=false`);
+    return ((await (await this.api(tok, `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&orderBy=modifiedTime desc&pageSize=30&fields=files(id,name,modifiedTime,size)`)).json()).files || []);
+  },
+  async read(tok, id) { return (await this.api(tok, `https://www.googleapis.com/drive/v3/files/${id}?alt=media`)).text(); },
+};
+async function nbCrimeBackupJson(profile) {
+  const [cases, entries, monthly, regSettings] = await Promise.all([nbCrimeStore.all(), nbEntryStore.all(), nbCrimeStore.getMeta("monthly"), nbCrimeStore.getMeta("regSettings")]);
+  const content = { station: profile, cases, entries, monthly: monthly || {}, regSettings: regSettings || {} };
+  return { count: entries.length, sig: JSON.stringify(content), json: JSON.stringify({ app: "nokri-book-crime-review", v: 2, exportedAt: new Date().toISOString(), ...content }) };
+}
+// onlyIfChanged: the automatic backup skips uploading when nothing changed
+// since the last upload from this tab.
+async function nbCrimeDriveBackupNow(profile, interactive, onlyIfChanged) {
+  const { json, count, sig } = await nbCrimeBackupJson(profile);
+  if (onlyIfChanged && nbCrDrive.lastSig === sig) return count;
+  const tok = await nbCrDrive.token(interactive);
+  await nbCrDrive.upload(tok, json);
+  nbCrDrive.lastSig = sig;
+  const now = Date.now();
+  await nbCrimeStore.setMeta("driveLastAt", now);
+  await nbCrimeStore.setMeta("lastBackupAt", now);
+  return count;
 }
 
 function nbCrimePinHash(pin) {
@@ -20340,14 +20466,22 @@ function CrimeOfflineApp({ tab }) {
   const langCtx = useMemo(() => ({ lang, setLang, t }), [lang, t]);
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("nb_dark_mode") === "1"; } catch (e) { return false; } });
   useEffect(() => { document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light"); try { localStorage.setItem("nb_dark_mode", darkMode ? "1" : "0"); } catch (e) {} }, [darkMode]);
+  // Colour theme — same choice (and same saved setting) as the main app.
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("nokriBookTheme") || "classic"; } catch (e) { return "classic"; } });
+  useEffect(() => {
+    try { localStorage.setItem("nokriBookTheme", theme); } catch (e) {}
+    if (theme && theme !== "classic") document.documentElement.setAttribute("data-color-theme", theme);
+    else document.documentElement.removeAttribute("data-color-theme");
+  }, [theme]);
+  const look = { darkMode, setDarkMode, theme, setTheme };
   useEffect(() => { document.title = t("Crime Register", "ગુના રજીસ્ટર"); }, [t, tab]);
   // Ask the browser to keep this data (not clear it when space runs low).
   useEffect(() => { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {} }, []);
 
   const [meta, setMeta] = useState(null); // { profile, pinHash, lastBackupAt }
   const [storeErr, setStoreErr] = useState("");
-  const loadMeta = useCallback(() => Promise.all([nbCrimeStore.getMeta("profile"), nbCrimeStore.getMeta("pinHash"), nbCrimeStore.getMeta("lastBackupAt")])
-    .then(([profile, pinHash, lastBackupAt]) => setMeta({ profile: profile || null, pinHash: pinHash || null, lastBackupAt: lastBackupAt || 0 }))
+  const loadMeta = useCallback(() => Promise.all([nbCrimeStore.getMeta("profile"), nbCrimeStore.getMeta("pinHash"), nbCrimeStore.getMeta("lastBackupAt"), nbCrimeStore.getMeta("driveOn"), nbCrimeStore.getMeta("driveLastAt")])
+    .then(([profile, pinHash, lastBackupAt, driveOn, driveLastAt]) => setMeta({ profile: profile || null, pinHash: pinHash || null, lastBackupAt: lastBackupAt || 0, driveOn: !!driveOn, driveLastAt: driveLastAt || 0 }))
     .catch((e) => { console.error("Crime storage failed:", e); setStoreErr(e.message || "storage error"); }), []);
   useEffect(() => { loadMeta(); window.addEventListener(NB_CRIME_EVT, loadMeta); return () => window.removeEventListener(NB_CRIME_EVT, loadMeta); }, [loadMeta]);
   const { cases } = useLocalCrimeCases();
@@ -20356,6 +20490,28 @@ function CrimeOfflineApp({ tab }) {
   const [showMenu, setShowMenu] = useState(false);
   const [toast, setToast] = useState("");
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(""), 3000); };
+  // Automatic Google Drive backup: ~15 s after any change, while this tab
+  // has Google access. A new session needs one tap (Google's rule).
+  const [driveNeedsTap, setDriveNeedsTap] = useState(false);
+  const [driveBusy, setDriveBusy] = useState(false);
+  const driveOn = !!(meta && meta.driveOn && meta.profile);
+  const profileRef = useRef(null); profileRef.current = meta && meta.profile;
+  useEffect(() => {
+    if (!driveOn || !unlocked && meta && meta.pinHash) return;
+    let timer = null;
+    const run = () => { clearTimeout(timer); timer = setTimeout(() => {
+      nbCrimeDriveBackupNow(profileRef.current, false, true).then(() => setDriveNeedsTap(false)).catch((e) => { if (e && e.message === "needs-tap") setDriveNeedsTap(true); else console.warn("Drive backup:", e); });
+    }, 15000); };
+    run();
+    window.addEventListener(NB_CRIME_EVT, run);
+    return () => { clearTimeout(timer); window.removeEventListener(NB_CRIME_EVT, run); };
+  }, [driveOn, unlocked]);
+  const driveTap = async () => {
+    setDriveBusy(true);
+    try { const n = await nbCrimeDriveBackupNow(profileRef.current, true, false); setDriveNeedsTap(false); showToast(t(`Backed up to Google Drive (${n} entries)`, `Google Drive પર બેકઅપ થયો (${n} એન્ટ્રી)`)); }
+    catch (e) { window.alert(t("Google Drive backup failed: ", "Google Drive બેકઅપ થયો નહીં: ") + (e.message === "needs-tap" ? t("please try again", "ફરી પ્રયત્ન કરો") : e.message)); }
+    finally { setDriveBusy(false); }
+  };
 
   const card = { width: 420, maxWidth: "100%", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "26px 22px", boxShadow: "0 10px 40px rgba(0,0,0,0.08)" };
   const bigBtn = { width: "100%", marginTop: 14, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 10, padding: "12px 0", fontSize: 14.5, fontWeight: 700 };
@@ -20411,17 +20567,24 @@ function CrimeOfflineApp({ tab }) {
         <div style={{ padding: "16px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>
           <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <span>📱 {t("Saved only on this device — nothing is sent online.", "ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી.")}</span>
+            {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}>☁ {t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</span>}
             <span style={{ color: "var(--text-tertiary)" }}>{meta.lastBackupAt ? t(`Last backup: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`, `છેલ્લો બેકઅપ: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`) : t("No backup yet", "હજુ બેકઅપ નથી")}</span>
           </div>
+          {driveOn && driveNeedsTap && (
+            <div className="gu" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
+              <span style={{ flex: 1, minWidth: 200 }}>☁ {t("Google Drive backup is waiting. Tap once to continue automatic backups in this session.", "Google Drive બેકઅપ બાકી છે. આ સત્રમાં આપોઆપ બેકઅપ ચાલુ રાખવા એક વાર દબાવો.")}</span>
+              <button onClick={driveTap} disabled={driveBusy} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>{driveBusy ? "…" : "☁ " + t("Back up to Drive", "Drive પર બેકઅપ")}</button>
+            </div>
+          )}
           {needBackup && (
             <div className="gu" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--status-warning-text, #b7791f)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
               <span style={{ flex: 1, minWidth: 200 }}>⚠️ {days === null ? t("You haven't made a backup yet. If this browser's data is cleared or the device is lost, the cases are gone.", "તમે હજુ બેકઅપ લીધો નથી. આ બ્રાઉઝરનો ડેટા સાફ થાય કે ડિવાઇસ ખોવાય તો ગુનાઓ જતા રહેશે.") : t(`Last backup was ${days} days ago.`, `છેલ્લો બેકઅપ ${days} દિવસ પહેલાં લીધો હતો.`)}</span>
               <button onClick={doBackup} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>⬇ {t("Download backup", "બેકઅપ ડાઉનલોડ કરો")}</button>
             </div>
           )}
-          <CrimeRegisterView profile={profile} showToast={showToast} />
+          <CrimeRegisterView profile={profile} showToast={showToast} look={look} />
         </div>
-        {showMenu && <CrimeDataMenu meta={meta} cases={cases || []} entries={regEntries || []} onBackup={doBackup} onClose={() => setShowMenu(false)} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} bigBtn={bigBtn} />}
+        {showMenu && <CrimeDataMenu meta={meta} cases={cases || []} entries={regEntries || []} onDriveBackup={driveTap} onBackup={doBackup} onClose={() => setShowMenu(false)} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} bigBtn={bigBtn} />}
         {toast && <div className="gu" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
       </div>
     </LangContext.Provider>
@@ -20577,7 +20740,7 @@ function nbCrimeTemplateCsv() {
   return "﻿" + [head, ex, ex2].map((r) => r.map(esc).join(",")).join("\r\n");
 }
 // ⚙️ Data: backup, restore, station details, PIN, dark mode, erase.
-function CrimeDataMenu({ meta, cases, entries, onBackup, onClose, showToast, darkMode, setDarkMode, bigBtn }) {
+function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose, showToast, darkMode, setDarkMode, bigBtn }) {
   const { t } = useLang();
   useEscToClose(onClose);
   const [view, setView] = useState("menu"); // menu | station | pin
@@ -20604,12 +20767,37 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onClose, showToast, dar
     };
     r.readAsText(file);
   };
+  const [driveFiles, setDriveFiles] = useState(null);
+  const [driveBusy, setDriveBusy] = useState(false);
+  const driveConnect = async () => {
+    setDriveBusy(true);
+    try {
+      await nbCrimeStore.setMeta("driveOn", 1);
+      await onDriveBackup();
+    } finally { setDriveBusy(false); }
+  };
+  const driveList = async () => {
+    setDriveBusy(true);
+    try { const tok = await nbCrDrive.token(true); setDriveFiles(await nbCrDrive.list(tok)); setView("drive"); }
+    catch (e) { window.alert(t("Couldn't open Google Drive: ", "Google Drive ખુલ્યું નહીં: ") + e.message); }
+    finally { setDriveBusy(false); }
+  };
+  const driveRestore = async (f) => {
+    setDriveBusy(true);
+    try { const tok = await nbCrDrive.token(true); await applyBackupText(await nbCrDrive.read(tok, f.id)); }
+    catch (e) { window.alert(t("Couldn't read that backup: ", "તે બેકઅપ વાંચી શકાયો નહીં: ") + e.message); }
+    finally { setDriveBusy(false); }
+  };
   const restore = (file) => {
     if (!file) return;
     const r = new FileReader();
-    r.onload = async () => {
+    r.onload = () => applyBackupText(String(r.result || ""));
+    r.readAsText(file);
+  };
+  const applyBackupText = async (text) => {
+    {
       try {
-        const data = JSON.parse(String(r.result || ""));
+        const data = JSON.parse(text);
         if (!data || data.app !== "nokri-book-crime-review" || !Array.isArray(data.cases)) throw new Error("not a Crime Review backup");
         const valid = data.cases.filter((c) => c && typeof c.id === "string" && c.id && c.crNo != null && typeof c.regDate === "string");
         const current = {}; cases.forEach((c) => { current[c.id] = c; });
@@ -20630,17 +20818,16 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onClose, showToast, dar
         onClose();
       } catch (e) {
         console.error("Restore failed:", e);
-        window.alert(t("This file isn't a Nokri Book Crime Review backup.", "આ ફાઇલ Nokri Book ગુના સમીક્ષાનો બેકઅપ નથી."));
+        window.alert(t("This file isn't a Crime Register backup.", "આ ફાઇલ ગુના રજીસ્ટરનો બેકઅપ નથી."));
       }
-    };
-    r.readAsText(file);
+    }
   };
   const row = { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "13px 4px", fontSize: 14, color: "var(--text-primary)", cursor: "pointer" };
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Data", "ડેટા")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 420, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{view === "station" ? t("Station details", "સ્ટેશનની વિગત") : view === "pin" ? t("PIN for this device", "આ ડિવાઇસ માટે PIN") : "⚙️ " + t("Data", "ડેટા")}</div>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{view === "drive" ? "☁ Google Drive" : view === "station" ? t("Station details", "સ્ટેશનની વિગત") : view === "pin" ? t("PIN for this device", "આ ડિવાઇસ માટે PIN") : "⚙️ " + t("Data", "ડેટા")}</div>
           <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
         </div>
         {view === "menu" && (
@@ -20649,6 +20836,18 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onClose, showToast, dar
             <button onClick={() => { onBackup(); onClose(); }} style={row}>⬇ {t("Download backup file", "બેકઅપ ફાઇલ ડાઉનલોડ કરો")}</button>
             <button onClick={() => fileRef.current && fileRef.current.click()} style={row}>⬆ {t("Restore from a backup file", "બેકઅપ ફાઇલમાંથી restore કરો")}</button>
             <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={(e) => { restore(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+            <div style={{ margin: "10px 0 2px", fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>☁ Google Drive</div>
+            {!meta.driveOn ? (
+              <button onClick={driveConnect} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Connect Google Drive (automatic backup)", "Google Drive જોડો (આપોઆપ બેકઅપ)")}</button>
+            ) : (
+              <React.Fragment>
+                <button onClick={() => { onDriveBackup(); }} style={row}>☁ {t("Back up to Google Drive now", "હમણાં Google Drive પર બેકઅપ")}{meta.driveLastAt ? <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}> · {t("last", "છેલ્લો")} {new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span> : null}</button>
+                <button onClick={driveList} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Restore from Google Drive", "Google Drive માંથી restore કરો")}</button>
+                <button onClick={async () => { if (!window.confirm(t("Stop automatic Google Drive backup on this device? Backups already in Drive stay there.", "આ ડિવાઇસ પર આપોઆપ Google Drive બેકઅપ બંધ કરવો છે? Drive માં પડેલા બેકઅપ રહેશે."))) return; await nbCrimeStore.setMeta("driveOn", 0); try { sessionStorage.removeItem("nb_cr_drive_tok"); } catch (e) {} showToast(t("Google Drive backup turned off", "Google Drive બેકઅપ બંધ")); }} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Turn off Google Drive backup", "Google Drive બેકઅપ બંધ કરો")}</button>
+              </React.Fragment>
+            )}
+            {!meta.driveOn && <button onClick={driveList} disabled={driveBusy} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>☁ {t("Restore from Google Drive (new device)", "Google Drive માંથી restore (નવું ડિવાઇસ)")}</button>}
+            <div style={{ height: 8 }} />
             <button onClick={() => setView("station")} style={row}>🏢 {t("Station details", "સ્ટેશનની વિગત")}</button>
             <button onClick={() => { setView("pin"); setMsg(""); }} style={row}>🔒 {meta.pinHash ? t("Change or remove PIN", "PIN બદલો કે દૂર કરો") : t("Set a PIN for this device", "આ ડિવાઇસ માટે PIN સેટ કરો")}</button>
             <button onClick={() => setDarkMode((d) => !d)} style={row}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
@@ -20657,6 +20856,16 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onClose, showToast, dar
               if (!window.confirm(t("Are you sure? All cases on this device will be deleted.", "ચોક્કસ? આ ડિવાઇસના બધા ગુના ડિલીટ થશે."))) return;
               await nbCrimeStore.clearAll(); try { sessionStorage.removeItem("nb_crime_unlocked"); } catch (e) {} onClose();
             }} style={{ ...row, color: "var(--status-error-text)", borderBottom: "none" }}>🗑️ {t("Erase all data on this device", "આ ડિવાઇસનો બધો ડેટા ભૂંસો")}</button>
+          </div>
+        )}
+        {view === "drive" && (
+          <div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8 }}>{t("Backups in your Google Drive (newest first). Restoring adds and updates entries; nothing on this device is deleted.", "તમારા Google Drive માંના બેકઅપ (નવા પહેલા). Restore થી એન્ટ્રી ઉમેરાશે / સુધરશે; આ ડિવાઇસ પરથી કંઈ ડિલીટ નહીં થાય.")}</div>
+            {!(driveFiles || []).length && <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("No backups in Google Drive yet.", "Google Drive માં હજુ કોઈ બેકઅપ નથી.")}</div>}
+            {(driveFiles || []).map((f) => (
+              <button key={f.id} onClick={() => driveRestore(f)} disabled={driveBusy} style={row}>📄 {f.name.replace(/^crime-register-backup-|\.json$/g, "")} <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>· {new Date(f.modifiedTime).toLocaleString(undefined, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} · {Math.max(1, Math.round((Number(f.size) || 0) / 1024))} KB</span></button>
+            ))}
+            <button onClick={() => setView("menu")} className="gu" style={{ display: "block", marginTop: 10, background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}>← {t("Back", "પાછા")}</button>
           </div>
         )}
         {view === "station" && <CrimeProfileForm initial={meta.profile} bigBtn={bigBtn} onSave={async (p) => { await nbCrimeStore.setMeta("profile", p); showToast(t("Saved", "સચવાયું")); setView("menu"); }} />}
