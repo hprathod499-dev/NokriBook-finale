@@ -4072,7 +4072,7 @@ function CodeLoginsManager({ uid, user, showToast }) {
   const del = (c) => { if (window.confirm(t(`Delete login code ${c.id}? Everyone using it is logged out straight away.`, `લોગિન કોડ ${c.id} ડિલીટ કરવો છે? તેનાથી લોગિન થયેલા બધા તરત બહાર થઈ જશે.`))) run(() => db.collection("codeLogins").doc(c.id).delete()); };
   const small = { ...iconBtnWide, fontSize: 12 };
   const secLabel = (k) => { const x = NB_SECTIONS.find((q) => q.k === k); return x ? x.icon + " " + (lang === "gu" ? x.gu : x.en) : k; };
-  const share = (c) => t(`Nokri Book login\nEmail: ${email}\nLogin code: ${c.id}\nOpen https://nokribook.in → enter the email, tap "Login code", enter the code.`, `Nokri Book લોગિન\nઇમેઇલ: ${email}\nલોગિન કોડ: ${c.id}\nhttps://nokribook.in ખોલો → ઇમેઇલ નાખો, "લોગિન કોડ" દબાવો, કોડ નાખો.`);
+  const share = (c) => t(`Nokri Book login\nEmail: ${email}\nLogin code: ${c.id}\nOpen https://nokribook.in → type this email, and type the login code in the password box.`, `Nokri Book લોગિન\nઇમેઇલ: ${email}\nલોગિન કોડ: ${c.id}\nhttps://nokribook.in ખોલો → આ ઇમેઇલ નાખો, અને પાસવર્ડની જગ્યાએ લોગિન કોડ નાખો.`);
   return (
     <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>🔑 {t("Login with station email + code", "સ્ટેશન ઇમેઇલ + કોડથી લોગિન")}</div>
@@ -4975,7 +4975,6 @@ function SignInScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [codeMode, setCodeMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(() => nbCleanPath(window.location.pathname) === "/forgot-password"
@@ -5049,9 +5048,19 @@ function SignInScreen() {
       return;
     }
     if (authAction === "signup" && NB_SIGNUPS_CLOSED) { setError(nbSignupsClosedMsg(t)); return; }
-    if (authAction === "signin" && codeMode) {
+    // Same email, and a login code typed in the password box: if it is a
+    // valid code for this email, log in with it; otherwise treat it as a
+    // normal password.
+    if (authAction === "signin" && /^[A-Za-z0-9]{8}$/.test(password.trim())) {
       setBusy(true);
-      nbLoginWithCode(email, password).catch((err) => setError(nbCodeLoginErrMsg(err, t))).finally(() => setBusy(false));
+      nbLoginWithCode(email, password)
+        .then(() => setBusy(false))
+        .catch((err) => {
+          if (err && err.nb === "disabled") { setError(nbCodeLoginErrMsg(err, t)); setBusy(false); return; }
+          auth.signInWithEmailAndPassword(email.trim(), password)
+            .catch((e2) => { console.error(e2); setError(mapAuthError(e2, t)); })
+            .finally(() => setBusy(false));
+        });
       return;
     }
     setBusy(true);
@@ -5074,15 +5083,7 @@ function SignInScreen() {
           });
         }
       })
-      .catch((err) => {
-        console.error(err);
-        // Station email + login code typed into the password box: try it
-        // as a login code before showing the password error.
-        if (authAction === "signin" && /^[A-Za-z0-9]{8}$/.test(password.trim()) && /invalid|wrong-password|user-not-found|credential/.test((err && err.code) || "")) {
-          return nbLoginWithCode(email, password).catch(() => setError(mapAuthError(err, t)));
-        }
-        setError(mapAuthError(err, t));
-      })
+      .catch((err) => { console.error(err); setError(mapAuthError(err, t)); })
       .finally(() => setBusy(false));
   };
 
@@ -5216,22 +5217,15 @@ function SignInScreen() {
             </div>
             <div style={fieldWrap}>
               <FieldIcon kind="lock" />
-              {codeMode && authAction === "signin"
-                ? <input type="text" autoCapitalize="characters" autoComplete="off" placeholder={t("Login code", "લોગિન કોડ")} value={password} onChange={(e) => setPassword(e.target.value.toUpperCase().slice(0, 12))} style={{ ...fieldInput, letterSpacing: 2 }} className="gu signin-field-input mono" />
-                : <input type={showPassword ? "text" : "password"} placeholder={t("Password", "પાસવર્ડ")} value={password} onChange={(e) => setPassword(e.target.value)} style={fieldInput} className="gu signin-field-input" />}
-              {!(codeMode && authAction === "signin") && <EyeToggle open={showPassword} onClick={() => setShowPassword(!showPassword)} />}
+              <input type={showPassword ? "text" : "password"} placeholder={authAction === "signin" ? t("Password or login code", "પાસવર્ડ અથવા લોગિન કોડ") : t("Password", "પાસવર્ડ")} value={password} onChange={(e) => setPassword(e.target.value)} style={fieldInput} className="gu signin-field-input" />
+              <EyeToggle open={showPassword} onClick={() => setShowPassword(!showPassword)} />
             </div>
 
             {authAction === "signin" && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: -4 }}>
-                <span style={{ display: "flex", gap: 12 }}>
-                  <button type="button" onClick={jumpToShareLink} aria-expanded={showShareLink} className="gu" style={{ background: "none", border: "none", padding: 0, color: showShareLink ? "var(--accent-strong)" : "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-                    {t("Viewer", "દર્શક")}
-                  </button>
-                  <button type="button" onClick={() => { setCodeMode((v) => !v); setPassword(""); resetFeedback(); }} aria-pressed={codeMode} className="gu" style={{ background: "none", border: "none", padding: 0, color: codeMode ? "var(--accent-strong)" : "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-                    🔑 {codeMode ? t("Use password", "પાસવર્ડ વાપરો") : t("Login code", "લોગિન કોડ")}
-                  </button>
-                </span>
+                <button type="button" onClick={jumpToShareLink} aria-expanded={showShareLink} className="gu" style={{ background: "none", border: "none", padding: 0, color: showShareLink ? "var(--accent-strong)" : "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                  {t("Viewer", "દર્શક")}
+                </button>
                 <button type="button" onClick={handleForgotPassword} className="gu" style={{ background: "none", border: "none", padding: 0, color: "var(--accent-strong)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                   {t("Forgot Password?", "પાસવર્ડ ભૂલી ગયા?")}
                 </button>
@@ -5243,7 +5237,7 @@ function SignInScreen() {
               background: "linear-gradient(135deg, var(--accent), var(--accent-hover))", color: "var(--accent-text)", fontSize: 14, fontWeight: 700,
               boxShadow: "0 10px 20px var(--accent-glow)", cursor: busy ? "default" : "pointer", opacity: busy ? 0.75 : 1,
             }}>
-              {busy ? t("Please wait…", "કૃપા કરી રાહ જુઓ…") : authAction === "signup" ? t("Sign Up", "સાઇન અપ") : codeMode ? "🔑 " + t("Login with code", "કોડથી લોગિન") : t("Login", "લોગિન")}
+              {busy ? t("Please wait…", "કૃપા કરી રાહ જુઓ…") : authAction === "signup" ? t("Sign Up", "સાઇન અપ") : t("Login", "લોગિન")}
             </button>
           </form>
 
