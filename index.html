@@ -2874,7 +2874,18 @@ function normalizeData(d) {
     // date" after the fact. Anyone loading data saved before this field
     // existed gets their current period (if any) seeded in as history so
     // nothing already on record is lost.
-    const unavailableHistory = rec.unavailableHistory || (rec.unavailable ? [rec.unavailable] : []);
+    // Drop broken periods (end date before start — left behind when a
+    // leave that hadn't started yet was ended with "End now") and exact
+    // duplicates, so counts, the calendar and reports stay correct.
+    const seenPeriods = new Set();
+    const unavailableHistory = (rec.unavailableHistory || (rec.unavailable ? [rec.unavailable] : [])).filter((p) => {
+      if (!p) return false;
+      if (p.from && p.to && p.to < p.from) return false;
+      const key = [p.kind, p.typeId, p.from, p.to].join("|");
+      if (seenPeriods.has(key)) return false;
+      seenPeriods.add(key);
+      return true;
+    });
     staff[num] = { ...rec, skip: !!rec.skip, unavailableHistory };
   });
   const membership = {};
@@ -7993,12 +8004,13 @@ function DutyRoster() {
     // matching entry in history at yesterday (instead of just discarding
     // it) so the calendar still correctly shows them as away for every day
     // up through yesterday, rather than losing that record entirely.
+    // A period that only starts today or later never actually happened —
+    // remove it instead of giving it an end date before its start date.
     const yesterday = addDaysStr(todayStr(), -1);
-    const history = (prevRec.unavailableHistory || []).map((p) =>
-      cur && p.kind === cur.kind && p.typeId === cur.typeId && p.from === cur.from && p.to === cur.to
-        ? { ...p, to: yesterday }
-        : p
-    );
+    const isCur = (p) => cur && p.kind === cur.kind && p.typeId === cur.typeId && p.from === cur.from && p.to === cur.to;
+    const history = (prevRec.unavailableHistory || [])
+      .filter((p) => !(isCur(p) && cur.from && cur.from > yesterday))
+      .map((p) => (isCur(p) ? { ...p, to: yesterday } : p));
     persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: null, unavailableHistory: history } } });
     showToast(t(`${prevRec.name}'s ${kindLabel} ended — back on duty`, `${prevRec.name} ની ${kindLabel} સમાપ્ત થઈ — ડ્યુટી પર પાછા`));
   };
