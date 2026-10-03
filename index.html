@@ -758,6 +758,7 @@ function nbViewToPath(v) {
     case "events": return v.tab === "reminders" ? "/app/events/reminders" : "/app/events";
     case "recycle": return "/app/recycle-bin";
     case "bandobast": return v.id ? "/app/bandobast/" + enc(v.id) : "/app/bandobast";
+    case "nightRound": return "/app/night-round";
     default: return "/app/dashboard";
   }
 }
@@ -828,6 +829,8 @@ function nbResolveRoute(path, signedIn) {
       if (n === 1) return V({ mode: "bandobast" }, ["Bandobast", "બંદોબસ્ત"]);
       if (n === 2) return V({ mode: "bandobast", id: b }, ["Bandobast", "બંદોબસ્ત"]);
       return NF;
+    case "night-round":
+      return n === 1 ? V({ mode: "nightRound" }, ["Night round", "ના.રા. પત્રક"]) : NF;
     case "recycle-bin":
       return n === 1 ? V({ mode: "recycle" }, ["Recycle Bin", "રિસાયકલ બિન"]) : NF;
     case "settings":
@@ -2246,6 +2249,22 @@ function nbPatchAutoTable() {
   const wrapped = function (opts, ...rest) { return orig.call(this, typeof opts === "object" && opts ? nbPdfTableStyle(opts) : opts, ...rest); };
   wrapped.__nbStyled = true;
   api.autoTable = wrapped;
+  // Gujarati text is drawn as PNG images; jsPDF stores those uncompressed
+  // by default, which made a two-page PDF 10+ MB. Compress them so every
+  // PDF stays small enough to send on WhatsApp.
+  if (api.addImage && !api.addImage.__nbFast) {
+    const origImg = api.addImage;
+    const fast = function (...args) {
+      if (args.length === 1 && args[0] && typeof args[0] === "object" && !(args[0] instanceof HTMLElement) && args[0].imageData) {
+        return origImg.call(this, { compression: "FAST", ...args[0] });
+      }
+      while (args.length < 8) args.push(undefined);
+      if (args[7] == null) args[7] = "FAST";
+      return origImg.apply(this, args);
+    };
+    fast.__nbFast = true;
+    api.addImage = fast;
+  }
 }
 function nbEnsureJsPDF() {
   if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) { nbPatchAutoTable(); return Promise.resolve(); }
@@ -2340,8 +2359,10 @@ function PdfReadyModal({ pdf, onClose }) {
     }
     onClose();
   };
+  const share = nbCanShareFiles();
   const handleDownload = () => {
-    pdf.doc.save(pdf.filename);
+    try { nbDeliverBlob(pdf.doc.output("blob"), pdf.filename, pdf.filename.replace(/\.pdf$/i, "")); }
+    catch (e) { pdf.doc.save(pdf.filename); }
     onClose();
   };
   return (
@@ -2350,7 +2371,7 @@ function PdfReadyModal({ pdf, onClose }) {
         <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, textAlign: "center" }}>{t("PDF ready", "PDF તૈયાર છે")}</div>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={handleView} className="gu" style={{ flex: 1, background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>👁 {t("View", "જુઓ")}</button>
-          <button onClick={handleDownload} className="gu" style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>⬇ {t("Download", "ડાઉનલોડ કરો")}</button>
+          <button onClick={handleDownload} className="gu" style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>{share ? "📤 " + t("Send / Save", "મોકલો / સાચવો") : "⬇ " + t("Download", "ડાઉનલોડ કરો")}</button>
         </div>
       </div>
     </div>
@@ -2608,12 +2629,7 @@ function downloadStaffDirectoryDocx(staffList, stationName, district) {
       { t: displayPhone(s.phone) || "—", center: true }, { t: s.statusLabel },
     ]),
   });
-  const blob = nbDocxFromBlocks(blocks);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = `mahekam-patra-${todayStr()}.docx`;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  nbDeliverBlob(nbDocxFromBlocks(blocks), `mahekam-patra-${todayStr()}.docx`, "મહેકમ પત્ર");
 }
 // ---------- Generic table → Word (.docx), same look as every PDF ----------
 // Station name + district centred on top, bold title, optional subtitle and
@@ -2626,6 +2642,32 @@ function nbSaveBlob(blob, filename) {
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+// On a phone, a finished PDF / Word file opens the phone's share menu
+// (WhatsApp, Gmail, Drive, Save to Files…) so it can be sent straight
+// away. On a computer, or where the browser can't share files, it is
+// simply downloaded as before.
+function nbCanShareFiles() {
+  try {
+    if (!navigator.share || !navigator.canShare) return false;
+    const touch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    return !!touch;
+  } catch (e) { return false; }
+}
+async function nbDeliverBlob(blob, filename, title) {
+  if (nbCanShareFiles()) {
+    try {
+      const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: title || filename });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+      console.warn("Share failed, downloading instead", e);
+    }
+  }
+  nbSaveBlob(blob, filename);
 }
 function nbTableDocx({ title, subtitle, head, rows, stationName, district, extraLines, filename }) {
   const landscape = head.length > 8;
@@ -2642,7 +2684,7 @@ function nbTableDocx({ title, subtitle, head, rows, stationName, district, extra
   blocks.push({ text: (subtitle ? subtitle + " · " : "") + "Generated " + nbPdfStamp(), center: true, sz: 20, after: (extraLines && extraLines.length) ? 80 : 200 });
   (extraLines || []).forEach((l, i, arr) => blocks.push({ text: l, sz: 19, after: i === arr.length - 1 ? 200 : 40 }));
   blocks.push({ table: true, widths, head: head.map(str), rows: rows.map((r) => head.map((_, i) => ({ t: str(r[i]), center: isShort(i) }))) });
-  nbSaveBlob(nbDocxFromBlocks(blocks, { landscape }), filename);
+  nbDeliverBlob(nbDocxFromBlocks(blocks, { landscape }), filename, title);
 }
 // ---------- Skip-history PDF (Skip history's "Download PDF") ----------
 // `rows` here are pre-built arrays matching the exact same columns as the
@@ -3845,6 +3887,14 @@ function nbDescribeChanges(a, b) {
   const ba = Object.fromEntries((a.bandobasts || []).map((x) => [x.id, x])), bb = Object.fromEntries((b.bandobasts || []).map((x) => [x.id, x]));
   Object.keys(bb).forEach((id) => { if (!ba[id]) items.push({ k: "bb+", c: bb[id].title || "" }); else if (ba[id] !== bb[id] && JSON.stringify(ba[id]) !== JSON.stringify(bb[id])) items.push({ k: "bb~", c: bb[id].title || "" }); });
   Object.keys(ba).forEach((id) => { if (!bb[id]) items.push({ k: "bb-", c: ba[id].title || "" }); });
+  {
+    const na = a.nightRound || {}, nb2 = b.nightRound || {};
+    if (na !== nb2) {
+      if (JSON.stringify(na.points || []) !== JSON.stringify(nb2.points || []) || JSON.stringify(na.settings || {}) !== JSON.stringify(nb2.settings || {})) items.push({ k: "nrPlan" });
+      const sa2 = na.sheets || {}, sb2 = nb2.sheets || {};
+      Object.keys(sb2).forEach((d) => { if (!sa2[d] || sa2[d].savedAt !== sb2[d].savedAt) items.push({ k: "nr~", c: formatDMY(d) }); });
+    }
+  }
   ["stationName", "district", "state", "shareEnabled", "joinCode"].forEach((f) => { if ((a[f] || null) !== (b[f] || null)) items.push({ k: "setting", f }); });
   if (JSON.stringify(a.leaveTypes) !== JSON.stringify(b.leaveTypes) || JSON.stringify(a.outstationTypes) !== JSON.stringify(b.outstationTypes) || JSON.stringify(a.designations) !== JSON.stringify(b.designations)) items.push({ k: "lists" });
   if ((a.events || []) !== (b.events || []) && JSON.stringify(a.events || []) !== JSON.stringify(b.events || [])) items.push({ k: "events" });
@@ -3880,6 +3930,8 @@ function nbActivityText(it, t) {
     case "bb+": return t(`New bandobast: ${it.c}`, `નવો બંદોબસ્ત: ${it.c}`);
     case "bb~": return t(`Changed bandobast: ${it.c}`, `બંદોબસ્ત બદલ્યો: ${it.c}`);
     case "bb-": return t(`Deleted bandobast: ${it.c}`, `બંદોબસ્ત ડિલીટ: ${it.c}`);
+    case "nrPlan": return t("Changed night round plan", "નાઇટ રાઉન્ડ પ્લાન બદલ્યો");
+    case "nr~": return t(`Saved night round for ${it.c}`, `${it.c} નો નાઇટ રાઉન્ડ સાચવ્યો`);
     case "setting": return t(`Changed ${F[it.f] || it.f}`, `${F[it.f] || it.f} બદલ્યું`);
     case "lists": return t("Changed leave / outstation types or designations", "રજા / બહારગામ પ્રકાર કે હોદ્દા બદલ્યા");
     case "events": return t("Changed events", "ઇવેન્ટ્સ બદલ્યા");
@@ -7911,6 +7963,7 @@ function DutyRoster() {
     const clean = { ...b, updatedAt: Date.now() };
     persist({ ...dataRef.current, bandobasts: list.some((x) => x.id === b.id) ? list.map((x) => (x.id === b.id ? clean : x)) : [clean, ...list] });
   };
+  const saveNightRound = (nr) => persist({ ...dataRef.current, nightRound: nr });
   const deleteBandobast = (id) => {
     const list = dataRef.current.bandobasts || [];
     const cur = list.find((x) => x.id === id);
@@ -8751,6 +8804,9 @@ function DutyRoster() {
               onOpen={(id) => setView(id ? { mode: "bandobast", id } : { mode: "bandobast" })}
               saveBandobast={saveBandobast} deleteBandobast={deleteBandobast} assignGroupDuty={assignGroupDuty} showToast={showToast} />
           )}
+          {vm === "nightRound" && (
+            <NightRoundView data={data} saveNightRound={saveNightRound} showToast={showToast} canEdit={canEdit} />
+          )}
           {vm === "recycle" && (
             <RecycleBinView
               data={data} onRestore={restoreFromRecycleBin}
@@ -9098,6 +9154,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
         </button>
         <button onClick={() => setView({ mode: "report" })} data-nb-path={nbViewToPath({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
         <button onClick={() => setView({ mode: "bandobast" })} data-nb-path={nbViewToPath({ mode: "bandobast" })} style={navBtn(view.mode === "bandobast")} className="gu">🚧 {t("Bandobast", "બંદોબસ્ત")}</button>
+        <button onClick={() => setView({ mode: "nightRound" })} data-nb-path={nbViewToPath({ mode: "nightRound" })} style={navBtn(view.mode === "nightRound")} className="gu">🌙 {t("Night round", "ના.રા. પત્રક")}</button>
         <button onClick={() => setView({ mode: "recycle" })} data-nb-path={nbViewToPath({ mode: "recycle" })} style={navBtn(view.mode === "recycle")} className="gu">🗑️ {t("Recycle bin", "રિસાયકલ બિન")}</button>
         <button data-tour="nb-tour-nav-settings" onClick={onSettings} style={navBtn(false)} className="gu">⚙️ {t("Settings", "સેટિંગ્સ")}</button>
       </div>
@@ -11678,7 +11735,7 @@ function nbDocxFromBlocks(blocks, opts) {
     const rpr = `<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Shruti"/>${o.b ? "<w:b/><w:bCs/>" : ""}<w:color w:val="${o.color || "000000"}"/><w:sz w:val="${o.sz || 22}"/><w:szCs w:val="${o.sz || 22}"/></w:rPr>`;
     return String(txt == null ? "" : txt).split("\n").map((line, i) => `<w:r>${rpr}${i ? "<w:br/>" : ""}<w:t xml:space="preserve">${esc(line)}</w:t></w:r>`).join("");
   };
-  const para = (txt, o) => { o = o || {}; return `<w:p><w:pPr><w:spacing w:after="${o.after == null ? 80 : o.after}"/>${o.center ? '<w:jc w:val="center"/>' : ""}</w:pPr>${run(txt, o)}</w:p>`; };
+  const para = (txt, o) => { o = o || {}; return `<w:p><w:pPr><w:spacing w:after="${o.after == null ? 80 : o.after}"/>${o.center ? '<w:jc w:val="center"/>' : o.right ? '<w:jc w:val="right"/>' : ""}</w:pPr>${run(txt, o)}</w:p>`; };
   const cell = (txt, w, o) => {
     o = o || {};
     return `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${o.vMerge ? `<w:vMerge${o.vMerge === "restart" ? ' w:val="restart"' : ""}/>` : ""}${o.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fill}"/>` : ""}<w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:spacing w:after="0"/>${o.center ? '<w:jc w:val="center"/>' : ""}</w:pPr>${run(txt, o)}</w:p></w:tc>`;
@@ -11719,13 +11776,601 @@ function downloadBandobastDocx(data, b) {
   blocks.push({ table: true, widths, head: L.cols.map((c) => (c.k === "sr" ? c.gu : `${c.gu} / ${c.en}`)), rows });
   blocks.push({ text: "", after: 120 });
   blocks.push({ text: (L.usePoint ? `કુલ પોઇન્ટ / Points: ${L.pointCount}    ` : "") + `કુલ સ્ટાફ / Total staff: ${L.total}`, b: true });
-  const blob = nbDocxFromBlocks(blocks);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = `nokri-book-bandobast-${b.from || todayStr()}.docx`;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  nbDeliverBlob(nbDocxFromBlocks(blocks), `nokri-book-bandobast-${b.from || todayStr()}.docx`, "Bandobast" + (b.title ? ": " + b.title : ""));
 }
+// ================= Night round (ના.રા. પત્રક) =================
+// Weekly plan (who goes on night round each weekday; for rotating posts
+// like 112, who goes on the 1st / 2nd / 3rd / 4th weekday of the month,
+// and the backup / 5th-weekday name) -> each night's sheet is built from
+// it automatically, dropping anyone on leave/outstation that date and
+// putting the backup in their place. The sheet prints in the station's
+// own format: table, strength line, rank count with %, officer signature.
+const NB_GU_DAYS = ["રવિવાર", "સોમવાર", "મંગળવાર", "બુધવાર", "ગુરુવાર", "શુક્રવાર", "શનિવાર"];
+const NB_EN_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const NB_GU_NTH = ["પહેલો", "બીજો", "ત્રીજો", "ચોથો", "પાંચમો"];
+const NB_EN_NTH = ["1st", "2nd", "3rd", "4th", "5th"];
+const NB_NR_RANKS = ["PI", "PSI", "ASI", "HC", "PC", "LRD"];
+function nbGuDigits(v) { return String(v == null ? "" : v).replace(/[0-9]/g, (d) => "૦૧૨૩૪૫૬૭૮૯"[d]); }
+function nbPad2(n) { return String(n).padStart(2, "0"); }
+function nbNthOfMonth(dateStr) { return Math.floor((Number(String(dateStr).slice(8, 10)) - 1) / 7) + 1; }
+function nbWeekdayOf(dateStr) { return new Date(dateStr + "T00:00:00").getDay(); }
+function nbRankGroup(label) {
+  const L = String(label || "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (L === "PI") return "PI";
+  if (/PSI/.test(L)) return "PSI";
+  if (/ASI/.test(L)) return "ASI";
+  if (/HC/.test(L)) return "HC";
+  if (/PC/.test(L)) return "PC";
+  if (/LRD/.test(L)) return "LRD";
+  return "OTHER";
+}
+function nbNr(data) {
+  const n = (data && data.nightRound) || {};
+  return {
+    settings: { from: "23:00", to: "05:00", officerName: "", officerDesg: "પો.ઇન્સ", sanctionedOfficers: "", sanctionedStaff: "", officersPresent: "", ...(n.settings || {}) },
+    points: n.points || [],
+    sheets: n.sheets || {},
+  };
+}
+// Short Gujarati word for a leave / outstation type in the strength line.
+function nbNrGuLabel(label) {
+  const L = String(label || "");
+  const map = [[/casual/i, "સી.એલ."], [/earned/i, "હક્ક રજા"], [/maternity/i, "મેટરનીટી લીવ"], [/sick|medical/i, "માંદગી રજા"], [/public\s*holiday/i, "જાહેર રજા"],
+    [/emergency/i, "ઇમરજન્સી રજા"], [/joining/i, "જોઇનીંગ રજા"], [/game|sport|cup/i, "ગેમ્સ"], [/training/i, "તાલીમ"], [/parade/i, "પરેડ"],
+    [/bandobast/i, "બંદોબસ્ત"], [/out\s*station/i, "બહારગામ"]];
+  const hit = map.find(([re]) => re.test(L));
+  return hit ? hit[1] : L;
+}
+function nbNrDesgLabel(data, x) {
+  if (x && typeof x === "object") return x.desg || "";
+  const st = (data.staff || {})[x] || {};
+  return ((data.designations || []).find((d) => d.id === st.designation) || {}).label || "";
+}
+function nbNrIsOfficer(data, x) { const g = nbRankGroup(nbNrDesgLabel(data, x)); return g === "PI" || g === "PSI"; }
+// Build one night's sheet from the weekly plan.
+function nbNrBuildSheet(data, date) {
+  const nr = nbNr(data);
+  const wd = nbWeekdayOf(date), nth = nbNthOfMonth(date);
+  const used = new Set();
+  const notes = [];
+  const awayOf = (x) => (typeof x === "string" && data.staff[x] ? unavailableOnDate(data.staff[x], date) : null);
+  const rows = nr.points.map((pt) => {
+    const backupList = ((pt.backup || {})[wd]) || [];
+    let list = pt.mode === "nth" ? (nth >= 5 ? backupList : (((pt.nth || {})[wd + "-" + nth]) || [])) : (((pt.days || {})[wd]) || []);
+    const staff = []; let missing = 0;
+    list.forEach((x) => {
+      if (typeof x === "string") {
+        if (!data.staff[x] || used.has(x)) return;
+        const a = awayOf(x);
+        if (a) { missing++; notes.push({ kind: "away", who: x, why: a, point: pt.vehicle || pt.place || "" }); return; }
+        used.add(x);
+      }
+      staff.push(x);
+    });
+    if (missing && !(pt.mode === "nth" && nth >= 5)) {
+      const subs = backupList.filter((x) => typeof x !== "string" || (data.staff[x] && !awayOf(x) && !used.has(x))).slice(0, missing);
+      subs.forEach((x) => { if (typeof x === "string") used.add(x); staff.push(x); notes.push({ kind: "sub", who: x, point: pt.vehicle || pt.place || "" }); });
+      if (subs.length < missing) notes.push({ kind: "short", n: missing - subs.length, point: pt.vehicle || pt.place || "" });
+    }
+    return { id: uid(), pointId: pt.id, vehicle: pt.vehicle || "", place: pt.place || "", deduct: !!pt.deduct, staff };
+  });
+  return { rows, strength: null, notes };
+}
+function nbNrStrength(data, sheet, date) {
+  const nr = nbNr(data); const S = nr.settings;
+  const all = Object.values(data.staff || {});
+  const offInApp = all.filter((s) => nbNrIsOfficer(data, s.number)).length;
+  const presentOff = S.officersPresent !== "" && S.officersPresent != null ? Number(S.officersPresent) || 0 : offInApp;
+  const presentStaff = all.length - offInApp;
+  const ded = [];
+  const add = (label, off) => { let e = ded.find((d) => d.label === label); if (!e) { e = { label, o: 0, s: 0 }; ded.push(e); } if (off) e.o++; else e.s++; };
+  const awaySet = new Set();
+  all.forEach((s) => { const a = unavailableOnDate(s, date); if (!a) return; awaySet.add(s.number); add(nbNrGuLabel(unavailLabel(data, a)), nbNrIsOfficer(data, s.number)); });
+  const seen = new Set();
+  (sheet.rows || []).filter((r) => r.deduct).forEach((r) => (r.staff || []).forEach((x) => {
+    if (typeof x !== "string" || seen.has(x) || awaySet.has(x)) return;
+    seen.add(x); add(r.vehicle || r.place || "—", nbNrIsOfficer(data, x));
+  }));
+  const totO = ded.reduce((n, d) => n + d.o, 0), totS = ded.reduce((n, d) => n + d.s, 0);
+  const netO = presentOff - totO, netS = presentStaff - totS;
+  const ranks = { PI: 0, PSI: 0, ASI: 0, HC: 0, PC: 0, LRD: 0, OTHER: 0 };
+  let total = 0;
+  (sheet.rows || []).forEach((r) => (r.staff || []).forEach((x) => { ranks[nbRankGroup(nbNrDesgLabel(data, x))]++; total++; }));
+  const pct = netS > 0 ? Math.round((100 * total) / netS) : 0;
+  const p2 = nbPad2;
+  const parts = [];
+  if (S.sanctionedOfficers !== "" || S.sanctionedStaff !== "") parts.push(`મંજુર મહેકમ ${Number(S.sanctionedOfficers) || 0}+${Number(S.sanctionedStaff) || 0}`);
+  parts.push(`હાજર મહેકમ-${p2(presentOff)}+${p2(presentStaff)}`);
+  const dl = ded.map((d) => `${d.label}-${d.o ? p2(d.o) + "+" : ""}${p2(d.s)}`);
+  dl.push(`અન્ય-${p2(totO)}+${p2(totS)}`);
+  const line = nbGuDigits(`${data.stationName ? data.stationName + " - " : ""}${parts.join(" ")}, ${dl.join(", ")}, ચોખ્ખુ ${p2(netO)}+${p2(netS)}`);
+  return { line, ranks, total, pct, netO, netS, presentOff, presentStaff };
+}
+// Flat print rows: one per person, first three columns span the post.
+function nbNrPrintRows(data, sheet) {
+  const out = []; let sr = 0;
+  (sheet.rows || []).filter((r) => (r.staff || []).length || r.vehicle || r.place).forEach((r) => {
+    sr++;
+    const people = (r.staff || []).length ? r.staff : [null];
+    people.forEach((x, j) => {
+      const st = typeof x === "string" ? (data.staff[x] || {}) : null;
+      out.push({
+        first: j === 0, span: people.length, sr: nbGuDigits(nbPad2(sr)), vehicle: r.vehicle || "", place: r.place || "",
+        desg: x ? nbNrDesgLabel(data, x) : "", number: x && typeof x === "string" ? nbGuDigits(x) : "",
+        name: x ? (st ? st.name || x : x.name || "") : "—",
+        phone: st && st.phone ? nbGuDigits(String(st.phone).replace(/\D/g, "").replace(/^91(?=\d{10}$)/, "")) : "",
+      });
+    });
+  });
+  return out;
+}
+function nbNrTitle(data, date, S) {
+  const d = date.split("-");
+  const t1 = `${data.stationName || ""} નાઇટ રાઉન્ડ`.trim();
+  const t2 = nbGuDigits(`${NB_GU_DAYS[nbWeekdayOf(date)]} તા.${d[2]}/${d[1]}/${d[0]} ના ક.${(S.from || "23:00").replace(":", "/")} થી ક.${(S.to || "05:00").replace(":", "/")} સુધી`);
+  return [t1, t2];
+}
+const NB_NR_HEAD = ["ક્રમ", "વાહનનો પ્રકાર", "ફરજનું સ્થળ", "હોદો", "બ.નં.", "અધિકારી/કર્મચારીઓનું નામ", "મોબાઇલ નંબર"];
+function nbNrRankHead(st) { return ["", ...NB_NR_RANKS, ...(st.ranks.OTHER ? ["અન્ય"] : []), "કુલ", "ટકા"]; }
+function nbNrRankRow(st) { return ["નાઇટ-રાઉન્ડમાં રવાના", ...NB_NR_RANKS.map((k) => nbGuDigits(nbPad2(st.ranks[k]))), ...(st.ranks.OTHER ? [nbGuDigits(nbPad2(st.ranks.OTHER))] : []), nbGuDigits(nbPad2(st.total)), nbGuDigits(st.pct + "%")]; }
+function downloadNightRoundDocx(data, sheet, date) {
+  const S = nbNr(data).settings;
+  const st = nbNrStrength(data, sheet, date);
+  const [t1, t2] = nbNrTitle(data, date, S);
+  const blocks = [];
+  blocks.push({ text: t1, b: true, sz: 28, center: true, after: 0 });
+  blocks.push({ text: t2, b: true, sz: 24, center: true, after: 160 });
+  const widths = [650, 1500, 1700, 850, 800, 2950, 1650];
+  const rows = nbNrPrintRows(data, sheet).map((r) => {
+    const vm = r.first ? (r.span > 1 ? "restart" : null) : "continue";
+    return [
+      { t: r.first ? r.sr : "", center: true, b: true, vMerge: vm },
+      { t: r.first ? r.vehicle : "", center: true, b: true, vMerge: vm },
+      { t: r.first ? r.place : "", center: true, b: true, vMerge: vm },
+      { t: r.desg, center: true }, { t: r.number, center: true }, { t: r.name }, { t: r.phone, center: true },
+    ];
+  });
+  blocks.push({ table: true, widths, head: NB_NR_HEAD, rows });
+  blocks.push({ text: "", after: 120 });
+  blocks.push({ text: sheet.strength || st.line, b: true, sz: 21, after: 160 });
+  const rh = nbNrRankHead(st);
+  const rw = rh.map((_, i) => (i === 0 ? 2300 : Math.round(7800 / (rh.length - 1))));
+  blocks.push({ table: true, widths: rw, head: rh, rows: [nbNrRankRow(st).map((v, i) => ({ t: v, center: i > 0, b: i === 0 }))] });
+  blocks.push({ text: "", after: 500 });
+  if (S.officerName) blocks.push({ text: `(${S.officerName})`, right: true, after: 0 });
+  if (S.officerDesg) blocks.push({ text: S.officerDesg, right: true, after: 0 });
+  if (data.stationName) blocks.push({ text: data.stationName, right: true, after: 0 });
+  nbDeliverBlob(nbDocxFromBlocks(blocks), `night-round-${date}.docx`, "Night round " + formatDMY(date));
+}
+// Renders text (may hold "\n") into a wrapped Gujarati-safe image.
+function nbRenderLinesImage(text, fontSizePt, maxWidthMm) {
+  const scale = 4;
+  const fontPx = Math.round(fontSizePt * 1.22 * scale * (96 / 72));
+  const maxWidthPx = Math.max(1, maxWidthMm) * (1 / 0.3528) * scale * (96 / 72);
+  const m = document.createElement("canvas").getContext("2d");
+  m.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
+  const lines = String(text == null ? "" : text).split("\n").flatMap((seg) => wrapCanvasTextToWidth(m, seg, maxWidthPx));
+  const lineHeight = Math.round(fontPx * 1.35);
+  let maxW = 1; lines.forEach((l) => { maxW = Math.max(maxW, m.measureText(l || " ").width); });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(maxW) + scale * 2; canvas.height = lineHeight * lines.length + scale * 2;
+  const ctx = canvas.getContext("2d");
+  ctx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`; ctx.textBaseline = "middle"; ctx.fillStyle = "#000000";
+  lines.forEach((l, i) => ctx.fillText(l, scale, lineHeight * i + lineHeight / 2));
+  return { dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height, lineCount: lines.length };
+}
+// autoTable where any Gujarati cell (head or body) is drawn as a wrapped
+// image inside a fixed-width column; ASCII cells stay real text.
+function nbGuAutoTable(doc, { startY, head, body, widths, center, bold, fontPt }) {
+  const FONT_PT = fontPt || NB_PDF_FONT_PT;
+  const ctr = new Set(center || []), bld = new Set(bold || []);
+  const columnStyles = {};
+  widths.forEach((w, i) => { columnStyles[i] = { cellWidth: w, halign: ctr.has(i) ? "center" : "left", fontStyle: bld.has(i) ? "bold" : "normal" }; });
+  const raw = (c) => (c && typeof c === "object" ? c.content : c);
+  const cache = new Map();
+  const img = (txt, w) => { const k = w + "|" + txt; if (!cache.has(k)) cache.set(k, nbRenderLinesImage(txt, FONT_PT, w - 3)); return cache.get(k); };
+  const mmPerLine = FONT_PT * 0.3528 * 1.35;
+  doc.autoTable({
+    startY, head: [head], body, columnStyles, rowPageBreak: "avoid",
+    margin: { left: (doc.internal.pageSize.getWidth() - widths.reduce((a, b) => a + b, 0)) / 2, right: 8, bottom: 16 },
+    styles: { fontSize: FONT_PT, valign: "middle", cellPadding: 1.4 },
+    headStyles: { halign: "center" },
+    didParseCell: (h) => {
+      const v = raw(h.cell.raw);
+      if (v == null || v === "" || !needsImageRender(String(v))) return;
+      const im = img(String(v), widths[h.column.index]);
+      h.cell.text = [""];
+      h.cell.styles.minCellHeight = im.lineCount * mmPerLine + 2.8;
+    },
+    didDrawCell: (h) => {
+      const v = raw(h.cell.raw);
+      if (v == null || v === "" || !needsImageRender(String(v))) return;
+      const im = img(String(v), widths[h.column.index]);
+      const sc = mmPerLine / (im.height / im.lineCount);
+      const W = im.width * sc, H = im.height * sc;
+      const x = ctr.has(h.column.index) || h.section === "head" ? h.cell.x + (h.cell.width - W) / 2 : h.cell.x + 1.2;
+      doc.addImage(im.dataUrl, "PNG", x, h.cell.y + (h.cell.height - H) / 2, W, H);
+    },
+  });
+  return doc.lastAutoTable.finalY;
+}
+function nbPdfParagraph(doc, text, x, y, widthMm, fontPt, align) {
+  if (!needsImageRender(text)) {
+    doc.setFontSize(fontPt);
+    const lines = doc.splitTextToSize(text, widthMm);
+    doc.text(lines, align === "right" ? x + widthMm : x, y + fontPt * 0.3528, { align: align === "right" ? "right" : "left" });
+    return y + lines.length * fontPt * 0.3528 * 1.35;
+  }
+  const im = nbRenderLinesImage(text, fontPt, widthMm);
+  const mmPerLine = fontPt * 0.3528 * 1.35;
+  const sc = mmPerLine / (im.height / im.lineCount);
+  const W = im.width * sc, H = im.height * sc;
+  doc.addImage(im.dataUrl, "PNG", align === "right" ? x + widthMm - W : x, y, W, H);
+  return y + H;
+}
+async function downloadNightRoundPdf(data, sheet, date) {
+  await ensureGujaratiCanvasFont();
+  await nbEnsureJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const S = nbNr(data).settings;
+  const st = nbNrStrength(data, sheet, date);
+  const [t1, t2] = nbNrTitle(data, date, S);
+  doc.setTextColor(0, 0, 0);
+  drawCenteredStationName(doc, t1, 14, 13);
+  drawCenteredStationName(doc, t2, 21, 11);
+  const widths = [10, 26, 30, 15, 14, 54, 27];
+  const body = [];
+  nbNrPrintRows(data, sheet).forEach((r) => {
+    const row = [];
+    if (r.first) { row.push({ content: r.sr, rowSpan: r.span }, { content: r.vehicle, rowSpan: r.span }, { content: r.place, rowSpan: r.span }); }
+    row.push(r.desg, r.number, r.name, r.phone);
+    body.push(row);
+  });
+  let y = nbGuAutoTable(doc, { startY: 26, head: NB_NR_HEAD, body: body.length ? body : [["", "", "", "", "", "—", ""]], widths, center: [0, 1, 2, 3, 4, 6], bold: [0, 1, 2] });
+  y += 5;
+  const left = (doc.internal.pageSize.getWidth() - 176) / 2;
+  y = nbPdfParagraph(doc, sheet.strength || st.line, left, y, 176, 9.5) + 4;
+  const rh = nbNrRankHead(st);
+  const rw = rh.map((_, i) => (i === 0 ? 40 : 136 / (rh.length - 1)));
+  y = nbGuAutoTable(doc, { startY: y, head: rh, body: [nbNrRankRow(st)], widths: rw, center: rh.map((_, i) => i).slice(1), bold: [0] }) + 22;
+  const sw = 70, sx = doc.internal.pageSize.getWidth() - 14 - sw;
+  [S.officerName ? `(${S.officerName})` : "", S.officerDesg, data.stationName].filter(Boolean).forEach((l) => { y = nbPdfParagraph(doc, l, sx, y, sw, 10, "right") + 1; });
+  return { doc, filename: `night-round-${date}.pdf` };
+}
+// The weekly plan itself (the "base" sheet), landscape: posts down the
+// side, weekdays across.
+function nbNrPlanTable(data) {
+  const nr = nbNr(data);
+  const nm = (x) => (typeof x === "string" ? ((data.staff[x] || {}).name || x) : x.name || "");
+  const fmt = (list) => (list || []).map((x) => { const d = nbNrDesgLabel(data, x); return (d ? d + " " : "") + nm(x); }).join("\n");
+  const head = ["ફરજ", "", ...NB_GU_DAYS];
+  const rows = [];
+  nr.points.forEach((pt) => {
+    const title = [pt.vehicle, pt.place].filter(Boolean).join("\n") || "—";
+    if (pt.mode === "nth") {
+      ["૧ થી ૭", "૮ થી ૧૪", "૧૫ થી ૨૧", "૨૨ થી ૨૮"].forEach((lbl, k) => rows.push([k === 0 ? title : "", lbl, ...NB_GU_DAYS.map((_, wd) => fmt(((pt.nth || {})[wd + "-" + (k + 1)])))]));
+      rows.push(["", "પાંચમો / બદલી", ...NB_GU_DAYS.map((_, wd) => fmt(((pt.backup || {})[wd])))]);
+    } else {
+      rows.push([title, "દરરોજ", ...NB_GU_DAYS.map((_, wd) => fmt(((pt.days || {})[wd])))]);
+      if (NB_GU_DAYS.some((_, wd) => ((pt.backup || {})[wd] || []).length)) rows.push(["", "બદલી", ...NB_GU_DAYS.map((_, wd) => fmt(((pt.backup || {})[wd])))]);
+    }
+  });
+  return { head, rows };
+}
+function downloadNightPlanDocx(data) {
+  const { head, rows } = nbNrPlanTable(data);
+  const blocks = [{ text: `${data.stationName || ""} નાઇટ રાઉન્ડ — અઠવાડિક પ્લાન`.trim(), b: true, sz: 28, center: true, after: 160 }];
+  const widths = [1700, 1100, ...NB_GU_DAYS.map(() => 1700)];
+  blocks.push({ table: true, widths, head, rows: rows.map((r) => r.map((v, i) => ({ t: v, b: i < 2, center: i === 1 }))) });
+  blocks.push({ text: "", after: 120 });
+  blocks.push({ text: "નોંધ: કર્મચારી રજા / બહારગામ હોય તો તે દિવસે \"બદલી\" માં આપેલ કર્મચારીને ફરજ આપવી. મહિનાના પાંચમા વારે \"પાંચમો\" માં આપેલ કર્મચારી ફરજ બજાવશે.", sz: 19 });
+  nbDeliverBlob(nbDocxFromBlocks(blocks, { landscape: true }), `night-round-plan.docx`, "Night round plan");
+}
+async function downloadNightPlanPdf(data) {
+  await ensureGujaratiCanvasFont();
+  await nbEnsureJsPDF();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape" });
+  const { head, rows } = nbNrPlanTable(data);
+  drawCenteredStationName(doc, `${data.stationName || ""} નાઇટ રાઉન્ડ — અઠવાડિક પ્લાન`.trim(), 14, 13);
+  const widths = [30, 20, ...NB_GU_DAYS.map(() => 33)];
+  const y = nbGuAutoTable(doc, { startY: 20, head, body: rows.length ? rows : [["—", "", "", "", "", "", "", "", ""]], widths, center: [1], bold: [0, 1], fontPt: 8 });
+  nbPdfParagraph(doc, "નોંધ: કર્મચારી રજા / બહારગામ હોય તો તે દિવસે \"બદલી\" માં આપેલ કર્મચારીને ફરજ આપવી. મહિનાના પાંચમા વારે \"પાંચમો\" માં આપેલ કર્મચારી ફરજ બજાવશે.", 14, y + 5, 269, 9);
+  return { doc, filename: "night-round-plan.pdf" };
+}
+function nbNightRoundText(data, sheet, date) {
+  const S = nbNr(data).settings;
+  const st = nbNrStrength(data, sheet, date);
+  const [t1, t2] = nbNrTitle(data, date, S);
+  const L = ["*" + t1 + "*", t2];
+  let sr = 0;
+  (sheet.rows || []).filter((r) => (r.staff || []).length).forEach((r) => {
+    sr++;
+    L.push("");
+    L.push(`*${nbGuDigits(nbPad2(sr))}. ${[r.vehicle, r.place].filter(Boolean).join(" — ")}*`);
+    r.staff.forEach((x) => {
+      const s2 = typeof x === "string" ? data.staff[x] || {} : null;
+      L.push("   " + [nbNrDesgLabel(data, x), typeof x === "string" ? x : "", s2 ? s2.name : x.name, s2 && s2.phone ? String(s2.phone).replace(/\D/g, "").slice(-10) : ""].filter(Boolean).join(" "));
+    });
+  });
+  L.push("");
+  L.push(sheet.strength || st.line);
+  L.push(nbGuDigits(`નાઇટ-રાઉન્ડમાં રવાના: કુલ ${nbPad2(st.total)} (${st.pct}%)`));
+  return L.join("\n");
+}
+
+// One list of people (staff by buckle number, or a manual name) with
+// search-to-add, the "remaining staff" picker and remove buttons.
+function NrPeopleList({ data, list, onChange, date, othersUsed, label, tone, canEdit }) {
+  const { t } = useLang();
+  const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState("");
+  const [manName, setManName] = useState("");
+  const [manDesg, setManDesg] = useState("");
+  const [remaining, setRemaining] = useState(false);
+  const inList = new Set((list || []).filter((x) => typeof x === "string"));
+  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => String(st.number).toLowerCase().includes(s) || (st.name || "").toLowerCase().includes(s)).slice(0, 8); }, [q, data.staff]);
+  const inp = { fontSize: 13, boxSizing: "border-box" };
+  const add = (x) => { if (typeof x === "string" && inList.has(x)) return; onChange([...(list || []), x]); };
+  const bg = tone === "green" ? "var(--status-success-bg)" : tone === "yellow" ? "var(--status-warning-bg)" : "var(--bg-surface-2)";
+  return (
+    <div className="gu" style={{ marginTop: 6 }}>
+      {label && <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>{label}</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {(list || []).map((x, i) => {
+          const manual = x && typeof x === "object";
+          const st = manual ? null : data.staff[x] || {};
+          const away = !manual && date && st.number ? unavailableOnDate(st, date) : null;
+          const dup = !manual && othersUsed && othersUsed.has(x);
+          return (
+            <span key={manual ? x.m : x} title={away ? unavailLabel(data, away) : dup ? t("Also on another post", "બીજી ફરજ પર પણ") : ""} style={{ fontSize: 12.5, background: away || dup ? "var(--status-warning-bg)" : bg, border: manual ? "1px dashed var(--border)" : "1px solid var(--border-soft)", borderRadius: 14, padding: "3px 6px 3px 10px", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              {away ? "⚠ " : dup ? "⧉ " : ""}
+              <span style={{ color: "var(--status-warning-text)", fontSize: 11 }}>{nbNrDesgLabel(data, x)}</span> {manual ? x.name : st.name || x}
+              {!manual && <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{x}</span>}
+              {away && <span style={{ color: "var(--status-error-text)", fontSize: 11 }}>· {unavailLabel(data, away)}</span>}
+              {canEdit && <button onClick={() => onChange(list.filter((_, j) => j !== i))} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, padding: "0 2px" }} aria-label={t("Remove", "કાઢો")}>✕</button>}
+            </span>
+          );
+        })}
+        {canEdit && <button onClick={() => { setAdding((v) => !v); setQ(""); }} style={{ ...iconBtnWide, borderRadius: 14 }}>+ {t("Staff", "સ્ટાફ")}</button>}
+        {canEdit && <button onClick={() => setRemaining(true)} style={{ ...iconBtnWide, borderRadius: 14 }}>👥 {t("Remaining", "બાકી")}</button>}
+      </div>
+      {adding && (
+        <div style={{ marginTop: 6, padding: 8, border: "1px solid var(--border-soft)", borderRadius: 8 }}>
+          <input type="text" autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setAdding(false); if (e.key === "Enter" && matches[0]) { add(matches[0].number); setQ(""); } }} placeholder={t("Buckle number or name — Enter adds the first match", "બકલ નંબર કે નામ — Enter થી પહેલું ઉમેરાશે")} className="gu" style={{ ...inp, width: "100%" }} />
+          {matches.map((st) => {
+            const away = date ? unavailableOnDate(st, date) : null;
+            const on = inList.has(st.number);
+            return (
+              <button key={st.number} disabled={on} onClick={() => { add(st.number); setQ(""); }} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "7px 4px", fontSize: 13, color: on ? "var(--text-tertiary)" : "var(--text-primary)", cursor: on ? "default" : "pointer" }}>
+                <span style={{ color: "var(--status-warning-text)", fontSize: 11 }}>{nbNrDesgLabel(data, st.number)}</span> {st.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{st.number}</span>
+                {away && <span style={{ color: "var(--status-error-text)", fontSize: 11.5 }}> · {unavailLabel(data, away)}</span>}
+                {othersUsed && othersUsed.has(st.number) && !on && <span style={{ color: "var(--status-warning-text)", fontSize: 11.5 }}> · {t("already on another post", "બીજી ફરજ પર છે")}</span>}
+                {on && " ✓"}
+              </button>
+            );
+          })}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Officer / without buckle no.:", "અધિકારી / બકલ નંબર વગર:")}</span>
+            <input type="text" list="nb-nr-desg" value={manDesg} onChange={(e) => setManDesg(e.target.value.slice(0, 30))} placeholder={t("Designation", "હોદ્દો")} className="gu" style={{ ...inp, width: 100 }} />
+            <datalist id="nb-nr-desg">{(data.designations || []).map((d) => <option key={d.id} value={d.label} />)}</datalist>
+            <input type="text" value={manName} onChange={(e) => setManName(e.target.value.slice(0, 80))} onKeyDown={(e) => { if (e.key === "Enter" && manName.trim()) { add({ m: uid(), name: manName.trim(), desg: manDesg.trim() }); setManName(""); } }} placeholder={t("Name", "નામ")} className="gu" style={{ ...inp, flex: "1 1 130px" }} />
+            <button disabled={!manName.trim()} onClick={() => { add({ m: uid(), name: manName.trim(), desg: manDesg.trim() }); setManName(""); }} style={iconBtnWide}>+ {t("Add", "ઉમેરો")}</button>
+          </div>
+          <button onClick={() => setAdding(false)} style={{ ...iconBtnWide, marginTop: 6 }}>{t("Done", "પૂર્ણ")}</button>
+        </div>
+      )}
+      {remaining && (
+        <BandobastRemainingModal data={data} draft={{ from: date || todayStr(), points: [{ staff: [...(list || []), ...Array.from(othersUsed || [])] }] }} point={{ name: label || "" }}
+          onAdd={(nums) => onChange([...(list || []), ...nums.filter((n) => !inList.has(n))])} onClose={() => setRemaining(false)} />
+      )}
+    </div>
+  );
+}
+
+function NightRoundView({ data, saveNightRound, showToast, canEdit }) {
+  const { t, lang } = useLang();
+  const nr = nbNr(data);
+  const [tab, setTab] = useState("sheet");
+  const [date, setDate] = useState(todayStr());
+  const saved = nr.sheets[date] || null;
+  const built = useMemo(() => nbNrBuildSheet(data, date), [data, date]);
+  const [draft, setDraft] = useState(null);
+  useEffect(() => { setDraft(saved ? JSON.parse(JSON.stringify(saved)) : JSON.parse(JSON.stringify({ rows: built.rows, strength: null }))); }, [date, saved && saved.savedAt, !saved && nr.points]);
+  const [plan, setPlan] = useState(() => JSON.parse(JSON.stringify(nr.points)));
+  useEffect(() => { setPlan(JSON.parse(JSON.stringify(nr.points))); }, [nr.points]);
+  const [settings, setSettings] = useState(nr.settings);
+  useEffect(() => { setSettings(nr.settings); }, [data.nightRound && data.nightRound.settings]);
+  const [planDay, setPlanDay] = useState(new Date().getDay());
+  const [pdf, setPdf] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [editLine, setEditLine] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const planDirty = JSON.stringify(plan) !== JSON.stringify(nr.points);
+  const settingsDirty = JSON.stringify(settings) !== JSON.stringify(nr.settings);
+  const sheetDirty = !!draft && (!saved || JSON.stringify({ rows: draft.rows, strength: draft.strength || null }) !== JSON.stringify({ rows: saved.rows, strength: saved.strength || null }));
+  const save = (patch) => {
+    const cur = nbNr(data);
+    saveNightRound({ settings: cur.settings, points: cur.points, sheets: cur.sheets, ...patch });
+  };
+  const saveSheet = () => {
+    const sheets = { ...nr.sheets, [date]: { rows: draft.rows, strength: draft.strength || null, savedAt: Date.now() } };
+    const keep = Object.keys(sheets).sort().slice(-90);
+    save({ sheets: Object.fromEntries(keep.map((k) => [k, sheets[k]])) });
+    showToast(t("Night round saved", "નાઇટ રાઉન્ડ સચવાયો"));
+  };
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "var(--text-primary)", textDecoration: "none", whiteSpace: "nowrap", cursor: "pointer" };
+  const darkBtn = (on) => ({ background: on ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13.5, fontWeight: 700 });
+  const tabBtn = (on) => ({ background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 600 });
+  const inp = { fontSize: 13, boxSizing: "border-box" };
+  const sheetUsed = (exceptId) => { const u = new Set(); (draft ? draft.rows : []).forEach((r) => { if (r.id !== exceptId) (r.staff || []).forEach((x) => { if (typeof x === "string") u.add(x); }); }); return u; };
+  const setRow = (id, patch) => setDraft((d) => ({ ...d, rows: d.rows.map((r) => (r.id === id ? { ...r, ...patch } : r)) }));
+  const moveRow = (i, dir) => setDraft((d) => { const rows = d.rows.slice(); const j = i + dir; if (j < 0 || j >= rows.length) return d; [rows[i], rows[j]] = [rows[j], rows[i]]; return { ...d, rows }; });
+  const setPt = (id, patch) => setPlan((p) => p.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const movePt = (i, dir) => setPlan((p) => { const a = p.slice(); const j = i + dir; if (j < 0 || j >= a.length) return p; [a[i], a[j]] = [a[j], a[i]]; return a; });
+  const planUsed = (exceptKey) => { const u = new Set(); plan.forEach((pt) => { const lists = pt.mode === "nth" ? [1, 2, 3, 4].map((k) => ["n" + pt.id + k, ((pt.nth || {})[planDay + "-" + k]) || []]) : [["d" + pt.id, ((pt.days || {})[planDay]) || []]]; lists.forEach(([key, l]) => { if (key !== exceptKey) l.forEach((x) => { if (typeof x === "string") u.add(x); }); }); }); return u; };
+  const st = draft ? nbNrStrength(data, draft, date) : null;
+  const wd = nbWeekdayOf(date), nth = nbNthOfMonth(date);
+  const dayName = lang === "gu" ? NB_GU_DAYS[wd] : NB_EN_DAYS[wd];
+  const nthName = lang === "gu" ? NB_GU_NTH[nth - 1] : NB_EN_NTH[nth - 1];
+  const doPdf = async (fn) => { setBusy(true); try { setPdf(await fn()); } catch (e) { console.error(e); window.alert(t("Could not make the PDF — check your connection and try again.", "PDF બની શક્યું નહીં — જોડાણ તપાસીને ફરી પ્રયત્ન કરો.")); } finally { setBusy(false); } };
+  return (
+    <React.Fragment>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+        <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0, flex: 1 }}>🌙 {t("Night round", "ના.રા. પત્રક")}</h1>
+        <button onClick={() => setTab("sheet")} className="gu" style={tabBtn(tab === "sheet")}>{t("Night sheet", "રાત્રિ પત્રક")}</button>
+        <button onClick={() => setTab("plan")} className="gu" style={tabBtn(tab === "plan")}>{t("Weekly plan", "અઠવાડિક પ્લાન")}</button>
+        <button onClick={() => setTab("settings")} className="gu" style={tabBtn(tab === "settings")}>⚙️ {t("Details", "વિગત")}</button>
+      </div>
+
+      {tab === "sheet" && draft && (
+        <React.Fragment>
+          <div className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={() => setDate(addDaysStr(date, -1))} style={iconBtnWide}>‹</button>
+            <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={inp} />
+            <button onClick={() => setDate(addDaysStr(date, 1))} style={iconBtnWide}>›</button>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{dayName} · {t(`${nthName} ${dayName} of the month`, `મહિનાનો ${nthName} ${dayName}`)}</span>
+            <div style={{ flex: 1 }} />
+            {saved ? <span style={{ fontSize: 12, color: "var(--status-success-text)" }}>✓ {t("Saved sheet", "સચવાયેલ પત્રક")}</span> : <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Made from weekly plan — not saved yet", "અઠવાડિક પ્લાન પરથી બન્યું — હજુ સચવાયું નથી")}</span>}
+            {canEdit && <button onClick={() => { if (window.confirm(t("Rebuild this night from the weekly plan? Your changes for this date will be replaced.", "અઠવાડિક પ્લાન પરથી ફરી બનાવવું છે? આ તારીખના ફેરફારો બદલાઈ જશે."))) setDraft({ rows: JSON.parse(JSON.stringify(built.rows)), strength: null }); }} style={iconBtnWide}>↻ {t("From plan", "પ્લાન પરથી")}</button>}
+            {canEdit && <button onClick={saveSheet} disabled={!sheetDirty} style={darkBtn(sheetDirty)}>{sheetDirty ? t("Save", "સાચવો") : "✓ " + t("Saved", "સચવાયું")}</button>}
+          </div>
+          {!nr.points.length && (
+            <div className="gu" style={{ padding: 14, border: "1px dashed var(--border)", borderRadius: 10, marginBottom: 12, fontSize: 13, color: "var(--text-secondary)" }}>
+              {t("No weekly plan yet. Set it up once in “Weekly plan” — then every night's sheet fills itself, leaving out anyone on leave and using the backup name.", "હજુ અઠવાડિક પ્લાન નથી. એક વાર “અઠવાડિક પ્લાન” માં બનાવો — પછી દરરોજનું પત્રક આપોઆપ ભરાશે, રજા પરના કર્મચારી નીકળી જશે અને બદલીનું નામ આવશે.")}
+              {" "}<button onClick={() => setTab("plan")} style={iconBtnWide}>{t("Open weekly plan", "અઠવાડિક પ્લાન ખોલો")}</button>
+            </div>
+          )}
+          {!saved && built.notes.length > 0 && (
+            <div className="gu" style={{ padding: "10px 12px", background: "var(--status-warning-bg)", border: "1px solid var(--status-warning-border)", borderRadius: 10, marginBottom: 12, fontSize: 12.5 }}>
+              {built.notes.map((n, i) => (
+                <div key={i}>
+                  {n.kind === "away" && <span>⚠ {(data.staff[n.who] || {}).name || n.who} — {unavailLabel(data, n.why)} ({n.point})</span>}
+                  {n.kind === "sub" && <span>↪ {typeof n.who === "string" ? (data.staff[n.who] || {}).name || n.who : n.who.name} {t("put in from the backup list", "બદલીમાંથી મૂક્યા")} ({n.point})</span>}
+                  {n.kind === "short" && <span>❗ {t(`${n.n} short — no free backup`, `${n.n} ઓછા — બદલી ઉપલબ્ધ નથી`)} ({n.point})</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {draft.rows.map((r, i) => (
+            <div key={r.id} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <b className="mono">{nbPad2(i + 1)}.</b>
+                <input type="text" value={r.vehicle} disabled={!canEdit} onChange={(e) => setRow(r.id, { vehicle: e.target.value.slice(0, 80) })} placeholder={t("Vehicle / type, e.g. સવા, મો.સા ૦૧", "વાહનનો પ્રકાર, દા.ત. સવા, મો.સા ૦૧")} className="gu" style={{ ...inp, flex: "1 1 150px" }} />
+                <input type="text" value={r.place} disabled={!canEdit} onChange={(e) => setRow(r.id, { place: e.target.value.slice(0, 100) })} placeholder={t("Place, e.g. જનરલ પેટ્રોલીંગ", "ફરજનું સ્થળ, દા.ત. જનરલ પેટ્રોલીંગ")} className="gu" style={{ ...inp, flex: "1 1 150px" }} />
+                <label title={t("PSO / wireless / guard — subtracted in the strength line", "પી.એસ.ઓ / વાયરલેસ / ગાર્ડ — મહેકમમાંથી બાદ")} style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" disabled={!canEdit} checked={!!r.deduct} onChange={(e) => setRow(r.id, { deduct: e.target.checked })} /> {t("Subtract from strength", "મહેકમમાંથી બાદ")}</label>
+                {canEdit && <button onClick={() => moveRow(i, -1)} style={iconBtn} aria-label="up">↑</button>}
+                {canEdit && <button onClick={() => moveRow(i, 1)} style={iconBtn} aria-label="down">↓</button>}
+                {canEdit && <button onClick={() => { if (!(r.staff || []).length || window.confirm(t("Remove this post?", "આ ફરજ કાઢવી છે?"))) setDraft((d) => ({ ...d, rows: d.rows.filter((x) => x.id !== r.id) })); }} style={iconBtn} aria-label={t("Remove", "કાઢો")}>✕</button>}
+              </div>
+              <NrPeopleList data={data} list={r.staff} onChange={(l) => setRow(r.id, { staff: l })} date={date} othersUsed={sheetUsed(r.id)} label={r.vehicle || r.place} canEdit={canEdit} />
+            </div>
+          ))}
+          {canEdit && <button onClick={() => setDraft((d) => ({ ...d, rows: [...d.rows, { id: uid(), vehicle: "", place: "", deduct: false, staff: [] }] }))} className="gu" style={{ ...iconBtnWide, fontSize: 13, padding: "8px 14px" }}>+ {t("Add post", "ફરજ ઉમેરો")}</button>}
+          {st && (
+            <div className="gu" style={{ marginTop: 14, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                <b style={{ fontSize: 13, flex: 1 }}>{t("Strength line", "મહેકમ")}</b>
+                {canEdit && !editLine && <button onClick={() => { setEditLine(true); if (!draft.strength) setDraft((d) => ({ ...d, strength: st.line })); }} style={iconBtnWide}>✎ {t("Edit", "સુધારો")}</button>}
+                {canEdit && draft.strength && <button onClick={() => { setDraft((d) => ({ ...d, strength: null })); setEditLine(false); }} style={iconBtnWide}>↻ {t("Auto", "આપોઆપ")}</button>}
+              </div>
+              {editLine && draft.strength != null
+                ? <textarea value={draft.strength} onChange={(e) => setDraft((d) => ({ ...d, strength: e.target.value.slice(0, 600) }))} rows={3} className="gu" style={{ width: "100%", fontSize: 13, boxSizing: "border-box" }} />
+                : <div style={{ fontSize: 13 }}>{draft.strength || st.line}</div>}
+              <div style={{ overflowX: "auto", marginTop: 10 }}>
+                <table style={{ borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <thead><tr>{nbNrRankHead(st).map((h, i) => <th key={i} style={{ border: "1px solid var(--border)", padding: "4px 10px", background: "var(--bg-surface-2)" }}>{h}</th>)}</tr></thead>
+                  <tbody><tr>{nbNrRankRow(st).map((v, i) => <td key={i} style={{ border: "1px solid var(--border)", padding: "4px 10px", textAlign: i ? "center" : "left", fontWeight: i ? 500 : 700 }}>{v}</td>)}</tr></tbody>
+                </table>
+              </div>
+              {!settings.officerName && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8 }}>{t("Tip: add the signing officer and sanctioned strength in “Details”.", "સૂચન: સહી કરનાર અધિકારી અને મંજુર મહેકમ “વિગત” માં ઉમેરો.")}</div>}
+            </div>
+          )}
+          <div className="gu" style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <b>{t(`${st ? st.total : 0} on night round`, `નાઇટ રાઉન્ડમાં ${st ? st.total : 0}`)}</b>
+            <div style={{ flex: 1 }} />
+            <button onClick={async () => { const txt = nbNightRoundText(data, draft, date); try { await navigator.clipboard.writeText(txt); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1800); }} style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
+            <a href={"https://wa.me/?text=" + encodeURIComponent(nbNightRoundText(data, draft, date))} target="_blank" rel="noopener noreferrer" style={btn}>💬 WhatsApp</a>
+            <button onClick={() => doPdf(() => downloadNightRoundPdf(data, draft, date))} disabled={busy} style={btn}>{busy ? "…" : "⬇ PDF"}</button>
+            <button onClick={() => { try { downloadNightRoundDocx(data, draft, date); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn}>⬇ Word</button>
+          </div>
+        </React.Fragment>
+      )}
+
+      {tab === "plan" && (
+        <React.Fragment>
+          <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10 }}>
+            {t("Set each post once. “Same every week” = the same people every such weekday. “By week of month” = different people on the 1st, 2nd, 3rd and 4th weekday (like 112). The green backup list fills in when someone is on leave / outstation, and takes the 5th weekday.", "દરેક ફરજ એક વાર નક્કી કરો. “દર અઠવાડિયે સરખું” = દર તે વારે એ જ કર્મચારી. “મહિનાના અઠવાડિયા પ્રમાણે” = પહેલા, બીજા, ત્રીજા, ચોથા વારે અલગ કર્મચારી (૧૧૨ જેવું). ગ્રીન બદલી યાદી રજા / બહારગામ વખતે અને પાંચમા વારે વપરાય છે.")}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+            {NB_GU_DAYS.map((_, d) => <button key={d} onClick={() => setPlanDay(d)} className="gu" style={tabBtn(planDay === d)}>{lang === "gu" ? NB_GU_DAYS[d] : NB_EN_DAYS[d]}</button>)}
+            <div style={{ flex: 1 }} />
+            {canEdit && <button onClick={() => { save({ points: plan }); showToast(t("Weekly plan saved", "અઠવાડિક પ્લાન સચવાયો")); }} disabled={!planDirty} style={darkBtn(planDirty)}>{planDirty ? t("Save plan", "પ્લાન સાચવો") : "✓ " + t("Saved", "સચવાયું")}</button>}
+          </div>
+          {plan.map((pt, i) => (
+            <div key={pt.id} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <b className="mono">{nbPad2(i + 1)}.</b>
+                <input type="text" value={pt.vehicle || ""} disabled={!canEdit} onChange={(e) => setPt(pt.id, { vehicle: e.target.value.slice(0, 80) })} placeholder={t("Vehicle / type", "વાહનનો પ્રકાર")} className="gu" style={{ ...inp, flex: "1 1 140px" }} />
+                <input type="text" value={pt.place || ""} disabled={!canEdit} onChange={(e) => setPt(pt.id, { place: e.target.value.slice(0, 100) })} placeholder={t("Place", "ફરજનું સ્થળ")} className="gu" style={{ ...inp, flex: "1 1 140px" }} />
+                <select value={pt.mode || "week"} disabled={!canEdit} onChange={(e) => setPt(pt.id, { mode: e.target.value })} className="gu" style={{ fontSize: 12.5 }}>
+                  <option value="week">{t("Same every week", "દર અઠવાડિયે સરખું")}</option>
+                  <option value="nth">{t("By week of month", "મહિનાના અઠવાડિયા પ્રમાણે")}</option>
+                </select>
+                <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" disabled={!canEdit} checked={!!pt.deduct} onChange={(e) => setPt(pt.id, { deduct: e.target.checked })} /> {t("Subtract from strength", "મહેકમમાંથી બાદ")}</label>
+                {canEdit && <button onClick={() => movePt(i, -1)} style={iconBtn} aria-label="up">↑</button>}
+                {canEdit && <button onClick={() => movePt(i, 1)} style={iconBtn} aria-label="down">↓</button>}
+                {canEdit && <button onClick={() => { if (window.confirm(t("Remove this post from the plan?", "આ ફરજ પ્લાનમાંથી કાઢવી છે?"))) setPlan((p) => p.filter((x) => x.id !== pt.id)); }} style={iconBtn} aria-label={t("Remove", "કાઢો")}>✕</button>}
+              </div>
+              {(pt.mode || "week") === "week"
+                ? <NrPeopleList data={data} canEdit={canEdit} list={((pt.days || {})[planDay]) || []} othersUsed={planUsed("d" + pt.id)} label={t(`Every ${NB_EN_DAYS[planDay]}`, `દર ${NB_GU_DAYS[planDay]}`)} tone="yellow"
+                    onChange={(l) => setPt(pt.id, { days: { ...(pt.days || {}), [planDay]: l } })} />
+                : [1, 2, 3, 4].map((k) => (
+                  <NrPeopleList key={k} data={data} canEdit={canEdit} list={((pt.nth || {})[planDay + "-" + k]) || []} othersUsed={planUsed("n" + pt.id + k)} tone="yellow"
+                    label={t(`${NB_EN_NTH[k - 1]} ${NB_EN_DAYS[planDay]} (dates ${[1, 8, 15, 22][k - 1]}–${[7, 14, 21, 28][k - 1]})`, `${NB_GU_NTH[k - 1]} ${NB_GU_DAYS[planDay]} (તા. ${nbGuDigits([1, 8, 15, 22][k - 1])} થી ${nbGuDigits([7, 14, 21, 28][k - 1])})`)}
+                    onChange={(l) => setPt(pt.id, { nth: { ...(pt.nth || {}), [planDay + "-" + k]: l } })} />
+                ))}
+              <NrPeopleList data={data} canEdit={canEdit} list={((pt.backup || {})[planDay]) || []} tone="green"
+                label={(pt.mode || "week") === "nth" ? t(`Backup + 5th ${NB_EN_DAYS[planDay]}`, `બદલી + પાંચમો ${NB_GU_DAYS[planDay]}`) : t(`Backup if someone is absent (${NB_EN_DAYS[planDay]})`, `કોઈ હાજર ન હોય તો બદલી (${NB_GU_DAYS[planDay]})`)}
+                onChange={(l) => setPt(pt.id, { backup: { ...(pt.backup || {}), [planDay]: l } })} />
+            </div>
+          ))}
+          {canEdit && <button onClick={() => setPlan((p) => [...p, { id: "nr" + uid(), vehicle: "", place: "", mode: "week", deduct: false, days: {}, nth: {}, backup: {} }])} className="gu" style={{ ...iconBtnWide, fontSize: 13, padding: "8px 14px" }}>+ {t("Add post", "ફરજ ઉમેરો")}</button>}
+          {canEdit && plan.length > 0 && (
+            <button onClick={() => { const from = planDay; const to = Number(window.prompt(t("Copy this day's names to which day? 0 = Sunday … 6 = Saturday", "આ વારના નામ કયા વારે નકલ કરવા? ૦ = રવિવાર … ૬ = શનિવાર"), String((from + 1) % 7))); if (!(to >= 0 && to <= 6) || to === from) return; setPlan((p) => p.map((pt) => { const nx = { ...pt, days: { ...(pt.days || {}) }, nth: { ...(pt.nth || {}) }, backup: { ...(pt.backup || {}) } }; nx.days[to] = (nx.days[from] || []).slice(); nx.backup[to] = (nx.backup[from] || []).slice(); [1, 2, 3, 4].forEach((k) => { nx.nth[to + "-" + k] = (nx.nth[from + "-" + k] || []).slice(); }); return nx; })); setPlanDay(to); }} className="gu" style={{ ...iconBtnWide, fontSize: 13, padding: "8px 14px", marginLeft: 8 }}>⧉ {t("Copy this day to…", "આ વાર નકલ કરો…")}</button>
+          )}
+          <div className="gu" style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button onClick={() => doPdf(() => downloadNightPlanPdf({ ...data, nightRound: { ...nr, points: plan } }))} disabled={busy || !plan.length} style={btn}>{busy ? "…" : "⬇ " + t("Plan PDF", "પ્લાન PDF")}</button>
+            <button onClick={() => downloadNightPlanDocx({ ...data, nightRound: { ...nr, points: plan } })} disabled={!plan.length} style={btn}>⬇ {t("Plan Word", "પ્લાન Word")}</button>
+          </div>
+        </React.Fragment>
+      )}
+
+      {tab === "settings" && (
+        <div className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, display: "grid", gap: 10, maxWidth: 560 }}>
+          {[
+            ["from", t("Night round from (time)", "નાઇટ રાઉન્ડ ક્યારથી"), "time"],
+            ["to", t("Until (time)", "ક્યાં સુધી"), "time"],
+            ["officerName", t("Signing officer's name, e.g. કે બી જાડેજા", "સહી કરનાર અધિકારીનું નામ, દા.ત. કે બી જાડેજા"), "text"],
+            ["officerDesg", t("Officer's designation, e.g. પો.ઇન્સ", "અધિકારીનો હોદ્દો, દા.ત. પો.ઇન્સ"), "text"],
+            ["sanctionedOfficers", t("Sanctioned officers (PI/PSI)", "મંજુર અધિકારી (PI/PSI)"), "number"],
+            ["sanctionedStaff", t("Sanctioned staff", "મંજુર કર્મચારી"), "number"],
+            ["officersPresent", t(`Officers present (blank = PI/PSI in staff list)`, "હાજર અધિકારી (ખાલી = સ્ટાફ યાદીમાંના PI/PSI)"), "number"],
+          ].map(([k, label, type]) => (
+            <label key={k} style={{ fontSize: 12.5 }}>{label}<br />
+              <input type={type} disabled={!canEdit} value={settings[k] == null ? "" : settings[k]} onChange={(e) => setSettings((s) => ({ ...s, [k]: e.target.value.slice(0, 60) }))} className="gu" style={{ ...inp, width: "100%" }} />
+            </label>
+          ))}
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Present staff = everyone in Manage staff. Leave / outstation that night and posts marked “Subtract from strength” are subtracted automatically. % = people on night round ÷ net staff.", "હાજર મહેકમ = સ્ટાફ સંચાલનમાંના બધા. તે રાત્રે રજા / બહારગામ અને “મહેકમમાંથી બાદ” વાળી ફરજ આપોઆપ બાદ થાય છે. ટકા = નાઇટ રાઉન્ડમાં રવાના ÷ ચોખ્ખુ મહેકમ.")}</div>
+          {canEdit && <div><button onClick={() => { save({ settings }); showToast(t("Saved", "સચવાયું")); }} disabled={!settingsDirty} style={darkBtn(settingsDirty)}>{settingsDirty ? t("Save", "સાચવો") : "✓ " + t("Saved", "સચવાયું")}</button></div>}
+        </div>
+      )}
+    </React.Fragment>
+  );
+}
+
 // "Remaining staff" for a bandobast point: everyone not yet on any point,
 // with search + designation filter (same as Import Staff), pick and add.
 function BandobastRemainingModal({ data, draft, point, onAdd, onClose }) {
@@ -14173,8 +14818,8 @@ function ReportView({ initialSort, focus, data }) {
           seen.add(key);
           const end = u.to || (todayStr() < mEnd ? todayStr() : mEnd);
           if (u.from > mEnd || end < mStart) return;
-          const a = u.from > mStart ? u.from : mStart, b = end < mEnd ? end : mEnd;
-          const days = b >= a ? daysBetween(a, b) + 1 : 0;
+          const fullEnd = u.to || todayStr();
+          const days = fullEnd >= u.from ? daysBetween(u.from, fullEnd) + 1 : 0;
           leaveRows.push({ name: st.name || st.number, number: st.number, designation: desgLabelOf(st.designation), kind, type: unavailLabel(data, u) || kind, from: u.from, to: u.to || null, days });
         });
       });
@@ -14182,48 +14827,60 @@ function ReportView({ initialSort, focus, data }) {
         if (!ev.start || !["Leave", "Outstation", "Training"].includes(ev.type)) return;
         const end = ev.end || ev.start;
         if (ev.start > mEnd || end < mStart) return;
-        const a = ev.start > mStart ? ev.start : mStart, b = end < mEnd ? end : mEnd;
         const st = (data.staff || {})[ev.number] || {};
-        leaveRows.push({ name: ev.name || st.name || "", number: ev.number || "", designation: desgLabelOf(st.designation), kind: ev.type === "Leave" ? "Leave" : "Outstation", type: EVENT_TYPE_LABEL[ev.type] || ev.type, from: ev.start, to: end, days: daysBetween(a, b) + 1 });
+        leaveRows.push({ name: ev.name || st.name || "", number: ev.number || "", designation: desgLabelOf(st.designation), kind: ev.type === "Leave" ? "Leave" : "Outstation", type: EVENT_TYPE_LABEL[ev.type] || ev.type, from: ev.start, to: end, days: daysBetween(ev.start, end) + 1 });
       });
-      leaveRows.sort((x, y) => (x.kind === y.kind ? 0 : x.kind === "Leave" ? -1 : 1) || x.from.localeCompare(y.from) || String(x.name).localeCompare(String(y.name)));
+      leaveRows.sort((x, y) => x.from.localeCompare(y.from) || String(x.name).localeCompare(String(y.name)));
+      // Leave and Outstation each get their own section: a table of every
+      // entry touching this month with the TOTAL days of that leave
+      // (from → to; an ongoing one counts up to today), then totals by type.
       doc.addPage();
-      doc.setFontSize(13); doc.setTextColor(0);
-      doc.text("Leave & Outstation — " + nbPdfMonthLabel(month), 14, 18);
-      const byType = {};
-      leaveRows.forEach((r) => { byType[r.type] = (byType[r.type] || 0) + r.days; });
-      const totalLeave = leaveRows.filter((r) => r.kind === "Leave").reduce((n, r) => n + r.days, 0);
-      const totalOut = leaveRows.filter((r) => r.kind === "Outstation").reduce((n, r) => n + r.days, 0);
-      doc.setFontSize(9);
-      doc.text(`${leaveRows.length} entries · Leave ${totalLeave} days · Outstation ${totalOut} days (days counted inside this month)`, 14, 25);
+      doc.setTextColor(0);
+      let y = 18;
       const imgCols = [1, 2, 4];
-      doc.autoTable({
-        rowPageBreak: "avoid",
-        startY: 30,
-        head: [["#", "Name", "Designation", "Number", "Leave / Outstation type", "From", "To", "Days this month"]],
-        body: leaveRows.length
-          ? leaveRows.map((r, i) => [i + 1, r.name, r.designation, r.number, r.type, formatDMY(r.from), r.to ? formatDMY(r.to) : "Ongoing", r.days])
-          : [["", "No leave or outstation recorded in this month", "", "", "", "", "", ""]],
-        styles: { fontSize: FONT_PT, valign: "top" },
-        headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
-        columnStyles: { 1: { minCellWidth: 36 }, 2: { minCellWidth: 18 }, 4: { minCellWidth: 28 } },
-        didParseCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && needsImageRender(h.cell.raw)) h.cell.text = []; },
-        didDrawCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
-      });
-      const typeRows = Object.entries(byType).sort((x, y) => y[1] - x[1]);
-      if (typeRows.length) {
+      [["Leave", "Leave"], ["Outstation", "Outstation"]].forEach(([kind, title], si) => {
+        const rows = leaveRows.filter((r) => r.kind === kind);
+        const total = rows.reduce((n, r) => n + r.days, 0);
+        if (si > 0) { y += 12; if (y > doc.internal.pageSize.getHeight() - 60) { doc.addPage(); y = 18; } }
+        doc.setFontSize(13);
+        doc.text(`${title} — ${nbPdfMonthLabel(month)}`, 14, y);
+        doc.setFontSize(9);
+        doc.text(`${rows.length} entries · ${total} days in total (total days of each ${kind === "Leave" ? "leave" : "outstation"}; ongoing ones counted up to today)`, 14, y + 6);
         doc.autoTable({
           rowPageBreak: "avoid",
-          startY: doc.lastAutoTable.finalY + 10,
-          pageBreak: "avoid",
-          head: [["Type", "Total days this month"]],
-          body: typeRows,
+          startY: y + 10,
+          head: [["#", "Name", "Designation", "Number", kind + " type", "From", "To", "Total days"]],
+          body: rows.length
+            ? rows.map((r, i) => [i + 1, r.name, r.designation, r.number, r.type, formatDMY(r.from), r.to ? formatDMY(r.to) : "Ongoing", r.days])
+            : [["", kind === "Leave" ? "No leave in this month" : "No outstation in this month", "", "", "", "", "", ""]],
           styles: { fontSize: FONT_PT, valign: "top" },
-          headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 }, tableWidth: 110,
-          didParseCell: (h) => { if (h.section === "body" && h.column.index === 0 && needsImageRender(h.cell.raw)) h.cell.text = []; },
-          didDrawCell: (h) => { if (h.section === "body" && h.column.index === 0 && h.cell.raw && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
+          margin: { left: 14, right: 14, bottom: 16 },
+          columnStyles: { 1: { minCellWidth: 36 }, 2: { minCellWidth: 18 }, 4: { minCellWidth: 28 } },
+          didParseCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && needsImageRender(h.cell.raw)) h.cell.text = []; },
+          didDrawCell: (h) => { if (h.section === "body" && imgCols.includes(h.column.index) && h.cell.raw != null && h.cell.raw !== "" && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
         });
-      }
+        y = doc.lastAutoTable.finalY;
+        const byType = {};
+        rows.forEach((r) => { if (!byType[r.type]) byType[r.type] = { n: 0, days: 0 }; byType[r.type].n++; byType[r.type].days += r.days; });
+        const typeRows = Object.entries(byType).sort((x, z) => z[1].days - x[1].days).map(([k, v]) => [k, v.n, v.days]);
+        if (typeRows.length) {
+          doc.autoTable({
+            rowPageBreak: "avoid",
+            startY: y + 6,
+            pageBreak: "avoid",
+            head: [[kind + " type", "Entries", "Total days"]],
+            body: [...typeRows, ["Total", rows.length, total]],
+            styles: { fontSize: FONT_PT, valign: "top" },
+            margin: { left: 14, right: 14, bottom: 16 }, tableWidth: 120,
+            didParseCell: (h) => {
+              if (h.section === "body" && h.row.index === typeRows.length) h.cell.styles.fontStyle = "bold";
+              if (h.section === "body" && h.column.index === 0 && needsImageRender(h.cell.raw)) h.cell.text = [];
+            },
+            didDrawCell: (h) => { if (h.section === "body" && h.column.index === 0 && h.cell.raw && needsImageRender(h.cell.raw)) drawTextImageInCell(doc, h.cell, renderTextToImage(String(h.cell.raw), FONT_PT), FONT_PT); },
+          });
+          y = doc.lastAutoTable.finalY;
+        }
+      });
     }
     setPdfReady({ doc, filename: `nokri-book-monthly-report-${month}.pdf` });
   };
@@ -14638,6 +15295,7 @@ function CommandPalette({ data, onNavigate, onClose }) {
       { icon: "📅", label: t("Duty calendar", "ડ્યુટી કૅલેન્ડર"), view: { mode: "calendar" } },
       { icon: "📄", label: t("Monthly report", "માસિક અહેવાલ"), view: { mode: "report" } },
       { icon: "🚧", label: t("Bandobast", "બંદોબસ્ત"), view: { mode: "bandobast" } },
+      { icon: "🌙", label: t("Night round", "ના.રા. પત્રક"), view: { mode: "nightRound" } },
       { icon: "🗑️", label: t("Recycle bin", "રિસાયકલ બિન"), view: { mode: "recycle" } },
     ];
     (data.categories || []).forEach((c) => jumpTargets.push({ icon: "📁", label: c.label, view: { mode: "category", catId: c.id } }));
