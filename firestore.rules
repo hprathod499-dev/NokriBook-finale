@@ -428,7 +428,9 @@ service cloud.firestore {
     match /joinCodes/{code} {
       allow get: if signedIn();
       allow list: if false;
-      allow create: if signedIn()
+      // Join codes are retired (only station email + login code now).
+      allow create: if false
+        && signedIn()
         && code.size() >= 8
         && request.resource.data.keys().hasOnly(['owner', 'createdAt'])
         && request.resource.data.owner == request.auth.uid;
@@ -440,7 +442,9 @@ service cloud.firestore {
       allow get: if signedIn()
         && (request.auth.uid == reqUid || resource.data.owner == request.auth.uid);
       allow list: if signedIn() && resource.data.owner == request.auth.uid;
-      allow create, update: if signedIn()
+      // Join requests are retired too.
+      allow create, update: if false
+        && signedIn()
         && request.auth.uid == reqUid
         // only people who already have an account (sign-ups are paused)
         && exists(/databases/$(database)/documents/accounts/$(request.auth.uid))

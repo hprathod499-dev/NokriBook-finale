@@ -3904,7 +3904,11 @@ function nbDescribeChanges(a, b) {
   return items.slice(0, 25);
 }
 const NB_ACTIVITY_MAX = 250;
+// Activity log is switched off for now: nothing is recorded, and any old
+// entries are dropped on the next save. Flip to true to bring it back.
+const NB_ACTIVITY_ON = false;
 function nbWithActivity(prev, next, actor, kind) {
+  if (!NB_ACTIVITY_ON) { if (next && next.activityLog) { const { activityLog, ...rest } = next; return rest; } return next; }
   try {
     const items = kind ? [{ k: kind }] : nbDescribeChanges(prev, next);
     if (!items.length) return next;
@@ -4134,6 +4138,16 @@ function StationUsersSection({ access, divider, initialOpen }) {
     const u2 = db.collection("stationMembers").where("owner", "==", uid).onSnapshot((qs) => { const l = []; qs.forEach((d) => l.push({ id: d.id, ...d.data() })); setMembers(l.sort((a, b) => (a.name || "").localeCompare(b.name || ""))); }, (e) => console.warn("members:", e && e.code));
     return () => { u1(); u2(); };
   }, [open, isOwner, uid]);
+  // Join codes are retired (only email + login code now): switch off an
+  // old one and clear any requests still waiting.
+  useEffect(() => {
+    if (!open || !isOwner || !uid) return;
+    if (data.joinCode) {
+      db.collection("joinCodes").doc(data.joinCode).delete().catch(() => {});
+      persist({ ...data, joinCode: null });
+    }
+    requests.forEach((r) => db.collection("joinRequests").doc(r.id).delete().catch(() => {}));
+  }, [open, isOwner, uid, data.joinCode, requests.length]);
   const roleLbl = (r) => (r === "editor" ? t("Editor — can make changes", "એડિટર — ફેરફાર કરી શકે") : t("Viewer — can only look", "દર્શક — ફક્ત જોઈ શકે"));
   const run = async (fn) => { setBusy(true); try { await fn(); } catch (e) { console.error(e); showToast(t("Couldn't save — check the connection (and that the new Firestore rules are published).", "સાચવી શકાયું નહીં — જોડાણ તપાસો (અને નવા Firestore rules publish થયા છે)."), "error"); } setBusy(false); };
   const makeCode = () => run(async () => {
@@ -4163,7 +4177,7 @@ function StationUsersSection({ access, divider, initialOpen }) {
       <button onClick={() => setOpen((v) => !v)} aria-expanded={open} className="disp gu" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 13, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-primary)" }}>
         <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
         👥 {t("Station users", "સ્ટેશન વપરાશકર્તાઓ")}
-        {isOwner && requests.length > 0 && <span style={{ fontSize: 10.5, background: "var(--accent)", color: "var(--accent-text)", borderRadius: 10, padding: "1px 7px" }}>{requests.length}</span>}
+        {false && <span style={{ fontSize: 10.5, background: "var(--accent)", color: "var(--accent-text)", borderRadius: 10, padding: "1px 7px" }}>{requests.length}</span>}
       </button>
       {open && !isOwner && (
         <div className="gu" style={{ marginTop: 10, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
@@ -4175,31 +4189,7 @@ function StationUsersSection({ access, divider, initialOpen }) {
       )}
       {open && isOwner && (
         <div className="gu" style={{ marginTop: 10, fontSize: 12.5 }}>
-          <div style={{ color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 8 }}>{t("Let other people (writer, PSO, PI) use this station with their own login. They sign in to Nokri Book, enter this code, and you approve them here.", "બીજા લોકો (રાઇટર, PSO, PI) પોતાના લોગિનથી આ સ્ટેશન વાપરી શકે. તેઓ Nokri Book માં સાઇન ઇન કરી આ કોડ નાખે, અને તમે અહીં મંજૂરી આપો.")}</div>
-          {data.joinCode ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px" }}>
-              <span>{t("Join code", "જોડાવાનો કોડ")}:</span>
-              <b className="mono" style={{ fontSize: 18, letterSpacing: 2 }}>{data.joinCode}</b>
-              <div style={{ flex: 1 }} />
-              <button onClick={() => { try { navigator.clipboard.writeText(data.joinCode); showToast(t("Code copied", "કોડ કૉપિ થયો")); } catch (e) {} }} style={small}>📋</button>
-              <button onClick={makeCode} disabled={busy} style={small}>{t("New code", "નવો કોડ")}</button>
-              <button onClick={stopCode} disabled={busy} style={{ ...small, color: "var(--status-error-text)" }}>{t("Turn off", "બંધ")}</button>
-            </div>
-          ) : (
-            <button onClick={makeCode} disabled={busy} className="gu" style={{ ...small, fontSize: 13, padding: "7px 12px" }}>🔑 {t("Make a join code", "જોડાવાનો કોડ બનાવો")}</button>
-          )}
-          {requests.length > 0 && <div style={{ fontWeight: 700, margin: "12px 0 4px" }}>{t("Waiting for approval", "મંજૂરી બાકી")}</div>}
-          {requests.map((r) => (
-            <div key={r.id} style={{ border: "1px solid var(--accent-strong)", borderRadius: 8, padding: "8px 10px", marginBottom: 6 }}>
-              <div><b>{r.name || "—"}</b> <span style={{ color: "var(--text-tertiary)" }}>{r.email}</span></div>
-              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                <button onClick={() => approve(r, "editor")} disabled={busy} style={small}>✓ {t("Approve as Editor", "એડિટર તરીકે મંજૂર")}</button>
-                <button onClick={() => approve(r, "viewer")} disabled={busy} style={small}>✓ {t("Approve as Viewer", "દર્શક તરીકે મંજૂર")}</button>
-                <button onClick={() => reject(r)} disabled={busy} style={{ ...small, color: "var(--status-error-text)" }}>{t("Reject", "નામંજૂર")}</button>
-              </div>
-            </div>
-          ))}
-          {members.length > 0 && <div style={{ fontWeight: 700, margin: "12px 0 4px" }}>{t("People with access", "પહોંચ ધરાવતા લોકો")}</div>}
+          {members.length > 0 && <div style={{ fontWeight: 700, margin: "4px 0 4px" }}>{t("Logged in now / with access", "હાલ લોગિન / પહોંચ ધરાવતા")}</div>}
           {members.map((m) => (
             <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", borderBottom: "1px solid var(--border-soft)", padding: "6px 0" }}>
               <div style={{ flex: "1 1 160px", minWidth: 0 }}><b>{m.name || "—"}</b> <span style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{m.via === "code" ? "🔑 " + t("login code", "લોગિન કોડ") + " " + (m.code || "") + (m.joinedAt ? " · " + formatDMY(new Date(m.joinedAt).toISOString().slice(0, 10)) : "") : m.email}</span></div>
@@ -4213,9 +4203,6 @@ function StationUsersSection({ access, divider, initialOpen }) {
             </div>
           ))}
           <CodeLoginsManager uid={uid} user={user} showToast={showToast} />
-          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
-            <button onClick={onJoin} className="gu" style={{ ...small }}>{t("Join another station with a code…", "કોડથી બીજા સ્ટેશન સાથે જોડાઓ…")}</button>
-          </div>
         </div>
       )}
     </div>
@@ -9064,7 +9051,7 @@ function DutyRoster() {
           signOutUser={signOutUser} formatAllData={isStationOwner ? formatAllData : null}
           onDeleteAccount={isStationOwner ? () => setShowDeleteAccountModal(true) : null}
           stationAccess={{ uid: user && user.uid, accountUid, isOwner: isStationOwner, role: myRole, memberOf, data, persist, showToast, user, onJoin: () => { setShowSettingsPanel(false); setShowJoin(true); } }}
-          onShowActivity={viaCode ? null : () => setShowActivity(true)}
+          onShowActivity={null}
           stationName={data.stationName} onSaveStationName={isStationOwner ? (name) => persist({ ...dataRef.current, stationName: name }) : null}
           state={data.state} onSaveState={(s) => persist({ ...dataRef.current, state: s, ...(s !== (dataRef.current.state || "") ? { district: "", stationName: "" } : {}) })}
           district={data.district} onSaveDistrict={(d) => persist({ ...dataRef.current, district: d, ...(d !== (dataRef.current.district || "") ? { stationName: "" } : {}) })}
@@ -9157,13 +9144,12 @@ function DutyRoster() {
         />
       )}
 
-      {showJoin && <JoinStationModal user={user} onClose={() => setShowJoin(false)} />}
       {showActivity && <ActivityLogModal data={data} onClose={() => setShowActivity(false)} />}
       {!canEdit && (
         <div className="gu" style={{ position: "fixed", bottom: 12, right: 12, zIndex: 60, background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>👁 {t("View only", "ફક્ત જોવા માટે")}</div>
       )}
       {showStationGate && !memberOf && (
-        <OrgSetupGateModal onJoin={() => { setShowStationGate(false); setShowJoin(true); }}
+        <OrgSetupGateModal
           initialStationName={data.stationName || "પોલીસ સ્ટેશન"}
           onSubmit={async ({ stationName, state, district, isRequest }) => {
             if (!(await stationNameIsFree({ state, district, stationName }))) { nameTakenToast(); return; }
