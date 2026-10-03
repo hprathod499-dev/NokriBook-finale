@@ -20290,12 +20290,12 @@ function CrimeMonthlyInputs({ ctx, ym, setYm, monthly, showToast }) {
     </div>
   );
 }
-function CrimeLookSettings({ look }) {
+function CrimeLookSettings({ look, bare }) {
   const { t } = useLang();
   const cur = (THEME_OPTIONS.find((o) => o.value === look.theme) || THEME_OPTIONS[0]).value;
   return (
-    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, maxWidth: 560, marginBottom: 14 }}>
-      <div className="disp gu" style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>🎨 {t("Theme", "થીમ")}</div>
+    <div style={bare ? { padding: "2px 0 8px" } : { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, maxWidth: 560, marginBottom: 14 }}>
+      {!bare && <div className="disp gu" style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>🎨 {t("Theme", "થીમ")}</div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {THEME_OPTIONS.map((opt) => {
           const active = opt.value === cur;
@@ -20584,7 +20584,7 @@ function CrimeOfflineApp({ tab }) {
           )}
           <CrimeRegisterView profile={profile} showToast={showToast} look={look} />
         </div>
-        {showMenu && <CrimeDataMenu meta={meta} cases={cases || []} entries={regEntries || []} onDriveBackup={driveTap} onBackup={doBackup} onClose={() => setShowMenu(false)} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} bigBtn={bigBtn} />}
+        {showMenu && <CrimeDataMenu meta={meta} cases={cases || []} entries={regEntries || []} onDriveBackup={driveTap} onBackup={doBackup} onClose={() => setShowMenu(false)} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} look={look} bigBtn={bigBtn} />}
         {toast && <div className="gu" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
       </div>
     </LangContext.Provider>
@@ -20740,7 +20740,22 @@ function nbCrimeTemplateCsv() {
   return "﻿" + [head, ex, ex2].map((r) => r.map(esc).join(",")).join("\r\n");
 }
 // ⚙️ Data: backup, restore, station details, PIN, dark mode, erase.
-function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose, showToast, darkMode, setDarkMode, bigBtn }) {
+function CrimeMenuSection({ id, open, toggle, title, badge, children }) {
+  const on = open === id;
+  return (
+    <div style={{ borderBottom: "1px solid var(--border-soft)" }}>
+      <button onClick={() => toggle(id)} aria-expanded={on} data-section={id} className="disp gu" style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", fontWeight: 700, fontSize: 14, background: "transparent", border: "none", padding: "13px 2px", cursor: "pointer", color: "var(--text-primary)", textAlign: "left" }}>
+        <span style={{ display: "inline-block", width: 10, transform: on ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+        <span style={{ flex: 1 }}>{title}</span>
+        {badge ? <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--status-success-text)" }}>{badge}</span> : null}
+      </button>
+      {on && <div style={{ padding: "0 0 6px 18px" }}>{children}</div>}
+    </div>
+  );
+}
+function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose, showToast, darkMode, setDarkMode, look, bigBtn }) {
+  const [open, setOpen] = useState(() => { try { return sessionStorage.getItem("nb_cr_menu_open") || ""; } catch (e) { return ""; } });
+  const toggle = (k) => { const v = open === k ? "" : k; setOpen(v); try { sessionStorage.setItem("nb_cr_menu_open", v); } catch (e) {} };
   const { t } = useLang();
   useEscToClose(onClose);
   const [view, setView] = useState("menu"); // menu | station | pin
@@ -20833,10 +20848,12 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
         {view === "menu" && (
           <div>
             <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>{t(`${(entries || []).length} register entries on this device. Nothing is stored online.`, `આ ડિવાઇસ પર ${(entries || []).length} રજીસ્ટર એન્ટ્રી. કંઈ ઓનલાઇન સચવાતું નથી.`)}</div>
+            <CrimeMenuSection id="file" open={open} toggle={toggle} title={"💾 " + t("Backup file", "બેકઅપ ફાઇલ")}>
             <button onClick={() => { onBackup(); onClose(); }} style={row}>⬇ {t("Download backup file", "બેકઅપ ફાઇલ ડાઉનલોડ કરો")}</button>
             <button onClick={() => fileRef.current && fileRef.current.click()} style={row}>⬆ {t("Restore from a backup file", "બેકઅપ ફાઇલમાંથી restore કરો")}</button>
             <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={(e) => { restore(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-            <div style={{ margin: "10px 0 2px", fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>☁ Google Drive</div>
+            </CrimeMenuSection>
+            <CrimeMenuSection id="drive" open={open} toggle={toggle} title={"☁ Google Drive"} badge={meta.driveOn ? "✓ " + t("On", "ચાલુ") : ""}>
             {!meta.driveOn ? (
               <button onClick={driveConnect} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Connect Google Drive (automatic backup)", "Google Drive જોડો (આપોઆપ બેકઅપ)")}</button>
             ) : (
@@ -20847,15 +20864,21 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
               </React.Fragment>
             )}
             {!meta.driveOn && <button onClick={driveList} disabled={driveBusy} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>☁ {t("Restore from Google Drive (new device)", "Google Drive માંથી restore (નવું ડિવાઇસ)")}</button>}
-            <div style={{ height: 8 }} />
+            </CrimeMenuSection>
+            {look && (
+              <CrimeMenuSection id="theme" open={open} toggle={toggle} title={"🎨 " + t("Theme", "થીમ")}>
+                <CrimeLookSettings look={look} bare />
+              </CrimeMenuSection>
+            )}
+            <CrimeMenuSection id="device" open={open} toggle={toggle} title={"🔧 " + t("Station & security", "સ્ટેશન અને સુરક્ષા")}>
             <button onClick={() => setView("station")} style={row}>🏢 {t("Station details", "સ્ટેશનની વિગત")}</button>
             <button onClick={() => { setView("pin"); setMsg(""); }} style={row}>🔒 {meta.pinHash ? t("Change or remove PIN", "PIN બદલો કે દૂર કરો") : t("Set a PIN for this device", "આ ડિવાઇસ માટે PIN સેટ કરો")}</button>
-            <button onClick={() => setDarkMode((d) => !d)} style={row}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
             <button onClick={async () => {
               if (!window.confirm(t("Erase ALL Crime Review data on this device (cases, station details, PIN)? Download a backup first — this can't be undone.", "આ ડિવાઇસનો બધો ગુના સમીક્ષા ડેટા (ગુના, સ્ટેશન, PIN) ભૂંસી નાખવો છે? પહેલાં બેકઅપ લો — આ પાછું નહીં થાય."))) return;
               if (!window.confirm(t("Are you sure? All cases on this device will be deleted.", "ચોક્કસ? આ ડિવાઇસના બધા ગુના ડિલીટ થશે."))) return;
               await nbCrimeStore.clearAll(); try { sessionStorage.removeItem("nb_crime_unlocked"); } catch (e) {} onClose();
             }} style={{ ...row, color: "var(--status-error-text)", borderBottom: "none" }}>🗑️ {t("Erase all data on this device", "આ ડિવાઇસનો બધો ડેટા ભૂંસો")}</button>
+            </CrimeMenuSection>
           </div>
         )}
         {view === "drive" && (
