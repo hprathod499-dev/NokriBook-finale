@@ -1548,10 +1548,44 @@ const STATION_EN_ALIAS = {
 };
 // Matches a typed query against a station's Gujarati name AND its English
 // alias, so "Dhari" and "ધારી" both find "ધારી પોલીસ સ્ટેશન".
+// ---------- Bilingual search ----------
+// "1756" finds "૧૭૫૬" (and back), and "rathod" finds "રાઠોડ" (and back):
+// both sides are reduced to a rough Latin consonant skeleton.
+const NB_GU2LAT = { "ક": "k", "ખ": "k", "ગ": "g", "ઘ": "g", "ઙ": "n", "ચ": "C", "છ": "C", "જ": "j", "ઝ": "j", "ઞ": "n", "ટ": "t", "ઠ": "t", "ડ": "d", "ઢ": "d", "ણ": "n", "ત": "t", "થ": "t", "દ": "d", "ધ": "d", "ન": "n", "પ": "p", "ફ": "p", "બ": "b", "ભ": "b", "મ": "m", "ય": "y", "ર": "r", "લ": "l", "વ": "v", "શ": "s", "ષ": "s", "સ": "s", "હ": "h", "ળ": "l", "ં": "n", "ઁ": "n", "ઋ": "r", "ૃ": "r" };
+function nbSrchNorm(v) {
+  return String(v == null ? "" : v).toLowerCase().replace(/[૦-૯]/g, (d) => String("૦૧૨૩૪૫૬૭૮૯".indexOf(d))).replace(/[\u200c\u200d]/g, "");
+}
+function nbSkelLat(w) {
+  return w.replace(/[^a-z0-9]/g, "")
+    .replace(/chh|ch|c/g, "C").replace(/sh/g, "s").replace(/kh/g, "k").replace(/gh/g, "g").replace(/th/g, "t").replace(/dh/g, "d")
+    .replace(/ph|f/g, "p").replace(/bh/g, "b").replace(/jh|z/g, "j").replace(/w/g, "v").replace(/q/g, "k").replace(/x/g, "ks")
+    .replace(/[aeiou]/g, "");
+}
+function nbSkel(word) {
+  let out = "", lat = "";
+  for (const ch of word) {
+    if (/[\u0A80-\u0AFF]/.test(ch)) { out += nbSkelLat(lat); lat = ""; out += NB_GU2LAT[ch] || ""; }
+    else lat += ch;
+  }
+  out += nbSkelLat(lat);
+  return out.replace(/(.)\1+/g, "$1");
+}
+function nbSrch(hay, q) {
+  const qn = nbSrchNorm(q).trim();
+  if (!qn) return true;
+  const hn = nbSrchNorm(Array.isArray(hay) ? hay.join(" ") : hay);
+  if (hn.includes(qn)) return true;
+  const qd = qn.replace(/[\s,./-]/g, "");
+  if (/^\d+$/.test(qd) && qd.length > 1 && hn.replace(/[\s,./-]/g, "").includes(qd)) return true;
+  const qw = qn.split(/\s+/).map((x) => (/^\d+$/.test(x) ? { d: x } : { k: nbSkel(x) })).filter((x) => x.d || (x.k && x.k.length >= 2));
+  if (!qw.length) return false;
+  const hw = hn.split(/[\s,./()\-:;|]+/).filter(Boolean).map((x) => ({ raw: x, k: nbSkel(x) }));
+  return qw.every((w) => w.d ? hn.includes(w.d) : hw.some((h) => h.k.startsWith(w.k) || (w.k.length >= 3 && h.k.includes(w.k))));
+}
 function stationMatchesQuery(option, query) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  if (option.toLowerCase().includes(q)) return true;
+  if (option.toLowerCase().includes(q) || nbSrch(option, q)) return true;
   const alias = STATION_EN_ALIAS[option];
   return !!alias && alias.includes(q);
 }
@@ -3956,7 +3990,7 @@ function ActivityLogModal({ data, onClose }) {
   const [who, setWho] = useState("all");
   const log = data.activityLog || [];
   const people = Array.from(new Set(log.map((e) => e.by))).filter(Boolean);
-  const rows = log.filter((e) => (who === "all" || e.by === who) && (!q.trim() || e.items.map((it) => nbActivityText(it, t)).join(" ").toLowerCase().includes(q.trim().toLowerCase())));
+  const rows = log.filter((e) => (who === "all" || e.by === who) && (!q.trim() || nbSrch(e.items.map((it) => nbActivityText(it, t)).join(" "), q)));
   const roleLbl = (r) => (r === "editor" ? t("editor", "એડિટર") : r === "viewer" ? t("viewer", "દર્શક") : t("owner", "માલિક"));
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Activity log", "પ્રવૃત્તિ લૉગ")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16 }}>
@@ -9689,7 +9723,7 @@ function BuckleOrNameInput({ data, value, onChange, placeholder, className, styl
     const q = (value || "").trim().toLowerCase();
     if (!q) return [];
     return Object.values(data.staff || {})
-      .filter((s) => s.name.toLowerCase().includes(q) || s.number.toLowerCase().includes(q))
+      .filter((s) => nbSrch(s.name, q) || nbSrch(s.number, q))
       .slice(0, 8);
   }, [value, data.staff]);
   useEffect(() => {
@@ -10548,7 +10582,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
     let list = importCandidates;
     if (importDesgFilter) list = list.filter((s) => s.designation === importDesgFilter);
     if (!q) return list;
-    return list.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
+    return list.filter((s) => nbSrch(s.name, q) || nbSrch(s.number, q));
   }, [importCandidates, importSearch, importDesgFilter]);
 
   // Total completed-duty count for this work type only, per person — used
@@ -10563,7 +10597,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const displayRoster = useMemo(() => {
     let list = rosterWithCounts;
     const q = debouncedRosterSearch.trim().toLowerCase();
-    if (q) list = list.filter((p) => p.name.toLowerCase().includes(q) || String(p.number).toLowerCase().includes(q));
+    if (q) list = list.filter((p) => nbSrch(p.name, q) || nbSrch(p.number, q));
     if (onlyDesignation.size > 0) {
       list = list.filter((p) => p.staffRec && onlyDesignation.has(p.staffRec.designation));
     }
@@ -11411,10 +11445,10 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
-      (r.name || "").toLowerCase().includes(q) ||
-      (r.number || "").toLowerCase().includes(q) ||
-      (r.note || "").toLowerCase().includes(q) ||
-      (r.extraNote || "").toLowerCase().includes(q)
+      nbSrch(r.name, q) ||
+      nbSrch(r.number, q) ||
+      nbSrch(r.note, q) ||
+      nbSrch(r.extraNote, q)
     );
   }, [rows, search]);
 
@@ -11691,7 +11725,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return Object.values(data.staff || {})
-      .filter((s) => !q || (s.name || "").toLowerCase().includes(q) || String(s.number).includes(q))
+      .filter((s) => !q || nbSrch(s.name, q) || nbSrch(s.number, q))
       .map((s) => {
         const used = nbLeaveUsed(s, year);
         const cells = types.map((lt) => { const u = used[lt.id] || 0; const a = nbLeaveAllowance(data, s, lt.id); return { id: lt.id, used: u, allow: a, over: a != null && u > a, custom: !!(s.leaveAllowance && typeof s.leaveAllowance[lt.id] === "number") }; });
@@ -12308,7 +12342,7 @@ function NrPeopleList({ data, list, onChange, date, othersUsed, label, tone, can
   const [manDesg, setManDesg] = useState("");
   const [remaining, setRemaining] = useState(false);
   const inList = new Set((list || []).filter((x) => typeof x === "string"));
-  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => String(st.number).toLowerCase().includes(s) || (st.name || "").toLowerCase().includes(s)).slice(0, 8); }, [q, data.staff]);
+  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => nbSrch(st.number, s) || nbSrch(st.name, s)).slice(0, 8); }, [q, data.staff]);
   const inp = { fontSize: 13, boxSizing: "border-box" };
   const add = (x) => { if (typeof x === "string" && inList.has(x)) return; onChange([...(list || []), x]); };
   const bg = tone === "green" ? "var(--status-success-bg)" : tone === "yellow" ? "var(--status-warning-bg)" : "var(--bg-surface-2)";
@@ -12592,7 +12626,7 @@ function BandobastRemainingModal({ data, draft, point, onAdd, onClose }) {
     .map((s) => ({ s, away: unavailableOnDate(s, draft.from) }))
     .sort((a, b) => (desgLabel(a.s.designation) || "~").localeCompare(desgLabel(b.s.designation) || "~") || (a.s.name || "").localeCompare(b.s.name || "")), [data.staff, used, draft.from]);
   const list = all.filter(({ s, away }) => (!hideAway || !away) && (!desg || s.designation === desg)
-    && (!q.trim() || (s.name || "").toLowerCase().includes(q.trim().toLowerCase()) || String(s.number).toLowerCase().includes(q.trim().toLowerCase())));
+    && (!q.trim() || nbSrch(s.name, q.trim().toLowerCase()) || nbSrch(s.number, q.trim().toLowerCase())));
   const awayCount = all.filter((x) => x.away).length;
   const toggle = (n, on) => setSel((cur) => { const nx = new Set(cur); if (on) nx.add(n); else nx.delete(n); return nx; });
   return (
@@ -12671,7 +12705,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
   const [remainingFor, setRemainingFor] = useState(null);
   const [manName, setManName] = useState("");
   const [manDesg, setManDesg] = useState("");
-  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => String(st.number).toLowerCase().includes(s) || (st.name || "").toLowerCase().includes(s)).slice(0, 8); }, [q, data.staff]);
+  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => nbSrch(st.number, s) || nbSrch(st.name, s)).slice(0, 8); }, [q, data.staff]);
   const inp = { fontSize: 13, boxSizing: "border-box" };
   if (!cur || !draft) {
     return (
@@ -12977,7 +13011,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   const filteredStaffList = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
     let list = staffList;
-    if (q) list = list.filter((s) => s.number.toLowerCase().includes(q) || (s.name || "").toLowerCase().includes(q));
+    if (q) list = list.filter((s) => nbSrch(s.number, q) || nbSrch(s.name, q));
     if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
     list = [...list];
     // "present" and "unavailable" filter the list down to just that group
@@ -14086,7 +14120,7 @@ function SwapDutyModal({ data, date, from, onClose, onSwap }) {
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
-    return Object.values(data.staff || {}).filter((p) => p.number !== from.number && (String(p.number).toLowerCase().includes(s) || (p.name || "").toLowerCase().includes(s))).slice(0, 8);
+    return Object.values(data.staff || {}).filter((p) => p.number !== from.number && (nbSrch(p.number, s) || nbSrch(p.name, s))).slice(0, 8);
   }, [q, data, from.number]);
   const picked = pick ? data.staff[pick] : null;
   const pickedDuties = useMemo(() => !pick ? [] : (data.categories || []).filter((c) => (data.membership[c.id] || []).some((m) => m.number === pick && isOnDutyOn(m, date))).map((c) => c.id), [pick, data, date]);
@@ -15505,16 +15539,16 @@ function CommandPalette({ data, onNavigate, onClose }) {
       { icon: "🗑️", label: t("Recycle bin", "રિસાયકલ બિન"), view: { mode: "recycle" } },
     ];
     (data.categories || []).forEach((c) => jumpTargets.push({ icon: "📁", label: c.label, view: { mode: "category", catId: c.id } }));
-    jumpTargets.forEach((jt) => { if (!query || jt.label.toLowerCase().includes(query)) items.push({ kind: "nav", ...jt }); });
+    jumpTargets.forEach((jt) => { if (!query || nbSrch(jt.label, query)) items.push({ kind: "nav", ...jt }); });
 
     if (query) {
       Object.values(data.staff || {}).forEach((s) => {
-        if ((s.name || "").toLowerCase().includes(query) || String(s.number || "").toLowerCase().includes(query)) {
+        if (nbSrch(s.name, query) || nbSrch(s.number, query)) {
           items.push({ kind: "staff", icon: "🧑", label: `${s.name} · #${s.number}`, view: { mode: "staff", presetSearch: s.number } });
         }
       });
       (data.skipLog || []).forEach((e) => {
-        if ((e.name || "").toLowerCase().includes(query) || String(e.number || "").toLowerCase().includes(query) || (e.note || "").toLowerCase().includes(query)) {
+        if (nbSrch(e.name, query) || nbSrch(e.number, query) || nbSrch(e.note, query)) {
           items.push({ kind: "skip", icon: "🚫", label: `${e.name} · ${formatDMY(e.date)}${e.note ? " · " + e.note : ""}`, view: { mode: "skipHistory", presetSearch: e.number || e.name, historyId: e.id } });
         }
       });
@@ -16577,11 +16611,11 @@ function SkipHistoryView({ data, initialSearch }) {
     const q = debouncedQuery.trim().toLowerCase();
     if (!q) return list;
     return list.filter((e) =>
-      (e.name || "").toLowerCase().includes(q) ||
-      String(e.number || "").toLowerCase().includes(q) ||
-      (e.note || "").toLowerCase().includes(q) ||
-      (e.byName || "").toLowerCase().includes(q) ||
-      String(e.byNumber || "").toLowerCase().includes(q)
+      nbSrch(e.name, q) ||
+      nbSrch(e.number, q) ||
+      nbSrch(e.note, q) ||
+      nbSrch(e.byName, q) ||
+      nbSrch(e.byNumber, q)
     );
   }, [data.skipLog, debouncedQuery]);
 
@@ -17355,7 +17389,7 @@ function PublicStaffView({ data }) {
       return { ...s, status, statusLabel, desgLabel: desg ? desg.label : "", dutiesThisMonth: dutyCountByNumber[s.number] || 0, activeUnavailable };
     });
     const q = debouncedSearch.trim().toLowerCase();
-    if (q) list = list.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
+    if (q) list = list.filter((s) => nbSrch(s.name, q) || nbSrch(s.number, q));
     if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
     list = [...list];
     // Same five sort/filter modes as the manager's StaffView — "present"
@@ -17506,7 +17540,7 @@ function DistrictStaffView({ data }) {
       return { ...s, status, statusLabel, desgLabel: desg ? desg.label : "", dutiesThisMonth: dutyCountByNumber[s.number] || 0, activeUnavailable };
     });
     const q = debouncedSearch.trim().toLowerCase();
-    if (q) list = list.filter((s) => (s.name || "").toLowerCase().includes(q) || String(s.number || "").toLowerCase().includes(q));
+    if (q) list = list.filter((s) => nbSrch(s.name, q) || nbSrch(s.number, q));
     if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
     list = [...list];
     // Same five sort/filter modes as the manager's StaffView — "present"
@@ -18803,7 +18837,7 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
     const q = search.trim().toLowerCase();
     return nbFilterCases(cases || [], { typeId, from, to, station }).filter((c) =>
       (statusF === "all" || (statusF === "overdue" ? nbChargeStatus(c).overdue : c.status === statusF)) &&
-      (!q || [c.crNo + "/" + c.crYear, c.sections, c.place, c.complainantName, nbCaseTypeLabel(c, "gu"), nbCaseTypeLabel(c, "en"), ...(c.accused || []).map((a) => a.name), stationNameOf(c.owner)].join(" ").toLowerCase().includes(q)));
+      (!q || nbSrch([c.crNo + "/" + c.crYear, c.sections, c.place, c.complainantName, nbCaseTypeLabel(c, "gu"), nbCaseTypeLabel(c, "en"), ...(c.accused || []).map((a) => a.name), stationNameOf(c.owner)].join(" "), q)));
   }, [cases, typeId, from, to, station, statusF, search]);
 
   // ----- report tab -----
@@ -19211,6 +19245,7 @@ const NB_ACTS = [
   { k: "COPY", gu: "કોપીરાઈટ એક્ટ", short: "કોપીરાઈટ", re: /copyright|કોપીરાઈટ/i, review: true },
   { k: "ATRO", gu: "એટ્રોસીટી એક્ટ", short: "એટ્રો", re: /એટ્રો|atroc|sc\/st/i },
   { k: "CYBER", gu: "સાયબર ક્રાઇમ (રૂપિયા ગયેલ)", short: "સાયબર", re: null },
+  { k: "MONEY", gu: "નાણાં ધીરધાર અધિનિયમ (વ્યાજખોરી)", short: "નાણાં ધીરધાર", re: /money\s?lend|નાણા[ંં]?\s?ધીર|ધીરધાર|શાહુકાર|વ્યાજખોર/i },
 ];
 const NB_PENDING_REASONS = ["હાઇકોર્ટ મેટર", "આરોપી પકડવા પર બાકી", "રેકર્ડ મેળવવા ઉપર", "શકદારો તપાસવા ઉપર", "ફાઇનલ ભરવા ઉપર", "સારવાર સર્ટી આવવા ઉપર", "FSL સર્ટી આવવા ઉપર", "વધુ તપાસ કરવા ઉપર", "ચાર્જશીટ કરવા ઉપર", "રીપોર્ટ કરવા ઉપર", "પી.એમ.નોટ આવવા ઉપર", "GVCL સર્ટી આવવા ઉપર", "કાગળો ગુમ થયેલ હોય", "અન્ય એજન્સી પાસે તપાસ ઉપર", "અન્ય"];
 const NB_CLOSE_TYPES = [["cs", "ચાર્જશીટ"], ["fa", "ફાઇનલ / સમરી 'A'"], ["fb", "સમરી 'B'"], ["fc", "સમરી 'C'"], ["n", "નિકાલ"]];
@@ -19874,12 +19909,36 @@ function nbRegFields(reg) {
     nbF("place", "Place", "ગુન્હાનું સ્થળ", "area"),
     nbF("complainant", "Complainant", "ફરીયાદીનું નામ અને સરનામું", "area"),
     nbF("accused", "Accused", "આરોપીના નામ / સરનામા", "area"),
+    nbF("accList", "Accused: gender / age", "આરોપી: જાતિ / ઉંમર (સંખ્યા)", "people", { wide: true, who: "acc" }),
+    ...(reg === "A" ? [nbF("vicList", "Victims: gender / age", "ભોગ બનનાર: જાતિ / ઉંમર", "people", { wide: true, who: "vic" })] : []),
     nbF("arrestText", "Arrest details", "અટકની વિગત", "text", { ph: "તા.૦૧/૦૯/૨૬ ના અટક કરેલ છે" }), nbF("arrestDate", "Arrest date", "અટક તારીખ", "date"),
     nbF("facts", "Brief facts", "ગુનાની ટુંક વિગત", "area", { wide: true, rows: 4 }),
     nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી (નામ અને હોદ્દો)", "text", { wide: true }),
     { sec: "status", en: "Status", gu: "ડીટેક્ટ / પેન્ડીંગ / નિકાલ" },
     nbF("detected", "Detected", "ડીટેક્ટ", "chk"), nbF("detectDate", "Detected on", "ડીટેક્ટ તારીખ", "date"),
+    nbF("detAgency", "Detected by", "ડીટેક્ટ કરનાર એજન્સી", "sel", { opts: NB_AGENCIES, when: (e) => !!e.detected }),
     ...status,
+    nbF("finalNo", "A/B/C final (summary) no.", "A/B/C ફાઇનલ (સમરી) નંબર", "text", { when: (e) => ["fa", "fb", "fc"].includes(e.closeType) }),
+    { sec: "book", en: "Annual crime book", gu: "વાર્ષિક ગુના પત્રક" },
+    nbF("bookHead", "Head in the annual book", "વાર્ષિક પત્રકનો હેડ", "bookhead", { wide: true }),
+    ...(reg === "A" ? [
+      nbF("theftKind", "Theft of", "ચોરીનો પ્રકાર", "sel", { opts: [["", "અન્ય / પરચુરણ ચોરી"], ["vehicle", "વાહન ચોરી"]], when: (e) => Number(e.head44) === 8 }),
+      nbF("vehicleDesc", "Vehicle (type / no.)", "વાહન (પ્રકાર / નંબર)", "text", { when: (e) => Number(e.head44) === 8 && e.theftKind === "vehicle" }),
+      nbF("stolenValue", "Stolen property value ₹", "ગયેલ મુદ્દામાલની કિંમત ₹", "num"),
+      nbF("recoveredValue", "Recovered property value ₹", "મળેલ મુદ્દામાલની કિંમત ₹", "num"),
+      nbF("recoveredCash", "Cash recovered ₹", "મળેલ રોકડ ₹", "num", { when: (e) => [3, 5, 32].includes(Number(e.head44)) }),
+    ] : []),
+    ...(reg === "B" ? [nbF("seizedValue", "Seized property / cash ₹", "પકડાયેલ મુદ્દામાલ / રોકડ ₹", "num")] : []),
+    ...(reg === "C" ? [
+      nbF("cKind", "Prohibition type", "પ્રોહી પ્રકાર", "ckind"),
+      nbF("bottles", "Bottles", "બોટલ (સંખ્યા)", "num", { when: (e) => (e.cKind || nbGuessCKind(e)) === "fl" }),
+      nbF("litres", "Litres", "લીટર", "num", { when: (e) => ["fl", "cl", "wash"].includes(e.cKind || nbGuessCKind(e)) }),
+      nbF("containers", "Containers / other", "કેન / બેરલ / અન્ય", "text", { when: (e) => ["cl", "wash", "fl"].includes(e.cKind || nbGuessCKind(e)) }),
+      nbF("seizedValue", "Total seized ₹", "કુલ મુદ્દામાલ ₹", "num", { when: (e) => (e.cKind || nbGuessCKind(e)) !== "drink" }),
+      nbF("proved", "Proved?", "સાબિત થયું?", "sel", { opts: [["", "—"], ["yes", "હા, સાબિત"], ["no", "ના"]], when: (e) => (e.cKind || nbGuessCKind(e)) === "drink" }),
+      nbF("fine", "Fine ₹", "દંડ ₹", "num", { when: (e) => (e.cKind || nbGuessCKind(e)) === "drink" && e.proved === "yes" }),
+    ] : []),
+    { sec: "more", en: "More", gu: "વધુ વિગત" },
     nbF("disposal", "Disposal (Utara col. 12)", "નિકાલ (ઉતારામાં)", "text"),
     ...(reg === "A" ? [
       { sec: "bst", en: "B-statement", gu: "B સ્ટેટમેન્ટ માટે" },
@@ -19989,6 +20048,9 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
     try {
       const out = { ...e, updatedAt: Date.now() };
       if (out.reg === "A") { if (!out.head44) out.head44 = guess || 43; if (out._rhAuto !== false) out.reviewHead = (out.acts || []).includes("POCSO") ? "" : NB_HEAD_TO_REVIEW[Number(out.head44)] || ""; }
+      if (out.reg === "C" && !out.cKind) out.cKind = nbGuessCKind(out);
+      if (["A", "B", "C", "M"].includes(out.reg)) out.bookHead = out._bookAuto === false && nbBookHead(out.bookHead) ? out.bookHead : nbGuessBookHead(out);
+      ["accList", "vicList"].forEach((k) => { if (Array.isArray(out[k])) out[k] = nbPeople(out[k]); });
       await onSave(out);
     } finally { setBusy(false); }
   };
@@ -20024,6 +20086,9 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
         {NB_ACTS.map((a) => { const on = (e.acts || []).includes(a.k); return <button type="button" key={a.k} onClick={() => set("acts", on ? (e.acts || []).filter((x) => x !== a.k) : [...(e.acts || []), a.k])} className="gu" style={{ fontSize: 12.5, borderRadius: 14, padding: "4px 10px", border: "1px solid " + (on ? "var(--accent-strong)" : "var(--border)"), background: on ? "var(--accent-light)" : "var(--bg-surface)", color: on ? "var(--accent-strong)" : "var(--text-secondary)", fontWeight: on ? 700 : 500 }}>{on ? "✓ " : ""}{a.short}</button>; })}
       </div>
     );
+    else if (f.type === "people") ctl = <NbPeopleEditor value={v} kind={f.who} onChange={(x) => set(f.k, x)} />;
+    else if (f.type === "bookhead") ctl = <NbBookHeadField e={e} setE={setE} />;
+    else if (f.type === "ckind") ctl = <select value={v || nbGuessCKind(e)} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={inp}>{NB_C_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>;
     else ctl = <input type="text" value={v == null ? "" : v} placeholder={f.ph || ""} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={inp} />;
     return (
       <div key={f.k} style={{ gridColumn: f.wide || f.type === "area" ? "1 / -1" : "auto" }}>
@@ -20095,11 +20160,13 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("reg")} style={tabBtn(tab === "reg")}>📋 {t("Registers", "રજીસ્ટર")}</button>
         <button onClick={() => setTab("rep")} style={tabBtn(tab === "rep")}>📄 {t("Monthly reports", "માસિક અહેવાલ")}</button>
         <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
+        <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
       {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} ym={ym} setYm={setYm} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
+      {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} />}
     </div>
@@ -20112,7 +20179,7 @@ function CrimeRegisterList({ entries, reg, setReg, ym, setYm, q, setQ, onlyPendi
   let list = entries.filter((e) => e.reg === reg);
   if (onlyPending) list = list.filter((e) => nbPendingAt(e, today));
   else if (!s) list = list.filter((e) => nbYM(e.regDate) === ym);
-  if (s) list = list.filter((e) => JSON.stringify([e.no, e.sections, e.place, e.complainant, e.accused, e.facts, e.io, e.deceased, e.missing, e.informant]).toLowerCase().includes(s) || nbG(e.no || "").includes(q.trim()));
+  if (s) list = list.filter((e) => nbSrch([e.no, nbFirNo(e, (ctx && ctx.settings) || {}), e.sections, e.place, e.complainant, e.accused, e.facts, e.io, e.deceased, e.missing, e.informant, e.writer, e.victim].join(" "), q));
   list = list.slice().sort((a, b) => (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.no) || 0) - (Number(a.no) || 0));
   const cnt = (k) => entries.filter((e) => e.reg === k && nbYM(e.regDate) === ym).length;
   const r = nbReg(reg);
@@ -20567,6 +20634,416 @@ function NbTimeRange({ value, onChange, disabled }) {
       <span>–</span>
       <NbTimePicker value={b} onChange={(v) => onChange(join(a, v))} disabled={disabled} placeholder={t("to", "સુધી")} />
     </span>
+  );
+}
+
+// ===== Annual crime book (વાર્ષિક ગુના પત્રક) =====
+// Every crime is counted once, under its FINAL book head (e.bookHead). Head
+// transfers are kept in e.headHistory = [{ date, from, to, reason }].
+const NB_C_KINDS = [["fl", "વિદેશી / ઇંગ્લીશ દારૂ"], ["cl", "દેશી દારૂ (કબ્જો)"], ["wash", "આથો (વોશ)"], ["drink", "દારૂ પીધેલ (૬૬(૧)(બી))"], ["other", "અન્ય"]];
+function nbGuessCKind(e) {
+  const a = nbAsciiDigits(((e.sections || "") + " " + (e.facts || "")).toLowerCase()).replace(/\s+/g, "");
+  if (/66\(?1\)?\-?\(?(b|બી)|પીધેલ|પીધેલી|કેફીપીણુ/.test(a)) return "drink";
+  if (/આથો|wash/.test(a)) return "wash";
+  if (/વિદેશી|ઇંગ્લીશ|ઈંગ્લીશ|english|બીયર|beer|65\(?(e|ઇ|ઈ)\)?/.test(a)) return "fl";
+  if (/દેશી|65\(?(a|એ)\)?|65\-?(a|એ)|પ્રોહી/.test(a)) return "cl";
+  return "other";
+}
+const NB_BOOK_HEADS = [
+  { id: "acc", gu: "અકસ્માત (સાદો / ગંભીર)", h: [26, 25, 22] },
+  { id: "fatal", gu: "ફેટલ અકસ્માત", h: [24] },
+  { id: "murder", gu: "ખુન", h: [1] },
+  { id: "atm", gu: "ખુનની કોશિષ", h: [2] },
+  { id: "hbn", gu: "ઘરફોડ ચોરી (રાત)", h: [7] },
+  { id: "hbd", gu: "ઘરફોડ ચોરી (દિવસ)", h: [6] },
+  { id: "veh", gu: "વાહન ચોરી", h: [8], when: (e) => e.theftKind === "vehicle" },
+  { id: "theft", gu: "અન્ય / પરચુરણ ચોરી", h: [8] },
+  { id: "kid", gu: "અપહરણ", h: [18] },
+  { id: "gh", gu: "મહાવ્યથા / ગંભીર ઇજા", h: [15, 16] },
+  { id: "cheatit", gu: "ઠગાઇ (IT એક્ટ સાથે)", h: [9], when: (e) => (e.acts || []).includes("IT") },
+  { id: "cheat", gu: "ઠગાઇ (IT એક્ટ વગર)", h: [9] },
+  { id: "cbt", gu: "વિશ્વાસઘાત", h: [10] },
+  { id: "rape", gu: "બળાત્કાર", h: [20] },
+  { id: "riot", gu: "રાયોટીંગ", h: [13] },
+  { id: "cruel", gu: "સ્ત્રી અત્યાચાર / ત્રાસ (BNS ૮૫)", h: [41] },
+  { id: "rob", gu: "લુંટ", h: [5] },
+  { id: "dac", gu: "ધાડ", h: [3] },
+  { id: "molest", gu: "છેડતી", h: [23, 33] },
+  { id: "psa", gu: "સરકારી નોકર પર હુમલો", h: [19] },
+  { id: "money", gu: "નાણાં ધીરધાર (વ્યાજખોરી)", act: "MONEY" },
+  { id: "arms", gu: "આર્મ્સ એક્ટ", pb: "arms" },
+  { id: "atro", gu: "એટ્રોસીટી એક્ટ", act: "ATRO" },
+  { id: "coin", gu: "ખોટા સિક્કા / બનાવટી ચલણ", h: [11] },
+  { id: "ext", gu: "બળજબરીથી કઢાવી લેવું", h: [32] },
+  { id: "ua", gu: "ગે.કા. મંડળી", h: [14] },
+  { id: "ht", gu: "ગૃહ અપપ્રવેશ", h: [21] },
+  { id: "sh", gu: "સાદી વ્યથા", h: [17] },
+  { id: "mis", gu: "બીગાડ", h: [12] },
+  { id: "dis", gu: "જાહેરનામાનો ભંગ (BNS ૨૨૩)", h: [37] },
+  { id: "obs", gu: "અડચણ રૂપે રાખવું (BNS ૨૮૫)", h: [39] },
+  { id: "ndps", gu: "NDPS એક્ટ", pb: "ndps", act: "NDPS" },
+  { id: "gp135", gu: "જી.પી.એક્ટ ૧૩૫", pb: "gp135" },
+  { id: "gp122", gu: "જી.પી.એક્ટ ૧૨૨(સી)", pb: "gp122" },
+  { id: "s281", gu: "BNS ૨૮૧ (બેફામ વાહન)", h: [38] },
+  { id: "gamb", gu: "જુગારધારા", pb: "gamb" },
+  { id: "mv185", gu: "M.V.એક્ટ ૧૮૫", pb: "mv185" },
+  { id: "poison", gu: "ઝેરી પદાર્થથી ઇજા (BNS ૧૨૩)", sec: "123" },
+  { id: "intim", gu: "ગુનાહિત ધમકી", h: [34, 35, 36] },
+  { id: "fl", gu: "વિદેશી / ઇંગ્લીશ દારૂ", c: "fl" },
+  { id: "cl", gu: "દેશી દારૂ (કબ્જો)", c: "cl" },
+  { id: "wash", gu: "આથો (વોશ)", c: "wash" },
+  { id: "drink", gu: "દારૂ પીધેલ (૬૬(૧)(બી))", c: "drink" },
+  { id: "othA", gu: "અન્ય ગુના (ભાગ-એ)" },
+  { id: "othB", gu: "અન્ય ગુના (ભાગ-બી)" },
+  { id: "othC", gu: "અન્ય (ભાગ-સી)" },
+  { id: "othM", gu: "એમ કેસ" },
+];
+const NB_BOOK_MINOR = [12, 13, 14, 17, 21, 22, 31, 33, 34, 35, 36, 37, 38, 39, 42, 43, 44];
+function nbBookHead(id) { return NB_BOOK_HEADS.find((b) => b.id === id) || null; }
+function nbGuessBookHead(e) {
+  if (e.reg === "C") { const k = e.cKind || nbGuessCKind(e); return k === "other" ? "othC" : k; }
+  if (e.reg === "M") return "othM";
+  const acts = e.acts || nbGuessActs(e.sections);
+  if (e.reg === "B") {
+    const pb = e.partBHead || nbGuessPartB(e.sections);
+    const b = NB_BOOK_HEADS.find((x) => x.pb === pb);
+    if (b) return b.id;
+    if (acts.includes("NDPS")) return "ndps";
+    return "othB";
+  }
+  const h = Number(e.head44 || nbGuessHead44(e.sections) || 43);
+  const minor = NB_BOOK_MINOR.includes(h);
+  if (acts.includes("MONEY") && (minor || [9, 10, 32].includes(h))) return "money";
+  if (acts.includes("ATRO") && minor) return "atro";
+  if (acts.includes("NDPS")) return "ndps";
+  const toks = Array.from(nbSectionTokens(e.sections || ""));
+  if (minor && toks.some((x) => x === "123" || x.startsWith("123("))) return "poison";
+  const b = NB_BOOK_HEADS.find((x) => x.h && x.h.includes(h) && (!x.when || x.when(e)));
+  return b ? b.id : "othA";
+}
+function nbBookHeadOf(e) { return (e._bookAuto !== false && !e.bookHead) || !nbBookHead(e.bookHead) ? nbGuessBookHead(e) : e.bookHead; }
+function nbBookHeadsFor(reg) {
+  if (reg === "C") return NB_BOOK_HEADS.filter((b) => b.c || b.id === "othC");
+  if (reg === "B") return NB_BOOK_HEADS.filter((b) => b.pb || b.id === "othB" || b.id === "money" || b.id === "atro");
+  if (reg === "M") return NB_BOOK_HEADS.filter((b) => b.id === "othM");
+  return NB_BOOK_HEADS.filter((b) => !b.c && !["othB", "othC", "othM"].includes(b.id));
+}
+const NB_AGENCIES = [["local", "લોકલ પોલીસ"], ["lcb", "એલ.સી.બી."], ["sog", "એસ.ઓ.જી."], ["smc", "સ્ટેટ મોનીટરીંગ સેલ"], ["other", "અન્ય એજન્સી"]];
+// people rows: { age, mon, g } — age in years; months only for juveniles
+function nbPeople(list) { return (Array.isArray(list) ? list : []).filter((p) => p && (p.age !== "" && p.age != null || p.g)); }
+function nbAgeText(p) {
+  if (p.age === "" || p.age == null) return "";
+  const a = Number(p.age);
+  return nbG(a) + (a < 18 && Number(p.mon) ? " વર્ષ " + nbG(Number(p.mon)) + " માસ" : "");
+}
+function nbPeopleText(list, kind) {
+  const L = nbPeople(list);
+  if (!L.length) return "";
+  const g = (x) => (x === "F" ? (kind === "vic" && Number(x.age) < 18 ? "બાળકી" : "સ્ત્રી") : "");
+  return L.map((p) => {
+    const child = p.age !== "" && p.age != null && Number(p.age) < 18;
+    const sex = p.g === "F" ? (child ? (kind === "vic" ? "બાળકી" : "કિશોરી") : "સ્ત્રી") : p.g === "M" ? (child ? (kind === "vic" ? "બાળક" : "કિશોર") : "પુરૂષ") : "";
+    return [sex, nbAgeText(p) ? "ઉ.વ." + nbAgeText(p) : ""].filter(Boolean).join(" ");
+  }).join(", ");
+}
+const NB_AGE_GROUPS = [["juv", "કિશોર (૧૮ થી ઓછા)", (a) => a < 18], ["a18", "૧૮ થી ૩૦", (a) => a >= 18 && a <= 30], ["a31", "૩૧ થી ૪૫", (a) => a > 30 && a <= 45], ["a46", "૪૬ થી ૬૦", (a) => a > 45 && a <= 60], ["a60", "૬૦ થી વધુ", (a) => a > 60]];
+function nbAnnualStats(list) {
+  const s = { n: list.length, det: 0, und: 0, cs: 0, fa: 0, fb: 0, fc: 0, pend: 0, acc: 0, accM: 0, accF: 0, juv: 0, vic: 0, vicM: 0, vicF: 0, vicC: 0, stolen: 0, rec: 0, cash: 0, seized: 0, bottles: 0, litres: 0, age: {}, agency: {} };
+  NB_AGE_GROUPS.forEach(([k]) => (s.age[k] = 0)); s.age.na = 0;
+  list.forEach((e) => {
+    if (e.detected) { s.det++; const ag = e.detAgency || "local"; s.agency[ag] = (s.agency[ag] || 0) + 1; } else s.und++;
+    if (e.closeType === "cs") s.cs++; else if (e.closeType === "fa") s.fa++; else if (e.closeType === "fb") s.fb++; else if (e.closeType === "fc") s.fc++; else if (!e.closeType) s.pend++;
+    nbPeople(e.accList).forEach((p) => {
+      s.acc++; if (p.g === "F") s.accF++; else if (p.g === "M") s.accM++;
+      if (p.age === "" || p.age == null) { s.age.na++; return; }
+      const a = Number(p.age); if (a < 18) s.juv++;
+      const grp = NB_AGE_GROUPS.find((x) => x[2](a)); s.age[grp ? grp[0] : "na"]++;
+    });
+    nbPeople(e.vicList).forEach((p) => { s.vic++; if (p.age !== "" && p.age != null && Number(p.age) < 18) s.vicC++; else if (p.g === "F") s.vicF++; else s.vicM++; });
+    s.stolen += Number(e.stolenValue) || 0; s.rec += Number(e.recoveredValue) || 0; s.cash += Number(e.recoveredCash) || 0;
+    s.seized += Number(e.seizedValue) || 0; s.bottles += Number(e.bottles) || 0; s.litres += Number(e.litres) || 0;
+  });
+  return s;
+}
+const NB_GU_MON_SHORT = ["જાન્યુ.", "ફેબ્રુ.", "માર્ચ", "એપ્રિલ", "મે", "જૂન", "જુલાઈ", "ઓગસ્ટ", "સપ્ટે.", "ઓક્ટો.", "નવે.", "ડિસે."];
+function nbYearEntries(ctx, year, upto) {
+  const hi = `${year}-${String(upto || 12).padStart(2, "0")}-31`;
+  return ctx.entries.filter((e) => ["A", "B", "C", "M"].includes(e.reg) && e.regDate && e.regDate.slice(0, 4) === String(year) && e.regDate <= hi);
+}
+function nbHeadHistText(e) {
+  return (e.headHistory || []).map((h) => `${(nbBookHead(h.from) || {}).gu || h.from} → ${(nbBookHead(h.to) || {}).gu || h.to}${h.date ? " (તા." + nbGDate(h.date) + ")" : ""}${h.reason ? " " + h.reason : ""}`).join("; ");
+}
+const nbRs = (n) => (n ? nbG(nbMoney(n)) : "૦");
+function nbAnnualReviewModel(ctx, year, upto) {
+  const B = [];
+  const months = Number(upto) || 12;
+  const E = nbYearEntries(ctx, year, months);
+  const P = nbYearEntries(ctx, Number(year) - 1, months);
+  const span = months === 12 ? `વર્ષ ${nbG(year)}` : `તા.૦૧/૦૧/${nbG(year)} થી માહે ${nbG(String(months).padStart(2, "0"))}/${nbG(year)} સુધી`;
+  const used = NB_BOOK_HEADS.filter((b) => E.some((e) => nbBookHeadOf(e) === b.id) || P.some((e) => nbBookHeadOf(e) === b.id));
+  const byHead = (L, id) => L.filter((e) => nbBookHeadOf(e) === id);
+  B.push({ p: `${ctx.ps} પોલીસ સ્ટેશન`, b: true, sz: 26, center: true, after: 20 });
+  B.push({ p: `વાર્ષિક ગુના સમીક્ષા — ${span}`, b: true, sz: 24, center: true, after: 120 });
+  // 1. month-wise
+  B.push({ p: "(૧) હેડ વાઇઝ / માસ વાઇઝ દાખલ થયેલ ગુના", b: true, sz: 22, after: 60 });
+  const mcols = Array.from({ length: months }, (_, i) => i);
+  const mw = Math.floor(9600 / months);
+  const totM = mcols.map(() => 0);
+  const mrows = used.map((b, i) => {
+    const L = byHead(E, b.id);
+    const cells = mcols.map((m) => { const n = L.filter((e) => Number(e.regDate.slice(5, 7)) === m + 1).length; totM[m] += n; return nbCell(n ? nbG(n) : "-", { center: true }); });
+    return [nbCell(nbG(i + 1), { center: true }), nbCell(b.gu), ...cells, nbCell(nbG(L.length), { center: true, b: true }), nbCell(nbG(byHead(P, b.id).length), { center: true })];
+  });
+  mrows.push([nbCell(""), nbCell("કુલ", { b: true }), ...totM.map((n) => nbCell(nbG(n), { center: true, b: true })), nbCell(nbG(E.length), { center: true, b: true }), nbCell(nbG(P.length), { center: true, b: true })]);
+  B.push({ table: true, sz: 16, widths: [450, 2700, ...mcols.map(() => mw), 900, 1050], headRows: [["ક્રમ", "હેડ", ...mcols.map((m) => NB_GU_MON_SHORT[m]), "કુલ", `ગત વર્ષ ${nbG(Number(year) - 1)}`].map((x) => nbCell(x, { b: true, center: true }))], rows: mrows, after: 160 });
+  // 2. status
+  B.push({ p: "(૨) હેડ વાઇઝ ડીટેક્શન, નિકાલ અને મુદ્દામાલ", b: true, sz: 22, after: 60 });
+  const tot = nbAnnualStats(E);
+  const srow = (i, name, s, bold) => [nbCell(i, { center: true }), nbCell(name, { b: bold }), ...[s.n, s.det, s.und, s.cs, s.fa, s.fb, s.fc, s.pend].map((v) => nbCell(nbG(v), { center: true, b: bold })),
+    nbCell(s.n ? nbG(Math.round((s.det * 100) / s.n)) + "%" : "-", { center: true, b: bold }), nbCell(nbRs(s.stolen), { center: true, b: bold }), nbCell(nbRs(s.rec + s.cash), { center: true, b: bold }), nbCell(s.stolen ? nbG(Math.round(((s.rec + s.cash) * 100) / s.stolen)) + "%" : "-", { center: true, b: bold })];
+  const srows = used.filter((b) => byHead(E, b.id).length).map((b, i) => srow(nbG(i + 1), b.gu, nbAnnualStats(byHead(E, b.id))));
+  srows.push(srow("", "કુલ", tot, true));
+  B.push({ table: true, sz: 16, widths: [450, 2900, 850, 850, 850, 850, 800, 800, 800, 850, 850, 1350, 1350, 850], headRows: [["ક્રમ", "હેડ", "દાખલ", "ડીટેક્ટ", "અનડીટેક્ટ", "ચાર્જશીટ", "'A' ફાઇનલ", "'B' ફાઇનલ", "'C' ફાઇનલ", "તપાસ ચાલુ", "ડીટેક્શન %", "ગયેલ મુદ્દામાલ ₹", "મળેલ મુદ્દામાલ ₹", "રીકવરી %"].map((x) => nbCell(x, { b: true, center: true }))], rows: srows, after: 160 });
+  // 3. accused / victims
+  B.push({ pageBreak: true });
+  B.push({ p: "(૩) આરોપી અને ભોગ બનનારની વિગત (ઉંમર / જાતિ)", b: true, sz: 22, after: 60 });
+  const prow = (i, name, s, bold) => [nbCell(i, { center: true }), nbCell(name, { b: bold }), ...[s.acc, s.accM, s.accF, s.juv, ...NB_AGE_GROUPS.slice(1).map(([k]) => s.age[k]), s.age.na, s.vic, s.vicM, s.vicF, s.vicC].map((v) => nbCell(v ? nbG(v) : "-", { center: true, b: bold }))];
+  const prows = used.filter((b) => byHead(E, b.id).length).map((b, i) => prow(nbG(i + 1), b.gu, nbAnnualStats(byHead(E, b.id))));
+  prows.push(prow("", "કુલ", tot, true));
+  B.push({ table: true, sz: 16, widths: [450, 2900, 850, 800, 800, 850, 850, 850, 850, 850, 850, 850, 800, 800, 800], headRows: [["ક્રમ", "હેડ", "કુલ આરોપી", "પુરૂષ", "સ્ત્રી", "કિશોર (<૧૮)", "૧૮–૩૦", "૩૧–૪૫", "૪૬–૬૦", "૬૦ ઉપર", "ઉંમર નથી", "ભોગ બનનાર", "પુરૂષ", "સ્ત્રી", "બાળક (<૧૮)"].map((x) => nbCell(x, { b: true, center: true }))], rows: prows, after: 160 });
+  // 4. transfers
+  const T = E.filter((e) => (e.headHistory || []).length);
+  B.push({ p: "(૪) હેડ ફેરફાર (ગુનો છેલ્લે કયા હેડમાં ગણાયો)", b: true, sz: 22, after: 60 });
+  B.push({ table: true, sz: 16, widths: [450, 3600, 2800, 1300, 2800, 4050], headRows: [["ક્રમ", "ગુ.ર.નં.", "મુળ હેડ", "ફેરફાર તારીખ", "છેલ્લો (ફાઇનલ) હેડ", "ફેરફારનું કારણ / કલમ"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: T.length ? T.flatMap((e, i) => (e.headHistory || []).map((h, j) => [j === 0 ? nbCell(nbG(i + 1), { center: true, rowSpan: e.headHistory.length }) : SKIP, j === 0 ? nbCell(nbCrText(e, ctx), { rowSpan: e.headHistory.length }) : SKIP, nbCell((nbBookHead(h.from) || {}).gu || h.from || "-"), nbCell(h.date ? nbGDate(h.date) : "-", { center: true }), j === 0 ? nbCell((nbBookHead(nbBookHeadOf(e)) || {}).gu || "-", { b: true, rowSpan: e.headHistory.length }) : SKIP, nbCell(h.reason || "-")]))
+      : [[nbCell("-", { center: true }), nbCell("કોઈ હેડ ફેરફાર નથી", { span: 5 }), SKIP, SKIP, SKIP, SKIP]], after: 160 });
+  // 5. agency-wise detection + act-wise
+  B.push({ p: "(૫) એજન્સી વાઇઝ ડીટેક્શન", b: true, sz: 22, after: 60 });
+  B.push({ table: true, sz: 16, widths: [600, 4000, 1800], headRows: [["ક્રમ", "એજન્સી", "ડીટેક્ટ ગુના"].map((x) => nbCell(x, { b: true, center: true }))], rows: NB_AGENCIES.map(([k, l], i) => [nbCell(nbG(i + 1), { center: true }), nbCell(l), nbCell(nbG(tot.agency[k] || 0), { center: true })]), after: 160 });
+  B.push({ p: "(૬) અધિનિયમ વાઇઝ ગુના (એક ગુનો એકથી વધુ અધિનિયમમાં હોઈ શકે)", b: true, sz: 22, after: 60 });
+  const actRows = [];
+  NB_ACTS.forEach((a) => { const n = E.filter((e) => (e.acts || []).includes(a.k)).length; if (n) actRows.push([a.gu, n]); });
+  NB_PARTB_HEADS.forEach((h) => { const n = E.filter((e) => e.reg === "B" && (e.partBHead || nbGuessPartB(e.sections)) === h.id).length; if (n) actRows.push(["ભાગ-બી: " + h.name, n]); });
+  NB_C_KINDS.forEach(([k, l]) => { const n = E.filter((e) => e.reg === "C" && (e.cKind || nbGuessCKind(e)) === k).length; if (n) actRows.push(["ભાગ-સી (પ્રોહી): " + l, n]); });
+  B.push({ table: true, sz: 16, widths: [600, 6800, 1600], headRows: [["ક્રમ", "અધિનિયમ", "ગુના"].map((x) => nbCell(x, { b: true, center: true }))], rows: actRows.length ? actRows.map(([l, n], i) => [nbCell(nbG(i + 1), { center: true }), nbCell(l), nbCell(nbG(n), { center: true })]) : [[nbCell("-"), nbCell("-"), nbCell("૦", { center: true })]], after: 160 });
+  // 7. BNS section-wise
+  const secCount = {};
+  E.forEach((e) => { if (e.reg !== "A" && e.reg !== "B") return; new Set(Array.from(nbSectionTokens(e.sections || "")).filter((x) => /^\d/.test(x) && Number(x.split("(")[0]) <= 358)).forEach((x) => (secCount[x] = (secCount[x] || 0) + 1)); });
+  const secs = Object.entries(secCount).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, { numeric: true }));
+  B.push({ p: "(૭) BNS કલમ વાઇઝ ગુના", b: true, sz: 22, after: 60 });
+  const half = Math.ceil(secs.length / 2);
+  const srow2 = [];
+  for (let i = 0; i < Math.max(half, 1); i++) { const a = secs[i], b = secs[half + i]; srow2.push([nbCell(a ? "BNS " + nbG(a[0]) : "-"), nbCell(a ? nbG(a[1]) : "", { center: true }), nbCell(b ? "BNS " + nbG(b[0]) : ""), nbCell(b ? nbG(b[1]) : "", { center: true })]); }
+  B.push({ table: true, sz: 16, widths: [3000, 1300, 3000, 1300], headRows: [["કલમ", "ગુના", "કલમ", "ગુના"].map((x) => nbCell(x, { b: true, center: true }))], rows: srow2, after: 160 });
+  // 8. monthly comparison
+  B.push({ p: `(૮) માસ વાઇઝ સરખામણી (ગત વર્ષ ${nbG(Number(year) - 1)} / ચાલુ વર્ષ ${nbG(year)})`, b: true, sz: 22, after: 60 });
+  const cmp = mcols.map((m) => {
+    const c = E.filter((e) => Number(e.regDate.slice(5, 7)) === m + 1), p = P.filter((e) => Number(e.regDate.slice(5, 7)) === m + 1);
+    const d = c.length - p.length;
+    return [nbCell(NB_GU_MON_SHORT[m]), ...["A", "B", "C"].flatMap((r) => [nbCell(nbG(p.filter((e) => e.reg === r).length), { center: true }), nbCell(nbG(c.filter((e) => e.reg === r).length), { center: true })]), nbCell(nbG(p.length), { center: true }), nbCell(nbG(c.length), { center: true }), nbCell((d > 0 ? "+" : "") + nbG(d), { center: true, b: true })];
+  });
+  const cnt = (L, r) => nbG(L.filter((e) => e.reg === r).length);
+  cmp.push([nbCell("કુલ", { b: true }), ...["A", "B", "C"].flatMap((r) => [nbCell(cnt(P, r), { center: true, b: true }), nbCell(cnt(E, r), { center: true, b: true })]), nbCell(nbG(P.length), { center: true, b: true }), nbCell(nbG(E.length), { center: true, b: true }), nbCell((E.length - P.length > 0 ? "+" : "") + nbG(E.length - P.length), { center: true, b: true })]);
+  B.push({ table: true, sz: 16, widths: [1400, 1150, 1150, 1150, 1150, 1150, 1150, 1300, 1300, 1300], headRows: [
+    [nbCell("માસ", { b: true, center: true, rowSpan: 2 }), nbCell("ભાગ-એ", { b: true, center: true, span: 2 }), SKIP, nbCell("ભાગ-બી", { b: true, center: true, span: 2 }), SKIP, nbCell("ભાગ-સી", { b: true, center: true, span: 2 }), SKIP, nbCell("કુલ", { b: true, center: true, span: 2 }), SKIP, nbCell("વધ / ઘટ", { b: true, center: true, rowSpan: 2 })],
+    [SKIP, ...Array.from({ length: 4 }, () => [nbCell(nbG(Number(year) - 1), { b: true, center: true }), nbCell(nbG(year), { b: true, center: true })]).flat(), SKIP],
+  ], rows: cmp, after: 160 });
+  // 9. prohibition seizures
+  const C = E.filter((e) => e.reg === "C");
+  if (C.length) {
+    B.push({ p: "(૯) પ્રોહીબીશન — પકડાયેલ મુદ્દામાલ", b: true, sz: 22, after: 60 });
+    const crows = NB_C_KINDS.map(([k, l], i) => {
+      const L = C.filter((e) => (e.cKind || nbGuessCKind(e)) === k); const s = nbAnnualStats(L);
+      const proved = L.filter((e) => e.proved === "yes").length, fine = L.reduce((x, e) => x + (Number(e.fine) || 0), 0);
+      return [nbCell(nbG(i + 1), { center: true }), nbCell(l), nbCell(nbG(L.length), { center: true }), nbCell(s.bottles ? nbG(s.bottles) : "-", { center: true }), nbCell(s.litres ? nbG(s.litres) : "-", { center: true }), nbCell(nbRs(s.seized), { center: true }), nbCell(nbG(s.acc), { center: true }), nbCell(k === "drink" ? `${nbG(proved)} / ${nbRs(fine)}` : "-", { center: true })];
+    });
+    B.push({ table: true, sz: 16, widths: [600, 3400, 1100, 1300, 1300, 1900, 1200, 2000], headRows: [["ક્રમ", "પ્રકાર", "કેસ", "બોટલ", "લીટર", "કુલ મુદ્દામાલ ₹", "આરોપી", "સાબિત / દંડ ₹"].map((x) => nbCell(x, { b: true, center: true }))], rows: crows, after: 120 });
+  }
+  return B;
+}
+// Detailed book: one table per head, every crime with its details.
+function nbCrimeBookModel(ctx, year, upto) {
+  const B = [];
+  const months = Number(upto) || 12;
+  const E = nbSortEntries(nbYearEntries(ctx, year, months));
+  B.push({ p: `${ctx.ps} પોલીસ સ્ટેશન — હેડ વાઇઝ ગુના પત્રક ${months === 12 ? "વર્ષ " + nbG(year) : "તા.૦૧/૦૧/" + nbG(year) + " થી " + nbG(String(months).padStart(2, "0")) + "/" + nbG(year)}`, b: true, sz: 24, center: true, after: 120 });
+  let first = true;
+  NB_BOOK_HEADS.forEach((b) => {
+    const L = E.filter((e) => nbBookHeadOf(e) === b.id);
+    if (!L.length) return;
+    const s = nbAnnualStats(L);
+    B.push({ p: `${b.gu} — કુલ ${nbG(L.length)} (ડીટેક્ટ ${nbG(s.det)}, અનડીટેક્ટ ${nbG(s.und)})`, b: true, sz: 22, after: 60, ...(first ? {} : {}) });
+    first = false;
+    const prohib = !!b.c;
+    const rows = L.map((e, i) => {
+      const accN = nbPeople(e.accList).length;
+      const status = e.detected ? "ડીટેક્ટ" + (e.detAgency && e.detAgency !== "local" ? " (" + ((NB_AGENCIES.find((a) => a[0] === e.detAgency) || [])[1] || "") + ")" : "") : "અનડીટેક્ટ";
+      const fin = ["fa", "fb", "fc"].includes(e.closeType) ? nbCloseLabel(e) + (e.finalNo ? " નં." + nbG(e.finalNo) : "") : e.closeType ? nbCloseLabel(e) : "તપાસ ચાલુ";
+      const prop = prohib
+        ? [e.bottles ? "બોટલ " + nbG(e.bottles) : "", e.litres ? "લીટર " + nbG(e.litres) : "", e.containers || "", e.seizedValue ? "કુલ ₹" + nbRs(e.seizedValue) : "", e.cKind === "drink" || nbGuessCKind(e) === "drink" ? (e.proved === "yes" ? "સાબિત" + (e.fine ? " દંડ ₹" + nbRs(e.fine) : "") : e.proved === "no" ? "સાબિત નથી" : "") : ""].filter(Boolean).join(", ")
+        : [e.vehicleDesc ? "વાહન: " + e.vehicleDesc : "", e.propLost || "", e.stolenValue ? "ગયેલ ₹" + nbRs(e.stolenValue) : "", e.propRecovered ? "મળેલ: " + e.propRecovered : "", e.recoveredValue ? "મળેલ ₹" + nbRs(e.recoveredValue) : "", e.recoveredCash ? "રોકડ ₹" + nbRs(e.recoveredCash) : "", e.seizedValue ? "મુદ્દામાલ ₹" + nbRs(e.seizedValue) : ""].filter(Boolean).join(", ");
+      return [nbCell(nbG(i + 1), { center: true }), nbCell(nbCrText(e, ctx)), nbCell(e.regDate ? nbGDate(e.regDate) : "-", { center: true }), nbCell(e.place || "-"),
+        nbCell((accN ? nbG(accN) + " — " : "") + (nbPeopleText(e.accList, "acc") || "-")), nbCell(nbPeopleText(e.vicList, "vic") || "-"), nbCell(prop || "-"), nbCell(status + "\n" + fin), nbCell(nbHeadHistText(e) || "-")];
+    });
+    B.push({ table: true, sz: 15, widths: [400, 3000, 1000, 1900, 2000, 1500, 2300, 1500, 1400], headRows: [["ક્રમ", "ગુ.ર.નં. અને કલમ", "તારીખ", "સ્થળ", "આરોપી (સંખ્યા / ઉંમર)", "ભોગ બનનાર", prohib ? "પકડાયેલ મુદ્દામાલ" : "ગયેલ / મળેલ મુદ્દામાલ", "ડીટેક્ટ / ફાઇનલ", "હેડ ફેરફાર"].map((x) => nbCell(x, { b: true, center: true }))], rows, after: 160 });
+  });
+  if (!E.length) B.push({ p: "આ સમયગાળામાં કોઈ ગુનો નથી.", center: true });
+  return B;
+}
+
+// ----- form pieces -----
+function NbPeopleEditor({ value, onChange, kind }) {
+  const { t } = useLang();
+  const L = Array.isArray(value) ? value : [];
+  const upd = (i, k, v) => onChange(L.map((p, j) => (j === i ? { ...p, [k]: v } : p)));
+  const num = (v, max) => { const n = nbAsciiDigits(v).replace(/\D/g, "").slice(0, 3); return n === "" ? "" : String(Math.min(Number(n), max)); };
+  const small = { width: 56, fontSize: 13.5, textAlign: "center", padding: "6px 4px" };
+  return (
+    <div data-people={kind} style={{ display: "grid", gap: 6 }}>
+      {L.map((p, i) => {
+        const juv = p.age !== "" && p.age != null && Number(p.age) < 18;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 13 }}>
+            <b className="mono" style={{ width: 22 }}>{nbG(i + 1)}.</b>
+            <select value={p.g || ""} onChange={(ev) => upd(i, "g", ev.target.value)} className="gu" style={{ fontSize: 13.5, padding: "6px 4px" }}>
+              <option value="">{t("Gender", "જાતિ")}</option><option value="M">{t("Male", "પુરૂષ")}</option><option value="F">{t("Female", "સ્ત્રી")}</option>
+            </select>
+            <input type="text" inputMode="numeric" value={p.age == null ? "" : p.age} onChange={(ev) => upd(i, "age", num(ev.target.value, 120))} placeholder={t("age", "ઉંમર")} className="mono" style={small} />
+            <span>{t("yrs", "વર્ષ")}</span>
+            {juv && <React.Fragment><input type="text" inputMode="numeric" value={p.mon || ""} onChange={(ev) => upd(i, "mon", num(ev.target.value, 11))} placeholder="0" className="mono" style={{ ...small, width: 44 }} /><span>{t("months", "માસ")}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--status-warning-text, #b7791f)" }}>{kind === "vic" ? t("child", "બાળક") : t("juvenile", "કિશોર")}</span></React.Fragment>}
+            <button type="button" onClick={() => onChange(L.filter((_, j) => j !== i))} aria-label={t("Remove", "કાઢો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15, cursor: "pointer" }}>✕</button>
+          </div>
+        );
+      })}
+      <div><button type="button" onClick={() => onChange([...L, { g: "M", age: "" }])} className="gu" style={{ fontSize: 12.5, borderRadius: 8, padding: "5px 10px", border: "1px dashed var(--border)", background: "var(--bg-surface)", cursor: "pointer" }}>+ {kind === "vic" ? t("Add victim", "ભોગ બનનાર ઉમેરો") : t("Add accused", "આરોપી ઉમેરો")}</button>
+        {L.length > 0 && <span style={{ fontSize: 12, color: "var(--text-secondary)", marginLeft: 8 }}>{t("Total", "કુલ")}: {nbG(L.length)}</span>}</div>
+    </div>
+  );
+}
+function NbBookHeadField({ e, setE }) {
+  const { t } = useLang();
+  const cur = nbBookHeadOf(e);
+  const opts = nbBookHeadsFor(e.reg);
+  const [tr, setTr] = useState(null); // { to, date, reason }
+  const hist = e.headHistory || [];
+  const apply = () => {
+    if (!tr || !tr.to || tr.to === cur) return;
+    setE((x) => {
+      const n = { ...x, bookHead: tr.to, _bookAuto: false, headHistory: [...(x.headHistory || []), { date: tr.date || todayStr(), from: nbBookHeadOf(x), to: tr.to, reason: tr.reason || "" }] }; if (tr.to === "veh") n.theftKind = "vehicle"; else if (tr.to === "theft") n.theftKind = "";
+      const nb = nbBookHead(tr.to);
+      if (x.reg === "A" && nb && nb.h && !nb.h.includes(Number(x.head44))) {
+        n.changeDate = tr.date || todayStr(); n.changeOldHead = x.head44; n.changeText = tr.reason || ""; n.head44 = nb.h[0]; n._headAuto = false;
+      }
+      return n;
+    });
+    setTr(null);
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <select data-bookhead="1" value={cur} onChange={(ev) => { const v = ev.target.value; setE((x) => ({ ...x, bookHead: v, _bookAuto: false, ...(v === "veh" ? { theftKind: "vehicle" } : v === "theft" ? { theftKind: "" } : {}) })); }} className="gu" style={{ flex: "1 1 220px", fontSize: 13.5 }}>
+          {opts.map((b) => <option key={b.id} value={b.id}>{b.gu}</option>)}
+        </select>
+        {!tr && <button type="button" data-transfer="1" onClick={() => setTr({ to: "", date: todayStr(), reason: "" })} className="gu" style={{ fontSize: 12.5, borderRadius: 8, padding: "6px 10px", border: "1px solid var(--border)", background: "var(--bg-surface)", cursor: "pointer", fontWeight: 700 }}>↪ {t("Transfer to another head", "બીજા હેડમાં ફેરવો")}</button>}
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 3 }}>{e._bookAuto === false ? t("Chosen by you", "તમે પસંદ કરેલ") : "✓ " + t("Matched automatically — the crime is counted once, under this head", "આપોઆપ — ગુનો ફક્ત આ હેડમાં એક વાર ગણાશે")}</div>
+      {tr && (
+        <div style={{ marginTop: 8, padding: 10, border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-page)", display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12.5 }}><b>{t("From", "મુળ હેડ")}:</b> {(nbBookHead(cur) || {}).gu}</div>
+          <select data-transfer-to="1" value={tr.to} onChange={(ev) => setTr({ ...tr, to: ev.target.value })} className="gu" style={{ fontSize: 13.5 }}>
+            <option value="">{t("— new head —", "— નવો હેડ —")}</option>
+            {opts.filter((b) => b.id !== cur).map((b) => <option key={b.id} value={b.id}>{b.gu}</option>)}
+          </select>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <input type="date" value={tr.date} onChange={(ev) => setTr({ ...tr, date: ev.target.value })} style={nbCrDate} />
+            <input type="text" value={tr.reason} onChange={(ev) => setTr({ ...tr, reason: ev.target.value.slice(0, 120) })} placeholder={t("Reason / new section, e.g. BNS 106(1) added", "કારણ / નવી કલમ, દા.ત. BNS ૧૦૬(૧) ઉમેરેલ")} className="gu" style={{ flex: "1 1 200px", fontSize: 13.5 }} />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={apply} disabled={!tr.to} className="gu" style={{ background: tr.to ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 700 }}>{t("Transfer", "ફેરવો")}</button>
+            <button type="button" onClick={() => setTr(null)} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+          </div>
+        </div>
+      )}
+      {hist.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 12.5 }}>
+          <b>{t("Head history", "હેડ ફેરફારનો ઇતિહાસ")}:</b>
+          {hist.map((h, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, alignItems: "baseline", marginTop: 3 }}>
+              <span style={{ flex: 1 }}>{h.date ? nbGDate(h.date) + " · " : ""}{(nbBookHead(h.from) || {}).gu || h.from} → <b>{(nbBookHead(h.to) || {}).gu || h.to}</b>{h.reason ? " — " + h.reason : ""}</span>
+              {i === hist.length - 1 && <button type="button" onClick={() => setE((x) => { const H = (x.headHistory || []).slice(0, -1); return { ...x, headHistory: H, bookHead: h.from, _bookAuto: H.length || x._bookAuto === false ? false : x._bookAuto }; })} style={{ background: "transparent", border: "none", color: "var(--status-error-text)", fontSize: 12, cursor: "pointer" }}>{t("undo", "રદ")}</button>}
+            </div>
+          ))}
+          <div style={{ marginTop: 3, color: "var(--text-secondary)" }}>{t("Final head", "છેલ્લો (ફાઇનલ) હેડ")}: <b>{(nbBookHead(cur) || {}).gu}</b></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ----- Annual tab -----
+function CrimeAnnualPanel({ ctx, showToast }) {
+  const { t } = useLang();
+  const thisYear = new Date().getFullYear();
+  const [year, setYear] = useState(String(thisYear));
+  const [upto, setUpto] = useState(String(new Date().getMonth() + 1));
+  const [pdf, setPdf] = useState(null);
+  const [busy, setBusy] = useState("");
+  const years = Array.from(new Set([thisYear, ...ctx.entries.map((e) => Number((e.regDate || "").slice(0, 4))).filter(Boolean)])).sort((a, b) => b - a);
+  const E = nbYearEntries(ctx, year, upto);
+  const docs = [
+    ["annual", "વાર્ષિક ગુના સમીક્ષા", t("Head × month, detection, A/B/C finals, accused age/gender, property, transfers, agency, acts, sections, year comparison", "હેડ × માસ, ડીટેક્શન, A/B/C ફાઇનલ, આરોપી ઉંમર/જાતિ, મુદ્દામાલ, હેડ ફેરફાર, એજન્સી, અધિનિયમ, કલમ, ગત વર્ષ સરખામણી"), nbAnnualReviewModel],
+    ["book", "હેડ વાઇઝ ગુના પત્રક (બુક)", t("Every crime under its final head with all details", "દરેક ગુનો તેના ફાઇનલ હેડમાં, બધી વિગત સાથે"), nbCrimeBookModel],
+  ];
+  const fname = (k) => `${k}-${year}${Number(upto) < 12 ? "-upto-" + String(upto).padStart(2, "0") : ""}`;
+  const word = (d) => { try { nbDeliverBlob(nbModelDocx(d[3](ctx, year, upto), { landscape: true }), fname(d[0]) + ".docx", d[1]); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } };
+  const pdfDo = async (d) => { setBusy(d[0]); try { const doc = await nbModelPdf(d[3](ctx, year, upto), { landscape: true }); setPdf({ doc, filename: fname(d[0]) + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(""); } };
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" };
+  const rows = NB_BOOK_HEADS.map((b) => ({ b, s: nbAnnualStats(E.filter((e) => nbBookHeadOf(e) === b.id)) })).filter((r) => r.s.n);
+  const tot = nbAnnualStats(E);
+  const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "center", whiteSpace: "nowrap", position: "sticky", top: 0, background: "var(--bg-surface)" };
+  const td = { padding: "5px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 13, textAlign: "center" };
+  const moved = E.filter((e) => (e.headHistory || []).length).length;
+  return (
+    <div>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+        <b>{t("Year", "વર્ષ")}:</b>
+        <select value={year} onChange={(ev) => setYear(ev.target.value)} className="mono" style={{ fontSize: 14 }}>{years.map((y) => <option key={y} value={y}>{y}</option>)}</select>
+        <b>{t("up to", "સુધી")}:</b>
+        <select value={upto} onChange={(ev) => setUpto(ev.target.value)} className="gu" style={{ fontSize: 14 }}>{NB_GU_MON_SHORT.map((m, i) => <option key={i} value={String(i + 1)}>{m}{i === 11 ? " (" + t("full year", "આખું વર્ષ") + ")" : ""}</option>)}</select>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 14 }}>
+        {[[t("Registered", "દાખલ"), tot.n], [t("Detected", "ડીટેક્ટ"), tot.det], [t("Undetected", "અનડીટેક્ટ"), tot.und], ["'A' / 'B' / 'C'", `${tot.fa} / ${tot.fb} / ${tot.fc}`], [t("Accused", "આરોપી"), `${tot.acc}${tot.juv ? " (" + tot.juv + " " + t("juv.", "કિશોર") + ")" : ""}`], [t("Head transfers", "હેડ ફેરફાર"), moved]].map(([l, v], i) => (
+          <div key={i} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 10px" }}>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{l}</div>
+            <div className="mono" style={{ fontSize: 19, fontWeight: 700 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {docs.map((d) => (
+        <div key={d[0]} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
+          <div style={{ flex: "1 1 240px" }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>📊 {d[1]}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{d[2]}</div>
+          </div>
+          <button onClick={() => word(d)} style={btn}>⬇ Word</button>
+          <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : "⬇ PDF"}</button>
+        </div>
+      ))}
+      <div style={{ overflowX: "auto", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, marginTop: 6 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+          <thead><tr>{[t("Head", "હેડ"), t("Reg.", "દાખલ"), t("Det.", "ડીટેક્ટ"), t("Undet.", "અનડીટેક્ટ"), "A", "B", "C", t("Accused", "આરોપી"), t("Stolen ₹", "ગયેલ ₹"), t("Recovered ₹", "મળેલ ₹")].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.map(({ b, s }) => (
+              <tr key={b.id}><td style={{ ...td, textAlign: "left" }}>{b.gu}</td>{[s.n, s.det, s.und, s.fa, s.fb, s.fc, s.acc].map((v, i) => <td key={i} className="mono" style={td}>{v || "-"}</td>)}<td className="mono" style={td}>{s.stolen ? nbMoney(s.stolen) : "-"}</td><td className="mono" style={td}>{s.rec + s.cash ? nbMoney(s.rec + s.cash) : "-"}</td></tr>
+            ))}
+            {!rows.length && <tr><td colSpan={10} style={{ ...td, padding: 20, color: "var(--text-tertiary)" }}>{t("No crimes in this period.", "આ સમયગાળામાં કોઈ ગુનો નથી.")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 8, lineHeight: 1.6 }}>{t("Each crime is counted once, under its final head. Fill accused / victim ages, property values, A/B/C final numbers and the detecting agency in each entry for complete figures.", "દરેક ગુનો તેના છેલ્લા (ફાઇનલ) હેડમાં એક જ વાર ગણાય છે. પૂરા આંકડા માટે દરેક એન્ટ્રીમાં આરોપી / ભોગ બનનારની ઉંમર, મુદ્દામાલની કિંમત, A/B/C ફાઇનલ નંબર અને ડીટેક્ટ કરનાર એજન્સી ભરો.")}</div>
+    </div>
   );
 }
 
