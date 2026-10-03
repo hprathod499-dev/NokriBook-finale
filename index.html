@@ -4085,7 +4085,7 @@ function CodeLoginsManager({ uid, user, showToast }) {
             <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{c.role === "editor" ? t("can edit", "ફેરફાર કરી શકે") : t("view only", "ફક્ત જોઈ શકે")}</span>
             <div style={{ flex: 1 }} />
             <button onClick={async () => { try { await navigator.clipboard.writeText(share(c)); showToast(t("Login details copied", "લોગિન વિગત કૉપિ થઈ")); } catch (e) {} }} style={small} title={t("Copy login details", "લોગિન વિગત કૉપિ કરો")}>📋</button>
-            <a href={"https://wa.me/?text=" + encodeURIComponent(share(c))} target="_blank" rel="noopener noreferrer" style={{ ...small, textDecoration: "none" }}>💬</a>
+            <a href={"https://wa.me/?text=" + encodeURIComponent(share(c))} target="_blank" rel="noopener noreferrer" style={{ ...small, textDecoration: "none", display: "inline-flex", alignItems: "center" }}><WaIcon size={16} /></a>
             <button onClick={() => setEditing({ id: c.id, label: c.label || "", role: c.role || "editor", sections: c.sections || [] })} disabled={busy} style={small}>✎</button>
             <button onClick={() => del(c)} disabled={busy} style={{ ...small, color: "var(--status-error-text)" }}>✕</button>
           </div>
@@ -9365,6 +9365,11 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
 // Moves to another view once, right after mounting (used to send a
 // login-code user from a window they can't open to one they can).
 function NbGoTo({ onGo }) { useEffect(() => { onGo(); }, []); return null; }
+// WhatsApp icon used on every "send on WhatsApp" button.
+function WaIcon({ size }) {
+  const z = size || 16;
+  return <svg width={z} height={z} viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0, verticalAlign: "-0.2em" }}><path fill="#25D366" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/><path fill="#fff" d="M17.3 14.6c-.3-.1-1.7-.8-1.9-.9-.3-.1-.5-.1-.7.1l-.9 1.1c-.2.2-.3.2-.6.1a7.6 7.6 0 0 1-3.8-3.3c-.3-.5.3-.5.8-1.6.1-.2 0-.4 0-.5l-.9-2.1c-.2-.5-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.1 4.9 4.3 1.8.8 2.5.8 3.4.7.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.2-.6-.4z"/></svg>;
+}
 function undoRedoBtn(enabled) {
   return {
     background: "var(--bg-surface)", color: enabled ? "var(--text-primary)" : "var(--text-tertiary)",
@@ -9490,7 +9495,7 @@ function DutyOrderModal({ data, onClose }) {
         <pre className="gu" style={{ flex: 1, minHeight: 160, overflowY: "auto", whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, lineHeight: 1.55, background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, margin: 0 }}>{text}</pre>
         <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
           <button onClick={copy} className="gu" style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
-          <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}>💬 WhatsApp</a>
+          <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}><WaIcon size={16} /> WhatsApp</a>
           <button disabled={busy} onClick={async () => { setBusy(true); try { setPdf(await downloadDutyOrderPdf(data, date, includeAway)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF — check your connection.", "PDF બની શક્યું નહીં — જોડાણ તપાસો.")); } setBusy(false); }} className="gu" style={btn}>{busy ? "…" : "⬇ PDF"}</button>
         </div>
       </div>
@@ -9547,7 +9552,7 @@ function HomeView({ data, goToCategory }) {
                   {phone && (
                     <a href={`tel:+91${phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
                   )}
-                  <button onClick={() => shareDutyOnWhatsApp({ lang, name: doneToday.name, number: doneToday.number, catLabel: cat.label, date: doneToday.lastDuty, phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
+                  <button onClick={() => shareDutyOnWhatsApp({ lang, name: doneToday.name, number: doneToday.number, catLabel: cat.label, date: doneToday.lastDuty, phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}><WaIcon size={16} /></button>
                 </div>
               </div>
 
@@ -9642,7 +9647,7 @@ function AssignDutyView({ initialSubTab, onSubTabChange, data, assignDuty, assig
                       {nextPhone && (
                         <a href={`tel:+91${nextPhone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>📞</a>
                       )}
-                      <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat.label, phone: nextPhone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>📲</button>
+                      <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat.label, phone: nextPhone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}><WaIcon size={16} /></button>
                       <button onClick={() => setAssignTarget({ catId: cat.id, number: nextUp.number, name: nextUp.name })} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }} className="gu">{t("Assign", "સોંપો")}</button>
                     </div>
                   </div>
@@ -10466,7 +10471,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
                     <button
                       onClick={() => shareDutyOnWhatsApp({ lang, name: p.name, number: p.number, catLabel: lastAssigned.catLabel, date: lastAssigned.dateFrom, dateTo: lastAssigned.dateTo, phone: staffRec && staffRec.phone, kind: "assigned", groupNames: others })}
                       style={{ background: hasNumber ? "#25D366" : "var(--bg-surface)", color: hasNumber ? "#fff" : "var(--status-success-text)", border: hasNumber ? "none" : "1px solid var(--status-success-border)", borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 700 }} className="gu"
-                    >{t("Send", "મોકલો")}</button>
+                    ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><WaIcon size={15} />{t("Send", "મોકલો")}</span></button>
                   </div>
                 </div>
               );
@@ -10477,7 +10482,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
             <button
               onClick={() => shareGroupDutyOnWhatsApp({ lang, catLabel: lastAssigned.catLabel, date: lastAssigned.dateFrom, dateTo: lastAssigned.dateTo, people: lastAssigned.people })}
               style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", fontSize: 11.5, fontWeight: 600 }} className="gu"
-            >{t("Or share one combined message via WhatsApp's picker instead", "અથવા તેના બદલે WhatsAppના પિકર દ્વારા એક સંયુક્ત સંદેશ શેર કરો")}</button>
+            ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><WaIcon size={14} />{t("Or share one combined message via WhatsApp's picker instead", "અથવા તેના બદલે WhatsAppના પિકર દ્વારા એક સંયુક્ત સંદેશ શેર કરો")}</span></button>
           </div>
         </div>
       )}
@@ -10705,7 +10710,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
               {nextUp.staffRec && nextUp.staffRec.phone && (
                 <a href={`tel:+91${nextUp.staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center" }} className="gu">📞 {t("Call", "કૉલ કરો")}</a>
               )}
-              <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat ? cat.label : "", phone: nextUp.staffRec && nextUp.staffRec.phone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600 }} className="gu">📲 {t("Share", "શેર કરો")}</button>
+              <button onClick={() => shareDutyOnWhatsApp({ lang, name: nextUp.name, number: nextUp.number, catLabel: cat ? cat.label : "", phone: nextUp.staffRec && nextUp.staffRec.phone, kind: "next" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ background: "var(--bg-surface)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "9px 12px", fontSize: 13, fontWeight: 600 }} className="gu"><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><WaIcon size={16} />{t("Share", "શેર કરો")}</span></button>
               <button onClick={() => setAssignTarget({ number: nextUp.number, name: nextUp.name })} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{t("Assign duty", "ડ્યુટી સોંપો")}</button>
             </div>
           </React.Fragment>
@@ -10905,7 +10910,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                     {p.staffRec && p.staffRec.phone && (
                       <a href={`tel:+91${p.staffRec.phone}`} title={t("Call", "કૉલ કરો")} aria-label={t("Call", "કૉલ કરો")} style={{ ...iconBtn, textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>📞</a>
                     )}
-                    <button onClick={() => shareDutyOnWhatsApp({ lang, name: p.name, number: p.number, catLabel: cat ? cat.label : "", date: p.lastDuty, phone: p.staffRec && p.staffRec.phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ ...iconBtn, marginLeft: 4 }}>📲</button>
+                    <button onClick={() => shareDutyOnWhatsApp({ lang, name: p.name, number: p.number, catLabel: cat ? cat.label : "", date: p.lastDuty, phone: p.staffRec && p.staffRec.phone, kind: "assigned" })} title={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} aria-label={t("Share via WhatsApp", "WhatsApp પર શેર કરો")} style={{ ...iconBtn, marginLeft: 4 }}><WaIcon size={16} /></button>
                     <button onClick={() => setAssignTarget({ number: p.number, name: p.name })} title={t("Assign duty now", "હમણાં ડ્યુટી સોંપો")} aria-label={t("Assign duty now", "હમણાં ડ્યુટી સોંપો")} style={{ ...iconBtn, marginLeft: 4 }}>✓</button>
                     {removeMode && (
                       <button onClick={() => removeFromCategory(catId, p.number)} title={t("Remove from this work type", "આ કામના પ્રકારમાંથી કાઢી નાખો")} aria-label={t("Remove from this work type", "આ કામના પ્રકારમાંથી કાઢી નાખો")} style={{ ...iconBtn, marginLeft: 4, borderColor: "var(--status-error-border)", color: "var(--status-error-text)" }}>✕</button>
@@ -12502,7 +12507,7 @@ function NightRoundView({ data, saveNightRound, showToast, canEdit }) {
             <b>{t(`${st ? st.total : 0} on night round`, `નાઇટ રાઉન્ડમાં ${st ? st.total : 0}`)}</b>
             <div style={{ flex: 1 }} />
             <button onClick={async () => { const txt = nbNightRoundText(data, draft, date); try { await navigator.clipboard.writeText(txt); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1800); }} style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
-            <a href={"https://wa.me/?text=" + encodeURIComponent(nbNightRoundText(data, draft, date))} target="_blank" rel="noopener noreferrer" style={btn}>💬 WhatsApp</a>
+            <a href={"https://wa.me/?text=" + encodeURIComponent(nbNightRoundText(data, draft, date))} target="_blank" rel="noopener noreferrer" style={btn}><WaIcon size={16} /> WhatsApp</a>
             <button onClick={() => doPdf(() => downloadNightRoundPdf(data, draft, date))} disabled={busy} style={btn}>{busy ? "…" : "⬇ PDF"}</button>
             <button onClick={() => { try { downloadNightRoundDocx(data, draft, date); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn}>⬇ Word</button>
           </div>
@@ -12783,7 +12788,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
         <b>{t(`${draft.points.length} points · ${total} staff`, `${draft.points.length} પોઇન્ટ · ${total} સ્ટાફ`)}</b>
         <div style={{ flex: 1 }} />
         <button onClick={async () => { try { await navigator.clipboard.writeText(text); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1800); }} className="gu" style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
-        <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}>💬 WhatsApp</a>
+        <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}><WaIcon size={16} /> WhatsApp</a>
         <button onClick={async () => { try { setPdf(await downloadBandobastPdf(data, draft)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } }} className="gu" style={btn}>⬇ PDF</button>
         <button onClick={() => { try { downloadBandobastDocx(data, draft); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} className="gu" style={btn}>⬇ Word</button>
       </div>
@@ -15463,7 +15468,7 @@ function SharePanel({ enabled, getShareUrl, stationName, onStop, onClose, showTo
         boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000, padding: 6,
       }}>
         <button role="menuitem" onClick={shareWhatsApp} style={optionBtn} className="gu">
-          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="#25D366" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/><path fill="#fff" d="M17.3 14.6c-.3-.1-1.7-.8-1.9-.9-.3-.1-.5-.1-.7.1l-.9 1.1c-.2.2-.3.2-.6.1a7.6 7.6 0 0 1-3.8-3.3c-.3-.5.3-.5.8-1.6.1-.2 0-.4 0-.5l-.9-2.1c-.2-.5-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.1 4.9 4.3 1.8.8 2.5.8 3.4.7.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.2-.6-.4z"/></svg>
+          <WaIcon size={22} />
           WhatsApp
         </button>
         <button role="menuitem" onClick={copyLink} style={optionBtn} className="gu">
