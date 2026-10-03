@@ -47,12 +47,35 @@ service cloud.firestore {
     function memberPath() {
       return /databases/$(database)/documents/stationMembers/$(request.auth.uid);
     }
+    // LOGIN CODES: codeLogins/{code} = { owner, emailHash, role, sections,
+    // label }. Someone who types the station's email + this code signs in
+    // anonymously and gets stationMembers/{uid} = { owner, via: 'code',
+    // code }. Their access lives only while the code exists, and their
+    // role always comes from the code (so the owner can change or delete
+    // it and every such login follows immediately).
+    function codePath(c) {
+      return /databases/$(database)/documents/codeLogins/$(c);
+    }
+    function viaCode(m) {
+      return m.get('via', '') == 'code';
+    }
+    function memberActive(m) {
+      return !viaCode(m)
+        || (m.get('code', '') is string && m.get('code', '') != ''
+            && exists(codePath(m.get('code', '')))
+            && get(codePath(m.get('code', ''))).data.owner == m.owner);
+    }
     function isMemberOf(owner) {
       return signedIn() && exists(memberPath())
-        && get(memberPath()).data.owner == owner;
+        && get(memberPath()).data.owner == owner
+        && memberActive(get(memberPath()).data);
+    }
+    function memberIsEditor(m) {
+      return (!viaCode(m) && m.get('role', '') == 'editor')
+        || (viaCode(m) && get(codePath(m.get('code', ''))).data.role == 'editor');
     }
     function isEditorOf(owner) {
-      return isMemberOf(owner) && get(memberPath()).data.role == 'editor';
+      return isMemberOf(owner) && memberIsEditor(get(memberPath()).data);
     }
     // The owner, or an editor of that station.
     function canEditStation(owner) {
@@ -380,6 +403,28 @@ service cloud.firestore {
     // ============================================================
     // joinCodes/{code} = { owner }: anyone signed in can look up one exact
     // code (to send a request); nobody can list them.
+    // Login codes (station email + code). Readable by exact code before
+    // sign-in, so the login screen can check the email first.
+    match /codeLogins/{code} {
+      allow get: if true;
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create: if signedIn()
+        && code.size() >= 8
+        && request.resource.data.keys().hasOnly(['owner', 'emailHash', 'role', 'sections', 'label', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid
+        && exists(/databases/$(database)/documents/accounts/$(request.auth.uid))
+        && request.resource.data.emailHash is string
+        && request.resource.data.role in ['editor', 'viewer']
+        && request.resource.data.sections is list
+        && request.resource.data.sections.size() <= 20;
+      allow update: if signedIn()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'sections', 'label'])
+        && request.resource.data.role in ['editor', 'viewer']
+        && request.resource.data.sections is list
+        && request.resource.data.sections.size() <= 20;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
     match /joinCodes/{code} {
       allow get: if signedIn();
       allow list: if false;
@@ -426,6 +471,18 @@ service cloud.firestore {
         && resource.data.owner == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
         && request.resource.data.role in ['editor', 'viewer'];
+      // Login with the station's email + a login code: the person adds
+      // THEMSELVES, and only by proving a code the owner made for that
+      // email.
+      allow create, update: if signedIn()
+        && memberUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['owner', 'via', 'code', 'emailHash', 'name', 'joinedAt'])
+        && request.resource.data.via == 'code'
+        && request.resource.data.code is string
+        && request.resource.data.code.size() >= 8
+        && exists(codePath(request.resource.data.code))
+        && get(codePath(request.resource.data.code)).data.owner == request.resource.data.owner
+        && get(codePath(request.resource.data.code)).data.emailHash == request.resource.data.emailHash;
       allow delete: if signedIn()
         && (request.auth.uid == memberUid || resource.data.owner == request.auth.uid);
     }
