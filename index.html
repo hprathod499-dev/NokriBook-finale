@@ -3976,7 +3976,7 @@ function ActivityLogModal({ data, onClose }) {
           {!rows.length && <div style={{ color: "var(--text-tertiary)", padding: 20, textAlign: "center", fontSize: 13 }}>{log.length ? t("Nothing matches.", "કંઈ મળ્યું નહીં.") : t("No changes recorded yet. From now on every change is listed here with who made it.", "હજુ કોઈ ફેરફાર નોંધાયો નથી. હવેથી દરેક ફેરફાર કોણે કર્યો તે સાથે અહીં દેખાશે.")}</div>}
           {rows.map((e, i) => (
             <div key={e.ts + "-" + i} style={{ borderBottom: "1px solid var(--border-soft)", padding: "9px 2px" }}>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(e.ts).toLocaleString()} · <b style={{ color: "var(--text-secondary)" }}>{e.by}</b> ({roleLbl(e.role)})</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(e.ts).toLocaleString(undefined, { hourCycle: "h23" })} · <b style={{ color: "var(--text-secondary)" }}>{e.by}</b> ({roleLbl(e.role)})</div>
               {e.items.map((it, j) => <div key={j} style={{ fontSize: 13, marginTop: 2 }}>{nbActivityText(it, t)}</div>)}
             </div>
           ))}
@@ -7410,7 +7410,7 @@ function DutyRoster() {
     } catch (e) {
       console.error("Pre-format safety backup failed — proceeding with format anyway", e);
     }
-    const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
     const personName = staffRec.name;
     const isFullWipe = formatMode === "all";
     if (formatMode === "keep6") setDidKeep6Format(true);
@@ -8540,7 +8540,7 @@ function DutyRoster() {
     if (!raw) { showToast(t("No local data snapshot found on this device yet", "આ ડિવાઇસ પર હજુ કોઈ સ્થાનિક ડેટા સ્નેપશોટ મળ્યો નથી"), "error"); return; }
     let parsed;
     try { parsed = JSON.parse(raw); } catch (e) { showToast(t("The local data snapshot on this device is corrupted", "આ ડિવાઇસ પરનો સ્થાનિક ડેટા સ્નેપશોટ ખરાબ થયેલો છે"), "error"); return; }
-    const when = new Date(parsed.savedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const when = new Date(parsed.savedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
     if (!window.confirm(t(
       `Restore the local data from ${when}? It will replace ALL current data (staff, work types, history, designations, everything). You can still Ctrl+Z once right after, but do this carefully.`,
       `${when} નો સ્થાનિક ડેટા પુનઃસ્થાપિત કરવો છે? તે તમામ હાલનો ડેટા (સ્ટાફ, કામના પ્રકારો, ઇતિહાસ, હોદ્દાઓ, બધું) બદલી નાખશે. તમે તરત જ પછી એકવાર Ctrl+Z કરી શકો છો, પણ કાળજીપૂર્વક કરો.`
@@ -12564,7 +12564,9 @@ function NightRoundView({ data, saveNightRound, showToast, canEdit }) {
             ["officersPresent", t(`Officers present (blank = PI/PSI in staff list)`, "હાજર અધિકારી (ખાલી = સ્ટાફ યાદીમાંના PI/PSI)"), "number"],
           ].map(([k, label, type]) => (
             <label key={k} style={{ fontSize: 12.5 }}>{label}<br />
-              <input type={type} disabled={!canEdit} value={settings[k] == null ? "" : settings[k]} onChange={(e) => setSettings((s) => ({ ...s, [k]: e.target.value.slice(0, 60) }))} className="gu" style={{ ...inp, width: "100%" }} />
+              {type === "time"
+                ? <NbTimePicker value={settings[k] || ""} disabled={!canEdit} onChange={(x) => setSettings((s) => ({ ...s, [k]: x }))} />
+                : <input type={type} disabled={!canEdit} value={settings[k] == null ? "" : settings[k]} onChange={(e) => setSettings((s) => ({ ...s, [k]: e.target.value.slice(0, 60) }))} className="gu" style={{ ...inp, width: "100%" }} />}
             </label>
           ))}
           <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Present staff = everyone in Manage staff. Leave / outstation that night and posts marked “Subtract from strength” are subtracted automatically. % = people on night round ÷ net staff.", "હાજર મહેકમ = સ્ટાફ સંચાલનમાંના બધા. તે રાત્રે રજા / બહારગામ અને “મહેકમમાંથી બાદ” વાળી ફરજ આપોઆપ બાદ થાય છે. ટકા = નાઇટ રાઉન્ડમાં રવાના ÷ ચોખ્ખુ મહેકમ.")}</div>
@@ -12709,7 +12711,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
           <label style={{ fontSize: 12 }}>{t("From", "થી")}<br /><input type="date" value={draft.from} onChange={(e) => set("from", e.target.value)} style={inp} /></label>
           <label style={{ fontSize: 12 }}>{t("To", "સુધી")}<br /><input type="date" value={draft.to || draft.from} onChange={(e) => set("to", e.target.value)} style={inp} /></label>
-          <label style={{ fontSize: 12, flex: "1 1 120px" }}>{t("Time", "સમય")}<br /><input type="text" value={draft.time} onChange={(e) => set("time", e.target.value.slice(0, 40))} placeholder="18:00 – 02:00" style={{ ...inp, width: "100%" }} /></label>
+          <div style={{ fontSize: 12, flex: "1 1 220px" }}>{t("Time", "સમય")}<br /><NbTimeRange value={draft.time || ""} onChange={(x) => set("time", x)} /></div>
           <label style={{ fontSize: 12, flex: "2 1 180px" }}>{t("Place / reporting", "સ્થળ / હાજરી")}<br /><input type="text" value={draft.place} onChange={(e) => set("place", e.target.value.slice(0, 120))} className="gu" style={{ ...inp, width: "100%" }} /></label>
         </div>
       </div>
@@ -16236,7 +16238,7 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
   const { t } = useLang();
   useEscToClose(onClose);
   const lastBackupText = lastBackup
-    ? new Date(lastBackup).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    ? new Date(lastBackup).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
     : t("never", "ક્યારેય નહીં");
   // Simplified to one flow: connected-and-working, or not. Whether "not"
   // means a fresh connection, a different device having set it up
@@ -16634,7 +16636,7 @@ function SkipHistoryView({ data, initialSearch }) {
   const exportRows = useMemo(() => entries.map((e) => {
     const dt = new Date(e.ts || 0);
     const workType = e.scope === "category" ? (e.catLabel || "") : t("All work types", "બધા કામના પ્રકારો");
-    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
+    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
   }), [entries, t]);
 
   const handleDownloadPdf = async () => {
@@ -16703,7 +16705,7 @@ function SkipHistoryView({ data, initialSearch }) {
               <tbody>
                 {entries.map((e) => {
                   const dt = new Date(e.ts || 0);
-                  const timeStr = e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "–";
+                  const timeStr = e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "–";
                   return (
                     <tr key={e.id} style={{ borderTop: "1px solid var(--border-soft)" }}>
                       <td style={td} className="mono">{formatDMY(e.date)}</td>
@@ -16787,7 +16789,7 @@ function SkipHistoryView({ data, initialSearch }) {
                 ) : (
                   scopedEntries.map((e, i) => {
                     const dt = new Date(e.ts || 0);
-                    const timeStr = e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "–";
+                    const timeStr = e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "–";
                     return (
                       <div key={e.id || i} className="gu" style={{ padding: "8px 0", borderTop: i ? "1px solid var(--border-soft)" : "none" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
@@ -19998,7 +20000,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
     let ctl;
     if (f.type === "area") ctl = <textarea value={v || ""} rows={f.rows || 2} placeholder={f.ph || ""} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={{ ...inp, resize: "vertical" }} />;
     else if (f.type === "date") ctl = <input type="date" value={v || ""} onChange={(ev) => set(f.k, ev.target.value)} style={nbCrDate} />;
-    else if (f.type === "time") ctl = <input type="time" value={v || ""} onChange={(ev) => set(f.k, ev.target.value)} style={nbCrDate} />;
+    else if (f.type === "time") ctl = <div><NbTimePicker value={v || ""} onChange={(x) => set(f.k, x)} /></div>;
     else if (f.type === "num") ctl = <input type="text" inputMode="numeric" value={v == null ? "" : v} onChange={(ev) => set(f.k, nbAsciiDigits(ev.target.value).replace(/[^\d.]/g, "").slice(0, 12))} className="mono" style={inp} />;
     else if (f.type === "chk") ctl = <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, padding: "6px 0" }}><input type="checkbox" checked={!!v} onChange={(ev) => set(f.k, ev.target.checked)} style={{ width: 18, height: 18 }} /> {lbl(f)}</label>;
     else if (f.type === "sel") ctl = <select value={v || ""} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={inp}>{f.opts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>;
@@ -20027,6 +20029,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
       <div key={f.k} style={{ gridColumn: f.wide || f.type === "area" ? "1 / -1" : "auto" }}>
         {f.type !== "chk" && <label style={nbCrLabel}>{lbl(f)}</label>}
         {ctl}
+        {f.k === "sections" && <BnsSectionChips value={v || ""} onChange={(x) => set(f.k, x)} />}
       </div>
     );
   };
@@ -20435,6 +20438,138 @@ async function nbCrimeDriveBackupNow(profile, interactive, onlyIfChanged) {
   return count;
 }
 
+// BNS 2023: citation forms of every section's sub-sections / clauses (Explanations,
+// Illustrations and provisos left out) and the section headings. Index = section no.
+const NB_BNS_SUBS = {"1":"(1)|(2)|(3)|(4)|(5)|(5)(a)|(5)(b)|(5)(c)|(6)","2":"(1)|(2)|(3)|(4)|(5)|(6)|(7)|(8)|(9)|(10)|(11)|(12)|(13)|(14)|(15)|(16)|(17)|(18)|(19)|(20)|(21)|(22)|(23)|(24)|(25)|(26)|(27)|(28)|(29)|(30)|(31)|(32)|(33)|(34)|(35)|(36)|(37)|(38)|(39)","3":"(1)|(2)|(3)|(4)|(5)|(6)|(7)|(8)|(9)","4":"(a)|(b)|(c)|(c)(1)|(c)(2)|(d)|(e)|(f)","8":"(1)|(2)|(2)(a)|(2)(b)|(3)|(4)|(5)|(5)(a)|(5)(b)|(5)(c)|(6)|(6)(a)|(6)(b)|(7)","9":"(1)|(2)|(2)(a)|(2)(b)","11":"(a)|(b)|(c)","28":"(a)|(b)|(c)","35":"(a)|(b)","37":"(1)|(1)(a)|(1)(b)|(1)(c)|(2)","38":"(a)|(b)|(c)|(d)|(e)|(f)|(g)","41":"(a)|(b)|(c)|(d)","43":"(a)|(b)|(c)|(d)|(e)","45":"(a)|(b)|(c)","58":"(a)|(b)","59":"(a)|(b)|(c)","60":"(a)|(b)","61":"(1)|(1)(a)|(1)(b)|(2)|(2)(a)|(2)(b)","63":"(a)|(b)|(c)|(d)|(i)|(ii)|(iii)|(iv)|(v)|(vi)|(vii)","64":"(1)|(2)|(2)(a)|(2)(a)(i)|(2)(a)(ii)|(2)(a)(iii)|(2)(b)|(2)(c)|(2)(d)|(2)(e)|(2)(f)|(2)(g)|(2)(h)|(2)(i)|(2)(j)|(2)(k)|(2)(l)|(2)(m)","65":"(1)|(2)","68":"(a)|(b)|(c)|(d)","70":"(1)|(2)","72":"(1)|(2)|(2)(a)|(2)(b)|(2)(c)","75":"(1)|(1)(i)|(1)(ii)|(1)(iii)|(1)(iv)|(2)|(3)","78":"(1)|(1)(i)|(1)(ii)|(2)","80":"(1)|(2)","82":"(1)|(2)","86":"(a)|(b)","90":"(1)|(2)","101":"(a)|(b)|(c)|(d)","103":"(1)|(2)","106":"(1)|(2)","109":"(1)|(2)","111":"(1)|(2)|(2)(a)|(2)(b)|(3)|(4)|(5)|(6)|(7)","112":"(1)|(2)","113":"(1)|(1)(a)|(1)(a)(i)|(1)(a)(ii)|(1)(a)(iii)|(1)(a)(iv)|(1)(a)(v)|(1)(b)|(1)(c)|(2)|(2)(a)|(2)(b)|(3)|(4)|(5)|(6)|(7)","115":"(1)|(2)","116":"(a)|(b)|(c)|(d)|(e)|(f)|(g)|(h)","117":"(1)|(2)|(3)|(4)","118":"(1)|(2)","119":"(1)|(2)","120":"(1)|(2)","121":"(1)|(2)","122":"(1)|(2)","124":"(1)|(2)","125":"(a)|(b)","126":"(1)|(2)","127":"(1)|(2)|(3)|(4)|(5)|(6)|(7)|(8)","128":"(a)|(b)|(c)","137":"(1)|(1)(a)|(1)(b)|(2)","139":"(1)|(2)|(3)|(4)|(4)(i)|(4)(ii)|(4)(iii)|(4)(iv)","140":"(1)|(2)|(3)|(4)","143":"(1)|(1)(a)|(1)(b)|(1)(c)|(1)(d)|(1)(e)|(1)(f)|(2)|(3)|(4)|(5)|(6)|(7)","144":"(1)|(2)","169":"(a)|(b)","170":"(1)|(1)(i)|(1)(ii)|(2)|(3)","171":"(1)|(2)|(2)(a)|(2)(b)|(3)","182":"(1)|(2)|(3)","186":"(1)|(1)(a)|(1)(b)|(1)(c)|(2)|(3)|(4)","189":"(1)|(1)(a)|(1)(b)|(1)(c)|(1)(d)|(1)(e)|(2)|(3)|(4)|(5)|(6)|(7)|(8)|(9)","191":"(1)|(2)|(3)","193":"(1)|(2)|(3)","194":"(1)|(2)","195":"(1)|(2)","196":"(1)|(1)(a)|(1)(b)|(1)(c)|(2)","197":"(1)|(1)(a)|(1)(b)|(1)(c)|(1)(d)|(2)","199":"(a)|(b)|(c)","206":"(a)|(b)","207":"(a)|(b)","208":"(a)|(b)","210":"(a)|(b)","211":"(a)|(b)|(c)","212":"(a)|(b)","217":"(a)|(b)","222":"(a)|(b)","223":"(a)|(b)","229":"(1)|(2)","230":"(1)|(2)","232":"(1)|(2)","238":"(a)|(b)|(c)","248":"(a)|(b)","249":"(a)|(b)|(c)","250":"(a)|(b)|(c)","251":"(a)|(b)|(c)","253":"(a)|(b)|(c)","259":"(a)|(b)|(c)","260":"(a)|(b)|(c)","263":"(a)|(b)|(c)|(d)|(e)","264":"(a)|(b)","294":"(1)|(2)|(2)(a)|(2)(b)|(2)(c)|(2)(d)|(2)(e)","296":"(a)|(b)","297":"(1)|(2)","303":"(1)|(2)","304":"(1)|(2)","305":"(a)|(b)|(c)|(d)|(e)","308":"(1)|(2)|(3)|(4)|(5)|(6)|(7)","309":"(1)|(2)|(3)|(4)|(5)|(6)","310":"(1)|(2)|(3)|(4)|(5)|(6)","316":"(1)|(2)|(3)|(4)|(5)","317":"(1)|(2)|(3)|(4)|(5)","318":"(1)|(2)|(3)|(4)","319":"(1)|(2)","324":"(1)|(2)|(3)|(4)|(5)|(6)","326":"(a)|(b)|(c)|(d)|(e)|(f)|(g)","327":"(1)|(2)","329":"(1)|(2)|(3)|(4)","330":"(1)|(2)|(2)(a)|(2)(b)|(2)(c)|(2)(d)|(2)(e)|(2)(f)","331":"(1)|(2)|(3)|(4)|(5)|(6)|(7)|(8)","332":"(a)|(b)|(c)","334":"(1)|(2)","335":"(A)|(A)(i)|(A)(ii)|(A)(iii)|(A)(iv)|(B)|(C)","336":"(1)|(2)|(3)|(4)","340":"(1)|(2)","341":"(1)|(2)|(3)|(4)","342":"(1)|(2)","345":"(1)|(2)|(3)","347":"(1)|(2)","349":"(a)|(b)|(c)","350":"(1)|(2)","351":"(1)|(2)|(3)|(4)","353":"(1)|(1)(a)|(1)(b)|(1)(c)|(2)|(3)","356":"(1)|(2)|(3)|(4)","358":"(1)|(2)|(2)(a)|(2)(b)|(2)(c)|(2)(d)|(2)(e)|(3)|(4)"};
+const NB_BNS_TITLES = ["Short title, commencement and application","Definitions","General explanations","Punishments","Commutation of sentence","Fractions of terms of punishment","Sentence may be (in certain cases of imprisonment) wholly or partly rigorous or simple","Amount of fine, liability in default of payment of fine, etc","Limit of punishment of offence made up of several offences","Punishment of person guilty of one of several offences, judgment stating that it is doubtful of which","Solitary confinement","Limit of solitary confinement","Enhanced punishment for certain offences after previous conviction","Act done by a person bound, or by mistake of fact believing himself bound, by law","Act of Judge when acting judicially","Act done pursuant to judgment or order of Court","Act done by a person justified, or by mistake of fact believing himself justified, by law","Accident in doing a lawful act","Act likely to cause harm, but done without criminal intent, and to prevent other harm","Act of a child under seven years of age","Act of a child above seven and under twelve years of age of immature understanding","Act of a person of unsound mind","Act of a person incapable of judgment by reason of intoxication caused against his will","Offence requiring a particular intent or knowledge committed by one who is intoxicated","Act not intended and not known to be likely to cause death or grievous hurt, done by consent","Act not intended to cause death, done by consent in good faith for person's benefit","Act done in good faith for benefit of child or person of unsound mind, by, or by consent of guardian","Consent known to be given under fear or misconception","Exclusion of acts which are offences independently of harm caused","Act done in good faith for benefit of a person without consent","Communication made in good faith","Act to which a person is compelled by threats","Act causing slight harm","Things done in private defence","Right of private defence of body and of property","Right of private defence against act of a person of unsound mind, etc","Acts against which there is no right of private defence","When right of private defence of body extends to causing death","When such right extends to causing any harm other than death","Commencement and continuance of right of private defence of body","When right of private defence of property extends to causing death","When such right extends to causing any harm other than death","Commencement and continuance of right of private defence of property","Right of private defence against deadly assault when there is risk of harm to innocent person","Abetment of a thing","Abettor","Abetment in India of offences outside India","Abetment outside India for offence in India","Punishment of abetment if act abetted is committed in consequence and where no express provision is made for its punishment","Punishment of abetment if person abetted does act with different intention from that of abettor","Liability of abettor when one act abetted and different act done","Abettor when liable to cumulative punishment for act abetted and for act done","Liability of abettor for an effect caused by act abetted different from that intended by abettor","Abettor present when offence is committed","Abetment of offence punishable with death or imprisonment for life","Abetment of offence punishable with imprisonment","Abetting commission of offence by public or by more than ten persons","Concealing design to commit offence punishable with death or imprisonment for life","Public servant concealing design to commit offence which it is his duty to prevent","Concealing design to commit offence punishable with imprisonment","Criminal conspiracy","Punishment for attempting to commit offences punishable with imprisonment for life or other imprisonment","Rape","Punishment for rape","Punishment for rape in certain cases","Punishment for causing death or resulting in persistent vegetative state of victim","Sexual intercourse by husband upon his wife during separation","Sexual intercourse by a person in authority","Sexual intercourse by employing deceitful means, etc","Gang rape","Punishment for repeat offenders","Disclosure of identity of victim of certain offences, etc","Printing or publishing any matter relating to Court proceedings without permission","Assault or use of criminal force to woman with intent to outrage her modesty","Sexual harassment","Assault or use of criminal force to woman with intent to disrobe","Voyeurism","Stalking","Word, gesture or act intended to insult modesty of a woman","Dowry death","Cohabitation caused by man deceitfully inducing belief of lawful marriage","Marrying again during lifetime of husband or wife","Marriage ceremony fraudulently gone through without lawful marriage","Enticing or taking away or detaining with criminal intent a married woman","Husband or relative of husband of a woman subjecting her to cruelty","Cruelty defined","Kidnapping, abducting or inducing woman to compel her marriage, etc","Causing miscarriage","Causing miscarriage without woman's consent","Death caused by act done with intent to cause miscarriage","Act done with intent to prevent child being born alive or to cause to die after birth","Causing death of quick unborn child by act amounting to culpable homicide","Exposure and abandonment of child under twelve years of age, by parent or person having care of it","Concealment of birth by secret disposal of dead body","Hiring, employing or engaging a child to commit an offence","Procuration of child","Kidnapping or abducting child under ten years of age with intent to steal from its person","Selling child for purposes of prostitution, etc","Buying child for purposes of prostitution, etc","Culpable homicide","Murder","Culpable homicide by causing death of person other than person whose death was intended","Punishment for murder","Punishment for murder by life-convict","Punishment for culpable homicide not amounting to murder","Causing death by negligence","Abetment of suicide of child or person of unsound mind","Abetment of suicide","Attempt to murder","Attempt to commit culpable homicide","Organised crime","Petty organised crime","Terrorist act","Hurt","Voluntarily causing hurt","Grievous hurt","Voluntarily causing grievous hurt","Voluntarily causing hurt or grievous hurt by dangerous weapons or means","Voluntarily causing hurt or grievous hurt to extort property, or to constrain to an illegal act","Voluntarily causing hurt or grievous hurt to extort confession, or to compel restoration of property","Voluntarily causing hurt or grievous hurt to deter public servant from his duty","Voluntarily causing hurt or grievous hurt on provocation","Causing hurt by means of poison, etc., with intent to commit an offence","Voluntarily causing grievous hurt by use of acid, etc","Act endangering life or personal safety of others","Wrongful restraint","Wrongful confinement","Force","Criminal force","Assault","Punishment for assault or criminal force otherwise than on grave provocation","Assault or criminal force to deter public servant from discharge of his duty","Assault or criminal force with intent to dishonour person, otherwise than on grave provocation","Assault or criminal force in attempt to commit theft of property carried by a person","Assault or criminal force in attempt to wrongfully confine a person","Assault or criminal force on grave provocation","Kidnapping","Abduction","Kidnapping or maiming a child for purposes of begging","Kidnapping or abducting in order to murder or for ransom, etc","Importation of girl or boy from foreign country","Wrongfully concealing or keeping in confinement, kidnapped or abducted person","Trafficking of person","Exploitation of a trafficked person","Habitual dealing in slaves","Unlawful compulsory labour","Waging, or attempting to wage war, or abetting waging of war, against Government of India","Conspiracy to commit offences punishable by section 147","Collecting arms, etc., with intention of waging war against Government of India","Concealing with intent to facilitate design to wage war","Assaulting President, Governor, etc., with intent to compel or restrain exercise of any lawful power","Act endangering sovereignty, unity and integrity of India","Waging war against Government of any foreign State at peace with Government of India","Committing depredation on territories of foreign State at peace with Government of India","Receiving property taken by war or depredation mentioned in sections 153 and 154","Public servant voluntarily allowing prisoner of State or war to escape","Public servant negligently suffering such prisoner to escape","Aiding escape of, rescuing or harbouring such prisoner","Abetting mutiny, or attempting to seduce a soldier, sailor or airman from his duty","Abetment of mutiny, if mutiny is committed in consequence thereof","Abetment of assault by soldier, sailor or airman on his superior officer, when in execution of his office","Abetment of such assault, if assault committed","Abetment of desertion of soldier, sailor or airman","Harbouring deserter","Deserter concealed on board merchant vessel through negligence of master","Abetment of act of insubordination by soldier, sailor or airman","Persons subject to certain Acts","Wearing garb or carrying token used by soldier, sailor or airman","Candidate, electoral right defined","Bribery","Undue influence at elections","Personation at elections","Punishment for bribery","Punishment for undue influence or personation at an election","False statement in connection with an election","Illegal payments in connection with an election","Failure to keep election accounts","Counterfeiting coin, Government stamps, currency-notes or bank-notes","Using as genuine, forged or counterfeit coin, Government stamp, currency-notes or bank-notes","Possession of forged or counterfeit coin, Government stamp, currency-notes or bank-notes","Making or possessing instruments or materials for forging or counterfeiting coin, Government stamp, currency-notes or bank-notes","Making or using documents resembling currency-notes or bank-notes","Effacing writing from substance bearing Government stamp, or removing from document a stamp used for it, with intent to cause loss to Government","Using Government stamp known to have been before used","Erasure of mark denoting that stamp has been used","Prohibition of fictitious stamps","Person employed in mint causing coin to be of different weight or composition from that fixed by law","Unlawfully taking coining instrument from mint","Unlawful assembly","Every member of unlawful assembly guilty of offence committed in prosecution of common object","Rioting","Wantonly giving provocation with intent to cause riot","Liability of owner, occupier, etc., of land on which an unlawful assembly or riot takes place","Affray","Assaulting or obstructing public servant when suppressing riot, etc","Promoting enmity between different groups on grounds of religion, race, place of birth, residence, language, etc., and doing acts prejudicial to maintenance of harmony","Imputations, assertions prejudicial to national integration","Public servant disobeying law, with intent to cause injury to any person","Public servant disobeying direction under law","Punishment for non-treatment of victim","Public servant framing an incorrect document with intent to cause injury","Public servant unlawfully engaging in trade","Public servant unlawfully buying or bidding for property","Personating a public servant","Wearing garb or carrying token used by public servant with fraudulent intent","Absconding to avoid service of summons or other proceeding","Preventing service of summons or other proceeding, or preventing publication thereof","Non-attendance in obedience to an order from public servant","Non-appearance in response to a proclamation under section 84 of BNSS, 2023","Omission to produce document or electronic record to public servant by person legally bound to produce it","Omission to give notice or information to public servant by person legally bound to give it","Furnishing false information","Refusing oath or affirmation when duly required by public servant to make it","Refusing to answer public servant authorised to question","Refusing to sign statement","False statement on oath or affirmation to public servant or person authorised to administer an oath or affirmation","False information, with intent to cause public servant to use his lawful power to injury of another person","Resistance to taking of property by lawful authority of a public servant","Obstructing sale of property offered for sale by authority of public servant","Illegal purchase or bid for property offered for sale by authority of public servant","Obstructing public servant in discharge of public functions","Omission to assist public servant when bound by law to give assistance","Disobedience to order duly promulgated by public servant","Threat of injury to public servant","Threat of injury to induce person to refrain from applying for protection to public servant","Attempt to commit suicide to compel or restrain exercise of lawful power","Giving false evidence","Fabricating false evidence","Punishment for false evidence","Giving or fabricating false evidence with intent to procure conviction of capital offence","Giving or fabricating false evidence with intent to procure conviction of offence punishable with imprisonment for life or imprisonment","Threatening any person to give false evidence","Using evidence known to be false","Issuing or signing false certificate","Using as true a certificate known to be false","False statement made in declaration which is by law receivable as evidence","Using as true such declaration knowing it to be false","Causing disappearance of evidence of offence, or giving false information to screen offender","Intentional omission to give information of offence by person bound to inform","Giving false information respecting an offence committed","Destruction of document or electronic record to prevent its production as evidence","False personation for purpose of act or proceeding in suit or prosecution","Fraudulent removal or concealment of property to prevent its seizure as forfeited or in execution","Fraudulent claim to property to prevent its seizure as forfeited or in execution","Fraudulently suffering decree for sum not due","Dishonestly making false claim in Court","Fraudulently obtaining decree for sum not due","False charge of offence made with intent to injure","Harbouring offender","Taking gift, etc., to screen an offender from punishment","Offering gift or restoration of property in consideration of screening offender","Taking gift to help to recover stolen property, etc","Harbouring offender who has escaped from custody or whose apprehension has been ordered","Penalty for harbouring robbers or dacoits","Public servant disobeying direction of law with intent to save person from punishment or property from forfeiture","Public servant framing incorrect record or writing with intent to save person from punishment or property from forfeiture","Public servant in judicial proceeding corruptly making report, etc., contrary to law","Commitment for trial or confinement by person having authority who knows that he is acting contrary to law","Intentional omission to apprehend on part of public servant bound to apprehend","Intentional omission to apprehend on part of public servant bound to apprehend person under sentence or lawfully committed","Escape from confinement or custody negligently suffered by public servant","Resistance or obstruction by a person to his lawful apprehension","Resistance or obstruction to lawful apprehension of another person","Omission to apprehend, or sufferance of escape, on part of public servant, in cases not otherwise provided for","Resistance or obstruction to lawful apprehension or escape or rescue in cases not otherwise provided for","Violation of condition of remission of punishment","Intentional insult or interruption to public servant sitting in judicial proceeding","Personation of assessor","Failure by person released on bail bond or bond to appear in Court","Public nuisance","Negligent act likely to spread infection of disease dangerous to life","Malignant act likely to spread infection of disease dangerous to life","Disobedience to quarantine rule","Adulteration of food or drink intended for sale","Sale of noxious food or drink","Adulteration of drugs","Sale of adulterated drugs","Sale of drug as a different drug or preparation","Fouling water of public spring or reservoir","Making atmosphere noxious to health","Rash driving or riding on a public way","Rash navigation of vessel","Exhibition of false light, mark or buoy","Conveying person by water for hire in unsafe or overloaded vessel","Danger or obstruction in public way or line of navigation","Negligent conduct with respect to poisonous substance","Negligent conduct with respect to fire or combustible matter","Negligent conduct with respect to explosive substance","Negligent conduct with respect to machinery","Negligent conduct with respect to pulling down, repairing or constructing buildings, etc","Negligent conduct with respect to animal","Punishment for public nuisance in cases not otherwise provided for","Continuance of nuisance after injunction to discontinue","Sale, etc., of obscene books, etc","Sale, etc., of obscene objects to child","Obscene acts and songs","Keeping lottery office","Injuring or defiling place of worship with intent to insult religion of any class","Deliberate and malicious acts, intended to outrage religious feelings of any class by insulting its religion or religious beliefs","Disturbing religious assembly","Trespassing on burial places, etc","Uttering words, etc., with deliberate intent to wound religious feelings of any person","Theft","Snatching","Theft in a dwelling house, or means of transportation or place of worship, etc","Theft by clerk or servant of property in possession of master","Theft after preparation made for causing death, hurt or restraint in order to committing of theft","Extortion","Robbery","Dacoity","Robbery, or dacoity, with attempt to cause death or grievous hurt","Attempt to commit robbery or dacoity when armed with deadly weapon","Punishment for belonging to gang of robbers, etc","Dishonest misappropriation of property","Dishonest misappropriation of property possessed by deceased person at the time of his death","Criminal breach of trust","Stolen property","Cheating","Cheating by personation","Dishonest or fraudulent removal or concealment of property to prevent distribution among creditors","Dishonestly or fraudulently preventing debt being available for creditors","Dishonest or fraudulent execution of deed of transfer containing false statement of consideration","Dishonest or fraudulent removal or concealment of property","Mischief","Mischief by killing or maiming animal","Mischief by injury, inundation, fire or explosive substance, etc","Mischief with intent to destroy or make unsafe a rail, aircraft, decked vessel or one of twenty tons burden","Punishment for intentionally running vessel aground or ashore with intent to commit theft, etc","Criminal trespass and house-trespass","House-trespass and house-breaking","Punishment for house-trespass or house-breaking","House-trespass in order to commit offence","House-trespass after preparation for hurt, assault or wrongful restraint","Dishonestly breaking open receptacle containing property","Making a false document","Forgery","Forgery of record of Court or of public register, etc","Forgery of valuable security, will, etc","Having possession of document described in section 337 or section 338, knowing it to be forged and intending to use it as genuine","Forged document or electronic record and using it as genuine","Making or possessing counterfeit seal, etc., with intent to commit forgery punishable under section 338","Counterfeiting device or mark used for authenticating documents described in section 338, or possessing counterfeit marked material","Fraudulent cancellation, destruction, etc., of will, authority to adopt, or valuable security","Falsification of accounts","Property mark","Tampering with property mark with intent to cause injury","Counterfeiting a property mark","Making or possession of any instrument for counterfeiting a property mark","Selling goods marked with a counterfeit property mark","Making a false mark upon any receptacle containing goods","Criminal intimidation","Intentional insult with intent to provoke breach of peace","Statements conducing to public mischief","Act caused by inducing person to believe that he will be rendered an object of Divine displeasure","Misconduct in public by a drunken person","Defamation","Breach of contract to attend on and supply wants of helpless person","Repeal and savings"];
+
+function nbBnsForms(sec) {
+  const s = NB_BNS_SUBS[String(Number(sec))];
+  return s ? s.split("|") : [];
+}
+// Other acts — a number typed on a line about them is not a BNS section.
+const NB_NOT_BNS_RE = /(M\.?\s?V\.?|એમ\.?\s?વી|મો\.?\s?વા|પ્રોહી|prohi|જુગાર|gambl|G\.?\s?P\.?\s?A|જી\.?\s?પી|NDPS|એન\.?ડી\.?પી|Arms|આર્મ્સ|હથિયાર|I\.?\s?T\.?\s?Act|આઇ\.?ટી|POCSO|પોક્સો|BNSS|બી\.?એન\.?એસ\.?એસ|ભારતીય નાગરીક|CrPC|સી\.?આર\.?પી|Atro|એટ્રો|અનુ\.?\s?જાતિ|E\.?C\.?\s?Act|આવશ્યક|ધ્વનિ|Dowry|દહેજ|Copyright|કોપી)/i;
+// The section the user is typing at the end of the text, e.g. "…, 125" or "…, ૩૦૩(".
+function nbBnsTrailing(text) {
+  const a = nbAsciiDigits(text || "");
+  const m = a.match(/(?:^|[^\d(])(\d{1,3})((?:\([0-9a-zA-Z]{1,4}\))*)(\(?[0-9a-zA-Z]{0,3})$/);
+  if (!m) return null;
+  const sec = Number(m[1]);
+  if (!sec || sec > 358) return null;
+  const line = a.slice(0, m.index + m[0].length).split("\n").pop();
+  const before = line.slice(0, line.length - (m[1] + m[2] + m[3]).length);
+  if (NB_NOT_BNS_RE.test(before)) return null;
+  const forms = nbBnsForms(sec);
+  if (!forms.length) return null;
+  const typed = m[2] + m[3];
+  return { sec, typed, cut: (m[1] + m[2] + m[3]).length, forms, gu: /[૦-૯]/.test((text || "").slice(-(m[1] + m[2] + m[3]).length)) };
+}
+// Quick-pick chips under the "Sections" box: type 125 → 125(a) 125(b).
+function BnsSectionChips({ value, onChange }) {
+  const { t } = useLang();
+  const [sticky, setSticky] = useState(null); // section whose chips stay after a pick
+  const tr = nbBnsTrailing(value);
+  let sec = null, mode = null, forms = [], gu = false;
+  if (tr) { sec = tr.sec; mode = "replace"; gu = tr.gu; forms = tr.forms.filter((f) => f.length > tr.typed.length && f.toLowerCase().startsWith(tr.typed.toLowerCase())); if (!forms.length) forms = tr.forms; }
+  else if (sticky && /,\s$/.test(value || "")) { sec = sticky.sec; gu = sticky.gu; mode = "append"; forms = nbBnsForms(sec); }
+  if (!sec || !forms.length) return null;
+  const num = (n) => (gu ? nbG(n) : String(n));
+  const label = (f) => (gu ? nbG(String(sec) + f) : String(sec) + f);
+  const plain = nbAsciiDigits(value || "").replace(/\s/g, "");
+  const used = (f) => plain.includes(String(sec) + f + ",") || plain.endsWith(String(sec) + f);
+  const pick = (f) => {
+    const v = value || "";
+    const next = mode === "replace" ? v.slice(0, v.length - tr.cut) + label(f) + ", " : v + label(f) + ", ";
+    setSticky({ sec, gu });
+    onChange(next);
+  };
+  return (
+    <div className="gu" data-bns-chips={sec} style={{ marginTop: 6, padding: "8px 10px", background: "var(--bg-page)", border: "1px solid var(--border)", borderRadius: 8 }}>
+      <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginBottom: 6 }}>
+        <b>BNS {num(sec)}</b> — {NB_BNS_TITLES[sec - 1]} · {t("tap to add", "ઉમેરવા દબાવો")}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+        {forms.map((f) => (
+          <button key={f} type="button" onClick={() => pick(f)} className="mono" style={{ padding: "5px 9px", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "1px solid " + (used(f) ? "var(--accent-strong)" : "var(--border)"), background: used(f) ? "var(--accent-light)" : "var(--bg-surface)", color: "var(--text-primary)" }}>{label(f)}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- 24-hour time picker: hour first, then minutes ----------
+function nbTimeOk(v) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(v || ""); }
+function NbTimePicker({ value, onChange, disabled, placeholder, style }) {
+  const { t } = useLang();
+  const [open, setOpen] = useState(false);
+  const [hour, setHour] = useState(null);
+  const ok = nbTimeOk(value);
+  const close = () => { setOpen(false); setHour(null); };
+  useEffect(() => {
+    if (!open) return;
+    const k = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [open]);
+  const cur = ok ? value.split(":") : null;
+  const cell = (on) => ({ padding: "9px 0", borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: "pointer", border: "1px solid " + (on ? "var(--accent-strong)" : "var(--border)"), background: on ? "var(--accent-strong)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" });
+  const p2 = (n) => String(n).padStart(2, "0");
+  return (
+    <React.Fragment>
+      <button type="button" disabled={disabled} data-timepicker="1" onClick={() => { setHour(null); setOpen(true); }} className="mono"
+        style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-surface)", color: ok ? "var(--text-primary)" : "var(--text-tertiary)", fontSize: 15, fontWeight: 700, cursor: disabled ? "default" : "pointer", minWidth: 96, ...(style || {}) }}>
+        🕒 {ok ? value : placeholder || "--:--"}
+      </button>
+      {open && ReactDOM.createPortal(
+        <div role="dialog" aria-modal="true" onClick={close} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, padding: 12 }}>
+          <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", color: "var(--text-primary)", borderRadius: 14, width: 380, maxWidth: "100%", padding: 16, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div className="mono" style={{ fontSize: 30, fontWeight: 800, letterSpacing: 1 }}>
+                <span onClick={() => setHour(null)} style={{ cursor: "pointer", color: hour === null ? "var(--accent-strong)" : "var(--text-primary)" }}>{hour !== null ? p2(hour) : cur ? cur[0] : "--"}</span>
+                <span>:</span>
+                <span style={{ color: hour !== null ? "var(--accent-strong)" : "var(--text-primary)" }}>{hour !== null ? "--" : cur ? cur[1] : "--"}</span>
+              </div>
+              <button type="button" onClick={close} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 18, color: "var(--text-tertiary)", cursor: "pointer" }}>✕</button>
+            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 8 }}>
+              {hour === null ? t("1. Choose the hour (00–23)", "૧. કલાક પસંદ કરો (૦૦–૨૩)") : t("2. Choose the minutes", "૨. મિનિટ પસંદ કરો")}
+            </div>
+            {hour === null ? (
+              <div data-tp-hours="1" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>
+                {Array.from({ length: 24 }, (_, h) => <button key={h} type="button" onClick={() => setHour(h)} style={cell(cur && Number(cur[0]) === h)}>{p2(h)}</button>)}
+              </div>
+            ) : (
+              <div data-tp-mins="1" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 5 }}>
+                {Array.from({ length: 60 }, (_, m) => <button key={m} type="button" onClick={() => { onChange(p2(hour) + ":" + p2(m)); close(); }} style={{ ...cell(cur && Number(cur[0]) === hour && Number(cur[1]) === m), padding: "6px 0", fontSize: m % 5 === 0 ? 14 : 12.5, opacity: m % 5 === 0 ? 1 : 0.85 }}>{p2(m)}</button>)}
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+              {hour !== null ? <button type="button" onClick={() => setHour(null)} style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}>← {t("Hour", "કલાક")}</button> : <span />}
+              {ok && <button type="button" onClick={() => { onChange(""); close(); }} style={{ background: "transparent", border: "none", color: "var(--status-error-text)", fontSize: 13, cursor: "pointer" }}>{t("Clear", "ખાલી કરો")}</button>}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </React.Fragment>
+  );
+}
+// "18:00 – 02:00" style ranges (bandobast time) with two pickers.
+function NbTimeRange({ value, onChange, disabled }) {
+  const { t } = useLang();
+  const m = nbAsciiDigits(value || "").match(/(\d{1,2})[:.](\d{2})\s*(?:–|-|to|થી)?\s*(?:(\d{1,2})[:.](\d{2}))?/);
+  const fix = (h, mm) => (h != null && mm != null ? String(h).padStart(2, "0") + ":" + mm : "");
+  const a = m ? fix(m[1], m[2]) : "", b = m && m[3] ? fix(m[3], m[4]) : "";
+  const join = (x, y) => (x && y ? x + " – " + y : x || (y ? "– " + y : ""));
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <NbTimePicker value={a} onChange={(v) => onChange(join(v, b))} disabled={disabled} placeholder={t("from", "થી")} />
+      <span>–</span>
+      <NbTimePicker value={b} onChange={(v) => onChange(join(a, v))} disabled={disabled} placeholder={t("to", "સુધી")} />
+    </span>
+  );
+}
+
 function nbCrimePinHash(pin) {
   const data = new TextEncoder().encode("nokribook-crime|" + pin);
   return crypto.subtle.digest("SHA-256", data).then((buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join(""));
@@ -20567,7 +20702,7 @@ function CrimeOfflineApp({ tab }) {
         <div style={{ padding: "16px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>
           <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <span>📱 {t("Saved only on this device — nothing is sent online.", "ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી.")}</span>
-            {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}>☁ {t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</span>}
+            {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}>☁ {t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}</span>}
             <span style={{ color: "var(--text-tertiary)" }}>{meta.lastBackupAt ? t(`Last backup: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`, `છેલ્લો બેકઅપ: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`) : t("No backup yet", "હજુ બેકઅપ નથી")}</span>
           </div>
           {driveOn && driveNeedsTap && (
@@ -20858,7 +20993,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
               <button onClick={driveConnect} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Connect Google Drive (automatic backup)", "Google Drive જોડો (આપોઆપ બેકઅપ)")}</button>
             ) : (
               <React.Fragment>
-                <button onClick={() => { onDriveBackup(); }} style={row}>☁ {t("Back up to Google Drive now", "હમણાં Google Drive પર બેકઅપ")}{meta.driveLastAt ? <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}> · {t("last", "છેલ્લો")} {new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span> : null}</button>
+                <button onClick={() => { onDriveBackup(); }} style={row}>☁ {t("Back up to Google Drive now", "હમણાં Google Drive પર બેકઅપ")}{meta.driveLastAt ? <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}> · {t("last", "છેલ્લો")} {new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span> : null}</button>
                 <button onClick={driveList} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Restore from Google Drive", "Google Drive માંથી restore કરો")}</button>
                 <button onClick={async () => { if (!window.confirm(t("Stop automatic Google Drive backup on this device? Backups already in Drive stay there.", "આ ડિવાઇસ પર આપોઆપ Google Drive બેકઅપ બંધ કરવો છે? Drive માં પડેલા બેકઅપ રહેશે."))) return; await nbCrimeStore.setMeta("driveOn", 0); try { sessionStorage.removeItem("nb_cr_drive_tok"); } catch (e) {} showToast(t("Google Drive backup turned off", "Google Drive બેકઅપ બંધ")); }} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Turn off Google Drive backup", "Google Drive બેકઅપ બંધ કરો")}</button>
               </React.Fragment>
@@ -20886,7 +21021,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
             <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8 }}>{t("Backups in your Google Drive (newest first). Restoring adds and updates entries; nothing on this device is deleted.", "તમારા Google Drive માંના બેકઅપ (નવા પહેલા). Restore થી એન્ટ્રી ઉમેરાશે / સુધરશે; આ ડિવાઇસ પરથી કંઈ ડિલીટ નહીં થાય.")}</div>
             {!(driveFiles || []).length && <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("No backups in Google Drive yet.", "Google Drive માં હજુ કોઈ બેકઅપ નથી.")}</div>}
             {(driveFiles || []).map((f) => (
-              <button key={f.id} onClick={() => driveRestore(f)} disabled={driveBusy} style={row}>📄 {f.name.replace(/^crime-register-backup-|\.json$/g, "")} <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>· {new Date(f.modifiedTime).toLocaleString(undefined, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })} · {Math.max(1, Math.round((Number(f.size) || 0) / 1024))} KB</span></button>
+              <button key={f.id} onClick={() => driveRestore(f)} disabled={driveBusy} style={row}>📄 {f.name.replace(/^crime-register-backup-|\.json$/g, "")} <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>· {new Date(f.modifiedTime).toLocaleString(undefined, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })} · {Math.max(1, Math.round((Number(f.size) || 0) / 1024))} KB</span></button>
             ))}
             <button onClick={() => setView("menu")} className="gu" style={{ display: "block", marginTop: 10, background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}>← {t("Back", "પાછા")}</button>
           </div>
@@ -21193,7 +21328,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                         {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {(liveOnDuty[s.uid] != null ? liveOnDuty[s.uid] : (s.onDutyToday || 0))} {t("on duty today", "આજે ડ્યુટી પર")}
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
-                        {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString() : "—"}
+                        {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString(undefined, { hourCycle: "h23" }) : "—"}
                       </div>
                     </div>
                     <span style={{ color: "var(--text-tertiary)", fontSize: 20, flexShrink: 0, marginLeft: 12 }}>›</span>
@@ -21222,7 +21357,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                 [t("Station", "સ્ટેશન"), formatInfo.stationName || "—"],
                 [t("Done by", "કરનાર"), formatInfo.byName || "—"],
                 [t("Buckle number", "બકલ નંબર"), formatInfo.byNumber || "—"],
-                [t("Date & time", "તારીખ અને સમય"), new Date(formatInfo.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })],
+                [t("Date & time", "તારીખ અને સમય"), new Date(formatInfo.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" })],
                 [t("What was cleared", "શું સાફ થયું"), formatInfo.mode === "all"
                   ? t("ALL data — staff, work types and every duty record", "બધો ડેટા — સ્ટાફ, કામના પ્રકારો અને દરેક ડ્યુટી રેકોર્ડ")
                   : t(`Duty data older than ${formatInfo.keepMonths || 2} months (last ${formatInfo.keepMonths || 2} months kept)`, `${formatInfo.keepMonths || 2} મહિનાથી જૂનો ડ્યુટી ડેટા (છેલ્લા ${formatInfo.keepMonths || 2} મહિના રાખ્યા)`)],
