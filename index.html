@@ -3835,8 +3835,9 @@ function ThemeSwatch({ sidebar, page, accent, small }) {
   );
 }
 // ---------- ACTIVITY LOG ----------
-function nbActor(user, role) {
+function nbActor(user, role, member) {
   if (!user) return { uid: null, name: "—", role };
+  if (user.isAnonymous && member && member.via === "code") return { uid: user.uid, name: "🔑 " + (member.name || member.code || "login code"), role };
   return { uid: user.uid, name: user.displayName || user.email || "—", role };
 }
 // What changed between two versions of the station data, as a short list.
@@ -6440,7 +6441,7 @@ function DutyRoster() {
       return stack.length > MAX_HISTORY_STATES ? stack.slice(stack.length - MAX_HISTORY_STATES) : stack;
     });
     setRedoStack([]);
-    writeToFirestore(nbWithActivity(dataRef.current, next, nbActor(user, myRole)));
+    writeToFirestore(nbWithActivity(dataRef.current, next, nbActor(user, myRole, memberRef.current)));
   };
 
   // "Request new station" (OrgSetupGateModal) starts life pending — usable
@@ -7123,7 +7124,7 @@ function DutyRoster() {
       const prevState = stack[stack.length - 1];
       const actionDesc = lastActionRef.current;
       setRedoStack((r) => [...r, data]);
-      writeToFirestore(nbWithActivity(dataRef.current, { ...prevState, activityLog: dataRef.current.activityLog }, nbActor(user, myRole), "undo"));
+      writeToFirestore(nbWithActivity(dataRef.current, { ...prevState, activityLog: dataRef.current.activityLog }, nbActor(user, myRole, memberRef.current), "undo"));
       showToastRaw(actionDesc ? t(`Undone: ${actionDesc}`, `પૂર્વવત્ થયું: ${actionDesc}`) : t("Undone — last change reverted", "પૂર્વવત્ થયું — છેલ્લો ફેરફાર રદ થયો"));
       return stack.slice(0, -1);
     });
@@ -7135,7 +7136,7 @@ function DutyRoster() {
       const nextState = stack[stack.length - 1];
       const actionDesc = lastActionRef.current;
       setUndoStack((u) => [...u, data]);
-      writeToFirestore(nbWithActivity(dataRef.current, { ...nextState, activityLog: dataRef.current.activityLog }, nbActor(user, myRole), "redo"));
+      writeToFirestore(nbWithActivity(dataRef.current, { ...nextState, activityLog: dataRef.current.activityLog }, nbActor(user, myRole, memberRef.current), "redo"));
       showToastRaw(actionDesc ? t(`Redone: ${actionDesc}`, `ફરીથી કરાયું: ${actionDesc}`) : t("Redone", "ફરીથી કરાયું"));
       return stack.slice(0, -1);
     });
