@@ -12177,11 +12177,17 @@ function NightRoundView({ data, saveNightRound, showToast, canEdit }) {
   const saved = nr.sheets[date] || null;
   const built = useMemo(() => nbNrBuildSheet(data, date), [data, date]);
   const [draft, setDraft] = useState(null);
-  useEffect(() => { setDraft(saved ? JSON.parse(JSON.stringify(saved)) : JSON.parse(JSON.stringify({ rows: built.rows, strength: null }))); }, [date, saved && saved.savedAt, !saved && nr.points]);
+  // Effects depend only on what is actually stored (stable references),
+  // never on the fallback objects nbNr() makes fresh on every render —
+  // otherwise unsaved edits would be wiped on every redraw.
+  const storedNr = data.nightRound || null;
+  const storedPoints = storedNr ? storedNr.points : null;
+  const storedSettings = storedNr ? storedNr.settings : null;
+  useEffect(() => { setDraft(saved ? JSON.parse(JSON.stringify(saved)) : JSON.parse(JSON.stringify({ rows: built.rows, strength: null }))); }, [date, saved && saved.savedAt, saved ? null : storedPoints]);
   const [plan, setPlan] = useState(() => JSON.parse(JSON.stringify(nr.points)));
-  useEffect(() => { setPlan(JSON.parse(JSON.stringify(nr.points))); }, [nr.points]);
+  useEffect(() => { setPlan(JSON.parse(JSON.stringify(nr.points))); }, [storedPoints]);
   const [settings, setSettings] = useState(nr.settings);
-  useEffect(() => { setSettings(nr.settings); }, [data.nightRound && data.nightRound.settings]);
+  useEffect(() => { setSettings(nr.settings); }, [storedSettings]);
   const [planDay, setPlanDay] = useState(new Date().getDay());
   const [pdf, setPdf] = useState(null);
   const [busy, setBusy] = useState(false);
