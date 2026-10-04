@@ -2463,8 +2463,8 @@ function ExportMenuButton({ disabled, pdfBusy, onExportWord, onDownloadPdf }) {
       >⬇ {t("Export", "એક્સપોર્ટ")} ▾</button>
       {open && (
         <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 20, minWidth: 150 }}>
-          {onExportWord && <button onClick={() => { setOpen(false); onExportWord(); }} className="gu" style={{ ...itemStyle, borderBottom: "1px solid var(--border-soft)" }}>📘 {t("Download Word", "Word ડાઉનલોડ કરો")}</button>}
-          <button onClick={() => { setOpen(false); onDownloadPdf(); }} disabled={pdfBusy} className="gu" style={itemStyle}>📕 {pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+          {onExportWord && <button onClick={() => { setOpen(false); onExportWord(); }} className="gu" style={{ ...itemStyle, borderBottom: "1px solid var(--border-soft)" }}><WordIcon />{t("Download Word", "Word ડાઉનલોડ કરો")}</button>}
+          <button onClick={() => { setOpen(false); onDownloadPdf(); }} disabled={pdfBusy} className="gu" style={itemStyle}><PdfIcon />{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
         </div>
       )}
     </div>
@@ -8933,7 +8933,7 @@ function DutyRoster() {
                   ><span>⬇ {langCtxValue.t("Backup", "બેકઅપ")}</span><span style={{ color: "var(--text-tertiary)" }}>▸</span></button>
                   <button onClick={() => { setShowDrivePanel(true); setDataMenuPos(null); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", fontSize: 12.5, cursor: "pointer" }} className="gu"
-                  >☁ {langCtxValue.t("Google Drive", "Google Drive")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
+                  ><DriveIcon />{langCtxValue.t("Google Drive", "Google Drive")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>
                 </div>
               </React.Fragment>
             )}
@@ -9412,6 +9412,20 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
 // login-code user from a window they can't open to one they can).
 function NbGoTo({ onGo }) { useEffect(() => { onGo(); }, []); return null; }
 // WhatsApp icon used on every "send on WhatsApp" button.
+// ---------- Real service logos (Google Drive, Word, PDF) ----------
+const nbLogoStyle = (z) => ({ width: z, height: z, flexShrink: 0, verticalAlign: "-0.2em", marginRight: 5, display: "inline-block" });
+function DriveIcon({ size }) {
+  const z = size || 16;
+  return <svg viewBox="0 0 87.3 78" aria-hidden="true" style={nbLogoStyle(z)}><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>;
+}
+function WordIcon({ size }) {
+  const z = size || 16;
+  return <svg viewBox="0 0 32 32" aria-hidden="true" style={nbLogoStyle(z)}><path d="M9 4h17a2 2 0 0 1 2 2v20a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" fill="#41a5ee"/><path d="M7 11h21v7H7z" fill="#2b7cd3"/><path d="M7 18h21v8a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z" fill="#185abd"/><path d="M7 25.9V26a2 2 0 0 0 2 2h17a2 2 0 0 0 2-2v-.1z" fill="#103f91"/><rect x="2" y="8" width="16" height="16" rx="2" fill="#185abd"/><path d="M6.4 12h1.9l1.2 5.6L10.9 12h1.8l1.4 5.6 1.2-5.6h1.8l-2.1 8h-1.8l-1.4-5.4-1.4 5.4H8.6z" fill="#fff"/></svg>;
+}
+function PdfIcon({ size }) {
+  const z = size || 16;
+  return <svg viewBox="0 0 32 32" aria-hidden="true" style={nbLogoStyle(z)}><path d="M7 2h13l7 7v19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#e2231a"/><path d="M20 2v5a2 2 0 0 0 2 2h5z" fill="#f58b85"/><text x="16" y="23.5" textAnchor="middle" fontFamily="Arial, Helvetica, sans-serif" fontWeight="700" fontSize="8.6" fill="#fff">PDF</text></svg>;
+}
 function WaIcon({ size }) {
   const z = size || 16;
   return <svg width={z} height={z} viewBox="0 0 24 24" aria-hidden="true" style={{ flexShrink: 0, verticalAlign: "-0.2em" }}><path fill="#25D366" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z"/><path fill="#fff" d="M17.3 14.6c-.3-.1-1.7-.8-1.9-.9-.3-.1-.5-.1-.7.1l-.9 1.1c-.2.2-.3.2-.6.1a7.6 7.6 0 0 1-3.8-3.3c-.3-.5.3-.5.8-1.6.1-.2 0-.4 0-.5l-.9-2.1c-.2-.5-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.1.2 2 3.1 4.9 4.3 1.8.8 2.5.8 3.4.7.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.2-.6-.4z"/></svg>;
@@ -9542,7 +9556,7 @@ function DutyOrderModal({ data, onClose }) {
         <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
           <button onClick={copy} className="gu" style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
           <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}><WaIcon size={16} /> WhatsApp</a>
-          <button disabled={busy} onClick={async () => { setBusy(true); try { setPdf(await downloadDutyOrderPdf(data, date, includeAway)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF — check your connection.", "PDF બની શક્યું નહીં — જોડાણ તપાસો.")); } setBusy(false); }} className="gu" style={btn}>{busy ? "…" : "⬇ PDF"}</button>
+          <button disabled={busy} onClick={async () => { setBusy(true); try { setPdf(await downloadDutyOrderPdf(data, date, includeAway)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF — check your connection.", "PDF બની શક્યું નહીં — જોડાણ તપાસો.")); } setBusy(false); }} className="gu" style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
         </div>
       </div>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
@@ -10715,7 +10729,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
             onClick={handleDownloadPdf} disabled={pdfBusy}
             title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
             style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
-          >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+          >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
         </div>
       </div>
 
@@ -11789,8 +11803,8 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
           <button onClick={() => setYear((y) => y + 1)} style={iconBtnWide}>›</button>
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("Search name or number", "નામ કે નંબર શોધો")} className="gu" style={{ flex: "1 1 160px", fontSize: 13 }} />
           <label style={{ fontSize: 12.5, display: "flex", gap: 5, alignItems: "center" }}><input type="checkbox" checked={onlyOver} onChange={(e) => setOnlyOver(e.target.checked)} /> {t("Only over limit", "ફક્ત મર્યાદા બહાર")}</label>
-          <button onClick={doWord} style={iconBtnWide}>⬇ Word</button>
-          <button onClick={doPdf} disabled={pdfBusy} style={iconBtnWide}>{pdfBusy ? "…" : "⬇ PDF"}</button>
+          <button onClick={doWord} style={iconBtnWide}><WordIcon />Word</button>
+          <button onClick={doPdf} disabled={pdfBusy} style={iconBtnWide}>{pdfBusy ? "…" : <><PdfIcon />PDF</>}</button>
         </div>
         {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
         <div style={{ overflow: "auto", flex: 1, border: "1px solid var(--border)", borderRadius: 10 }}>
@@ -12554,8 +12568,8 @@ function NightRoundView({ data, saveNightRound, showToast, canEdit }) {
             <div style={{ flex: 1 }} />
             <button onClick={async () => { const txt = nbNightRoundText(data, draft, date); try { await navigator.clipboard.writeText(txt); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1800); }} style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
             <a href={"https://wa.me/?text=" + encodeURIComponent(nbNightRoundText(data, draft, date))} target="_blank" rel="noopener noreferrer" style={btn}><WaIcon size={16} /> WhatsApp</a>
-            <button onClick={() => doPdf(() => downloadNightRoundPdf(data, draft, date))} disabled={busy} style={btn}>{busy ? "…" : "⬇ PDF"}</button>
-            <button onClick={() => { try { downloadNightRoundDocx(data, draft, date); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn}>⬇ Word</button>
+            <button onClick={() => doPdf(() => downloadNightRoundPdf(data, draft, date))} disabled={busy} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+            <button onClick={() => { try { downloadNightRoundDocx(data, draft, date); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn}><WordIcon />Word</button>
           </div>
         </React.Fragment>
       )}
@@ -12603,8 +12617,8 @@ function NightRoundView({ data, saveNightRound, showToast, canEdit }) {
             <button onClick={() => { const from = planDay; const to = Number(window.prompt(t("Copy this day's names to which day? 0 = Sunday … 6 = Saturday", "આ વારના નામ કયા વારે નકલ કરવા? ૦ = રવિવાર … ૬ = શનિવાર"), String((from + 1) % 7))); if (!(to >= 0 && to <= 6) || to === from) return; setPlan((p) => p.map((pt) => { const nx = { ...pt, days: { ...(pt.days || {}) }, nth: { ...(pt.nth || {}) }, backup: { ...(pt.backup || {}) } }; nx.days[to] = (nx.days[from] || []).slice(); nx.backup[to] = (nx.backup[from] || []).slice(); [1, 2, 3, 4].forEach((k) => { nx.nth[to + "-" + k] = (nx.nth[from + "-" + k] || []).slice(); }); return nx; })); setPlanDay(to); }} className="gu" style={{ ...iconBtnWide, fontSize: 13, padding: "8px 14px", marginLeft: 8 }}>⧉ {t("Copy this day to…", "આ વાર નકલ કરો…")}</button>
           )}
           <div className="gu" style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <button onClick={() => doPdf(() => downloadNightPlanPdf({ ...data, nightRound: { ...nr, points: plan } }))} disabled={busy || !plan.length} style={btn}>{busy ? "…" : "⬇ " + t("Plan PDF", "પ્લાન PDF")}</button>
-            <button onClick={() => downloadNightPlanDocx({ ...data, nightRound: { ...nr, points: plan } })} disabled={!plan.length} style={btn}>⬇ {t("Plan Word", "પ્લાન Word")}</button>
+            <button onClick={() => doPdf(() => downloadNightPlanPdf({ ...data, nightRound: { ...nr, points: plan } }))} disabled={busy || !plan.length} style={btn}>{busy ? "…" : <><PdfIcon />{t("Plan PDF", "પ્લાન PDF")}</>}</button>
+            <button onClick={() => downloadNightPlanDocx({ ...data, nightRound: { ...nr, points: plan } })} disabled={!plan.length} style={btn}><WordIcon />{t("Plan Word", "પ્લાન Word")}</button>
           </div>
         </React.Fragment>
       )}
@@ -12837,8 +12851,8 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
         <div style={{ flex: 1 }} />
         <button onClick={async () => { try { await navigator.clipboard.writeText(text); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1800); }} className="gu" style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
         <a href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" className="gu" style={btn}><WaIcon size={16} /> WhatsApp</a>
-        <button onClick={async () => { try { setPdf(await downloadBandobastPdf(data, draft)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } }} className="gu" style={btn}>⬇ PDF</button>
-        <button onClick={() => { try { downloadBandobastDocx(data, draft); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} className="gu" style={btn}>⬇ Word</button>
+        <button onClick={async () => { try { setPdf(await downloadBandobastPdf(data, draft)); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } }} className="gu" style={btn}><PdfIcon />PDF</button>
+        <button onClick={() => { try { downloadBandobastDocx(data, draft); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} className="gu" style={btn}><WordIcon />Word</button>
       </div>
       <div className="gu" style={{ marginTop: 16, padding: 12, border: "1px solid var(--border)", borderRadius: 10, background: "var(--bg-surface)" }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{t("Count it as duty (optional)", "ડ્યુટી તરીકે ગણો (વૈકલ્પિક)")}</div>
@@ -13798,7 +13812,7 @@ function PersonHistoryModal({ data, number, onClose }) {
               onClick={handleDownloadPdf} disabled={pdfBusy}
               title={t("Download this duty history as a PDF for the selected period", "પસંદ કરેલ સમયગાળા માટે આ ડ્યુટી ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
               style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
-            >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+            >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
           </div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
         </div>
@@ -15175,7 +15189,7 @@ function ReportView({ initialSort, focus, data }) {
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, width: 30, height: 30, fontSize: 14, color: "var(--text-primary)", cursor: "pointer" }}
           >▶</button>
         </div>
-        <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+        <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
         <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t(`${rows.length} duty record${rows.length === 1 ? "" : "s"} in ${monthLabel}`, `${monthLabel} માં ${rows.length} ડ્યુટી રેકોર્ડ`)}</div>
       </div>
 
@@ -16311,7 +16325,7 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
       boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000,
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--border-soft)" }}>
-        <div className="disp gu" style={{ fontSize: 14, fontWeight: 700 }}>{t("Google Drive backup", "ગૂગલ ડ્રાઇવ બેકઅપ")}</div>
+        <div className="disp gu" style={{ fontSize: 14, fontWeight: 700 }}><DriveIcon size={18} />{t("Google Drive backup", "ગૂગલ ડ્રાઇવ બેકઅપ")}</div>
         <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15 }}>✕</button>
       </div>
 
@@ -16335,7 +16349,7 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {needsConnect ? (
                 <button onClick={onConnect} disabled={busy} style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12.5, fontWeight: 600 }} className="gu">
-                  {busy ? t("Connecting…", "જોડાઈ રહ્યું છે…") : t("Connect Google Drive", "ગૂગલ ડ્રાઇવ જોડો")}
+                  {busy ? t("Connecting…", "જોડાઈ રહ્યું છે…") : <><DriveIcon />{t("Connect Google Drive", "ગૂગલ ડ્રાઇવ જોડો")}</>}
                 </button>
               ) : (
                 <React.Fragment>
@@ -17298,7 +17312,7 @@ function PublicCategoryView({ data, catId }) {
             onClick={handleDownloadPdf} disabled={pdfBusy}
             title={t("Download this work type's roster and history as a PDF", "આ કામના પ્રકારનું રોસ્ટર અને ઇતિહાસ PDF તરીકે ડાઉનલોડ કરો")}
             style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
-          >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : "⬇ " + t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
+          >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
         </div>
       </div>
 
@@ -19006,8 +19020,8 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
               <option value="undetected">{t("Undetected (summary)", "અનડિટેક્ટ (સમરી)")}</option>
               <option value="overdue">{t("Charge-sheet overdue", "ચાર્જશીટ મુદત વીતી")}</option>
             </select>
-            <button onClick={doCasesWord} className="gu" style={{ ...iconBtnWide }}>⬇ Word</button>
-            <button onClick={doCasesPdf} disabled={pdfBusy} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : "⬇ PDF"}</button>
+            <button onClick={doCasesWord} className="gu" style={{ ...iconBtnWide }}><WordIcon />Word</button>
+            <button onClick={doCasesPdf} disabled={pdfBusy} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : <><PdfIcon />PDF</>}</button>
           </div>
           {visibleCases.length === 0 ? (
             <div className="gu" style={{ color: "var(--text-tertiary)", padding: 24, textAlign: "center", background: "var(--bg-surface)", border: "1px dashed var(--border)", borderRadius: 10 }}>
@@ -19094,8 +19108,8 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
             <label className="gu" style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 5 }}><input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} /> {t("Compare with previous period & last year", "ગયા સમયગાળા અને ગયા વર્ષ સાથે સરખામણી")}</label>
             <div style={{ flex: 1 }} />
-            <button onClick={doPdf} disabled={pdfBusy || !from || !to} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : "⬇ PDF"}</button>
-            <button onClick={doWord} disabled={!from || !to} className="gu" style={{ ...iconBtnWide }}>⬇ Word</button>
+            <button onClick={doPdf} disabled={pdfBusy || !from || !to} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : <><PdfIcon />PDF</>}</button>
+            <button onClick={doWord} disabled={!from || !to} className="gu" style={{ ...iconBtnWide }}><WordIcon />Word</button>
           </div>
           {(!from || !to) && <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Choose a From and To date for comparison and exports.", "સરખામણી અને એક્સપોર્ટ માટે થી / સુધી તારીખ પસંદ કરો.")}</div>}
         </React.Fragment>
@@ -20339,8 +20353,8 @@ function CrimeFraudPanel({ ctx, entries, showToast, showList, onOpen }) {
             {t(`Annexure-1: ${L1.length} · Annexure-2: ${L2.length}`, `એનેક્ષર-૧: ${nbG(L1.length)} ગુના · એનેક્ષર-૨: ${nbG(L2.length)} ગુના`)}
             {missing > 0 && <div style={{ color: "var(--status-warning-text, #b7791f)" }}>{t(`${missing} crime(s) still need search / seizure filled in`, `${nbG(missing)} ગુનામાં ઝડતી / સીઝની વિગત બાકી છે`)}</div>}
           </div>
-          <button type="button" onClick={word} style={btn}>⬇ Word</button>
-          <button type="button" onClick={pdfDo} disabled={!!busy} style={btn}>{busy ? "…" : "⬇ PDF"}</button>
+          <button type="button" onClick={word} style={btn}><WordIcon />Word</button>
+          <button type="button" onClick={pdfDo} disabled={!!busy} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
         </div>
       </div>
       {[["1", t("Annexure-1 — without IT Act", "એનેક્ષર-૧ — IT Act ની કલમ સિવાય"), L1], ["2", t("Annexure-2 — with IT Act (cyber crime)", "એનેક્ષર-૨ — IT Act ની કલમ સાથે (સાયબર ક્રાઇમ)"), L2]].map(([k, title, L]) => (
@@ -20493,8 +20507,8 @@ function CrimeBStatementView({ title, list, ctx, onClose }) {
       <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 760, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "14px 16px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", borderRadius: "12px 12px 0 0", zIndex: 2 }}>
           <div className="disp" style={{ flex: 1, fontSize: 15.5, fontWeight: 700, minWidth: 160 }}>📄 {title}</div>
-          <button type="button" disabled={!L.length} onClick={() => nbDeliverBlob(nbModelDocx(model(), {}), fname + ".docx", "B સ્ટેટમેન્ટ")} style={btn}>⬇ Word</button>
-          <button type="button" disabled={!L.length || busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(model(), {}), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : "⬇ PDF"}</button>
+          <button type="button" disabled={!L.length} onClick={() => nbDeliverBlob(nbModelDocx(model(), {}), fname + ".docx", "B સ્ટેટમેન્ટ")} style={btn}><WordIcon />Word</button>
+          <button type="button" disabled={!L.length || busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(model(), {}), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
           <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
         <div style={{ padding: "12px 16px 18px" }}>
@@ -20617,12 +20631,12 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{d[2]} · {nbYMLabel(ym)}</div>
           </div>
           {d[0] === "bst" && showBst && <button onClick={() => showBst(`B સ્ટેટમેન્ટ — ${nbYMLabel(ym)}`, inM("A"))} style={btn}>👁 {t("View", "જુઓ")}</button>}
-          <button onClick={() => word(d)} style={btn}>⬇ Word</button>
-          <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : "⬇ PDF"}</button>
+          <button onClick={() => word(d)} style={btn}><WordIcon />Word</button>
+          <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : <><PdfIcon />PDF</>}</button>
         </div>
       ))}
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginTop: 14 }}>
-        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>📲 {t("Daily crime report (WhatsApp)", "દૈનિક ગુના અહેવાલ (WhatsApp)")}</div>
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}><WaIcon size={16} /> {t("Daily crime report (WhatsApp)", "દૈનિક ગુના અહેવાલ (WhatsApp)")}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <NbDateInput value={day} onChange={(e) => e.target.value && setDay(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
           <button onClick={async () => { try { await navigator.clipboard.writeText(txt); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); }} style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
@@ -21386,8 +21400,8 @@ function CrimeAnnualPanel({ ctx, showToast, showList }) {
             <div style={{ fontWeight: 700, fontSize: 14 }}>📊 {d[1]}</div>
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{d[2]}</div>
           </div>
-          <button onClick={() => word(d)} style={btn}>⬇ Word</button>
-          <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : "⬇ PDF"}</button>
+          <button onClick={() => word(d)} style={btn}><WordIcon />Word</button>
+          <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : <><PdfIcon />PDF</>}</button>
         </div>
       ))}
       <div style={{ overflowX: "auto", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, marginTop: 6 }}>
@@ -21538,13 +21552,13 @@ function CrimeOfflineApp({ tab }) {
         <div style={{ padding: "16px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>
           <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <span>📱 {t("Saved only on this device — nothing is sent online.", "ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી.")}</span>
-            {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}>☁ {t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}</span>}
+            {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}><DriveIcon />{t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}</span>}
             <span style={{ color: "var(--text-tertiary)" }}>{meta.lastBackupAt ? t(`Last backup: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`, `છેલ્લો બેકઅપ: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`) : t("No backup yet", "હજુ બેકઅપ નથી")}</span>
           </div>
           {driveOn && driveNeedsTap && (
             <div className="gu" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
-              <span style={{ flex: 1, minWidth: 200 }}>☁ {t("Google Drive backup is waiting. Tap once to continue automatic backups in this session.", "Google Drive બેકઅપ બાકી છે. આ સત્રમાં આપોઆપ બેકઅપ ચાલુ રાખવા એક વાર દબાવો.")}</span>
-              <button onClick={driveTap} disabled={driveBusy} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>{driveBusy ? "…" : "☁ " + t("Back up to Drive", "Drive પર બેકઅપ")}</button>
+              <span style={{ flex: 1, minWidth: 200 }}><DriveIcon />{t("Google Drive backup is waiting. Tap once to continue automatic backups in this session.", "Google Drive બેકઅપ બાકી છે. આ સત્રમાં આપોઆપ બેકઅપ ચાલુ રાખવા એક વાર દબાવો.")}</span>
+              <button onClick={driveTap} disabled={driveBusy} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>{driveBusy ? "…" : <><DriveIcon />{t("Back up to Drive", "Drive પર બેકઅપ")}</>}</button>
             </div>
           )}
           {needBackup && (
@@ -21983,7 +21997,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
     <div role="dialog" aria-modal="true" aria-label={t("Data", "ડેટા")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 420, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{view === "drive" ? "☁ Google Drive" : view === "station" ? t("Station details", "સ્ટેશનની વિગત") : view === "pin" ? t("PIN for this device", "આ ડિવાઇસ માટે PIN") : "⚙️ " + t("Data", "ડેટા")}</div>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{view === "drive" ? <><DriveIcon size={18} />Google Drive</> : view === "station" ? t("Station details", "સ્ટેશનની વિગત") : view === "pin" ? t("PIN for this device", "આ ડિવાઇસ માટે PIN") : "⚙️ " + t("Data", "ડેટા")}</div>
           <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
         </div>
         {view === "menu" && (
@@ -21994,17 +22008,17 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
             <button onClick={() => fileRef.current && fileRef.current.click()} style={row}>⬆ {t("Restore from a backup file", "બેકઅપ ફાઇલમાંથી restore કરો")}</button>
             <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={(e) => { restore(e.target.files && e.target.files[0]); e.target.value = ""; }} />
             </CrimeMenuSection>
-            <CrimeMenuSection id="drive" open={open} toggle={toggle} title={"☁ Google Drive"} badge={meta.driveOn ? "✓ " + t("On", "ચાલુ") : ""}>
+            <CrimeMenuSection id="drive" open={open} toggle={toggle} title={<><DriveIcon />Google Drive</>} badge={meta.driveOn ? "✓ " + t("On", "ચાલુ") : ""}>
             {!meta.driveOn ? (
-              <button onClick={driveConnect} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Connect Google Drive (automatic backup)", "Google Drive જોડો (આપોઆપ બેકઅપ)")}</button>
+              <button onClick={driveConnect} disabled={driveBusy} style={row}><DriveIcon />{driveBusy ? "…" : t("Connect Google Drive (automatic backup)", "Google Drive જોડો (આપોઆપ બેકઅપ)")}</button>
             ) : (
               <React.Fragment>
-                <button onClick={() => { onDriveBackup(); }} style={row}>☁ {t("Back up to Google Drive now", "હમણાં Google Drive પર બેકઅપ")}{meta.driveLastAt ? <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}> · {t("last", "છેલ્લો")} {new Date(meta.driveLastAt).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span> : null}</button>
-                <button onClick={driveList} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Restore from Google Drive", "Google Drive માંથી restore કરો")}</button>
+                <button onClick={() => { onDriveBackup(); }} style={row}><DriveIcon />{t("Back up to Google Drive now", "હમણાં Google Drive પર બેકઅપ")}{meta.driveLastAt ? <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}> · {t("last", "છેલ્લો")} {new Date(meta.driveLastAt).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span> : null}</button>
+                <button onClick={driveList} disabled={driveBusy} style={row}><DriveIcon />{driveBusy ? "…" : t("Restore from Google Drive", "Google Drive માંથી restore કરો")}</button>
                 <button onClick={async () => { if (!window.confirm(t("Stop automatic Google Drive backup on this device? Backups already in Drive stay there.", "આ ડિવાઇસ પર આપોઆપ Google Drive બેકઅપ બંધ કરવો છે? Drive માં પડેલા બેકઅપ રહેશે."))) return; await nbCrimeStore.setMeta("driveOn", 0); try { sessionStorage.removeItem("nb_cr_drive_tok"); } catch (e) {} showToast(t("Google Drive backup turned off", "Google Drive બેકઅપ બંધ")); }} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Turn off Google Drive backup", "Google Drive બેકઅપ બંધ કરો")}</button>
               </React.Fragment>
             )}
-            {!meta.driveOn && <button onClick={driveList} disabled={driveBusy} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>☁ {t("Restore from Google Drive (new device)", "Google Drive માંથી restore (નવું ડિવાઇસ)")}</button>}
+            {!meta.driveOn && <button onClick={driveList} disabled={driveBusy} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}><DriveIcon />{t("Restore from Google Drive (new device)", "Google Drive માંથી restore (નવું ડિવાઇસ)")}</button>}
             </CrimeMenuSection>
             {look && (
               <CrimeMenuSection id="theme" open={open} toggle={toggle} title={"🎨 " + t("Theme", "થીમ")}>
