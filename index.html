@@ -20162,6 +20162,212 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
 }
 
 // ---------- the Crime Register screen ----------
+// ---------- Cheating / breach of trust / forgery sheet for any date range ----------
+// Annexure-1: those crimes WITHOUT an IT Act section; Annexure-2: crimes WITH an
+// IT Act section (cyber crime). Picked from the sections automatically; the
+// user can move a crime to the other sheet or leave it out (e.fraudSheet).
+const NB_FR_SEARCH = [["", "—"], ["24", "૨૪ કલાક સુધીમાં"], ["72", "૨૪ થી ૭૨ કલાક સુધીમાં"], ["more", "૭૨ કલાક બાદ"], ["no", "ઝડતી લીધેલ નથી"]];
+const NB_FR_SEIZE = [["", "—"], ["24", "૨૪ કલાક સુધીમાં"], ["72", "૨૪ થી ૭૨ કલાક સુધીમાં"], ["more", "૭૨ કલાક બાદ"], ["no", "સીઝ કરેલ નથી"]];
+function nbFraudAuto(e) {
+  if (!["A", "B", "C", "M"].includes(e.reg)) return "";
+  const s = nbAsciiDigits(e.sections || "").replace(/\d{5,}(\s*\/\s*\d{2,4})?/g, " ");
+  const itRe = /i\.?\s?t\.?\s?act|આઇ\.?\s?ટી|આઈ\.?\s?ટી|ઇન્ફોર્મેશન/i;
+  const it = (e.acts || []).includes("IT") || itRe.test(s);
+  if (it) return "2";
+  const main = s.split(/એમ\.?\s?વી|જી\.?\s?પી|પ્રોહી|એટ્રો|atroc|પોક્સો|પોકસો|pocso|ndps/i)[0];
+  const ipc = /ipc|i\.p\.c|આઇ\.?\s?પી\.?\s?સી|આઈ\.?\s?પી\.?\s?સી|ઇ\.?\s?પી\.?\s?કો/i.test(s);
+  if (/(^|\D)(31[689]|33[6-9]|340)(\D|$)/.test(main) && !ipc) return "1";
+  if (ipc && /(^|\D)(40[69]|420|46[5-9]|47[01])(\D|$)/.test(main)) return "1";
+  return "";
+}
+const nbFraudSheet = (e) => (e.fraudSheet === "no" ? "" : e.fraudSheet === "1" || e.fraudSheet === "2" ? e.fraudSheet : nbFraudAuto(e));
+const nbFrLost = (e) => Number(e.stolenValue) || Number(e.cyberAmt) || 0;
+const nbFrRec = (e) => Number(e.recoveredValue) || Number(e.cyberReturned) || 0;
+function nbFraudTotals(L) {
+  const c = (f, v) => L.filter((e) => (e[f] || "") === v).length;
+  const lost = L.reduce((a, e) => a + nbFrLost(e), 0), rec = L.reduce((a, e) => a + nbFrRec(e), 0);
+  const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+  return { n: L.length, s24: c("frSearch", "24"), s72: c("frSearch", "72"), sMore: c("frSearch", "more"), sNo: c("frSearch", "no"), z24: c("frSeize", "24"), z72: c("frSeize", "72"), zMore: c("frSeize", "more"), zNo: c("frSeize", "no"), lost, rec, sNoPct: pct(c("frSearch", "no"), L.length), zNoPct: pct(c("frSeize", "no"), L.length), recPct: pct(rec, lost) };
+}
+function nbFraudModel(ctx, from, to, L1, L2) {
+  const B = [];
+  const range = `તા.${nbGDate(from)} થી તા.${nbGDate(to)} સુધીમાં`;
+  const widths = [500, 900, 1900, 800, 800, 800, 800, 800, 800, 800, 800, 800, 800, 1300, 1300, 900];
+  const yes = (v) => nbCell(v ? "હા" : "", { center: true });
+  const money = (v, zero) => (v ? nbG(nbMoney(v)) : zero);
+  const head = (it) => [
+    [nbCell("અ.નં.", { rowSpan: 2 }), nbCell("પો.સ્ટે.નું નામ", { rowSpan: 2 }), nbCell("દાખલ થયેલ ગુનાઓની સંખ્યા", { rowSpan: 2 }), nbCell("કોલમ (૩) પૈકી કેટલા ગુનામાં નીચે મુજબના સમયગાળા દરમ્યાન ઘર/ઓફીસની ઝડતી કરી ?", { span: 5 }), nbCell("કોલમ (૩) પૈકી કેટલા ગુનામાં નીચે મુજબના સમયગાળા દરમ્યાન બેંક એકાઉન્ટ સીઝ કર્યા ?", { span: 5 }), nbCell("કોલમ (૩) પૈકીના ગુનાના મુદ્દામાલની આંકડાકીય માહિતી", { span: 3 })],
+    [SKIP, SKIP, SKIP, ...["૨૪ કલાક સુધીમાં", "૨૪ થી ૭૨ કલાક સુધીમાં", "૭૨ કલાક બાદ", "ઝડતી લીધેલ નથી.", "ઝડતી લીધેલ નથી તેની ટકાવારી", "૨૪ કલાક સુધીમાં", "૨૪ થી ૭૨ કલાક સુધીમાં", "૭૨ કલાક બાદ", "સીઝ કરેલ નથી", "સીઝ કરેલ નથી તેની ટકાવારી", "કુલ ગયેલ મુદ્દામાલની કિંમત", "કોલમ (૧૪) પૈકી રીકવર થયેલ મુદ્દામાલની કિંમત", "રીકવર થયેલ મુદ્દામાલની ટકાવારી"].map((h) => nbCell(h))],
+    Array.from({ length: 16 }, (_, i) => nbCell(`(${nbG(i + 1)})`)),
+  ];
+  const sheet = (L, it) => {
+    const rows = L.map((e, i) => [
+      nbCell(nbN2(i + 1), { center: true }), nbCell(ctx.ps), nbCell(nbFirNo(e, ctx.settings) + "/" + nbG(String(e.year || "").slice(-2)), { center: true }),
+      yes(e.frSearch === "24"), yes(e.frSearch === "72"), yes(e.frSearch === "more"), yes(e.frSearch === "no"), nbCell(""),
+      yes(e.frSeize === "24"), yes(e.frSeize === "72"), yes(e.frSeize === "more"), yes(e.frSeize === "no"), nbCell(""),
+      nbCell(money(nbFrLost(e), "-"), { center: true }), nbCell(money(nbFrRec(e), "નીલ"), { center: true }), nbCell(""),
+    ]);
+    const T = nbFraudTotals(L);
+    const n = (v) => nbCell(v ? nbG(v) : "૦", { center: true, b: true });
+    const p = (v) => nbCell(nbG(v) + "%", { center: true, b: true });
+    rows.push([nbCell(""), nbCell("કુલ", { b: true }), n(T.n), n(T.s24), n(T.s72), n(T.sMore), n(T.sNo), p(T.sNoPct), n(T.z24), n(T.z72), n(T.zMore), n(T.zNo), p(T.zNoPct), nbCell(money(T.lost, "૦"), { center: true, b: true }), nbCell(money(T.rec, "નીલ"), { center: true, b: true }), p(T.recPct)]);
+    B.push({ table: true, sz: 16, widths, headRows: head(it), rows, after: 120 });
+    L.filter((e) => e.frNote).forEach((e) => B.push({ p: `${nbFirNo(e, ctx.settings)}/${nbG(e.year || "")} — ${e.frNote}`, sz: 18, after: 80 }));
+  };
+  B.push({ p: "એનેક્ષર-૧", b: true, sz: 22, center: true, after: 60 });
+  B.push({ p: `${range} છેતરપીંડી/વિશ્વાસઘાત/બનાવટી દસ્તાવેજોના દાખલ થયેલ ગુનાઓમાં ઝડતી/સીઝ કર્યા અંગેના ગુનાઓની આંકડાકીય વિગત દર્શાવતુ પત્રક ( IT Act ની કલમ સિવાય )`, b: true, sz: 20, center: true, after: 120 });
+  sheet(L1, false);
+  B.push({ pageBreak: true });
+  B.push({ p: "એનેક્ષર-ર", b: true, sz: 22, center: true, after: 60 });
+  B.push({ p: `${range} છેતરપીંડી/વિશ્વાસઘાત/બનાવટી દસ્તાવેજોની સાથે IT Act ની કલમ (સાયબર ક્રાઇમ લગત ગુના) સાથેના દાખલ થયેલ ગુનાઓમાં ઝડતી/સીઝ કર્યા અંગેના ગુનાઓની આંકડાકીય વિગત દર્શાવતુ પત્રક ( IT Act ની કલમ સાથે )`, b: true, sz: 20, center: true, after: 120 });
+  sheet(L2, true);
+  return B;
+}
+function NbFraudRow({ e, raw, onOpen, showToast }) {
+  const { t } = useLang();
+  const [lost, setLost] = useState(e.stolenValue || e.cyberAmt || "");
+  const [rec, setRec] = useState(e.recoveredValue || e.cyberReturned || "");
+  const [note, setNote] = useState(e.frNote || "");
+  useEffect(() => { setLost(e.stolenValue || e.cyberAmt || ""); setRec(e.recoveredValue || e.cyberReturned || ""); setNote(e.frNote || ""); }, [e.id, e.updatedAt]);
+  const save = async (patch) => { await nbEntryStore.put({ ...(raw || e), ...patch, updatedAt: Date.now() }); showToast(t("Saved", "સચવાયું")); };
+  const numIn = (v) => nbAsciiDigits(v).replace(/[^\d]/g, "").slice(0, 10);
+  const lbl = { fontSize: 11.5, color: "var(--text-secondary)", display: "block", marginBottom: 2 };
+  const inp = { ...nbCrInput, width: "100%", minHeight: 34 };
+  const auto = nbFraudAuto(e);
+  return (
+    <div style={{ background: "var(--bg-page)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+      <button type="button" onClick={() => onOpen(raw || e)} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, color: "var(--text-primary)", cursor: "pointer" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 5, padding: "0 5px" }}>{nbReg(e.reg).gu}</span>
+          <b className="mono">{nbG(e.no || "?")}/{nbG(String(e.year || "").slice(-2))}</b>
+          <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
+          <span style={{ fontSize: 12.5 }}>{String(e.sections || "").replace(/\s+/g, " ").slice(0, 90)}</span>
+        </div>
+        {e.facts && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{String(e.facts).replace(/\s+/g, " ")}</div>}
+      </button>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
+        <label><span style={lbl}>{t("House/office search", "ઘર/ઓફીસની ઝડતી")}</span>
+          <select value={e.frSearch || ""} onChange={(ev) => save({ frSearch: ev.target.value })} data-fr-search style={inp}>{NB_FR_SEARCH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label><span style={lbl}>{t("Bank account seized", "બેંક એકાઉન્ટ સીઝ")}</span>
+          <select value={e.frSeize || ""} onChange={(ev) => save({ frSeize: ev.target.value })} data-fr-seize style={inp}>{NB_FR_SEIZE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label><span style={lbl}>{t("Property lost ₹", "કુલ ગયેલ મુદ્દામાલ ₹")}</span>
+          <input type="text" inputMode="numeric" value={lost} onChange={(ev) => setLost(numIn(ev.target.value))} onBlur={() => String(lost) !== String(e.stolenValue || e.cyberAmt || "") && save({ stolenValue: lost })} className="mono" data-fr-lost style={inp} /></label>
+        <label><span style={lbl}>{t("Recovered ₹", "રીકવર થયેલ ₹")}</span>
+          <input type="text" inputMode="numeric" value={rec} onChange={(ev) => setRec(numIn(ev.target.value))} onBlur={() => String(rec) !== String(e.recoveredValue || e.cyberReturned || "") && save({ recoveredValue: rec })} placeholder="નીલ" className="mono" style={inp} /></label>
+        <label><span style={lbl}>{t("Sheet", "પત્રક")}</span>
+          <select value={e.fraudSheet || ""} onChange={(ev) => save({ fraudSheet: ev.target.value })} data-fr-sheet style={inp}>
+            <option value="">{t("Automatic", "આપોઆપ")} ({auto === "2" ? "એનેક્ષર-૨" : auto === "1" ? "એનેક્ષર-૧" : "નહીં"})</option>
+            <option value="1">{t("Annexure-1 (without IT Act)", "એનેક્ષર-૧ (IT Act વગર)")}</option>
+            <option value="2">{t("Annexure-2 (with IT Act)", "એનેક્ષર-૨ (IT Act સાથે)")}</option>
+            <option value="no">{t("Leave out", "પત્રકમાં નહીં")}</option>
+          </select></label>
+      </div>
+      <input type="text" value={note} onChange={(ev) => setNote(ev.target.value)} onBlur={() => note !== (e.frNote || "") && save({ frNote: note })} placeholder={t("Note under the sheet (optional)", "પત્રક નીચે નોંધ (હોય તો)")} style={{ ...inp, marginTop: 8 }} />
+    </div>
+  );
+}
+function CrimeFraudPanel({ ctx, entries, showToast, showList, onOpen }) {
+  const { t } = useLang();
+  const today = todayStr();
+  const [from, setFrom] = useState(() => nbYMShift(nbYM(today), -3) + "-01");
+  const [to, setTo] = useState(today);
+  const [busy, setBusy] = useState("");
+  const [pdf, setPdf] = useState(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const inRange = ctx.entries.filter((e) => ["A", "B", "C", "M"].includes(e.reg) && e.regDate && e.regDate >= from && e.regDate <= to);
+  const sorted = nbSortEntries(inRange);
+  const L1 = sorted.filter((e) => nbFraudSheet(e) === "1");
+  const L2 = sorted.filter((e) => nbFraudSheet(e) === "2");
+  const rawOf = (e) => (entries || []).find((x) => x.id === e.id);
+  const fname = `cheating-it-act-${from}-to-${to}`;
+  const model = () => nbFraudModel(ctx, from, to, L1, L2);
+  const word = () => { try { nbDeliverBlob(nbModelDocx(model(), { landscape: true }), fname + ".docx", "છેતરપીંડી / IT Act પત્રક"); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } };
+  const pdfDo = async () => { setBusy("pdf"); try { setPdf({ doc: await nbModelPdf(model(), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(""); } };
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" };
+  const card = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 };
+  const ym = nbYM(today);
+  const quick = [
+    [t("This month", "આ માસ"), ym + "-01", today],
+    [t("Last month", "ગત માસ"), nbYMShift(ym, -1) + "-01", nbYMEnd(nbYMShift(ym, -1))],
+    [t("Last 3 months", "છેલ્લા ૩ માસ"), nbYMShift(ym, -3) + "-01", nbYMEnd(nbYMShift(ym, -1))],
+    [t("This year", "આ વર્ષ"), ym.slice(0, 4) + "-01-01", today],
+  ];
+  const others = sorted.filter((e) => !nbFraudSheet(e) && (!q.trim() || nbSrch([e.no, e.sections, e.complainant, e.accused, e.facts].join(" "), q)));
+  const sum = (L, title) => {
+    const T = nbFraudTotals(L);
+    const cell = (lbl, v, list) => (
+      <div style={{ background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "6px 8px" }}>
+        <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{lbl}</div>
+        <div className="mono" style={{ fontSize: 16, fontWeight: 700 }}>{list ? <NbDrillNum list={list} title={`${title} — ${lbl}`} onShow={showList}>{v}</NbDrillNum> : v}</div>
+      </div>
+    );
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: 5, marginBottom: 10 }}>
+        {cell(t("Crimes", "ગુના"), nbG(T.n), L)}
+        {cell(t("Searched ≤24h", "ઝડતી ૨૪ કલાકમાં"), nbG(T.s24), L.filter((e) => e.frSearch === "24"))}
+        {cell(t("Searched 24–72h", "ઝડતી ૨૪–૭૨ કલાક"), nbG(T.s72), L.filter((e) => e.frSearch === "72"))}
+        {cell(t("Searched >72h", "ઝડતી ૭૨ કલાક બાદ"), nbG(T.sMore), L.filter((e) => e.frSearch === "more"))}
+        {cell(t("Not searched", "ઝડતી નથી"), `${nbG(T.sNo)} · ${nbG(T.sNoPct)}%`, L.filter((e) => e.frSearch === "no"))}
+        {cell(t("Seized ≤24h", "સીઝ ૨૪ કલાકમાં"), nbG(T.z24), L.filter((e) => e.frSeize === "24"))}
+        {cell(t("Seized 24–72h", "સીઝ ૨૪–૭૨ કલાક"), nbG(T.z72), L.filter((e) => e.frSeize === "72"))}
+        {cell(t("Seized >72h", "સીઝ ૭૨ કલાક બાદ"), nbG(T.zMore), L.filter((e) => e.frSeize === "more"))}
+        {cell(t("Not seized", "સીઝ નથી"), `${nbG(T.zNo)} · ${nbG(T.zNoPct)}%`, L.filter((e) => e.frSeize === "no"))}
+        {cell(t("Lost ₹", "ગયેલ ₹"), T.lost ? nbG(nbMoney(T.lost)) : "૦")}
+        {cell(t("Recovered ₹", "રીકવર ₹"), `${T.rec ? nbG(nbMoney(T.rec)) : "નીલ"} · ${nbG(T.recPct)}%`)}
+      </div>
+    );
+  };
+  const missing = [...L1, ...L2].filter((e) => !e.frSearch || !e.frSeize).length;
+  return (
+    <div>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={card}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>🧾 {t("Cheating / breach of trust / forgery — with and without IT Act", "છેતરપીંડી / વિશ્વાસઘાત / બનાવટી દસ્તાવેજ — IT Act સાથે અને વગર")}</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <b>{t("From", "તારીખ")}:</b>
+          <NbDateInput value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} style={{ ...nbCrDate, width: 150 }} data-fr-from />
+          <b>{t("to", "થી")}</b>
+          <NbDateInput value={to} onChange={(e) => e.target.value && setTo(e.target.value)} style={{ ...nbCrDate, width: 150 }} data-fr-to />
+          <b>{t("", "સુધી")}</b>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {quick.map(([l, a, b]) => <button key={l} type="button" onClick={() => { setFrom(a); setTo(b); }} style={{ ...btn, padding: "5px 10px", fontSize: 12.5, fontWeight: from === a && to === b ? 800 : 600, background: from === a && to === b ? "var(--bg-page)" : "var(--bg-surface)" }}>{l}</button>)}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <div style={{ flex: 1, fontSize: 12.5, color: "var(--text-secondary)", minWidth: 180 }}>
+            {t(`Annexure-1: ${L1.length} · Annexure-2: ${L2.length}`, `એનેક્ષર-૧: ${nbG(L1.length)} ગુના · એનેક્ષર-૨: ${nbG(L2.length)} ગુના`)}
+            {missing > 0 && <div style={{ color: "var(--status-warning-text, #b7791f)" }}>{t(`${missing} crime(s) still need search / seizure filled in`, `${nbG(missing)} ગુનામાં ઝડતી / સીઝની વિગત બાકી છે`)}</div>}
+          </div>
+          <button type="button" onClick={word} style={btn}>⬇ Word</button>
+          <button type="button" onClick={pdfDo} disabled={!!busy} style={btn}>{busy ? "…" : "⬇ PDF"}</button>
+        </div>
+      </div>
+      {[["1", t("Annexure-1 — without IT Act", "એનેક્ષર-૧ — IT Act ની કલમ સિવાય"), L1], ["2", t("Annexure-2 — with IT Act (cyber crime)", "એનેક્ષર-૨ — IT Act ની કલમ સાથે (સાયબર ક્રાઇમ)"), L2]].map(([k, title, L]) => (
+        <div key={k} style={card} data-fr-sheet-list={k}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{title} — <NbDrillNum list={L} title={title} onShow={showList}>{nbG(L.length)}</NbDrillNum> {t("crimes", "ગુના")}</div>
+          {sum(L, title)}
+          {!L.length && <div style={{ padding: 12, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("No crime in these dates.", "આ તારીખોમાં કોઈ ગુનો નથી.")}</div>}
+          {L.map((e) => <NbFraudRow key={e.id} e={e} raw={rawOf(e)} onOpen={onOpen} showToast={showToast} />)}
+        </div>
+      ))}
+      <div style={card}>
+        <button type="button" onClick={() => setAddOpen(!addOpen)} style={{ ...btn, width: "100%", textAlign: "left" }}>{addOpen ? "▾" : "▸"} {t(`Other crimes in these dates (${others.length}) — add one to a sheet`, `આ તારીખોના બીજા ગુના (${nbG(others.length)}) — પત્રકમાં ઉમેરવા`)}</button>
+        {addOpen && <div style={{ marginTop: 8 }}>
+          <input type="search" value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={t("Search number, section, name…", "નંબર, કલમ, નામ શોધો…")} style={{ ...nbCrInput, width: "100%", marginBottom: 8 }} />
+          {others.slice(0, 60).map((e) => (
+            <div key={e.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid var(--border-soft)", padding: "6px 0" }}>
+              <b className="mono">{nbReg(e.reg).gu} {nbG(e.no)}/{nbG(String(e.year).slice(-2))}</b>
+              <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-secondary)", minWidth: 160 }}>{String(e.sections || "").replace(/\s+/g, " ").slice(0, 80)}</span>
+              <button type="button" onClick={() => nbEntryStore.put({ ...(rawOf(e) || e), fraudSheet: "1", updatedAt: Date.now() })} style={{ ...btn, padding: "4px 8px", fontSize: 12 }}>+ {t("Annex-1", "એનેક્ષર-૧")}</button>
+              <button type="button" onClick={() => nbEntryStore.put({ ...(rawOf(e) || e), fraudSheet: "2", updatedAt: Date.now() })} style={{ ...btn, padding: "4px 8px", fontSize: 12 }}>+ {t("Annex-2", "એનેક્ષર-૨")}</button>
+            </div>
+          ))}
+        </div>}
+      </div>
+    </div>
+  );
+}
 function CrimeRegisterView({ profile, showToast, look }) {
   const { t, lang } = useLang();
   const entries = useLocalEntries();
@@ -20196,12 +20402,14 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("rep")} style={tabBtn(tab === "rep")}>📄 {t("Monthly reports", "માસિક અહેવાલ")}</button>
         <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
         <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
+        <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
       {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} ym={ym} setYm={setYm} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} showList={showList} showBst={showBst} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
       {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
+      {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
       {bsv && <CrimeBStatementView title={bsv.title} list={bsv.draft ? [nbNormEntry(bsv.draft)] : ctx.entries.filter((e) => bsv.ids.includes(e.id))} ctx={ctx} onClose={() => setBsv(null)} />}
