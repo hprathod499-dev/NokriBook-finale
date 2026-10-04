@@ -1553,8 +1553,27 @@ const STATION_EN_ALIAS = {
 // both sides are reduced to a rough Latin consonant skeleton.
 const NB_GU2LAT = { "ક": "k", "ખ": "k", "ગ": "g", "ઘ": "g", "ઙ": "n", "ચ": "C", "છ": "C", "જ": "j", "ઝ": "j", "ઞ": "n", "ટ": "t", "ઠ": "t", "ડ": "d", "ઢ": "d", "ણ": "n", "ત": "t", "થ": "t", "દ": "d", "ધ": "d", "ન": "n", "પ": "p", "ફ": "p", "બ": "b", "ભ": "b", "મ": "m", "ય": "y", "ર": "r", "લ": "l", "વ": "v", "શ": "s", "ષ": "s", "સ": "s", "હ": "h", "ળ": "l", "ં": "n", "ઁ": "n", "ઋ": "r", "ૃ": "r" };
 function nbSrchNorm(v) {
-  return String(v == null ? "" : v).toLowerCase().replace(/[૦-૯]/g, (d) => String("૦૧૨૩૪૫૬૭૮૯".indexOf(d))).replace(/[\u200c\u200d]/g, "");
+  // same word, different spelling: ઈ/ઇ, ી/િ, ઊ/ઉ, ૂ/ુ, with or without ્
+  return String(v == null ? "" : v).toLowerCase().replace(/[૦-૯]/g, (d) => String("૦૧૨૩૪૫૬૭૮૯".indexOf(d))).replace(/[\u200c\u200d\u0acd\u0ac5\u0ac9]/g, "")
+    .replace(/ઈ/g, "ઇ").replace(/ી/g, "િ").replace(/ઊ/g, "ઉ").replace(/ૂ/g, "ુ").replace(/ઁ/g, "ં");
 }
+// English words <-> the Gujarati words (and short forms) used in registers.
+const NB_SRCH_SYN = [
+  ["it", "i.t", "આઇ.ટી", "આઇ.ટી", "આઇટી", "આઇ ટી", "ઇન્ફોર્મેશન"], ["act", "એકટ", "એક્ટ", "અધિનિયમ"],
+  ["bns", "બી.એન.એસ", "બીએનએસ", "ન્યાય સંહિતા", "ન્યાય સહિતા"], ["bnss", "બી.એન.એસ.એસ", "નાગરિક સુરક્ષા"], ["ipc", "આઇ.પી.સી", "ઇ.પી.કો"], ["crpc", "સી.આર.પી.સી"],
+  ["gp", "જી.પી", "જીપી"], ["mv", "એમ.વી", "એમવી"], ["ndps", "એન.ડી.પી.એસ", "nds"], ["pocso", "પોકસો", "પોક્સો"], ["atrocity", "atro", "એટ્રો", "એટ્રોસીટી"],
+  ["prohibition", "prohi", "liquor", "daru", "alcohol", "પ્રોહી", "દારૂ", "દારુ"], ["cheating", "cheat", "fraud", "thagai", "ઠગાઇ", "છેતરપીંડી", "છેતરપિંડી", "છેતરપીડી"],
+  ["theft", "stolen", "chori", "ચોરી"], ["burglary", "housebreaking", "gharfod", "ઘરફોડ"], ["robbery", "loot", "લુંટ", "લૂંટ"], ["murder", "khun", "hatya", "ખુન", "ખૂન", "હત્યા"],
+  ["rape", "બળાત્કાર", "દુષ્કર્મ"], ["kidnap", "kidnapping", "abduction", "apharan", "અપહરણ"], ["missing", "gum", "ગુમ"], ["accident", "અકસ્માત"], ["suicide", "આપઘાત"],
+  ["death", "મોત", "મરણ"], ["gambling", "jugar", "જુગાર"], ["arms", "weapon", "હથિયાર", "આર્મ્સ"], ["dowry", "દહેજ"], ["cyber", "online", "સાયબર", "ઓનલાઇન"],
+  ["forgery", "fake", "બનાવટી"], ["trust", "breach", "વિશ્વાસઘાત"], ["threat", "dhamki", "ધમકી"], ["hurt", "injury", "ઇજા", "વ્યથા"], ["riot", "rioting", "રાયોટ"],
+  ["vehicle", "વાહન"], ["bike", "motorcycle", "motorbike", "મોટર સાયકલ", "મોટરસાયકલ", "મોટર સાઇકલ", "મોટરસાઇકલ", "મો.સા", "બાઇક"], ["motor", "મોટર"], ["cycle", "સાયકલ", "સાઇકલ"],
+  ["car", "કાર", "ફોર વ્હીલ"], ["mobile", "phone", "મોબાઇલ", "ફોન"], ["gold", "સોના", "સોનુ"], ["silver", "ચાંદી"], ["cash", "money", "rupees", "રોકડ", "રૂપિયા", "નાણા"],
+  ["complainant", "ફરિયાદી", "ફરીયાદી"], ["accused", "આરોપી"], ["arrest", "અટક"], ["pending", "પેન્ડીંગ", "પેન્ડિંગ"], ["detected", "ડીટેક્ટ"], ["undetected", "અનડીટેક્ટ"],
+  ["chargesheet", "ચાર્જશીટ", "ચાજૅશીટ"], ["final", "summary", "ફાઇનલ", "સમરી"], ["village", "ગામ"], ["police", "પોલીસ"], ["station", "સ્ટેશન"],
+  ["woman", "women", "lady", "female", "સ્ત્રી", "મહિલા"], ["child", "minor", "juvenile", "બાળક", "સગીર", "કિશોર"], ["lcb", "એલ.સી.બી"], ["sog", "એસ.ઓ.જી"],
+];
+const NB_SRCH_SYN_MAP = (() => { const m = {}; NB_SRCH_SYN.forEach((g) => { const G = g.map(nbSrchNorm); G.forEach((w) => { m[w.replace(/\./g, "")] = G; m[w] = G; }); }); return m; })();
 function nbSkelLat(w) {
   return w.replace(/[^a-z0-9]/g, "")
     .replace(/chh|ch|c/g, "C").replace(/sh/g, "s").replace(/kh/g, "k").replace(/gh/g, "g").replace(/th/g, "t").replace(/dh/g, "d")
@@ -1562,13 +1581,15 @@ function nbSkelLat(w) {
     .replace(/[aeiou]/g, "");
 }
 function nbSkel(word) {
-  let out = "", lat = "";
+  // a word that starts with a vowel keeps a mark for it ("ejaj" = "એજાજ")
+  let out = /^[aeiou\u0a85-\u0a94]/.test(word) ? "V" : "", lat = "";
+  word = word.replace(/([\u0a95-\u0ab9])\u0acd\1/g, "$1").replace(/([a-z])\1+/g, "$1"); // દ્દ → દ, tt → t
   for (const ch of word) {
     if (/[\u0A80-\u0AFF]/.test(ch)) { out += nbSkelLat(lat); lat = ""; out += NB_GU2LAT[ch] || ""; }
     else lat += ch;
   }
   out += nbSkelLat(lat);
-  return out.replace(/(.)\1+/g, "$1");
+  return out;
 }
 function nbSrch(hay, q) {
   const qn = nbSrchNorm(q).trim();
@@ -1580,7 +1601,21 @@ function nbSrch(hay, q) {
   const qw = qn.split(/\s+/).map((x) => (/^\d+$/.test(x) ? { d: x } : { k: nbSkel(x) })).filter((x) => x.d || (x.k && x.k.length >= 2));
   if (!qw.length) return false;
   const hw = hn.split(/[\s,./()\-:;|]+/).filter(Boolean).map((x) => ({ raw: x, k: nbSkel(x) }));
-  return qw.every((w) => w.d ? hn.includes(w.d) : hw.some((h) => h.k.startsWith(w.k) || (w.k.length >= 3 && h.k.includes(w.k))));
+  const synG = (raw) => NB_SRCH_SYN_MAP[raw] || NB_SRCH_SYN_MAP[raw.replace(/\./g, "")];
+  const syn = (raw) => {
+    const G = synG(raw);
+    if (!G) return false;
+    return G.some((g) => (/[\u0a80-\u0aff]/.test(g) ? hn.includes(g) : g.length >= 4 && hw.some((h) => h.raw.startsWith(g))));
+  };
+  const words = qn.split(/\s+/).filter(Boolean);
+  return words.every((raw) => {
+    if (syn(raw)) return true;
+    if (synG(raw) && raw.replace(/\./g, "").length <= 3) return false; // "it", "gp", "mv": short forms only by their meaning
+    if (/^\d+$/.test(raw)) return hn.includes(raw);
+    const k = nbSkel(raw);
+    if (!k || k.length < 2) return hn.includes(raw);
+    return hw.some((h) => h.k.startsWith(k) || (k.length >= 3 && h.k.includes(k)));
+  });
 }
 function stationMatchesQuery(option, query) {
   const q = query.trim().toLowerCase();
@@ -19563,6 +19598,9 @@ function nbCrCtx(entries, profile, settings, monthly, ym) {
   return { entries: (entries || []).map(nbNormEntry), profile: profile || {}, settings: settings || {}, monthly: monthly || {}, ym, ps: nbPsShort(profile, settings), end: nbYMEnd(ym), start: ym + "-01" };
 }
 function nbInMonth(e, ym) { return nbYM(e.regDate) === ym; }
+// a report built for a date range (ctx.range) instead of one month
+function nbInCtx(e, ctx) { return ctx.range ? !!e.regDate && e.regDate >= ctx.range.from && e.regDate <= ctx.range.to : nbInMonth(e, ctx.ym); }
+function nbPeriod(ctx, pre) { return ctx.range ? nbRangeLabel(ctx.range) : (pre == null ? "માહે-" : pre) + nbYMLabel(ctx.ym); }
 function nbSortEntries(list) { return list.slice().sort((a, b) => (a.regDate || "").localeCompare(b.regDate || "") || (Number(a.no) || 0) - (Number(b.no) || 0)); }
 const nbDash = (v) => (v == null || String(v).trim() === "" ? "-" : v);
 const nbN2 = (n) => nbG(n ? String(n).padStart(2, "0") : "૦").replace(/^0$/, "૦");
@@ -19577,27 +19615,27 @@ function nbUtaraModel(ctx) {
   const crimeCols = (arrestLbl, nikalLbl) => [["ક્રમ", "પો.સ્‍ટે.", "ગુ.ર.નં. અને કલમ", "ગુ.બ.તા.વ.", "ગુ.જા.તા.વ.", "ગુન્‍હાનું સ્‍થળ", "ફરીયાદીનું નામ અને સરનામું", "આરોપીના નામ/સરનામા", arrestLbl, "ગુનાની ટુંક વિગત", "ત.ક.અધિ.શ્રી નું નામ", nikalLbl].map((x) => nbCell(x)), Array.from({ length: 12 }, (_, i) => nbCell(nbG(i + 1)))];
   const crimeW = [450, 650, 1750, 1250, 1250, 1250, 1550, 1550, 1050, 2700, 1150, 800];
   [["A", "ભાગ – એ ના ગુનાનું પત્રક", "આરોપી અટક કર્યા તા.વ.", "નિકાલ"], ["B", "ભાગ બી ના ગુનાનું પત્રક", "અટકની વિગત", "નીકાલ"], ["C", "ભાગ – સી ના ગુનાનું પત્રક", "અટકની વિગત", "નીકાલ"], ["M", "એમ કેસ ગુના પત્રક", "અટકની વિગત", "નીકાલ"]].forEach(([reg, title, al, nl], i) => {
-    const list = nbSortEntries(ctx.entries.filter((e) => e.reg === reg && nbInMonth(e, ym)));
+    const list = nbSortEntries(ctx.entries.filter((e) => e.reg === reg && nbInCtx(e, ctx)));
     if (reg === "M" && !list.length) return;
     if (i > 0) B.push({ pageBreak: true });
-    B.push({ p: `${title} માહે-${nbYMLabel(ym)}`, b: true, sz: 24, center: true, after: 120 });
+    B.push({ p: `${title} ${nbPeriod(ctx)}`, b: true, sz: 24, center: true, after: 120 });
     B.push({ table: true, sz: 17, widths: crimeW, headRows: crimeCols(al, nl), rows: list.length ? list.map((e, k) => [nbCell(nbN2(k + 1), { center: true }), nbCell(ps, { center: true }), nbCell(nbCrText(e, ctx)), nbCell(e.occText || ""), nbCell(nbRegText(e, ctx)), nbCell(e.place || ""), nbCell(e.complainant || ""), nbCell(e.accused || ""), nbCell(e.arrestText || (e.arrestDate ? "તા." + nbGDate(e.arrestDate) + " ના અટક કરેલ છે" : "")), nbCell(e.facts || ""), nbCell(e.io || ""), nbCell(e.disposal || nbCloseLabel(e))]) : [[nbCell("-", { center: true, span: 12 })]] });
   });
-  const ad = nbSortEntries(ctx.entries.filter((e) => e.reg === "AD" && nbInMonth(e, ym)));
+  const ad = nbSortEntries(ctx.entries.filter((e) => e.reg === "AD" && nbInCtx(e, ctx)));
   B.push({ pageBreak: true });
-  B.push({ p: `અ.મોત ગુના પત્રક માહે ${nbYMLabel(ym)}`, b: true, sz: 24, center: true, after: 120 });
+  B.push({ p: `અ.મોત ગુના પત્રક ${nbPeriod(ctx, "માહે ")}`, b: true, sz: 24, center: true, after: 120 });
   B.push({ table: true, sz: 17, widths: [450, 1500, 1300, 1100, 1300, 1300, 800, 800, 700, 700, 700, 2400, 1000, 1050],
     headRows: [["ક્રમ", "પો.સ્‍ટે. અ.મોત નંબર અને કલમ", "બનાવ.બ.તા.વ. અને સ્‍થળ", "બનાવ.જા.તા.વ.", "જાહેર કરનારનું નામ /સરનામું", "મરણ જનારનું નામ ઉ.વ. સરનામું", "ડી.ડી. લેવાયેલ છે કે કેમ ? કોણે ડી.ડી. લીધેલ", "ઇન્‍કવેસ્‍ટ કોણે ભરેલ છે.", "સ્‍ત્રી કિસ્‍સામાં લગ્‍ન ગાળાનો સમય", "સંયુકત કુટુંબમાં રહેતી હતી કે કેમ?", "પીયર પક્ષને જાણ કરેલ છે કે કેમ?", "ટુંક વિગત", "દા.ક.અધિ.શ્રી નું નામ", "ત.ક.અધિ.શ્રી નું નામ/હોદ્દો"].map((x) => nbCell(x))],
     rows: ad.length ? ad.map((e, k) => [nbCell(nbN2(k + 1), { center: true }), nbCell(`${ps} પો.સ્ટે. અ.મોત નં.${nbG(e.no)}/${nbG(e.year)} ${e.sections || "BNSS ક.૧૯૪"} મુજબ`), nbCell(e.occText || ""), nbCell(nbRegText(e, ctx)), nbCell(e.informant || ""), nbCell(e.deceased || ""), nbCell(e.ddBy || ""), nbCell(e.inquestBy || ""), nbCell(e.marriageYears ? nbG(e.marriageYears) + " વર્ષ" : ""), nbCell(e.jointFamily || ""), nbCell(e.parentsInformed || ""), nbCell(e.facts || ""), nbCell(e.writer || ""), nbCell(e.io || "")]) : [[nbCell("-", { center: true, span: 14 })]] });
-  const jj = nbSortEntries(ctx.entries.filter((e) => e.reg === "JJ" && nbInMonth(e, ym)));
+  const jj = nbSortEntries(ctx.entries.filter((e) => e.reg === "JJ" && nbInCtx(e, ctx)));
   B.push({ pageBreak: true });
-  B.push({ p: `જાણવા જોગ ${nbYMLabel(ym)}`, b: true, sz: 24, center: true, after: 120 });
+  B.push({ p: `જાણવા જોગ ${nbPeriod(ctx, "")}`, b: true, sz: 24, center: true, after: 120 });
   B.push({ table: true, sz: 17, widths: [1300, 1700, 1000, 1300, 1500, 1000, 2800, 1300, 1500, 1000, 1000],
     headRows: [["પો.સ્ટે.નું નામ/ જા.જોગ નં.", "બ.બ.તા.વ.જ./બ.જા.તા.વ.", "જાણવા જોગનો પ્રકાર", "દા.ક.અધિ.શ્રીનું નામ", "જાહેર કરનારનું નામ", "FSL અધિ.શ્રીએ ને જાણ કર્યા તારીખ તથા સમય", "સચોટ કારણ સહિત ટુંક વિગત", "ત.ક.અધિ.શ્રી નું નામ/હોદ્દો", "ભોગ બનનાર", "થાણા અધિ.શ્રીએ વિઝીટ કર્યા તારીખ-સમય", "SDPOશ્રીએ વિઝીટ કર્યા તારીખ-સમય"].map((x) => nbCell(x)), Array.from({ length: 11 }, (_, i) => nbCell(nbG(i + 1)))],
     rows: jj.length ? jj.map((e) => [nbCell(`${ps} પો.સ્ટે. જા.જોગ નં-${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell([e.occText, e.regDate ? "જાહેર-" + nbRegText(e, ctx) : ""].filter(Boolean).join("\n")), nbCell(e.jjType || ""), nbCell(e.writer || ""), nbCell(e.informant || ""), nbCell(e.fsl || ""), nbCell(e.facts || ""), nbCell(e.io || ""), nbCell(e.victim || ""), nbCell(e.piVisit || ""), nbCell(e.sdpoVisit || "")]) : [[nbCell("-", { center: true, span: 11 })]] });
-  const gum = nbSortEntries(ctx.entries.filter((e) => e.reg === "GUM" && nbInMonth(e, ym)));
+  const gum = nbSortEntries(ctx.entries.filter((e) => e.reg === "GUM" && nbInCtx(e, ctx)));
   B.push({ pageBreak: true });
-  B.push({ p: `ગુમ ${nbYMLabel(ym)}`, b: true, sz: 24, center: true, after: 120 });
+  B.push({ p: `ગુમ ${nbPeriod(ctx, "")}`, b: true, sz: 24, center: true, after: 120 });
   B.push({ table: true, sz: 17, widths: [1500, 2000, 1500, 2000, 2500, 4100, 1800],
     headRows: [["પો.સ્ટે.નું નામ/ ગુમ નં.", "બ.બ.તા.વ.જ./બ.જા.તા.વ.", "દા.ક.અધિ.શ્રીનું નામ", "જાહેર કરનારનું નામ", "ગુમ થનારનું નામ/ઉ.વ./સરનામું", "સચોટ કારણ સહિત ટુંક વિગત", "ત.ક.અધિ.શ્રીનું નામ /હોદ્દો"].map((x) => nbCell(x)), Array.from({ length: 7 }, (_, i) => nbCell(nbG(i + 1)))],
     rows: gum.length ? gum.map((e) => [nbCell(`${ps} પો.સ્ટે. ગુમ નં-${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell([e.occText, e.regDate ? "જાહેર-" + nbRegText(e, ctx) : ""].filter(Boolean).join("\n")), nbCell(e.writer || ""), nbCell(e.informant || ""), nbCell(e.missing || ""), nbCell(e.facts || ""), nbCell(e.io || "")]) : [[nbCell("", { span: 7 })]] });
@@ -19622,7 +19660,7 @@ function nbPreventiveTotals(ctx) {
 function nbHeadwiseModel(ctx) {
   const { ym, ps } = ctx;
   const B = [];
-  const A = nbSortEntries(ctx.entries.filter((e) => e.reg === "A" && nbInMonth(e, ym)));
+  const A = nbSortEntries(ctx.entries.filter((e) => e.reg === "A" && nbInCtx(e, ctx)));
   B.push({ p: `પો.સ્ટે.નુ નામઃ- ${ps}    માહે- ${nbG(Number(ym.slice(5)) + "/" + ym.slice(0, 4))}`, b: true, sz: 24, center: true, after: 40 });
   B.push({ p: "નવા કાયદા અને જુના કાયદા ઓનલાઇન અને ઓફલાઇન હેડ વાઇઝ માહીતી", b: true, sz: 22, center: true, after: 120 });
   const rows = [];
@@ -19636,7 +19674,7 @@ function nbHeadwiseModel(ctx) {
   });
   B.push({ table: true, sz: 18, widths: [500, 2700, 4800, 1150, 1150], headRows: [["અનુ", "હેડનુ નામ અને કલમ", "ગુ.ર.નં. કલમ", "ઓનલાઇન હેડ મુજબ", "ઓફલાઇન હેડ મુજબ"].map((x) => nbCell(x))], rows });
   B.push({ p: "બી પાર્ટ ગુનાની વિગત ( બી પાર્ટમાં આવતા તમામ ગુના નીચે લખવાના રહેશે. )", b: true, sz: 22, center: true, after: 80 });
-  const Bl = nbSortEntries(ctx.entries.filter((e) => e.reg === "B" && nbInMonth(e, ym)));
+  const Bl = nbSortEntries(ctx.entries.filter((e) => e.reg === "B" && nbInCtx(e, ctx)));
   const brows = [];
   NB_PARTB_HEADS.forEach((h, i) => {
     const list = Bl.filter((e) => (e.partBHead || nbGuessPartB(e.sections)) === h.id);
@@ -19645,7 +19683,7 @@ function nbHeadwiseModel(ctx) {
   });
   B.push({ table: true, sz: 18, widths: [500, 2200, 4400, 1600, 1600], headRows: [["અનુ", "હેડનુ નામ", "ગુ.ર.નં. કલમ", "ઓનલાઇન હેડ મુજબ", "ઓફલાઇન હેડ મુજબ"].map((x) => nbCell(x))], rows: brows });
   B.push({ p: "સી પાર્ટ ગુનાની વિગત", b: true, sz: 22, center: true, after: 80 });
-  const cN = ctx.entries.filter((e) => e.reg === "C" && nbInMonth(e, ym)).length;
+  const cN = ctx.entries.filter((e) => e.reg === "C" && nbInCtx(e, ctx)).length;
   B.push({ table: true, sz: 18, widths: [800, 5600, 3200], headRows: [["અનુ", "સી પાર્ટના હેડનુ નામ", "કેસની સંખ્યા"].map((x) => nbCell(x))], rows: [[nbCell("૧", { center: true }), nbCell("પ્રોહીબીશન"), nbCell(nbCnt(cN), { center: true })]] });
   B.push({ p: "અટકાયતિ પગલાની વિગત", b: true, sz: 22, center: true, after: 80 });
   const P = nbPreventiveTotals(ctx);
@@ -19687,8 +19725,8 @@ function nbBStatementOrder(list) {
   return list.slice().sort((a, b) => rank(a) - rank(b) || pos(a) - pos(b) || (a.regDate || "").localeCompare(b.regDate || "") || (Number(a.no) || 0) - (Number(b.no) || 0));
 }
 function nbBStatementModel(ctx) {
-  const A = nbBStatementOrder(ctx.entries.filter((e) => e.reg === "A" && nbInMonth(e, ctx.ym)));
-  const B = [{ p: `${ctx.ps} પો.સ્ટે. બી-સ્ટેટમેન્ટ માહે-${nbYMLabel(ctx.ym)}`, b: true, sz: 24, center: true, after: 160 }];
+  const A = nbBStatementOrder(ctx.entries.filter((e) => e.reg === "A" && nbInCtx(e, ctx)));
+  const B = [{ p: `${ctx.ps} પો.સ્ટે. બી-સ્ટેટમેન્ટ ${nbPeriod(ctx)}`, b: true, sz: 24, center: true, after: 160 }];
   if (!A.length) B.push({ p: "આ માસમાં ભાગ-એ નો કોઈ ગુનો નોંધાયેલ નથી.", center: true });
   A.forEach((e, i) => { B.push(...nbBStatementTable(e, ctx, i + 1)); B.push({ p: "", after: 120 }); });
   return B;
@@ -20338,16 +20376,7 @@ function CrimeFraudPanel({ ctx, entries, showToast, showList, onOpen }) {
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
       <div style={card}>
         <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>🧾 {t("Cheating / breach of trust / forgery — with and without IT Act", "છેતરપીંડી / વિશ્વાસઘાત / બનાવટી દસ્તાવેજ — IT Act સાથે અને વગર")}</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <b>{t("From", "તારીખ")}:</b>
-          <NbDateInput value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} style={{ ...nbCrDate, width: 150 }} data-fr-from />
-          <b>{t("to", "થી")}</b>
-          <NbDateInput value={to} onChange={(e) => e.target.value && setTo(e.target.value)} style={{ ...nbCrDate, width: 150 }} data-fr-to />
-          <b>{t("", "સુધી")}</b>
-        </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-          {quick.map(([l, a, b]) => <button key={l} type="button" onClick={() => { setFrom(a); setTo(b); }} style={{ ...btn, padding: "5px 10px", fontSize: 12.5, fontWeight: from === a && to === b ? 800 : 600, background: from === a && to === b ? "var(--bg-page)" : "var(--bg-surface)" }}>{l}</button>)}
-        </div>
+        <NbRangePicker from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b); }} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
           <div style={{ flex: 1, fontSize: 12.5, color: "var(--text-secondary)", minWidth: 180 }}>
             {t(`Annexure-1: ${L1.length} · Annexure-2: ${L2.length}`, `એનેક્ષર-૧: ${nbG(L1.length)} ગુના · એનેક્ષર-૨: ${nbG(L2.length)} ગુના`)}
@@ -20398,6 +20427,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
   const [reg, setReg] = useState("A");
   const [ym, setYm] = useState(nbYM(todayStr()));
   const [q, setQ] = useState("");
+  const [rng, setRng] = useState(() => ({ from: nbYM(todayStr()) + "-01", to: todayStr() }));
   const [onlyPending, setOnlyPending] = useState(false);
   const [editing, setEditing] = useState(null);
   const [drill, setDrill] = useState(null); // { title, ids }
@@ -20419,7 +20449,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
-      {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} ym={ym} setYm={setYm} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
+      {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} rng={rng} setRng={setRng} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} showList={showList} showBst={showBst} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
       {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
@@ -20536,16 +20566,20 @@ function CrimeBStatementView({ title, list, ctx, onClose }) {
     </div>
   );
 }
-function CrimeRegisterList({ entries, reg, setReg, ym, setYm, q, setQ, onlyPending, setOnlyPending, ctx, onOpen, onNew }) {
+function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q, setQ, onlyPending, setOnlyPending, ctx, onOpen, onNew }) {
   const { t, lang } = useLang();
   const today = todayStr();
   const s = q.trim().toLowerCase();
-  let list = entries.filter((e) => e.reg === reg);
+  const inR = (e) => e.regDate && e.regDate >= rng.from && e.regDate <= rng.to;
+  // a search looks through every register and every date
+  let list = s ? entries.slice() : entries.filter((e) => e.reg === reg);
   if (onlyPending) list = list.filter((e) => nbPendingAt(e, today));
-  else if (!s) list = list.filter((e) => nbYM(e.regDate) === ym);
+  else if (!s) list = list.filter(inR);
   if (s) list = list.filter((e) => nbSrch([e.no, nbFirNo(e, (ctx && ctx.settings) || {}), e.sections, e.place, e.complainant, e.accused, e.facts, e.io, e.deceased, e.missing, e.informant, e.writer, e.victim].join(" "), q));
-  list = list.slice().sort((a, b) => (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.no) || 0) - (Number(a.no) || 0));
-  const cnt = (k) => entries.filter((e) => e.reg === k && nbYM(e.regDate) === ym).length;
+  const qNo = nbSrchNorm(q).trim().replace(/^0+/, "");
+  const exact = (e) => (s && String(e.no) === qNo ? 1 : 0);
+  list = list.slice().sort((a, b) => exact(b) - exact(a) || (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.no) || 0) - (Number(a.no) || 0));
+  const cnt = (k) => entries.filter((e) => e.reg === k && inR(e)).length;
   const r = nbReg(reg);
   return (
     <div>
@@ -20554,21 +20588,24 @@ function CrimeRegisterList({ entries, reg, setReg, ym, setYm, q, setQ, onlyPendi
           <button key={x.k} onClick={() => setReg(x.k)} className="gu" style={{ borderRadius: 18, padding: "6px 12px", fontSize: 13, fontWeight: 700, border: "1px solid " + (reg === x.k ? "var(--accent-strong)" : "var(--border)"), background: reg === x.k ? "var(--accent-light)" : "var(--bg-surface)", color: reg === x.k ? "var(--accent-strong)" : "var(--text-primary)" }}>{lang === "gu" ? x.gu : x.en} <span className="mono" style={{ fontWeight: 500, color: "var(--text-tertiary)" }}>{cnt(x.k)}</span></button>
         ))}
       </div>
+      {!onlyPending && !s && <NbRangePicker from={rng.from} to={rng.to} onChange={(a, b) => setRng({ from: a, to: b })} />}
+      {s && <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 6 }}>{t(`${list.length} found in all registers, all dates`, `બધા રજીસ્ટર, બધી તારીખોમાં ${nbG(list.length)} મળ્યા`)}</div>}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-        <input type="month" value={ym} onChange={(e) => e.target.value && setYm(e.target.value)} disabled={onlyPending} style={{ ...nbCrDate, width: 170 }} />
-        <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search number, name, place…", "નંબર, નામ, સ્થળ શોધો…")} className="gu" style={{ flex: "1 1 180px", fontSize: 13.5 }} />
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} data-reg-search placeholder={t("Search all registers: number, name, place, section… (English or ગુજરાતી)", "બધા રજીસ્ટરમાં શોધો: નંબર, નામ, સ્થળ, કલમ… (ગુજરાતી કે English)")} className="gu" style={{ flex: "1 1 220px", fontSize: 13.5 }} />
         <label style={{ fontSize: 12.5, display: "flex", gap: 5, alignItems: "center" }}><input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} /> {t("All pending", "બધા પેન્ડીંગ")}</label>
         <button onClick={onNew} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 14, fontWeight: 700 }}>+ {t("New", "નવી")} {lang === "gu" ? r.gu : r.en}</button>
       </div>
       {!list.length ? (
-        <div style={{ padding: 26, textAlign: "center", color: "var(--text-tertiary)", border: "1px dashed var(--border)", borderRadius: 10, fontSize: 13.5 }}>{onlyPending ? t("Nothing pending in this register.", "આ રજીસ્ટરમાં કંઈ પેન્ડીંગ નથી.") : t("No entries in this month. Tap “New” to add one.", "આ માસમાં કોઈ એન્ટ્રી નથી. ઉમેરવા “નવી” દબાવો.")}</div>
+        <div style={{ padding: 26, textAlign: "center", color: "var(--text-tertiary)", border: "1px dashed var(--border)", borderRadius: 10, fontSize: 13.5 }}>{onlyPending ? t("Nothing pending in this register.", "આ રજીસ્ટરમાં કંઈ પેન્ડીંગ નથી.") : s ? t("Nothing found.", "કંઈ મળ્યું નહીં.") : t("No entries in these dates. Tap “New” to add one.", "આ તારીખોમાં કોઈ એન્ટ્રી નથી. ઉમેરવા “નવી” દબાવો.")}</div>
       ) : list.map((e) => {
         const age = nbEntryAge(e, today);
         const pend = nbPendingAt(e, today);
+        const r = nbReg(e.reg), reg = e.reg;
         const title = r.crime ? (reg === "A" ? nbHeadLabel(e) : reg === "B" ? ((NB_PARTB_HEADS.find((h) => h.id === e.partBHead) || {}).name || "") : reg === "C" ? "પ્રોહીબીશન" : "") : reg === "AD" ? (e.kind === "sui" ? "આપઘાત" : e.kind === "nat" ? "કુદરતી / અન્ય" : "અકસ્માત") + " — " + (String(e.deceased || "").split("\n")[0]) : reg === "JJ" ? e.jjType || "" : String(e.missing || "").split("\n")[0];
         return (
           <button key={e.id} onClick={() => onOpen(e)} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", marginBottom: 8, color: "var(--text-primary)", cursor: "pointer" }}>
             <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+              {s && <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 5, padding: "0 5px" }}>{r.gu}</span>}
               <b className="mono">{nbG(e.no || "?")}/{nbG(String(e.year || "").slice(-2))}</b>
               <b>{title}</b>
               <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
@@ -20635,6 +20672,7 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
           <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : <><PdfIcon />PDF</>}</button>
         </div>
       ))}
+      <CrimeRangeReports ctx={ctx} showList={showList} showBst={showBst} />
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginTop: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}><WaIcon size={16} /> {t("Daily crime report (WhatsApp)", "દૈનિક ગુના અહેવાલ (WhatsApp)")}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -20644,6 +20682,45 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
         </div>
         <pre className="gu" style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0", fontFamily: "inherit" }}>{txt}</pre>
       </div>
+    </div>
+  );
+}
+// Utara / B-statement and counts for any "from … to …" dates.
+function CrimeRangeReports({ ctx, showList, showBst }) {
+  const { t } = useLang();
+  const [R, setR] = useState(() => ({ from: nbYMShift(nbYM(todayStr()), -6) + "-01", to: nbYMEnd(nbYMShift(nbYM(todayStr()), -1)) }));
+  const [busy, setBusy] = useState("");
+  const [pdf, setPdf] = useState(null);
+  const rctx = { ...ctx, range: R };
+  const lbl = nbRangeLabel(R);
+  const inR = (k) => ctx.entries.filter((e) => e.reg === k && nbInCtx(e, rctx));
+  const docs = [["utara", "ઉતારા", nbUtaraModel, true], ["bst", "B સ્ટેટમેન્ટ", nbBStatementModel, false]];
+  const fname = (k) => `${k}-${R.from}-to-${R.to}`;
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 11px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" };
+  return (
+    <div data-range-reports style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginTop: 14 }}>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>📅 {t("Any period (from … to …)", "કોઈ પણ ગાળો (તારીખ … થી …)")}</div>
+      <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6, marginBottom: 10 }}>
+        {[["A", "ભાગ-એ"], ["B", "ભાગ-બી"], ["C", "ભાગ-સી"], ["AD", "અ.મોત"], ["JJ", "જાણવા જોગ"], ["GUM", "ગુમ"]].map(([k, l]) => {
+          const L = inR(k);
+          return (
+            <div key={k} style={{ background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "6px 8px" }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{l}</div>
+              <div className="mono" style={{ fontSize: 17, fontWeight: 700 }}><NbDrillNum list={L} title={`${l} — ${lbl}`} onShow={showList}>{L.length}</NbDrillNum>{["A", "B", "C"].includes(k) ? <span style={{ fontSize: 11.5, color: "var(--status-success-text)", fontWeight: 600 }}> · <NbDrillNum list={L.filter((e) => e.detected)} title={`${l} — ડીટેક્ટ — ${lbl}`} onShow={showList}>{L.filter((e) => e.detected).length}</NbDrillNum> {t("det.", "ડી.")}</span> : null}</div>
+            </div>
+          );
+        })}
+      </div>
+      {docs.map((d) => (
+        <div key={d[0]} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--border-soft)", padding: "8px 0" }}>
+          <div style={{ flex: "1 1 180px", fontWeight: 700, fontSize: 13.5 }}>📄 {d[1]} <span style={{ fontWeight: 400, fontSize: 12, color: "var(--text-secondary)" }}>· {lbl}</span></div>
+          {d[0] === "bst" && showBst && <button type="button" onClick={() => showBst(`B સ્ટેટમેન્ટ — ${lbl}`, inR("A"))} style={btn}>👁 {t("View", "જુઓ")}</button>}
+          <button type="button" onClick={() => { try { nbDeliverBlob(nbModelDocx(d[2](rctx), { landscape: d[3] }), fname(d[0]) + ".docx", d[1]); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn}><WordIcon />Word</button>
+          <button type="button" disabled={!!busy} onClick={async () => { setBusy(d[0]); try { setPdf({ doc: await nbModelPdf(d[2](rctx), { landscape: d[3] }), filename: fname(d[0]) + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(""); } }} style={btn}>{busy === d[0] ? "…" : <><PdfIcon />PDF</>}</button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -21070,6 +21147,7 @@ function nbGuessBookHead(e) {
   if (e.reg === "M") return "othM";
   const acts = e.acts || nbGuessActs(e.sections);
   if (e.reg === "B") {
+    if (acts.includes("IT")) return "cheatit";
     const pb = e.partBHead || nbGuessPartB(e.sections);
     const b = NB_BOOK_HEADS.find((x) => x.pb === pb);
     if (b) return b.id;
@@ -21089,7 +21167,7 @@ function nbGuessBookHead(e) {
 function nbBookHeadOf(e) { return (e._bookAuto !== false && !e.bookHead) || !nbBookHead(e.bookHead) ? nbGuessBookHead(e) : e.bookHead; }
 function nbBookHeadsFor(reg) {
   if (reg === "C") return NB_BOOK_HEADS.filter((b) => b.c || b.id === "othC");
-  if (reg === "B") return NB_BOOK_HEADS.filter((b) => b.pb || b.id === "othB" || b.id === "money" || b.id === "atro");
+  if (reg === "B") return NB_BOOK_HEADS.filter((b) => b.pb || ["othB", "money", "atro", "cheatit"].includes(b.id));
   if (reg === "M") return NB_BOOK_HEADS.filter((b) => b.id === "othM");
   return NB_BOOK_HEADS.filter((b) => !b.c && !["othB", "othC", "othM"].includes(b.id));
 }
@@ -21135,32 +21213,72 @@ function nbYearEntries(ctx, year, upto) {
   const hi = `${year}-${String(upto || 12).padStart(2, "0")}-31`;
   return ctx.entries.filter((e) => ["A", "B", "C", "M"].includes(e.reg) && e.regDate && e.regDate.slice(0, 4) === String(year) && e.regDate <= hi);
 }
+// ---------- Date range ("from … to …") used across the Crime Register ----------
+function nbRangeEntries(ctx, R) { return ctx.entries.filter((e) => ["A", "B", "C", "M"].includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to); }
+function nbShiftYear(d, n) { const y = Number(String(d).slice(0, 4)) + n; const r = y + String(d).slice(4); return r.slice(5) === "02-29" ? y + "-02-28" : r; }
+function nbRangeLabel(R) {
+  if (R.from.slice(5) === "01-01" && R.to.slice(5) === "12-31" && R.from.slice(0, 4) === R.to.slice(0, 4)) return `વર્ષ ${nbG(R.from.slice(0, 4))}`;
+  return `તા.${nbGDate(R.from)} થી તા.${nbGDate(R.to)} સુધી`;
+}
+function nbRangeMonths(R) { const out = []; let ym = R.from.slice(0, 7); const end = R.to.slice(0, 7); while (ym <= end && out.length < 36) { out.push(ym); ym = nbYMShift(ym, 1); } return out; }
+function nbYMShort(ym, multi) { const m = NB_GU_MON_SHORT[Number(ym.slice(5, 7)) - 1]; return multi ? m + " " + nbG(ym.slice(2, 4)) : m; }
+function nbRangePresets(t) {
+  const today = todayStr(), ym = nbYM(today), y = today.slice(0, 4);
+  return [
+    ["m0", t("This month", "આ માસ"), ym + "-01", today],
+    ["m1", t("Last month", "ગત માસ"), nbYMShift(ym, -1) + "-01", nbYMEnd(nbYMShift(ym, -1))],
+    ["m3", t("Last 3 months", "છેલ્લા ૩ માસ"), nbYMShift(ym, -3) + "-01", nbYMEnd(nbYMShift(ym, -1))],
+    ["m6", t("Last 6 months", "છેલ્લા ૬ માસ"), nbYMShift(ym, -6) + "-01", nbYMEnd(nbYMShift(ym, -1))],
+    ["y0", t("This year", "આ વર્ષ"), y + "-01-01", today],
+    ["y1", t("Last year", "ગત વર્ષ"), (Number(y) - 1) + "-01-01", (Number(y) - 1) + "-12-31"],
+    ["all", t("All", "બધું"), "2000-01-01", today],
+  ];
+}
+function NbRangePicker({ from, to, onChange, extra }) {
+  const { t } = useLang();
+  const P = nbRangePresets(t);
+  const qb = (on) => ({ background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 16, padding: "4px 10px", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" });
+  return (
+    <div data-range style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <NbDateInput value={from} onChange={(e) => e.target.value && onChange(e.target.value, to < e.target.value ? e.target.value : to)} style={{ ...nbCrDate, width: 140 }} data-range-from />
+        <b className="gu" style={{ fontSize: 13 }}>{t("to", "થી")}</b>
+        <NbDateInput value={to} onChange={(e) => e.target.value && onChange(from > e.target.value ? e.target.value : from, e.target.value)} style={{ ...nbCrDate, width: 140 }} data-range-to />
+        {extra}
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+        {P.map(([k, l, a, b]) => <button key={k} type="button" data-range-preset={k} onClick={() => onChange(a, b)} className="gu" style={qb(from === a && to === b)}>{l}</button>)}
+      </div>
+    </div>
+  );
+}
 function nbHeadHistText(e) {
   return (e.headHistory || []).map((h) => `${(nbBookHead(h.from) || {}).gu || h.from} → ${(nbBookHead(h.to) || {}).gu || h.to}${h.date ? " (તા." + nbGDate(h.date) + ")" : ""}${h.reason ? " " + h.reason : ""}`).join("; ");
 }
 const nbRs = (n) => (n ? nbG(nbMoney(n)) : "૦");
-function nbAnnualReviewModel(ctx, year, upto) {
+function nbAnnualReviewModel(ctx, R) {
   const B = [];
-  const months = Number(upto) || 12;
-  const E = nbYearEntries(ctx, year, months);
-  const P = nbYearEntries(ctx, Number(year) - 1, months);
-  const span = months === 12 ? `વર્ષ ${nbG(year)}` : `તા.૦૧/૦૧/${nbG(year)} થી માહે ${nbG(String(months).padStart(2, "0"))}/${nbG(year)} સુધી`;
+  const year = R.to.slice(0, 4);
+  const multi = R.from.slice(0, 4) !== R.to.slice(0, 4);
+  const E = nbRangeEntries(ctx, R);
+  const P = nbRangeEntries(ctx, { from: nbShiftYear(R.from, -1), to: nbShiftYear(R.to, -1) });
+  const span = nbRangeLabel(R);
   const used = NB_BOOK_HEADS.filter((b) => E.some((e) => nbBookHeadOf(e) === b.id) || P.some((e) => nbBookHeadOf(e) === b.id));
   const byHead = (L, id) => L.filter((e) => nbBookHeadOf(e) === id);
   B.push({ p: `${ctx.ps} પોલીસ સ્ટેશન`, b: true, sz: 26, center: true, after: 20 });
-  B.push({ p: `વાર્ષિક ગુના સમીક્ષા — ${span}`, b: true, sz: 24, center: true, after: 120 });
+  B.push({ p: `ગુના સમીક્ષા — ${span}`, b: true, sz: 24, center: true, after: 120 });
   // 1. month-wise
   B.push({ p: "(૧) હેડ વાઇઝ / માસ વાઇઝ દાખલ થયેલ ગુના", b: true, sz: 22, after: 60 });
-  const mcols = Array.from({ length: months }, (_, i) => i);
-  const mw = Math.floor(9600 / months);
+  const mcols = nbRangeMonths(R);
+  const mw = Math.floor(9600 / Math.max(1, mcols.length));
   const totM = mcols.map(() => 0);
   const mrows = used.map((b, i) => {
     const L = byHead(E, b.id);
-    const cells = mcols.map((m) => { const n = L.filter((e) => Number(e.regDate.slice(5, 7)) === m + 1).length; totM[m] += n; return nbCell(n ? nbG(n) : "-", { center: true }); });
+    const cells = mcols.map((m, mi) => { const n = L.filter((e) => e.regDate.slice(0, 7) === m).length; m = mi; totM[m] += n; return nbCell(n ? nbG(n) : "-", { center: true }); });
     return [nbCell(nbG(i + 1), { center: true }), nbCell(b.gu), ...cells, nbCell(nbG(L.length), { center: true, b: true }), nbCell(nbG(byHead(P, b.id).length), { center: true })];
   });
   mrows.push([nbCell(""), nbCell("કુલ", { b: true }), ...totM.map((n) => nbCell(nbG(n), { center: true, b: true })), nbCell(nbG(E.length), { center: true, b: true }), nbCell(nbG(P.length), { center: true, b: true })]);
-  B.push({ table: true, sz: 16, widths: [450, 2700, ...mcols.map(() => mw), 900, 1050], headRows: [["ક્રમ", "હેડ", ...mcols.map((m) => NB_GU_MON_SHORT[m]), "કુલ", `ગત વર્ષ ${nbG(Number(year) - 1)}`].map((x) => nbCell(x, { b: true, center: true }))], rows: mrows, after: 160 });
+  B.push({ table: true, sz: 16, widths: [450, 2700, ...mcols.map(() => mw), 900, 1050], headRows: [["ક્રમ", "હેડ", ...mcols.map((m) => nbYMShort(m, multi)), "કુલ", "ગત વર્ષ (સમાન ગાળો)"].map((x) => nbCell(x, { b: true, center: true }))], rows: mrows, after: 160 });
   // 2. status
   B.push({ p: "(૨) હેડ વાઇઝ ડીટેક્શન, નિકાલ અને મુદ્દામાલ", b: true, sz: 22, after: 60 });
   const tot = nbAnnualStats(E);
@@ -21201,17 +21319,17 @@ function nbAnnualReviewModel(ctx, year, upto) {
   for (let i = 0; i < Math.max(half, 1); i++) { const a = secs[i], b = secs[half + i]; srow2.push([nbCell(a ? "BNS " + nbG(a[0]) : "-"), nbCell(a ? nbG(a[1]) : "", { center: true }), nbCell(b ? "BNS " + nbG(b[0]) : ""), nbCell(b ? nbG(b[1]) : "", { center: true })]); }
   B.push({ table: true, sz: 16, widths: [3000, 1300, 3000, 1300], headRows: [["કલમ", "ગુના", "કલમ", "ગુના"].map((x) => nbCell(x, { b: true, center: true }))], rows: srow2, after: 160 });
   // 8. monthly comparison
-  B.push({ p: `(૮) માસ વાઇઝ સરખામણી (ગત વર્ષ ${nbG(Number(year) - 1)} / ચાલુ વર્ષ ${nbG(year)})`, b: true, sz: 22, after: 60 });
+  B.push({ p: `(૮) માસ વાઇઝ સરખામણી (ગત વર્ષનો સમાન ગાળો / ચાલુ)`, b: true, sz: 22, after: 60 });
   const cmp = mcols.map((m) => {
-    const c = E.filter((e) => Number(e.regDate.slice(5, 7)) === m + 1), p = P.filter((e) => Number(e.regDate.slice(5, 7)) === m + 1);
+    const c = E.filter((e) => e.regDate.slice(0, 7) === m), p = P.filter((e) => e.regDate.slice(0, 7) === nbYMShift(m, -12));
     const d = c.length - p.length;
-    return [nbCell(NB_GU_MON_SHORT[m]), ...["A", "B", "C"].flatMap((r) => [nbCell(nbG(p.filter((e) => e.reg === r).length), { center: true }), nbCell(nbG(c.filter((e) => e.reg === r).length), { center: true })]), nbCell(nbG(p.length), { center: true }), nbCell(nbG(c.length), { center: true }), nbCell((d > 0 ? "+" : "") + nbG(d), { center: true, b: true })];
+    return [nbCell(nbYMShort(m, multi)), ...["A", "B", "C"].flatMap((r) => [nbCell(nbG(p.filter((e) => e.reg === r).length), { center: true }), nbCell(nbG(c.filter((e) => e.reg === r).length), { center: true })]), nbCell(nbG(p.length), { center: true }), nbCell(nbG(c.length), { center: true }), nbCell((d > 0 ? "+" : "") + nbG(d), { center: true, b: true })];
   });
   const cnt = (L, r) => nbG(L.filter((e) => e.reg === r).length);
   cmp.push([nbCell("કુલ", { b: true }), ...["A", "B", "C"].flatMap((r) => [nbCell(cnt(P, r), { center: true, b: true }), nbCell(cnt(E, r), { center: true, b: true })]), nbCell(nbG(P.length), { center: true, b: true }), nbCell(nbG(E.length), { center: true, b: true }), nbCell((E.length - P.length > 0 ? "+" : "") + nbG(E.length - P.length), { center: true, b: true })]);
   B.push({ table: true, sz: 16, widths: [1400, 1150, 1150, 1150, 1150, 1150, 1150, 1300, 1300, 1300], headRows: [
     [nbCell("માસ", { b: true, center: true, rowSpan: 2 }), nbCell("ભાગ-એ", { b: true, center: true, span: 2 }), SKIP, nbCell("ભાગ-બી", { b: true, center: true, span: 2 }), SKIP, nbCell("ભાગ-સી", { b: true, center: true, span: 2 }), SKIP, nbCell("કુલ", { b: true, center: true, span: 2 }), SKIP, nbCell("વધ / ઘટ", { b: true, center: true, rowSpan: 2 })],
-    [SKIP, ...Array.from({ length: 4 }, () => [nbCell(nbG(Number(year) - 1), { b: true, center: true }), nbCell(nbG(year), { b: true, center: true })]).flat(), SKIP],
+    [SKIP, ...Array.from({ length: 4 }, () => [nbCell(multi ? "ગત" : nbG(Number(year) - 1), { b: true, center: true }), nbCell(multi ? "ચાલુ" : nbG(year), { b: true, center: true })]).flat(), SKIP],
   ], rows: cmp, after: 160 });
   // 9. prohibition seizures
   const C = E.filter((e) => e.reg === "C");
@@ -21227,11 +21345,10 @@ function nbAnnualReviewModel(ctx, year, upto) {
   return B;
 }
 // Detailed book: one table per head, every crime with its details.
-function nbCrimeBookModel(ctx, year, upto) {
+function nbCrimeBookModel(ctx, R) {
   const B = [];
-  const months = Number(upto) || 12;
-  const E = nbSortEntries(nbYearEntries(ctx, year, months));
-  B.push({ p: `${ctx.ps} પોલીસ સ્ટેશન — હેડ વાઇઝ ગુના પત્રક ${months === 12 ? "વર્ષ " + nbG(year) : "તા.૦૧/૦૧/" + nbG(year) + " થી " + nbG(String(months).padStart(2, "0")) + "/" + nbG(year)}`, b: true, sz: 24, center: true, after: 120 });
+  const E = nbSortEntries(nbRangeEntries(ctx, R));
+  B.push({ p: `${ctx.ps} પોલીસ સ્ટેશન — હેડ વાઇઝ ગુના પત્રક ${nbRangeLabel(R)}`, b: true, sz: 24, center: true, after: 120 });
   let first = true;
   NB_BOOK_HEADS.forEach((b) => {
     const L = E.filter((e) => nbBookHeadOf(e) === b.id);
@@ -21354,20 +21471,18 @@ const nbAnnF = {
 const nbAnnLbl = { n: "દાખલ", det: "ડીટેક્ટ", und: "અનડીટેક્ટ", cs: "ચાર્જશીટ", fa: "'A' ફાઇનલ", fb: "'B' ફાઇનલ", fc: "'C' ફાઇનલ", acc: "આરોપી વિગત સાથે" };
 function CrimeAnnualPanel({ ctx, showToast, showList }) {
   const { t } = useLang();
-  const thisYear = new Date().getFullYear();
-  const [year, setYear] = useState(String(thisYear));
-  const [upto, setUpto] = useState(String(new Date().getMonth() + 1));
+  const [R, setR] = useState(() => ({ from: todayStr().slice(0, 4) + "-01-01", to: todayStr() }));
   const [pdf, setPdf] = useState(null);
   const [busy, setBusy] = useState("");
-  const years = Array.from(new Set([thisYear, ...ctx.entries.map((e) => Number((e.regDate || "").slice(0, 4))).filter(Boolean)])).sort((a, b) => b - a);
-  const E = nbYearEntries(ctx, year, upto);
+  const E = nbRangeEntries(ctx, R);
+  const year = nbRangeLabel(R);
   const docs = [
-    ["annual", "વાર્ષિક ગુના સમીક્ષા", t("Head × month, detection, A/B/C finals, accused age/gender, property, transfers, agency, acts, sections, year comparison", "હેડ × માસ, ડીટેક્શન, A/B/C ફાઇનલ, આરોપી ઉંમર/જાતિ, મુદ્દામાલ, હેડ ફેરફાર, એજન્સી, અધિનિયમ, કલમ, ગત વર્ષ સરખામણી"), nbAnnualReviewModel],
+    ["annual", "ગુના સમીક્ષા (વાર્ષિક / કોઈ પણ ગાળો)", t("Head × month, detection, A/B/C finals, accused age/gender, property, transfers, agency, acts, sections, year comparison", "હેડ × માસ, ડીટેક્શન, A/B/C ફાઇનલ, આરોપી ઉંમર/જાતિ, મુદ્દામાલ, હેડ ફેરફાર, એજન્સી, અધિનિયમ, કલમ, ગત વર્ષ સરખામણી"), nbAnnualReviewModel],
     ["book", "હેડ વાઇઝ ગુના પત્રક (બુક)", t("Every crime under its final head with all details", "દરેક ગુનો તેના ફાઇનલ હેડમાં, બધી વિગત સાથે"), nbCrimeBookModel],
   ];
-  const fname = (k) => `${k}-${year}${Number(upto) < 12 ? "-upto-" + String(upto).padStart(2, "0") : ""}`;
-  const word = (d) => { try { nbDeliverBlob(nbModelDocx(d[3](ctx, year, upto), { landscape: true }), fname(d[0]) + ".docx", d[1]); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } };
-  const pdfDo = async (d) => { setBusy(d[0]); try { const doc = await nbModelPdf(d[3](ctx, year, upto), { landscape: true }); setPdf({ doc, filename: fname(d[0]) + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(""); } };
+  const fname = (k) => `${k}-${R.from}-to-${R.to}`;
+  const word = (d) => { try { nbDeliverBlob(nbModelDocx(d[3](ctx, R), { landscape: true }), fname(d[0]) + ".docx", d[1]); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } };
+  const pdfDo = async (d) => { setBusy(d[0]); try { const doc = await nbModelPdf(d[3](ctx, R), { landscape: true }); setPdf({ doc, filename: fname(d[0]) + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(""); } };
   const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" };
   const rows = NB_BOOK_HEADS.map((b) => ({ b, s: nbAnnualStats(E.filter((e) => nbBookHeadOf(e) === b.id)) })).filter((r) => r.s.n);
   const tot = nbAnnualStats(E);
@@ -21378,12 +21493,8 @@ function CrimeAnnualPanel({ ctx, showToast, showList }) {
   return (
     <div>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-        <b>{t("Year", "વર્ષ")}:</b>
-        <select value={year} onChange={(ev) => setYear(ev.target.value)} className="mono" style={{ fontSize: 14 }}>{years.map((y) => <option key={y} value={y}>{y}</option>)}</select>
-        <b>{t("up to", "સુધી")}:</b>
-        <select value={upto} onChange={(ev) => setUpto(ev.target.value)} className="gu" style={{ fontSize: 14 }}>{NB_GU_MON_SHORT.map((m, i) => <option key={i} value={String(i + 1)}>{m}{i === 11 ? " (" + t("full year", "આખું વર્ષ") + ")" : ""}</option>)}</select>
-      </div>
+      <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
+      <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10 }}>{year} · {t(`${E.length} crimes`, `${nbG(E.length)} ગુના`)}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[[t("Registered", "દાખલ"), [[tot.n, E]]], [t("Detected", "ડીટેક્ટ"), [[tot.det, E.filter(nbAnnF.det)]]], [t("Undetected", "અનડીટેક્ટ"), [[tot.und, E.filter(nbAnnF.und)]]],
           ["'A' / 'B' / 'C' " + t("final", "ફાઇનલ"), [[tot.fa, E.filter(nbAnnF.fa), "'A'"], [tot.fb, E.filter(nbAnnF.fb), "'B'"], [tot.fc, E.filter(nbAnnF.fc), "'C'"]]],
