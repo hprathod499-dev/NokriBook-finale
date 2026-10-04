@@ -19957,8 +19957,8 @@ function nbDailyCrimeText(ctx, date) {
 // ---------- storage of register entries ----------
 const nbEntryStore = {
   all: () => nbIdb("entries", "readonly", (st) => st.getAll()).then((x) => x || []),
-  put: (e) => nbIdb("entries", "readwrite", (st) => st.put(e)).then(nbCrimeChanged),
-  putMany: (list) => nbIdb("entries", "readwrite", (st) => { list.forEach((e) => st.put(e)); }).then(nbCrimeChanged),
+  put: (e) => nbIdb("entries", "readwrite", (st) => st.put(nbCompactEntry(e))).then(nbCrimeChanged),
+  putMany: (list) => nbIdb("entries", "readwrite", (st) => { list.forEach((e) => st.put(nbCompactEntry(e))); }).then(nbCrimeChanged),
   del: (id) => nbIdb("entries", "readwrite", (st) => st.delete(id)).then(nbCrimeChanged),
 };
 function useLocalEntries() {
@@ -20954,13 +20954,15 @@ const nbCrDrive = {
   // one file per day, updated in place
   async upload(tok, json) {
     const folder = await this.folder(tok);
-    const name = `crime-register-backup-${todayStr()}.json`;
+    const gz = nbCanGzip();
+    const name = `crime-register-backup-${todayStr()}.json${gz ? ".gz" : ""}`;
     const q = encodeURIComponent(`name='${name}' and '${folder}' in parents and trashed=false`);
     const l = await (await this.api(tok, `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id)`)).json();
     const id = l.files && l.files[0] && l.files[0].id;
     const bd = "nbcr" + uid();
     const meta = id ? { name } : { name, parents: [folder] };
-    const body = `--${bd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${bd}\r\nContent-Type: application/json\r\n\r\n${json}\r\n--${bd}--`;
+    const data = gz ? await nbGzipBlob(json) : json;
+    const body = new Blob([`--${bd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${bd}\r\nContent-Type: ${gz ? "application/gzip" : "application/json"}\r\n\r\n`, data, `\r\n--${bd}--`]);
     await this.api(tok, id ? `https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart` : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", { method: id ? "PATCH" : "POST", headers: { "Content-Type": `multipart/related; boundary=${bd}` }, body });
   },
   async list(tok) {
@@ -20968,11 +20970,11 @@ const nbCrDrive = {
     const q = encodeURIComponent(`'${folder}' in parents and trashed=false`);
     return ((await (await this.api(tok, `https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&orderBy=modifiedTime desc&pageSize=30&fields=files(id,name,modifiedTime,size)`)).json()).files || []);
   },
-  async read(tok, id) { return (await this.api(tok, `https://www.googleapis.com/drive/v3/files/${id}?alt=media`)).text(); },
+  async read(tok, id) { return nbBackupBytesToText(await (await this.api(tok, `https://www.googleapis.com/drive/v3/files/${id}?alt=media`)).arrayBuffer()); },
 };
 async function nbCrimeBackupJson(profile) {
   const [cases, entries, monthly, regSettings] = await Promise.all([nbCrimeStore.all(), nbEntryStore.all(), nbCrimeStore.getMeta("monthly"), nbCrimeStore.getMeta("regSettings")]);
-  const content = { station: profile, cases, entries, monthly: monthly || {}, regSettings: regSettings || {} };
+  const content = { station: profile, cases, entries: entries.map(nbCompactEntry), monthly: monthly || {}, regSettings: regSettings || {} };
   return { count: entries.length, sig: JSON.stringify(content), json: JSON.stringify({ app: "nokri-book-crime-review", v: 2, exportedAt: new Date().toISOString(), ...content }) };
 }
 // onlyIfChanged: the automatic backup skips uploading when nothing changed
@@ -21589,6 +21591,35 @@ function nbCrimeGuessProfile() {
   } catch (e) {}
   return { stationName: "", district: "", state: "" };
 }
+// ---------- Compressed crime backups (.json.gz, ~8x smaller) ----------
+const nbCanGzip = () => typeof CompressionStream === "function" && typeof DecompressionStream === "function";
+async function nbGzipBlob(text) {
+  if (!nbCanGzip()) return new Blob([text], { type: "application/json" });
+  const st = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Blob([await new Response(st).arrayBuffer()], { type: "application/gzip" });
+}
+// reads a backup that may be gzipped (new) or plain JSON (old files)
+async function nbBackupBytesToText(buf) {
+  const u = new Uint8Array(buf);
+  if (u.length > 2 && u[0] === 0x1f && u[1] === 0x8b) {
+    if (typeof DecompressionStream !== "function") throw new Error("This browser can't open compressed backups — update the browser.");
+    const st = new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return await new Response(st).text();
+  }
+  return new TextDecoder("utf-8").decode(u);
+}
+// empty fields ("" / null / []) are not stored
+function nbCompactEntry(e) {
+  const o = {};
+  Object.keys(e || {}).forEach((k) => { const v = e[k]; if (v === "" || v == null || (Array.isArray(v) && !v.length)) return; o[k] = v; });
+  return o;
+}
+function nbDownloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
 function nbDownloadText(filename, text, type) {
   const blob = new Blob([text], { type: type || "application/json" });
   const url = URL.createObjectURL(blob);
@@ -21685,8 +21716,10 @@ function CrimeOfflineApp({ tab }) {
   const doBackup = async () => {
     const now = Date.now();
     const [entries, monthly, regSettings] = await Promise.all([nbEntryStore.all(), nbCrimeStore.getMeta("monthly"), nbCrimeStore.getMeta("regSettings")]);
-    const payload = { app: "nokri-book-crime-review", v: 2, exportedAt: new Date(now).toISOString(), station: profile, cases: cases || [], entries, monthly: monthly || {}, regSettings: regSettings || {} };
-    nbDownloadText(`crime-register-backup-${todayStr()}.json`, JSON.stringify(payload, null, 1));
+    const payload = { app: "nokri-book-crime-review", v: 2, exportedAt: new Date(now).toISOString(), station: profile, cases: cases || [], entries: entries.map(nbCompactEntry), monthly: monthly || {}, regSettings: regSettings || {} };
+    const text = JSON.stringify(payload);
+    if (nbCanGzip()) nbDownloadBlob(`crime-register-backup-${todayStr()}.json.gz`, await nbGzipBlob(text));
+    else nbDownloadText(`crime-register-backup-${todayStr()}.json`, text);
     nbCrimeStore.setMeta("lastBackupAt", now).then(() => showToast(t(`Backup downloaded (${entries.length} entries)`, `બેકઅપ ડાઉનલોડ થયો (${entries.length} એન્ટ્રી)`)));
   };
   return (
@@ -22113,9 +22146,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
   };
   const restore = (file) => {
     if (!file) return;
-    const r = new FileReader();
-    r.onload = () => applyBackupText(String(r.result || ""));
-    r.readAsText(file);
+    file.arrayBuffer().then(nbBackupBytesToText).then(applyBackupText).catch((e) => window.alert(t("Couldn't read that file: ", "ફાઇલ વાંચી શકાઇ નહીં: ") + e.message));
   };
   const [plan, setPlan] = useState(null);
   const applyBackupText = async (text) => {
@@ -22159,7 +22190,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
             <CrimeMenuSection id="file" open={open} toggle={toggle} title={"💾 " + t("Backup file", "બેકઅપ ફાઇલ")}>
             <button onClick={() => { onBackup(); onClose(); }} style={row}>⬇ {t("Download backup file", "બેકઅપ ફાઇલ ડાઉનલોડ કરો")}</button>
             <button onClick={() => fileRef.current && fileRef.current.click()} style={row}>⬆ {t("Restore from a backup file", "બેકઅપ ફાઇલમાંથી restore કરો")}</button>
-            <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={(e) => { restore(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+            <input ref={fileRef} type="file" accept=".json,.gz,application/json,application/gzip,application/x-gzip" style={{ display: "none" }} onChange={(e) => { restore(e.target.files && e.target.files[0]); e.target.value = ""; }} />
             </CrimeMenuSection>
             <CrimeMenuSection id="drive" open={open} toggle={toggle} title={<><DriveIcon />Google Drive</>} badge={meta.driveOn ? "✓ " + t("On", "ચાલુ") : ""}>
             {!meta.driveOn ? (
