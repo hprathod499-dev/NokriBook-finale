@@ -21510,6 +21510,176 @@ function CrimeMenuSection({ id, open, toggle, title, badge, children }) {
     </div>
   );
 }
+// ---------- Restore / import with duplicate check ----------
+// Entries are matched by their number (Part A/B/C/M share one C.R. series;
+// A.D., J.J. and missing have their own), not only by the hidden id, so the
+// same crime is never added twice. Differences are shown and decided first.
+function nbEntryKey(e) {
+  const reg = ["A", "B", "C", "M"].includes(e.reg) ? "CR" : e.reg;
+  const no = parseInt(nbAsciiDigits(String(e.no || "")), 10);
+  return `${reg}|${isNaN(no) ? String(e.no || "") : no}|${String(e.year || "")}`;
+}
+const NB_IMPORT_SKIP = new Set(["id", "createdAt", "updatedAt"]);
+function nbImpEmpty(v) { return v == null || v === "" || (Array.isArray(v) && v.length === 0) || (typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0); }
+function nbImpSame(a, b) { const z = (v) => nbImpEmpty(v) || v === false; if (z(a) && z(b)) return true; return JSON.stringify(a) === JSON.stringify(b) || String(a) === String(b) && typeof a !== "object"; }
+// fields where the file has a value that differs from mine
+function nbImpDiff(mine, file) {
+  const out = [];
+  Object.keys(file).forEach((k) => {
+    if (NB_IMPORT_SKIP.has(k) || k.startsWith("_")) return;
+    const fv = file[k];
+    if (nbImpEmpty(fv)) return;
+    if (!nbImpSame(mine[k], fv)) out.push(k);
+  });
+  return out;
+}
+function nbImpShow(k, v) {
+  if (nbImpEmpty(v)) return "—";
+  if (k === "accList" || k === "vicList") return nbPeopleText(v, k === "vicList" ? "vic" : "acc") || "—";
+  if (k === "headHistory") return nbHeadHistText({ headHistory: v }) || "—";
+  if (k === "head44" || k === "changeOldHead") { const h = nbHead44(v); return h ? h.short : String(v); }
+  if (k === "bookHead") return (nbBookHead(v) || {}).gu || v;
+  if (k === "closeType") return (NB_CLOSE_TYPES.find((x) => x[0] === v) || [])[1] || v;
+  if (typeof v === "boolean") return v ? "✓" : "✗";
+  if (Array.isArray(v)) return v.join(", ");
+  if (typeof v === "object") return JSON.stringify(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return formatDMY(v);
+  return String(v);
+}
+function nbImpLabel(reg, k) {
+  const f = nbRegFields(reg).find((x) => x.k === k);
+  if (f) return f.gu;
+  return { reg: "રજીસ્ટર", headHistory: "હેડ ફેરફાર", bookHead: "વાર્ષિક હેડ", acts: "ખાસ અધિનિયમ", reviewHead: "રિવ્યુ હેડ", head44: "હેડ" }[k] || k;
+}
+// plan: { add:[e], same:n, conflicts:[{mine, file, diff}], months:{ add:[ym], same:n, conflicts:[{ym, mine, file}] }, data }
+async function nbImportPlan(data, curEntries) {
+  const byKey = {}, byId = {};
+  (curEntries || []).forEach((e) => { byKey[nbEntryKey(e)] = e; byId[e.id] = e; });
+  const seen = {};
+  (Array.isArray(data.entries) ? data.entries : []).filter((e) => e && typeof e.id === "string" && e.reg).forEach((e) => {
+    const k = nbEntryKey(e);
+    if (!seen[k] || (Number(e.updatedAt) || 0) > (Number(seen[k].updatedAt) || 0)) seen[k] = e;
+  });
+  const plan = { add: [], same: 0, conflicts: [], months: { add: [], same: 0, conflicts: [] }, data };
+  Object.entries(seen).forEach(([k, f]) => {
+    const mine = byKey[k] || (byId[f.id] && nbEntryKey(byId[f.id]) === k ? byId[f.id] : null);
+    if (!mine) { plan.add.push(byId[f.id] ? { ...f, id: "e" + Date.now().toString(36) + uid() } : f); return; }
+    const diff = nbImpDiff(mine, f);
+    if (!diff.length) plan.same++;
+    else plan.conflicts.push({ mine, file: f, diff, choice: "fill" });
+  });
+  const curM = (await nbCrimeStore.getMeta("monthly")) || {};
+  Object.entries(data.monthly && typeof data.monthly === "object" ? data.monthly : {}).forEach(([ym, m]) => {
+    if (!m || typeof m !== "object") return;
+    if (!curM[ym] || nbImpEmpty(curM[ym])) plan.months.add.push(ym);
+    else if (JSON.stringify(curM[ym]) === JSON.stringify(m)) plan.months.same++;
+    else plan.months.conflicts.push({ ym, mine: curM[ym], file: m, choice: "fill" });
+  });
+  plan.curM = curM;
+  return plan;
+}
+function nbDeepFill(mine, file) {
+  if (nbImpEmpty(mine)) return file;
+  if (typeof mine !== "object" || typeof file !== "object" || !file || Array.isArray(mine)) return mine;
+  const out = { ...mine };
+  Object.keys(file).forEach((k) => { out[k] = nbDeepFill(mine[k], file[k]); });
+  return out;
+}
+async function nbImportApply(plan) {
+  const now = Date.now();
+  const put = plan.add.map((e) => ({ ...e }));
+  plan.conflicts.forEach((c) => {
+    if (c.choice === "mine") return;
+    const n = { ...c.mine, updatedAt: now };
+    c.diff.forEach((k) => { if (c.choice === "file" || nbImpEmpty(c.mine[k])) n[k] = c.file[k]; });
+    put.push(n);
+  });
+  if (put.length) await nbEntryStore.putMany(put);
+  const M = { ...plan.curM };
+  plan.months.add.forEach((ym) => { M[ym] = plan.data.monthly[ym]; });
+  plan.months.conflicts.forEach((c) => { if (c.choice === "file") M[c.ym] = c.file; else if (c.choice === "fill") M[c.ym] = nbDeepFill(c.mine, c.file); });
+  if (plan.months.add.length || plan.months.conflicts.some((c) => c.choice !== "mine")) await nbCrimeStore.setMeta("monthly", M);
+  return put.length;
+}
+function CrimeImportReview({ plan, onCancel, onApply }) {
+  const { t } = useLang();
+  const [, force] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const C = plan.conflicts, MC = plan.months.conflicts;
+  const setAll = (ch) => { C.forEach((c) => (c.choice = ch)); MC.forEach((c) => (c.choice = ch)); force((x) => x + 1); };
+  const seg = (c) => (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+      {[["mine", t("Keep mine", "મારું રાખો")], ["file", t("Use the file's", "ફાઇલનું વાપરો")], ["fill", t("Fill only my empty boxes", "મારા ખાલી ખાના જ ભરો")]].map(([k, l]) => (
+        <button key={k} type="button" data-choice={k} onClick={() => { c.choice = k; force((x) => x + 1); }} style={{ fontSize: 12, fontWeight: 700, borderRadius: 7, padding: "5px 9px", border: "1px solid " + (c.choice === k ? "var(--accent-strong)" : "var(--border)"), background: c.choice === k ? "var(--accent-strong)" : "var(--bg-surface)", color: c.choice === k ? "#fff" : "var(--text-primary)", cursor: "pointer" }}>{l}</button>
+      ))}
+    </div>
+  );
+  const box = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 10px" };
+  const td = { border: "1px solid var(--border-soft)", padding: "4px 6px", verticalAlign: "top", fontSize: 12.5, whiteSpace: "pre-wrap", wordBreak: "break-word" };
+  const ymLbl = (ym) => nbG(ym.slice(5) + "/" + ym.slice(0, 4));
+  const nothing = !plan.add.length && !C.length && !plan.months.add.length && !MC.length;
+  return (
+    <div role="dialog" aria-modal="true" className="modal-backdrop" onClick={(e) => e.stopPropagation()} style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 150, padding: "12px 10px", overflowY: "auto" }}>
+      <div className="modal-card gu" data-import-review="1" style={{ background: "var(--bg-page)", borderRadius: 12, width: 760, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border-soft)", background: "var(--bg-surface)", borderRadius: "12px 12px 0 0" }}>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>📥 {t("Check before adding", "ઉમેરતા પહેલા તપાસો")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Nothing is saved until you press Add. Nothing on this device is deleted.", "‘ઉમેરો’ દબાવો ત્યાં સુધી કંઈ સચવાશે નહીં. આ ડિવાઇસ પરનું કંઈ ડિલીટ થશે નહીં.")}</div>
+        </div>
+        <div style={{ padding: "12px 14px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginBottom: 12 }}>
+            <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>✅ {t("New — will be added", "નવી — ઉમેરાશે")}</div><b className="mono" data-imp-new={plan.add.length} style={{ fontSize: 20 }}>{plan.add.length}</b></div>
+            <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>⏭ {t("Same as mine — skipped", "મારા જેવી જ — છોડી દેવાશે")}</div><b className="mono" data-imp-same={plan.same} style={{ fontSize: 20 }}>{plan.same}</b></div>
+            <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>⚠ {t("Same number, different details", "એ જ નંબર, અલગ વિગત")}</div><b className="mono" data-imp-conf={C.length} style={{ fontSize: 20 }}>{C.length}</b></div>
+            <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>📅 {t("Monthly inputs", "માસિક વિગત")}</div><b className="mono" style={{ fontSize: 15 }}>{t("new", "નવી")} {plan.months.add.length} · {t("differ", "અલગ")} {MC.length}</b></div>
+          </div>
+          {nothing && <div style={{ ...box, textAlign: "center", padding: 18, color: "var(--text-secondary)" }}>{t("Everything in this file is already on this device.", "આ ફાઇલનું બધું આ ડિવાઇસ પર પહેલેથી છે.")}</div>}
+          {(C.length > 0 || MC.length > 0) && (
+            <div style={{ ...box, marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <b style={{ fontSize: 13 }}>{t("For all differences:", "બધા તફાવત માટે:")}</b>
+              <button type="button" onClick={() => setAll("mine")} style={{ fontSize: 12, borderRadius: 7, padding: "5px 9px", border: "1px solid var(--border)", background: "var(--bg-surface)" }}>{t("Keep all mine", "બધું મારું રાખો")}</button>
+              <button type="button" onClick={() => setAll("file")} style={{ fontSize: 12, borderRadius: 7, padding: "5px 9px", border: "1px solid var(--border)", background: "var(--bg-surface)" }}>{t("Use all from file", "બધું ફાઇલનું વાપરો")}</button>
+              <button type="button" onClick={() => setAll("fill")} style={{ fontSize: 12, borderRadius: 7, padding: "5px 9px", border: "1px solid var(--border)", background: "var(--bg-surface)" }}>{t("Fill only empty boxes", "ફક્ત ખાલી ખાના ભરો")}</button>
+            </div>
+          )}
+          {C.map((c, i) => (
+            <div key={i} data-conflict={nbEntryKey(c.mine)} style={{ ...box, marginBottom: 10 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 5, padding: "0 5px" }}>{nbReg(c.mine.reg).gu}</span>
+                <b className="mono">{nbG(c.mine.no)}/{nbG(String(c.mine.year).slice(-2))}</b>
+                <b style={{ flex: 1 }}>{nbEntryTitle(nbNormEntry(c.mine))}</b>
+                {seg(c)}
+              </div>
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <thead><tr><th style={{ ...td, width: "26%", textAlign: "left" }}></th><th style={{ ...td, textAlign: "left", width: "37%" }}>{t("On this device", "આ ડિવાઇસ પર")}</th><th style={{ ...td, textAlign: "left", width: "37%" }}>{t("In the file", "ફાઇલમાં")}</th></tr></thead>
+                <tbody>{c.diff.map((k) => {
+                  const used = c.choice === "file" || (c.choice === "fill" && nbImpEmpty(c.mine[k]));
+                  return (
+                    <tr key={k}>
+                      <td style={{ ...td, fontWeight: 700 }}>{nbImpLabel(c.mine.reg, k)}</td>
+                      <td style={{ ...td, background: used ? "transparent" : "var(--status-success-bg)" }}>{nbImpShow(k, c.mine[k]).slice(0, 300)}</td>
+                      <td style={{ ...td, background: used ? "var(--status-success-bg)" : "transparent" }}>{nbImpShow(k, c.file[k]).slice(0, 300)}</td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
+          ))}
+          {MC.map((c, i) => (
+            <div key={"m" + i} style={{ ...box, marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <b style={{ flex: 1, fontSize: 13.5 }}>📅 {t("Monthly inputs", "માસિક વિગત")} {ymLbl(c.ym)} — {t("already entered and different in the file", "પહેલેથી ભરેલ છે અને ફાઇલમાં અલગ છે")}</b>
+              {seg(c)}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, padding: "12px 16px", borderTop: "1px solid var(--border-soft)", position: "sticky", bottom: 0, background: "var(--bg-surface)", borderRadius: "0 0 12px 12px" }}>
+          <div style={{ flex: 1 }} />
+          <button type="button" onClick={onCancel} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+          <button type="button" data-imp-add="1" disabled={busy || nothing} onClick={async () => { setBusy(true); try { await onApply(); } finally { setBusy(false); } }} style={{ background: nothing ? "var(--border)" : "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 14, fontWeight: 700 }}>{busy ? "…" : t("Add", "ઉમેરો")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose, showToast, darkMode, setDarkMode, look, bigBtn }) {
   const [open, setOpen] = useState(() => { try { return sessionStorage.getItem("nb_cr_menu_open") || ""; } catch (e) { return ""; } });
   const toggle = (k) => { const v = open === k ? "" : k; setOpen(v); try { sessionStorage.setItem("nb_cr_menu_open", v); } catch (e) {} };
@@ -21566,33 +21736,33 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
     r.onload = () => applyBackupText(String(r.result || ""));
     r.readAsText(file);
   };
+  const [plan, setPlan] = useState(null);
   const applyBackupText = async (text) => {
-    {
-      try {
-        const data = JSON.parse(text);
-        if (!data || data.app !== "nokri-book-crime-review" || !Array.isArray(data.cases)) throw new Error("not a Crime Review backup");
-        const valid = data.cases.filter((c) => c && typeof c.id === "string" && c.id && c.crNo != null && typeof c.regDate === "string");
-        const current = {}; cases.forEach((c) => { current[c.id] = c; });
-        // Merge: a case already here is replaced only by a newer copy.
-        const toPut = valid.filter((c) => !current[c.id] || (Number(c.updatedAt) || 0) > (Number(current[c.id].updatedAt) || 0));
-        const vEnt = (Array.isArray(data.entries) ? data.entries : []).filter((e) => e && typeof e.id === "string" && e.reg);
-        const curE = {}; (entries || []).forEach((e) => { curE[e.id] = e; });
-        const entPut = vEnt.filter((e) => !curE[e.id] || (Number(e.updatedAt) || 0) > (Number(curE[e.id].updatedAt) || 0));
-        const added = toPut.filter((c) => !current[c.id]).length + entPut.filter((e) => !curE[e.id]).length;
-        const total = valid.length + vEnt.length, changed = toPut.length + entPut.length;
-        if (!window.confirm(t(`Restore from this backup?\n${total} entries in the file — ${added} new, ${changed - added} updated. Nothing on this device is deleted.`, `આ બેકઅપમાંથી restore કરવું છે?\nફાઇલમાં ${total} એન્ટ્રી — ${added} નવી, ${changed - added} સુધારેલી. આ ડિવાઇસ પરથી કંઈ ડિલીટ નહીં થાય.`))) return;
-        await nbCrimeStore.putMany(toPut);
-        if (entPut.length) await nbEntryStore.putMany(entPut);
-        if (data.monthly && typeof data.monthly === "object") { const cur = (await nbCrimeStore.getMeta("monthly")) || {}; await nbCrimeStore.setMeta("monthly", { ...data.monthly, ...cur }); }
-        if (data.regSettings && !(await nbCrimeStore.getMeta("regSettings"))) await nbCrimeStore.setMeta("regSettings", data.regSettings);
-        if (!meta.profile && data.station && data.station.stationName) await nbCrimeStore.setMeta("profile", data.station);
-        showToast(t(`Restored: ${added} new, ${changed - added} updated`, `Restore થયું: ${added} નવી, ${changed - added} સુધારેલી`));
-        onClose();
-      } catch (e) {
-        console.error("Restore failed:", e);
-        window.alert(t("This file isn't a Crime Register backup.", "આ ફાઇલ ગુના રજીસ્ટરનો બેકઅપ નથી."));
-      }
+    try {
+      const data = JSON.parse(text);
+      if (!data || data.app !== "nokri-book-crime-review" || !Array.isArray(data.cases)) throw new Error("not a Crime Review backup");
+      // old Crime Review cases (before the register): merged quietly, newest copy wins
+      const valid = data.cases.filter((c) => c && typeof c.id === "string" && c.id && c.crNo != null && typeof c.regDate === "string");
+      const current = {}; cases.forEach((c) => { current[c.id] = c; });
+      const toPut = valid.filter((c) => !current[c.id] || (Number(c.updatedAt) || 0) > (Number(current[c.id].updatedAt) || 0));
+      const p = await nbImportPlan(data, entries || []);
+      p.oldCases = toPut;
+      setPlan(p);
+    } catch (e) {
+      console.error("Restore failed:", e);
+      window.alert(t("This file isn't a Crime Register backup.", "આ ફાઇલ ગુના રજીસ્ટરનો બેકઅપ નથી."));
     }
+  };
+  const applyPlan = async () => {
+    const p = plan;
+    if (p.oldCases && p.oldCases.length) await nbCrimeStore.putMany(p.oldCases);
+    const n = await nbImportApply(p);
+    if (p.data.regSettings && !(await nbCrimeStore.getMeta("regSettings"))) await nbCrimeStore.setMeta("regSettings", p.data.regSettings);
+    if (!meta.profile && p.data.station && p.data.station.stationName) await nbCrimeStore.setMeta("profile", p.data.station);
+    const upd = p.conflicts.filter((c) => c.choice !== "mine").length;
+    showToast(t(`Added ${p.add.length} new, updated ${upd}, skipped ${p.same}`, `${p.add.length} નવી ઉમેરી, ${upd} સુધારી, ${p.same} છોડી`));
+    setPlan(null);
+    onClose();
   };
   const row = { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "13px 4px", fontSize: 14, color: "var(--text-primary)", cursor: "pointer" };
   return (
@@ -21638,6 +21808,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
             </CrimeMenuSection>
           </div>
         )}
+        {plan && <CrimeImportReview plan={plan} onCancel={() => setPlan(null)} onApply={applyPlan} />}
         {view === "drive" && (
           <div>
             <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8 }}>{t("Backups in your Google Drive (newest first). Restoring adds and updates entries; nothing on this device is deleted.", "તમારા Google Drive માંના બેકઅપ (નવા પહેલા). Restore થી એન્ટ્રી ઉમેરાશે / સુધરશે; આ ડિવાઇસ પરથી કંઈ ડિલીટ નહીં થાય.")}</div>
