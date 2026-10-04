@@ -19924,6 +19924,7 @@ function nbRegFields(reg) {
   ];
   if (crime) return [
     { sec: "basic", en: "FIR", gu: "ગુનો" },
+    nbF("reg", "Part", "ભાગ", "regsel"),
     nbF("no", "C.R. no", "ગુ.ર.નં. (ક્રમ)", "num"), nbF("year", "Year", "વર્ષ", "num"),
     nbF("regDate", "Registered on", "ગુ.જા. તારીખ", "date"), nbF("regTime", "Time", "ગુ.જા. સમય", "time"),
     nbF("sections", "Sections", "કલમ", "area", { wide: true, ph: "દા.ત. BNS કલમ ૩૦૩(૨)" }),
@@ -20109,6 +20110,11 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {NB_ACTS.map((a) => { const on = (e.acts || []).includes(a.k); return <button type="button" key={a.k} onClick={() => set("acts", on ? (e.acts || []).filter((x) => x !== a.k) : [...(e.acts || []), a.k])} className="gu" style={{ fontSize: 12.5, borderRadius: 14, padding: "4px 10px", border: "1px solid " + (on ? "var(--accent-strong)" : "var(--border)"), background: on ? "var(--accent-light)" : "var(--bg-surface)", color: on ? "var(--accent-strong)" : "var(--text-secondary)", fontWeight: on ? 700 : 500 }}>{on ? "✓ " : ""}{a.short}</button>; })}
       </div>
+    );
+    else if (f.type === "regsel") ctl = (
+      <select value={v} data-regsel="1" onChange={(ev) => { const r = ev.target.value; setE((x) => ({ ...x, reg: r, ...(r === "B" && !x.partBHead ? { partBHead: nbGuessPartB(x.sections) } : {}), ...(r === "A" && !x.head44 ? { head44: nbGuessHead44(x.sections) || 43, _headAuto: true } : {}) })); }} className="gu" style={inp}>
+        {NB_REGS.filter((r) => r.crime).map((r) => <option key={r.k} value={r.k}>{r.gu}</option>)}
+      </select>
     );
     else if (f.type === "people") ctl = <NbPeopleEditor value={v} kind={f.who} onChange={(x) => set(f.k, x)} />;
     else if (f.type === "bookhead") ctl = <NbBookHeadField e={e} setE={setE} />;
