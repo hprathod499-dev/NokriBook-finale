@@ -3193,9 +3193,9 @@ function PeriodFilterSelect({ period, setPeriod }) {
       </select>
       {period.key === "custom" && (
         <React.Fragment>
-          <input type="date" value={period.customFrom || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customFrom: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
+          <NbDateInput value={period.customFrom || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customFrom: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
           <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>–</span>
-          <input type="date" value={period.customTo || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customTo: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
+          <NbDateInput value={period.customTo || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customTo: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
         </React.Fragment>
       )}
     </div>
@@ -3204,6 +3204,29 @@ function PeriodFilterSelect({ period, setPeriod }) {
 // "05/08/2026" style — the display format used everywhere in the app.
 // Storage/comparison still use ISO "YYYY-MM-DD" internally; this is only
 // for what the person sees.
+// ---------- Date box that always shows dd/mm/yyyy ----------
+// A phone set to English (US) shows a normal date box as mm/dd/yyyy. This
+// shows the date as dd/mm/yyyy and keeps the phone's own date picker: the
+// real date input lies invisibly on top, so tapping opens the picker.
+function NbDateInput({ value, onChange, style, className, placeholder, defaultValue, ...rest }) {
+  const controlled = value !== undefined;
+  const [inner, setInner] = useState(defaultValue || "");
+  const cur = controlled ? value : inner;
+  const st = style || {};
+  const wrap = { position: "relative", display: st.width === "100%" ? "block" : "inline-block", verticalAlign: "middle" };
+  ["width", "flex", "minWidth", "maxWidth", "margin", "marginTop", "marginLeft", "marginRight", "marginBottom", "gridColumn"].forEach((k) => { if (st[k] != null) wrap[k] = st[k]; });
+  const shown = cur ? formatDMY(String(cur).slice(0, 10)) : "";
+  const valueProps = controlled ? { value: value || "" } : { defaultValue: defaultValue || "" };
+  return (
+    <span style={wrap}>
+      <input type="text" readOnly tabIndex={-1} aria-hidden="true" value={shown} placeholder={placeholder || "dd/mm/yyyy"} className={className} style={{ ...st, width: st.width ? "100%" : st.width, margin: 0, flex: undefined, gridColumn: undefined, pointerEvents: "none", minWidth: st.minWidth || 118, paddingRight: 30 }} />
+      <span aria-hidden="true" style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", fontSize: 13, opacity: 0.55 }}>📅</span>
+      <input type="date" {...valueProps} onChange={(e) => { if (!controlled) setInner(e.target.value); if (onChange) onChange(e); }} {...rest}
+        onClick={(e) => { try { if (e.currentTarget.showPicker) e.currentTarget.showPicker(); } catch (er) {} if (rest.onClick) rest.onClick(e); }}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: rest.disabled ? "default" : "pointer", margin: 0, padding: 0, border: "none", boxSizing: "border-box" }} />
+    </span>
+  );
+}
 function formatDMY(dateStr) {
   if (!dateStr) return "";
   const [y, m, d] = dateStr.split("-");
@@ -4010,7 +4033,7 @@ function ActivityLogModal({ data, onClose }) {
           {!rows.length && <div style={{ color: "var(--text-tertiary)", padding: 20, textAlign: "center", fontSize: 13 }}>{log.length ? t("Nothing matches.", "કંઈ મળ્યું નહીં.") : t("No changes recorded yet. From now on every change is listed here with who made it.", "હજુ કોઈ ફેરફાર નોંધાયો નથી. હવેથી દરેક ફેરફાર કોણે કર્યો તે સાથે અહીં દેખાશે.")}</div>}
           {rows.map((e, i) => (
             <div key={e.ts + "-" + i} style={{ borderBottom: "1px solid var(--border-soft)", padding: "9px 2px" }}>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(e.ts).toLocaleString(undefined, { hourCycle: "h23" })} · <b style={{ color: "var(--text-secondary)" }}>{e.by}</b> ({roleLbl(e.role)})</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{new Date(e.ts).toLocaleString("en-IN", { hourCycle: "h23" })} · <b style={{ color: "var(--text-secondary)" }}>{e.by}</b> ({roleLbl(e.role)})</div>
               {e.items.map((it, j) => <div key={j} style={{ fontSize: 13, marginTop: 2 }}>{nbActivityText(it, t)}</div>)}
             </div>
           ))}
@@ -7444,7 +7467,7 @@ function DutyRoster() {
     } catch (e) {
       console.error("Pre-format safety backup failed — proceeding with format anyway", e);
     }
-    const whenText = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
+    const whenText = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
     const personName = staffRec.name;
     const isFullWipe = formatMode === "all";
     if (formatMode === "keep6") setDidKeep6Format(true);
@@ -8574,7 +8597,7 @@ function DutyRoster() {
     if (!raw) { showToast(t("No local data snapshot found on this device yet", "આ ડિવાઇસ પર હજુ કોઈ સ્થાનિક ડેટા સ્નેપશોટ મળ્યો નથી"), "error"); return; }
     let parsed;
     try { parsed = JSON.parse(raw); } catch (e) { showToast(t("The local data snapshot on this device is corrupted", "આ ડિવાઇસ પરનો સ્થાનિક ડેટા સ્નેપશોટ ખરાબ થયેલો છે"), "error"); return; }
-    const when = new Date(parsed.savedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
+    const when = new Date(parsed.savedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
     if (!window.confirm(t(
       `Restore the local data from ${when}? It will replace ALL current data (staff, work types, history, designations, everything). You can still Ctrl+Z once right after, but do this carefully.`,
       `${when} નો સ્થાનિક ડેટા પુનઃસ્થાપિત કરવો છે? તે તમામ હાલનો ડેટા (સ્ટાફ, કામના પ્રકારો, ઇતિહાસ, હોદ્દાઓ, બધું) બદલી નાખશે. તમે તરત જ પછી એકવાર Ctrl+Z કરી શકો છો, પણ કાળજીપૂર્વક કરો.`
@@ -9507,7 +9530,7 @@ function DutyOrderModal({ data, onClose }) {
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", margin: "12px 0" }}>
           <button onClick={() => setDate(todayStr())} style={catTabBtn(date === todayStr())} className="gu">{t("Today", "આજે")}</button>
           <button onClick={() => setDate(tomorrow)} style={catTabBtn(date === tomorrow)} className="gu">{t("Tomorrow", "આવતીકાલે")}</button>
-          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ fontSize: 13 }} />
+          <NbDateInput value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ fontSize: 13 }} />
           <div style={{ flex: 1 }} />
           <button onClick={() => setOrderLang("gu")} style={catTabBtn(orderLang === "gu")} className="gu">ગુજરાતી</button>
           <button onClick={() => setOrderLang("en")} style={catTabBtn(orderLang === "en")}>English</button>
@@ -9549,7 +9572,7 @@ function HomeView({ data, goToCategory }) {
       {showOrder && <DutyOrderModal data={data} onClose={() => setShowOrder(false)} />}
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
-          {new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(todayStr())} — {t("only work types with a duty assigned today are shown here.", "ફક્ત જેમાં આજે ડ્યુટી સોંપાયેલી છે તે કામના પ્રકારો અહીં બતાવાય છે.")}
+          {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("only work types with a duty assigned today are shown here.", "ફક્ત જેમાં આજે ડ્યુટી સોંપાયેલી છે તે કામના પ્રકારો અહીં બતાવાય છે.")}
         </p>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
@@ -9616,7 +9639,7 @@ function AssignDutyView({ initialSubTab, onSubTabChange, data, assignDuty, assig
       </div>
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 16px" }} className="gu">
-          {new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
+          {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
         </p>
       )}
 
@@ -9873,17 +9896,17 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
         {dateMode === "one" ? (
           <div style={{ marginBottom: 18 }}>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Date", "તારીખ")}</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <NbDateInput value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         ) : dateMode === "multi" ? (
           <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
             <div>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("From date", "તારીખ થી")}</label>
-              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
+              <NbDateInput value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
             </div>
             <div>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
-              <input type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
+              <NbDateInput value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
             </div>
             {dayCount > 1 && (
               <div className="gu" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 20, padding: "5px 10px" }}>
@@ -9894,7 +9917,7 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
         ) : (
           <div style={{ marginBottom: 18 }}>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Starts", "શરૂ થાય છે")}</label>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <NbDateInput value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
               {t("Logs duty from the start date through today. Come back and assign this same duty again later to extend it further.", "શરૂઆતની તારીખથી આજ સુધીની ડ્યુટી નોંધાય છે. આગળ વધારવા માટે પછીથી ફરી આ જ ડ્યુટી સોંપો.")}
             </div>
@@ -10055,19 +10078,19 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
           <div style={{ marginBottom: 14, display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{dateMode === "one" ? t("Date", "તારીખ") : t("From", "થી")}</label>
-              <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); if (dateMode === "one") setTo(e.target.value); else if (to < e.target.value) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
+              <NbDateInput value={from} onChange={(e) => { setFrom(e.target.value); if (dateMode === "one") setTo(e.target.value); else if (to < e.target.value) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
             </div>
             {dateMode === "multi" && (
               <div style={{ flex: 1 }}>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To", "સુધી")}</label>
-                <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+                <NbDateInput value={to} min={from} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
               </div>
             )}
           </div>
         ) : (
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Starts", "શરૂ થાય છે")}</label>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+            <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
             <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">{t("Stays on leave until you clear it from Manage staff.", "તમે સ્ટાફ સંચાલિત કરોમાંથી સાફ ન કરો ત્યાં સુધી રજા પર રહેશે.")}</div>
           </div>
         )}
@@ -10244,12 +10267,12 @@ function GroupDutyView({ data, assignGroupDuty }) {
         <div style={{ display: "flex", gap: 10, marginBottom: 4, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{dateMode === "one" ? t("Date", "તારીખ") : (dateMode === "noend" ? t("Starts", "શરૂ થાય છે") : t("From date", "તારીખ થી"))}</label>
-            <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
+            <NbDateInput value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
           </div>
           {dateMode === "multi" && (
             <div>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
-              <input type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
+              <NbDateInput value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
             </div>
           )}
           {dayCount > 1 && (
@@ -10906,7 +10929,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                   <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td}>
                     {editingDate === p.number ? (
-                      <input type="date" defaultValue={p.lastDuty} autoFocus onBlur={(e) => { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); }} onKeyDown={(e) => { if (e.key === "Enter") { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); } }} />
+                      <NbDateInput defaultValue={p.lastDuty} autoFocus onBlur={(e) => { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); }} onKeyDown={(e) => { if (e.key === "Enter") { setLastDuty(catId, p.number, e.target.value); setEditingDate(null); } }} />
                     ) : (
                       <span className="mono" onClick={() => setEditingDate(p.number)} style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }} title={t("Click to edit", "સંપાદિત કરવા ક્લિક કરો")}>{formatDMY(p.lastDuty)}</span>
                     )}
@@ -10960,7 +10983,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
           {!lookupPreview && newNumber.trim() && <div style={{ fontSize: 11, color: "var(--status-warning-text)", marginTop: 3 }} className="gu">{t("New number — enter name →", "નવો નંબર — નામ દાખલ કરો →")}</div>}
         </div>
         <input type="text" placeholder={t("Staff name", "સ્ટાફનું નામ")} value={newName} onChange={(e) => setNewName(e.target.value)} disabled={!!lookupPreview} style={{ width: 200, background: lookupPreview ? "var(--bg-surface-2)" : "var(--bg-surface)" }} className="gu" />
-        <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+        <NbDateInput value={newDate} onChange={(e) => setNewDate(e.target.value)} />
         <button type="submit" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 600 }} className="gu">+ {t("Add to this work type", "આ કામના પ્રકારમાં ઉમેરો")}</button>
         <button
           type="button"
@@ -11280,7 +11303,7 @@ function AssignDutyModal({ name, onConfirm, onCancel }) {
         <div className="disp gu" style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t("Assign duty to", "ડ્યુટી સોંપો")} {name}</div>
 
         <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginTop: 10, marginBottom: 4 }} className="gu">{t("Duty date", "ડ્યુટીની તારીખ")}</label>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+        <NbDateInput value={date} onChange={(e) => setDate(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
         <div style={{ display: "flex", gap: 6, marginTop: 6, marginBottom: 14 }}>
           <button onClick={() => setDate(todayStr())} style={quickBtn(date === todayStr())} className="gu">{t("Today", "આજે")}</button>
           <button onClick={() => setDate(addDaysStr(todayStr(), 1))} style={quickBtn(date === addDaysStr(todayStr(), 1))} className="gu">{t("Tomorrow", "આવતીકાલે")}</button>
@@ -12467,7 +12490,7 @@ function NightRoundView({ data, saveNightRound, showToast, canEdit }) {
         <React.Fragment>
           <div className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <button onClick={() => setDate(addDaysStr(date, -1))} style={iconBtnWide}>‹</button>
-            <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={inp} />
+            <NbDateInput value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={inp} />
             <button onClick={() => setDate(addDaysStr(date, 1))} style={iconBtnWide}>›</button>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{dayName} · {t(`${nthName} ${dayName} of the month`, `મહિનાનો ${nthName} ${dayName}`)}</span>
             <div style={{ flex: 1 }} />
@@ -12743,8 +12766,8 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
       <div className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 14 }}>
         <input type="text" value={draft.title} onChange={(e) => set("title", e.target.value.slice(0, 120))} placeholder={t("Bandobast name, e.g. Navratri 2026", "બંદોબસ્તનું નામ, દા.ત. નવરાત્રી 2026")} className="gu" style={{ ...inp, width: "100%", fontSize: 16, fontWeight: 700 }} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-          <label style={{ fontSize: 12 }}>{t("From", "થી")}<br /><input type="date" value={draft.from} onChange={(e) => set("from", e.target.value)} style={inp} /></label>
-          <label style={{ fontSize: 12 }}>{t("To", "સુધી")}<br /><input type="date" value={draft.to || draft.from} onChange={(e) => set("to", e.target.value)} style={inp} /></label>
+          <label style={{ fontSize: 12 }}>{t("From", "થી")}<br /><NbDateInput value={draft.from} onChange={(e) => set("from", e.target.value)} style={inp} /></label>
+          <label style={{ fontSize: 12 }}>{t("To", "સુધી")}<br /><NbDateInput value={draft.to || draft.from} onChange={(e) => set("to", e.target.value)} style={inp} /></label>
           <div style={{ fontSize: 12, flex: "1 1 220px" }}>{t("Time", "સમય")}<br /><NbTimeRange value={draft.time || ""} onChange={(x) => set("time", x)} /></div>
           <label style={{ fontSize: 12, flex: "2 1 180px" }}>{t("Place / reporting", "સ્થળ / હાજરી")}<br /><input type="text" value={draft.place} onChange={(e) => set("place", e.target.value.slice(0, 120))} className="gu" style={{ ...inp, width: "100%" }} /></label>
         </div>
@@ -13563,7 +13586,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               ))}
             </select>
             <label style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t("From", "થી")}</label>
-            <input type="date" value={modalFrom} onChange={(e) => setModalFrom(e.target.value)} style={{ width: "100%", marginBottom: 8, marginTop: 3 }} />
+            <NbDateInput value={modalFrom} onChange={(e) => setModalFrom(e.target.value)} style={{ width: "100%", marginBottom: 8, marginTop: 3 }} />
             {modalIsIndefinite ? (
               <div style={{ fontSize: 11.5, color: "var(--text-secondary)", background: "var(--bg-surface-2)", border: "1px solid var(--border-soft)", borderRadius: 6, padding: "8px 10px", marginBottom: 16 }} className="gu">
                 {t("This type has no fixed end date —", "આ પ્રકારની કોઈ નિશ્ચિત અંતિમ તારીખ નથી —")} {data.staff[modalFor].name} {t("will stay marked", "તરીકે માર્ક રહેશે")} "{selectedType.label}" {t("until you press", "જ્યાં સુધી તમે દબાવો નહીં")} <strong>{t("End now", "હમણાં સમાપ્ત કરો")}</strong> {t("for them.", "તેમના માટે.")}
@@ -13571,7 +13594,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
             ) : (
               <React.Fragment>
                 <label style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t("To", "સુધી")}</label>
-                <input type="date" value={modalTo} onChange={(e) => setModalTo(e.target.value)} style={{ width: "100%", marginBottom: 8, marginTop: 3 }} />
+                <NbDateInput value={modalTo} onChange={(e) => setModalTo(e.target.value)} style={{ width: "100%", marginBottom: 8, marginTop: 3 }} />
               </React.Fragment>
             )}
             {!modalIsIndefinite && modalTo && modalTo < todayStr() && (
@@ -14631,7 +14654,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                   >{t("Select", "પસંદ કરો")}</button>
                 )}
               </div>
-              <input type="date" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setMonth(e.target.value.slice(0, 7)); }} style={{ fontSize: 12 }} />
+              <NbDateInput value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); setMonth(e.target.value.slice(0, 7)); }} style={{ fontSize: 12 }} />
             </div>
             {entrySelectMode && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", background: "var(--bg-surface-2)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "6px 10px", marginBottom: 10 }}>
@@ -15321,8 +15344,8 @@ function EventsTab({ data, events, addEvent, updateEvent, deleteEvent }) {
           <select value={type} onChange={(e) => setType(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "7px 10px", fontSize: 13, background: "var(--bg-surface)", color: "var(--text-primary)" }} className="gu">
             {EVENT_TYPES.map((ty) => <option key={ty} value={ty}>{eventTypeLabel(ty, lang)}</option>)}
           </select>
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} title={t("Start date", "શરૂઆતની તારીખ")} />
-          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} title={t("End date", "અંતિમ તારીખ")} />
+          <NbDateInput value={start} onChange={(e) => setStart(e.target.value)} title={t("Start date", "શરૂઆતની તારીખ")} />
+          <NbDateInput value={end} onChange={(e) => setEnd(e.target.value)} title={t("End date", "અંતિમ તારીખ")} />
           <input type="text" placeholder={t("Notes (optional)", "નોંધ (વૈકલ્પિક)")} value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: 200 }} className="gu" />
           <button type="submit" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{t("+ Add", "+ ઉમેરો")}</button>
         </form>
@@ -15357,8 +15380,8 @@ function EventEditRow({ data, event, onSave, onCancel }) {
           {EVENT_TYPES.map((ty) => <option key={ty} value={ty}>{eventTypeLabel(ty, lang)}</option>)}
         </select>
       </td>
-      <td style={td}><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></td>
-      <td style={td}><input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></td>
+      <td style={td}><NbDateInput value={start} onChange={(e) => setStart(e.target.value)} /></td>
+      <td style={td}><NbDateInput value={end} onChange={(e) => setEnd(e.target.value)} /></td>
       <td style={td}><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: 160 }} /></td>
       <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
         <button onClick={() => onSave({ name: name.trim(), number: number || null, type, start, end, notes: notes.trim() })} title={t("Save", "સાચવો")} aria-label={t("Save", "સાચવો")} style={{ ...iconBtn, color: "var(--status-success-text)" }}>✓</button>
@@ -16272,7 +16295,7 @@ function DriveBackupPanel({ configured, connected, enabledForAccount, busy, need
   const { t } = useLang();
   useEscToClose(onClose);
   const lastBackupText = lastBackup
-    ? new Date(lastBackup).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    ? new Date(lastBackup).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
     : t("never", "ક્યારેય નહીં");
   // Simplified to one flow: connected-and-working, or not. Whether "not"
   // means a fresh connection, a different device having set it up
@@ -16670,7 +16693,7 @@ function SkipHistoryView({ data, initialSearch }) {
   const exportRows = useMemo(() => entries.map((e) => {
     const dt = new Date(e.ts || 0);
     const workType = e.scope === "category" ? (e.catLabel || "") : t("All work types", "બધા કામના પ્રકારો");
-    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
+    return [formatDMY(e.date), e.ts ? dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "", e.name || "", e.number || "", workType, e.byName || "", e.byNumber || "", e.note || ""];
   }), [entries, t]);
 
   const handleDownloadPdf = async () => {
@@ -16739,7 +16762,7 @@ function SkipHistoryView({ data, initialSearch }) {
               <tbody>
                 {entries.map((e) => {
                   const dt = new Date(e.ts || 0);
-                  const timeStr = e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "–";
+                  const timeStr = e.ts ? dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "–";
                   return (
                     <tr key={e.id} style={{ borderTop: "1px solid var(--border-soft)" }}>
                       <td style={td} className="mono">{formatDMY(e.date)}</td>
@@ -16823,7 +16846,7 @@ function SkipHistoryView({ data, initialSearch }) {
                 ) : (
                   scopedEntries.map((e, i) => {
                     const dt = new Date(e.ts || 0);
-                    const timeStr = e.ts ? dt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "–";
+                    const timeStr = e.ts ? dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "–";
                     return (
                       <div key={e.id || i} className="gu" style={{ padding: "8px 0", borderTop: i ? "1px solid var(--border-soft)" : "none" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
@@ -17174,7 +17197,7 @@ function PublicHomeView({ data, goToCategory }) {
       </div>
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }} className="gu">
-          {new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
+          {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
         </p>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
@@ -17700,7 +17723,7 @@ function DistrictOnDutyView({ data }) {
   return (
     <React.Fragment>
       <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>{t("On duty today", "આજે ડ્યુટી પર")}</h1>
-      <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 16px" }} className="gu">{new Date().toLocaleDateString(undefined, { weekday: "long" })}, {formatDMY(today)}</p>
+      <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 16px" }} className="gu">{new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(today)}</p>
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -18280,7 +18303,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
                 <div style={{ fontSize: 14, fontWeight: 700 }} className="gu">{s.stationName || "—"}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{s.districtId || "—"}{s.state ? ` · ${s.state}` : ""}</div>
                 <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }} className="gu">
-                  {requestedAt ? t(`Requested ${requestedAt.toLocaleDateString()}`, `વિનંતી ${requestedAt.toLocaleDateString()}`) : ""}
+                  {requestedAt ? t(`Requested ${requestedAt.toLocaleDateString("en-IN")}`, `વિનંતી ${requestedAt.toLocaleDateString("en-IN")}`) : ""}
                   {daysLeft != null && (daysLeft > 0 ? ` · ${daysLeft}${t("d left", " દિવસ બાકી")}` : ` · ${t("overdue", "મોડું")}`)}
                 </div>
               </div>
@@ -18662,7 +18685,7 @@ function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts })
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("C.R. / FIR number", "ગુના નંબર")}</label><input type="text" value={c.crNo} onChange={(e) => set("crNo", e.target.value.slice(0, 20))} className="mono" style={nbCrInput} placeholder="25" /></div>
               <div style={{ flex: "0 1 90px" }}><label style={nbCrLabel}>{t("Year", "વર્ષ")}</label><input type="text" value={c.crYear} onChange={(e) => set("crYear", e.target.value.replace(/\D/g, "").slice(0, 4))} className="mono" style={nbCrInput} /></div>
-              <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Registered on", "ગુનો દાખલ તારીખ")}</label><input type="date" value={c.regDate} onChange={(e) => set("regDate", e.target.value)} style={nbCrDate} /></div>
+              <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Registered on", "ગુનો દાખલ તારીખ")}</label><NbDateInput value={c.regDate} onChange={(e) => set("regDate", e.target.value)} style={nbCrDate} /></div>
             </div>
             <label style={nbCrLabel}>{t("Crime type", "ગુનાનો પ્રકાર")}</label>
             <CrimeTypePicker value={c.crimeType} customValue={c.crimeTypeCustom} onChange={(id, custom) => setC((p) => ({ ...p, crimeType: id, crimeTypeCustom: custom, chargeLimit: (nbCrimeType(id) || {}).limit || p.chargeLimit || 60 }))} />
@@ -18693,7 +18716,7 @@ function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts })
                 <PeopleRows rows={c.accused || []} onChange={(v) => set("accused", v)} withArrest label={t("Add accused", "આરોપી ઉમેરો")} />
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("Charge-sheet no.", "ચાર્જશીટ નંબર")}</label><input type="text" value={c.chargesheetNo} onChange={(e) => set("chargesheetNo", e.target.value.slice(0, 30))} className="mono" style={nbCrInput} /></div>
-                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}</label><input type="date" value={c.chargesheetDate} onChange={(e) => set("chargesheetDate", e.target.value)} style={nbCrDate} /></div>
+                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}</label><NbDateInput value={c.chargesheetDate} onChange={(e) => set("chargesheetDate", e.target.value)} style={nbCrDate} /></div>
                   <div style={{ flex: "0 1 120px" }}><label style={nbCrLabel}>{t("Time limit", "સમય મર્યાદા")}</label>
                     <select value={c.chargeLimit} onChange={(e) => set("chargeLimit", Number(e.target.value))} className="gu" style={{ ...nbCrInput }}>
                       <option value={60}>60 {t("days", "દિવસ")}</option><option value={90}>90 {t("days", "દિવસ")}</option>
@@ -18727,7 +18750,7 @@ function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts })
                 ))}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("Summary number", "સમરી નંબર")}</label><input type="text" value={c.summaryNo} onChange={(e) => set("summaryNo", e.target.value.slice(0, 30))} className="mono" style={nbCrInput} /></div>
-                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Summary date", "સમરી તારીખ")}</label><input type="date" value={c.summaryDate} onChange={(e) => set("summaryDate", e.target.value)} style={nbCrDate} /></div>
+                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Summary date", "સમરી તારીખ")}</label><NbDateInput value={c.summaryDate} onChange={(e) => set("summaryDate", e.target.value)} style={nbCrDate} /></div>
                 </div>
               </React.Fragment>
             )}
@@ -18950,8 +18973,8 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
         <div style={{ flex: "2 1 240px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Crime head", "ગુનાનો પ્રકાર")}</label>
           <CrimeTypePicker value={typeId.startsWith("custom:") ? "custom" : typeId} customValue={typeId.startsWith("custom:") ? typeId.slice(7) : ""} onChange={(id, custom) => setTypeId(id === "custom" ? "custom:" + custom : id)} allowAll allowCustom={false} />
         </div>
-        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("From", "થી")}</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={nbCrDate} /></div>
-        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("To", "સુધી")}</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={nbCrDate} /></div>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("From", "થી")}</label><NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={nbCrDate} /></div>
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("To", "સુધી")}</label><NbDateInput value={to} onChange={(e) => setTo(e.target.value)} style={nbCrDate} /></div>
         {isDistrict && (
           <div style={{ flex: "1 1 180px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Station", "સ્ટેશન")}</label>
             <select value={station} onChange={(e) => setStation(e.target.value)} className="gu" style={nbCrInput}>
@@ -20061,7 +20084,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
     const v = e[f.k];
     let ctl;
     if (f.type === "area") ctl = <textarea value={v || ""} rows={f.rows || 2} placeholder={f.ph || ""} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={{ ...inp, resize: "vertical" }} />;
-    else if (f.type === "date") ctl = <input type="date" value={v || ""} onChange={(ev) => set(f.k, ev.target.value)} style={nbCrDate} />;
+    else if (f.type === "date") ctl = <NbDateInput value={v || ""} onChange={(ev) => set(f.k, ev.target.value)} style={nbCrDate} />;
     else if (f.type === "time") ctl = <div><NbTimePicker value={v || ""} onChange={(x) => set(f.k, x)} /></div>;
     else if (f.type === "num") ctl = <input type="text" inputMode="numeric" value={v == null ? "" : v} onChange={(ev) => set(f.k, nbAsciiDigits(ev.target.value).replace(/[^\d.]/g, "").slice(0, 12))} className="mono" style={inp} />;
     else if (f.type === "chk") ctl = <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, padding: "6px 0" }}><input type="checkbox" checked={!!v} onChange={(ev) => set(f.k, ev.target.checked)} style={{ width: 18, height: 18 }} /> {lbl(f)}</label>;
@@ -20272,7 +20295,7 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast }) {
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginTop: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>📲 {t("Daily crime report (WhatsApp)", "દૈનિક ગુના અહેવાલ (WhatsApp)")}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <input type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
+          <NbDateInput value={day} onChange={(e) => e.target.value && setDay(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
           <button onClick={async () => { try { await navigator.clipboard.writeText(txt); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1600); }} style={btn}>{copied ? "✓ " + t("Copied", "કૉપિ થયું") : "📋 " + t("Copy", "કૉપિ")}</button>
           <a href={"https://wa.me/?text=" + encodeURIComponent(txt)} target="_blank" rel="noopener noreferrer" style={{ ...btn, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}><WaIcon size={16} /> WhatsApp</a>
         </div>
@@ -20956,7 +20979,7 @@ function NbBookHeadField({ e, setE }) {
             {opts.filter((b) => b.id !== cur).map((b) => <option key={b.id} value={b.id}>{b.gu}</option>)}
           </select>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <input type="date" value={tr.date} onChange={(ev) => setTr({ ...tr, date: ev.target.value })} style={nbCrDate} />
+            <NbDateInput value={tr.date} onChange={(ev) => setTr({ ...tr, date: ev.target.value })} style={nbCrDate} />
             <input type="text" value={tr.reason} onChange={(ev) => setTr({ ...tr, reason: ev.target.value.slice(0, 120) })} placeholder={t("Reason / new section, e.g. BNS 106(1) added", "કારણ / નવી કલમ, દા.ત. BNS ૧૦૬(૧) ઉમેરેલ")} className="gu" style={{ flex: "1 1 200px", fontSize: 13.5 }} />
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -21179,7 +21202,7 @@ function CrimeOfflineApp({ tab }) {
         <div style={{ padding: "16px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>
           <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <span>📱 {t("Saved only on this device — nothing is sent online.", "ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી.")}</span>
-            {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}>☁ {t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}</span>}
+            {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}>☁ {t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}</span>}
             <span style={{ color: "var(--text-tertiary)" }}>{meta.lastBackupAt ? t(`Last backup: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`, `છેલ્લો બેકઅપ: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`) : t("No backup yet", "હજુ બેકઅપ નથી")}</span>
           </div>
           {driveOn && driveNeedsTap && (
@@ -21470,7 +21493,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
               <button onClick={driveConnect} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Connect Google Drive (automatic backup)", "Google Drive જોડો (આપોઆપ બેકઅપ)")}</button>
             ) : (
               <React.Fragment>
-                <button onClick={() => { onDriveBackup(); }} style={row}>☁ {t("Back up to Google Drive now", "હમણાં Google Drive પર બેકઅપ")}{meta.driveLastAt ? <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}> · {t("last", "છેલ્લો")} {new Date(meta.driveLastAt).toLocaleString(undefined, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span> : null}</button>
+                <button onClick={() => { onDriveBackup(); }} style={row}>☁ {t("Back up to Google Drive now", "હમણાં Google Drive પર બેકઅપ")}{meta.driveLastAt ? <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}> · {t("last", "છેલ્લો")} {new Date(meta.driveLastAt).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</span> : null}</button>
                 <button onClick={driveList} disabled={driveBusy} style={row}>☁ {driveBusy ? "…" : t("Restore from Google Drive", "Google Drive માંથી restore કરો")}</button>
                 <button onClick={async () => { if (!window.confirm(t("Stop automatic Google Drive backup on this device? Backups already in Drive stay there.", "આ ડિવાઇસ પર આપોઆપ Google Drive બેકઅપ બંધ કરવો છે? Drive માં પડેલા બેકઅપ રહેશે."))) return; await nbCrimeStore.setMeta("driveOn", 0); try { sessionStorage.removeItem("nb_cr_drive_tok"); } catch (e) {} showToast(t("Google Drive backup turned off", "Google Drive બેકઅપ બંધ")); }} style={{ ...row, fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Turn off Google Drive backup", "Google Drive બેકઅપ બંધ કરો")}</button>
               </React.Fragment>
@@ -21498,7 +21521,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
             <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8 }}>{t("Backups in your Google Drive (newest first). Restoring adds and updates entries; nothing on this device is deleted.", "તમારા Google Drive માંના બેકઅપ (નવા પહેલા). Restore થી એન્ટ્રી ઉમેરાશે / સુધરશે; આ ડિવાઇસ પરથી કંઈ ડિલીટ નહીં થાય.")}</div>
             {!(driveFiles || []).length && <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("No backups in Google Drive yet.", "Google Drive માં હજુ કોઈ બેકઅપ નથી.")}</div>}
             {(driveFiles || []).map((f) => (
-              <button key={f.id} onClick={() => driveRestore(f)} disabled={driveBusy} style={row}>📄 {f.name.replace(/^crime-register-backup-|\.json$/g, "")} <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>· {new Date(f.modifiedTime).toLocaleString(undefined, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })} · {Math.max(1, Math.round((Number(f.size) || 0) / 1024))} KB</span></button>
+              <button key={f.id} onClick={() => driveRestore(f)} disabled={driveBusy} style={row}>📄 {f.name.replace(/^crime-register-backup-|\.json$/g, "")} <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>· {new Date(f.modifiedTime).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })} · {Math.max(1, Math.round((Number(f.size) || 0) / 1024))} KB</span></button>
             ))}
             <button onClick={() => setView("menu")} className="gu" style={{ display: "block", marginTop: 10, background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}>← {t("Back", "પાછા")}</button>
           </div>
@@ -21739,7 +21762,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 13.5, fontWeight: 600 }} className="gu">{s.stationName || "—"}</div>
                         <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="gu">
-                          {requestedAt ? t(`Requested ${requestedAt.toLocaleDateString()}`, `વિનંતી ${requestedAt.toLocaleDateString()}`) : ""}
+                          {requestedAt ? t(`Requested ${requestedAt.toLocaleDateString("en-IN")}`, `વિનંતી ${requestedAt.toLocaleDateString("en-IN")}`) : ""}
                           {daysLeft != null && (daysLeft > 0 ? ` · ${daysLeft}${t("d left", " દિવસ બાકી")}` : ` · ${t("overdue", "મોડું")}`)}
                         </div>
                       </div>
@@ -21805,7 +21828,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                         {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {(liveOnDuty[s.uid] != null ? liveOnDuty[s.uid] : (s.onDutyToday || 0))} {t("on duty today", "આજે ડ્યુટી પર")}
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
-                        {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString(undefined, { hourCycle: "h23" }) : "—"}
+                        {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString("en-IN", { hourCycle: "h23" }) : "—"}
                       </div>
                     </div>
                     <span style={{ color: "var(--text-tertiary)", fontSize: 20, flexShrink: 0, marginLeft: 12 }}>›</span>
@@ -21834,7 +21857,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                 [t("Station", "સ્ટેશન"), formatInfo.stationName || "—"],
                 [t("Done by", "કરનાર"), formatInfo.byName || "—"],
                 [t("Buckle number", "બકલ નંબર"), formatInfo.byNumber || "—"],
-                [t("Date & time", "તારીખ અને સમય"), new Date(formatInfo.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" })],
+                [t("Date & time", "તારીખ અને સમય"), new Date(formatInfo.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" })],
                 [t("What was cleared", "શું સાફ થયું"), formatInfo.mode === "all"
                   ? t("ALL data — staff, work types and every duty record", "બધો ડેટા — સ્ટાફ, કામના પ્રકારો અને દરેક ડ્યુટી રેકોર્ડ")
                   : t(`Duty data older than ${formatInfo.keepMonths || 2} months (last ${formatInfo.keepMonths || 2} months kept)`, `${formatInfo.keepMonths || 2} મહિનાથી જૂનો ડ્યુટી ડેટા (છેલ્લા ${formatInfo.keepMonths || 2} મહિના રાખ્યા)`)],
