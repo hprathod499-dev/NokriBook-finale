@@ -20933,29 +20933,252 @@ function nbParseUtaraBlocks(blocks) {
   if (!month) { const c = {}; entries.forEach((e) => { const k = nbYM(e.regDate); c[k] = (c[k] || 0) + 1; }); month = Object.keys(c).sort((a, b) => c[b] - c[a])[0] || ""; }
   return { entries, month };
 }
+// ---------- FIR copy (CCTNS PDF) → register entry ----------
+// The CCTNS FIR PDF draws every letter as a picture (no text inside), so the
+// page is read with OCR (Tesseract, Gujarati + English) on the phone. The
+// table cells of the FIR form are taken from the PDF itself, so each value is
+// read from its own box.
+const NB_FIR_LIB = {
+  pdf: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+  pdfWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+  tess: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js",
+  tessWorker: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+  tessCore: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
+};
+let _nbFirLibP = null;
+function nbFirLibs() {
+  if (_nbFirLibP) return _nbFirLibP;
+  const load = (src) => new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.crossOrigin = "anonymous"; s.onload = res; s.onerror = () => rej(new Error("Could not load " + src)); document.head.appendChild(s); });
+  _nbFirLibP = (async () => {
+    if (!window.pdfjsLib) await load(NB_FIR_LIB.pdf);
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = NB_FIR_LIB.pdfWorker;
+    if (!window.Tesseract) await load(NB_FIR_LIB.tess);
+  })().catch((e) => { _nbFirLibP = null; throw e; });
+  return _nbFirLibP;
+}
+let _nbFirOcr = null;
+async function nbFirOcrWorker(log) {
+  if (_nbFirOcr) return _nbFirOcr;
+  _nbFirOcr = window.Tesseract.createWorker(["guj", "eng"], 1, { workerPath: NB_FIR_LIB.tessWorker, corePath: NB_FIR_LIB.tessCore, logger: (m) => log && log(m) })
+    .then(async (w) => { await w.setParameters({ preserve_interword_spaces: "1" }); return w; })
+    .catch((e) => { _nbFirOcr = null; throw e; });
+  return _nbFirOcr;
+}
+// pages → [{ cells: [{ x0,y0,x1,y1, text }] }]
+async function nbFirPdfCells(buf, onStep) {
+  if (window.__nbFirCellsForTest) return window.__nbFirCellsForTest;
+  await nbFirLibs();
+  const pdfjsLib = window.pdfjsLib, OPS = pdfjsLib.OPS;
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+  const worker = await nbFirOcrWorker((m) => { if (m && m.status && /load|init/.test(m.status) && onStep) onStep({ stage: "load", p: m.progress || 0 }); });
+  const out = [];
+  const N = Math.min(pdf.numPages, 8);
+  for (let pn = 1; pn <= N; pn++) {
+    if (onStep) onStep({ stage: "page", page: pn, of: N });
+    const page = await pdf.getPage(pn);
+    const vp = page.getViewport({ scale: 4 });
+    const ol = await page.getOperatorList();
+    let ctm = [1, 0, 0, 1, 0, 0], depth = 0; const stack = [], rects = [];
+    const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+    for (let i = 0; i < ol.fnArray.length; i++) {
+      const fn = ol.fnArray[i], a = ol.argsArray[i];
+      if (fn === OPS.save) stack.push(ctm.slice());
+      else if (fn === OPS.restore) ctm = stack.pop() || ctm;
+      else if (fn === OPS.transform) ctm = mul(ctm, a);
+      else if (fn === OPS.paintFormXObjectBegin) depth++;
+      else if (fn === OPS.paintFormXObjectEnd) depth--;
+      else if (fn === OPS.constructPath && depth === 0) {
+        let k = 0; const co = a[1];
+        a[0].forEach((op) => {
+          if (op === OPS.rectangle) {
+            const [x, y, w, h] = co.slice(k, k + 4); k += 4;
+            const v1 = vp.convertToViewportPoint(ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]);
+            const v2 = vp.convertToViewportPoint(ctm[0] * (x + w) + ctm[2] * (y + h) + ctm[4], ctm[1] * (x + w) + ctm[3] * (y + h) + ctm[5]);
+            const r = { x0: Math.min(v1[0], v2[0]), y0: Math.min(v1[1], v2[1]), x1: Math.max(v1[0], v2[0]), y1: Math.max(v1[1], v2[1]) };
+            if (r.x1 - r.x0 > 20 && r.y1 - r.y0 > 20) rects.push(r);
+          } else if (op === OPS.moveTo || op === OPS.lineTo) k += 2;
+          else if (op === OPS.curveTo) k += 6;
+          else if (op === OPS.curveTo2 || op === OPS.curveTo3) k += 4;
+        });
+      }
+    }
+    const canvas = document.createElement("canvas"); canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+    const cx = canvas.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: cx, viewport: vp }).promise;
+    const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false });
+    canvas.width = canvas.height = 1;
+    const lines = [];
+    (data.blocks || []).forEach((b) => (b.paragraphs || []).forEach((p) => (p.lines || []).forEach((l) => (l.words || []).forEach((w) => lines.push({ t: w.text, ...w.bbox })))));
+    // whole page with no form boxes: one big box
+    if (!rects.length) rects.push({ x0: 0, y0: 0, x1: canvas.width || vp.width, y1: vp.height });
+    const cells = rects.map((r) => ({ ...r, w: [] }));
+    lines.forEach((w) => {
+      const mx = (w.x0 + w.x1) / 2, my = (w.y0 + w.y1) / 2; let best = null;
+      cells.forEach((c) => { if (mx >= c.x0 && mx <= c.x1 && my >= c.y0 && my <= c.y1 && (!best || (c.x1 - c.x0) * (c.y1 - c.y0) < (best.x1 - best.x0) * (best.y1 - best.y0))) best = c; });
+      if (best) best.w.push(w);
+    });
+    cells.forEach((c) => {
+      // words → lines (by vertical overlap), lines joined: a line that runs to the
+      // box's right edge was cut there by the FIR program, so it continues
+      // without a space; a shorter line ended on purpose.
+      const W = c.w.sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
+      const L = [];
+      W.forEach((w) => { const my = (w.y0 + w.y1) / 2; const l = L.find((x) => my > x.y0 && my < x.y1); if (l) { l.w.push(w); l.y0 = Math.min(l.y0, w.y0); l.y1 = Math.max(l.y1, w.y1); } else L.push({ y0: w.y0, y1: w.y1, w: [w] }); });
+      L.sort((a, b) => a.y0 - b.y0);
+      L.forEach((l) => { l.w.sort((a, b) => a.x0 - b.x0); l.t = l.w.map((w) => w.t).join(" "); l.r = l.w[l.w.length - 1].x1; l.cw = (l.r - l.w[0].x0) / Math.max(1, l.t.length); });
+      const maxR = Math.max(0, ...L.map((l) => l.r)), minL = Math.min(...L.map((l) => l.w[0].x0));
+      let s = "", raw = "";
+      L.forEach((l, i) => {
+        raw += (i ? "\n" : "") + l.t;
+        if (!i) { s = l.t; return; }
+        const prev = L[i - 1];
+        // the FIR program cuts long lines at the box edge, even inside a word;
+        // a space that fell at the cut shows up as an indent of the next line
+        s += prev.r >= maxR - 1.6 * Math.max(prev.cw, 8) ? (l.w[0].x0 > minL + 8 ? " " : "") : "\n";
+        s += l.t;
+      });
+      c.text = s.trim().replace(/©/g, "ઇ"); c.raw = raw.trim(); delete c.w;
+    });
+    out.push({ cells: cells.filter((c) => c.text) });
+  }
+  try { window.__nbFirLastCells = out; } catch (e) {}
+  return out;
+}
+// the FIR form's boxes → one register entry
+function nbFirToEntry(pages, fileName) {
+  const all = [];
+  pages.forEach((p, pi) => p.cells.forEach((c) => all.push({ ...c, pg: pi })));
+  all.sort((a, b) => a.pg - b.pg || a.y0 - b.y0 || a.x0 - b.x0);
+  const flat = (s) => String(s || "").replace(/\s*\n\s*/g, " ").replace(/\s{2,}/g, " ").trim();
+  const near = (a, b) => Math.abs(a - b) < 14;
+  const idx = (re, from) => all.findIndex((c, i) => i >= (from || 0) && re.test(c.raw));
+  const rightOf = (i) => { if (i < 0) return null; const c = all[i]; return all.find((d) => d.pg === c.pg && near(d.x0, c.x1) && d.y0 < c.y1 - 10 && d.y1 > c.y0 + 10) || null; };
+  const val = (re, from, to) => { const i = idx(re, from); if (i < 0 || (to != null && to >= 0 && i >= to)) return ""; const r = rightOf(i); return r ? r.text : ""; };
+  const sec = (re) => idx(re);
+  const S = { place: sec(/Place of Occurrence/i), comp: sec(/Complainant\s*\/?\s*Informant/i), acc: sec(/Details of known/i), delay: sec(/Reasons for delay/i), prop: sec(/Particulars of properties/i), total: sec(/Total value of property/i), info: sec(/First Information contents/i), action: sec(/Action Taken/i) };
+  const d = (s) => { const L = nbWDates(s); return L.length ? L[0][0] : ""; };
+  const tm = (s) => { const m = nbWA(s).match(/(\d{1,2})\s*[:.]\s*(\d{2})/); return m && +m[1] < 24 ? String(+m[1]).padStart(2, "0") + ":" + m[2] : ""; };
+  // number / year
+  const firDigits = nbWA(val(/^FIR\s*N/i)).replace(/\D/g, "");
+  let no = "", year = "";
+  const m14 = firDigits.match(/^\d{8}(\d{2})(\d{4})$/) || firDigits.match(/(\d{2})(\d{4})$/);
+  if (firDigits.length >= 13 && m14) { no = String(+m14[2]); year = "20" + m14[1]; }
+  const yv = nbWA(val(/^Ye\s*\n?\s*ar/i)).replace(/\D/g, ""); if (/^20\d\d$/.test(yv)) year = yv;
+  if (!no) { const fm = nbWA(fileName || "").match(/(\d{1,4})\D+(20\d\d)/); if (fm) { no = String(+fm[1]); year = year || fm[2]; } }
+  // dates and times
+  const infoRow = idx(/Information received/i);
+  const rowVals = (i) => { if (i < 0) return []; const c = all[i]; return all.filter((x) => x.pg === c.pg && near(x.y0, c.y0) && x.x0 >= c.x1 - 2).sort((a, b) => a.x0 - b.x0); };
+  const IR = rowVals(infoRow);
+  const pick = (row, re) => { const k = row.findIndex((x) => re.test(x.raw)); return k >= 0 && row[k + 1] ? row[k + 1].text : ""; };
+  const regDate = d(pick(IR, /^Date/i)) || d(val(/^Date\s*\n?\s*\(તારીખ/));
+  const regTime = tm(pick(IR, /^Time/i)) || tm(val(/dispatch/i));
+  const dFrom = d(val(/^Date from/i)), dTo = d(val(/^Date to/i)), tFrom = tm(val(/^Time from/i)), tTo = tm(val(/^Time to/i));
+  const day = flat(val(/^Day/i));
+  let occText = "";
+  if (dFrom) occText = `તા.${nbG(formatDMY(dFrom))}${tFrom ? " ના કલાક " + nbG(tFrom.replace(":", "/")) : ""}${dTo && (dTo !== dFrom || tTo) ? " થી તા." + nbG(formatDMY(dTo)) + (tTo ? " ના કલાક " + nbG(tTo.replace(":", "/")) : "") + " સુધી" : ""}`;
+  if (occText && day && dTo === dFrom) occText = day + " " + occText;
+  // act + sections
+  let act = flat(val(/^Act/i)).replace(/\s+/g, "");
+  const secs = flat(val(/\(કલમો\)|^Sectio/i));
+  if (/બી\.?એન\.?એસ|BNS/i.test(act) || (!act && secs)) act = "બી.એન.એસ.";
+  const sections = [act && act + " કલમ", nbG(secs)].filter(Boolean).join(" ");
+  // place
+  const dir = flat(val(/^Direction/i, S.place, S.comp));
+  const addr = flat(val(/^Addres/i, S.place, S.comp));
+  const place = [addr, dir ? `(પો.સ્ટે.થી ${dir})` : ""].filter(Boolean).join(" ");
+  // complainant: the complaint's own first line "મારૂ નામ … મો.નં. …" is the cleanest
+  const fixUv = (s) => s.replace(/ઉ\.\s?[૧1વ]\.\s?/g, "ઉ.વ.").replace(/ઉ\s?\.\s?વ\s?\./g, "ઉ.વ.");
+  const bodyCells = S.info >= 0 ? all.slice(S.info + 1, S.action >= 0 ? S.action : undefined) : [];
+  const body = bodyCells.map((c) => c.text).join("\n");
+  let complainant = "";
+  const cm = flat(body).match(/મા(?:ર[ૂુ]?)\s*નામ\s+(.{6,300}?મો(?:બાઇલ|\.)?\s?નં\.?\s*[૦-૯0-9]{10})/);
+  if (cm) complainant = fixUv(cm[1]).trim();
+  if (!complainant) {
+    const nm = flat(val(/^Name/i, S.comp, S.acc)).replace(/[\s.]+$/, ""), age = nbWA(val(/Date\/Year of Bi|Year of Birth/i, S.comp, S.acc)).replace(/\D/g, "");
+    const occ = flat(val(/^Occupation/i, S.comp, S.acc)), ad = flat(val(/^Address/i, S.comp, S.acc));
+    complainant = [nm, age && age.length <= 3 ? "ઉ.વ." + nbG(age) : "", occ && occ !== "અન્ય" ? "ધંધો " + occ : "", ad ? "રહે. " + ad : ""].filter(Boolean).join(" ");
+  }
+  // accused rows: (1) name | age | address
+  const accused = [];
+  if (S.acc >= 0) {
+    const hdr = idx(/Accused Name/i, S.acc);
+    const end = [S.delay, S.prop].filter((x) => x > hdr).sort((a, b) => a - b)[0];
+    if (hdr >= 0) all.slice(hdr + 1, end).forEach((c) => {
+      if (Math.abs(c.x0 - all[hdr].x0) < 14 && !/^\(?\d|\(૧/.test(c.raw)) {
+        const row = all.filter((x) => x.pg === c.pg && near(x.y0, c.y0) && x.x0 > c.x0).sort((a, b) => a.x0 - b.x0);
+        const age = row[0] ? nbWA(row[0].text).replace(/\D/g, "") : "", ad = row[1] ? flat(row[1].text) : "";
+        accused.push([flat(c.text), age ? "ઉ.વ." + nbG(age) : "", ad ? "રહે. " + ad : ""].filter(Boolean).join(" "));
+      }
+    });
+  }
+  const accText = accused.length > 1 ? accused.map((a, i) => `(${nbG(i + 1)}) ${a}`).join("\n") : accused.join("");
+  // property
+  const totalTxt = nbWA(val(/Total value of property/i)).replace(/[^\d]/g, "");
+  // facts: the short "આ કામની હકીકત …" box
+  const factsCell = bodyCells.find((c) => /હકીકત|હકિકત/.test(c.text)) || bodyCells[0];
+  const facts = factsCell ? flat(factsCell.text) : "";
+  // IO
+  const act13 = S.action >= 0 ? flat(all.slice(S.action, S.action + 8).map((c) => c.text).join(" ")) : "";
+  const io1 = act13.match(/અધિકારીનું\s*નામ\)?\s*:?-?\s*(.+?)\s*Rank/i), rk = act13.match(/Rank\s*\([^)]*\)\s*:?-?\s*(.+?)\s*No\b/i);
+  const io = [io1 && io1[1].replace(/^[:\-\s]+/, ""), rk && rk[1]].filter(Boolean).join(" ");
+  const now = Date.now();
+  const prohi = /પ્રોહી|prohib/i.test(sections + " " + act);
+  const toks = Array.from(nbSectionTokens(secs)).filter((x) => /^\d+$/.test(x));
+  const onlyB = toks.length && toks.every((x) => ["223", "281", "285", "292", "296"].includes(x));
+  const reg = prohi ? "C" : /જુગાર|gambl|ઞુગાર|આર્મ્સ|arms|જી\.?પી|એમ\.?વી|m\.?v\.?\s?act|g\.?p\.?\s?act/i.test(act) || onlyB ? "B" : "A";
+  const accT = accText.trim();
+  const unknown = !accT || /^\s*(\(૧\)\s*)?(અજાણ્યો|અજાણ્યા|અજાણ)/.test(accT) && accused.length <= 1;
+  const e = { id: `f${reg}${no}_${year}`, reg, no, year, regDate, regTime, sections, occText, place, complainant, accused: accT, facts, io, createdAt: now, updatedAt: now, firSource: fileName || "FIR" };
+  if (reg !== "A") e.detected = true; else e.detected = !unknown;
+  if (totalTxt && Number(totalTxt) > 0) { e.stolenValue = String(Number(totalTxt)); e.loss = `કિ.રૂ. ${nbG(nbMoney(Number(totalTxt)))}/-`; }
+  const ppl = nbWPeople(accT); if (ppl.length) e.accList = ppl;
+  nbWAutoFill(e);
+  return { entry: nbNormEntry(e), ok: !!(no && year && regDate), missing: [!no && "ગુ.ર.નં.", !regDate && "તારીખ", !secs && "કલમ", !complainant && "ફરિયાદી", !facts && "હકીકત"].filter(Boolean) };
+}
 function CrimeWordImport({ entries, showToast, showBst, compact }) {
   const { t } = useLang();
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState(null);
   const [info, setInfo] = useState(null);
-  const pick = async (file) => {
-    if (!file) return;
-    setBusy(true);
+  const [prog, setProg] = useState("");
+  const readFir = async (file, k, n) => {
+    const tag = n > 1 ? ` (${nbG(k + 1)}/${nbG(n)})` : "";
+    const pages = await nbFirPdfCells(await file.arrayBuffer(), (st) => setProg(st.stage === "load"
+      ? t("Getting the Gujarati reader ready (first time only, about 5 MB)…", "ગુજરાતી વાંચવાની સગવડ તૈયાર થાય છે (પહેલી વાર જ, આશરે ૫ MB)…") + tag
+      : t(`Reading page ${st.page} of ${st.of}…`, `પાનું ${nbG(st.page)} / ${nbG(st.of)} વંચાય છે…`) + tag));
+    return nbFirToEntry(pages, file.name);
+  };
+  const pick = async (fileList) => {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+    setBusy(true); setProg("");
     try {
-      const xml = await nbDocxXml(await file.arrayBuffer());
-      const { entries: L, month } = nbParseUtaraBlocks(nbDocxBlocks(xml));
-      if (!L.length) { window.alert(t("No crime rows were found in this Word file. Please choose the monthly ઉતારા (register extract) file.", "આ Word ફાઇલમાં ગુનાની કોઈ લાઇન મળી નહીં. માસિક ઉતારા વાળી ફાઇલ પસંદ કરો.")); return; }
+      const L = []; let month = ""; const bad = [];
+      for (let k = 0; k < files.length; k++) {
+        const file = files[k];
+        if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") {
+          const r = await readFir(file, k, files.length);
+          if (r.ok) L.push(r.entry); else bad.push(file.name + (r.missing.length ? " — " + r.missing.join(", ") : ""));
+        } else {
+          const xml = await nbDocxXml(await file.arrayBuffer());
+          const res = nbParseUtaraBlocks(nbDocxBlocks(xml));
+          L.push(...res.entries); month = month || res.month;
+        }
+      }
+      if (bad.length) window.alert(t("Could not read the FIR number / date from:\n", "આ FIR માંથી ગુ.ર.નં. / તારીખ વંચાઇ નહીં:\n") + bad.join("\n"));
+      if (!L.length) { if (!bad.length) window.alert(t("No crime rows were found in this Word file. Please choose the monthly ઉતારા (register extract) file.", "આ Word ફાઇલમાં ગુનાની કોઈ લાઇન મળી નહીં. માસિક ઉતારા વાળી ફાઇલ પસંદ કરો.")); return; }
       const p = await nbImportPlan({ entries: L, monthly: {} }, entries || []);
-      setInfo({ month, L, name: file.name });
+      setInfo({ month, L, name: files.length === 1 ? files[0].name : `${files.length} files` });
       setPlan(p);
     } catch (e) {
       console.error(e);
       const m = String(e && e.message);
       window.alert(m === "old-doc" ? t("This is an old .doc file. Open it in Word and use Save As → Word Document (.docx), then choose it again.", "આ જૂની .doc ફાઇલ છે. Word માં ખોલી Save As → Word Document (.docx) કરી ફરી પસંદ કરો.")
         : m === "old-browser" ? t("This browser can't read Word files. Please update Chrome / Safari.", "આ બ્રાઉઝર Word ફાઇલ વાંચી શકતું નથી. Chrome / Safari અપડેટ કરો.")
-        : t("Couldn't read this file. Please choose a Word (.docx) file.", "આ ફાઇલ વાંચી શકાઇ નહીં. Word (.docx) ફાઇલ પસંદ કરો."));
-    } finally { setBusy(false); }
+        : /Could not load|fetch|network|Failed/i.test(m) ? t("The FIR reader needs internet the first time. Please connect and try again.", "FIR વાંચવા માટે પહેલી વાર ઇન્ટરનેટ જોઇએ. ઇન્ટરનેટ ચાલુ કરી ફરી પ્રયાસ કરો.")
+        : t("Couldn't read this file. Please choose the ઉતારા (.docx) or the FIR copy (.pdf).", "આ ફાઇલ વાંચી શકાઇ નહીં. ઉતારા (.docx) કે FIR કોપી (.pdf) પસંદ કરો.") + " (" + m + ")");
+    } finally { setBusy(false); setProg(""); }
   };
   const apply = async () => {
     const p = plan;
@@ -20966,19 +21189,20 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
     const mineByKey = {}; (await nbEntryStore.all()).forEach((e) => { mineByKey[nbEntryKey(e)] = e; });
     const A = info.L.filter((e) => e.reg === "A").map((e) => mineByKey[nbEntryKey(e)] || e);
     setPlan(null);
-    if (showBst && A.length) setTimeout(() => showBst(`B સ્ટેટમેન્ટ — ${info.month ? "માહે-" + nbYMLabel(info.month) : info.name}`, A), 300);
+    if (showBst && A.length) setTimeout(() => showBst(`B સ્ટેટમેન્ટ — ${info.month ? "માહે-" + nbYMLabel(info.month) : A.length === 1 ? "ગુ.ર.નં. " + nbG(A[0].no) + "/" + nbG(A[0].year) : info.name}`, A), 300);
   };
   const btn = { background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 2 };
   return (
     <div data-word-import style={compact ? {} : { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
-      <input ref={ref} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} onChange={(ev) => { pick(ev.target.files && ev.target.files[0]); ev.target.value = ""; }} data-word-input />
+      <input ref={ref} type="file" multiple accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} onChange={(ev) => { pick(ev.target.files); ev.target.value = ""; }} data-word-input />
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 220px" }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}><WordIcon />{t("Make the B-statement from a Word file", "Word ફાઇલમાંથી B સ્ટેટમેન્ટ")}</div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Choose the monthly ઉતારા (.docx). Its crimes are added to the registers (no duplicates) and the B-statement opens ready.", "માસિક ઉતારા (.docx) પસંદ કરો — ગુના રજીસ્ટરમાં ઉમેરાશે (ડુપ્લીકેટ નહીં) અને B સ્ટેટમેન્ટ તૈયાર ખુલશે.")}</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}><WordIcon /><PdfIcon />{t("Make the B-statement from the ઉતારા or FIR copy", "ઉતારા કે FIR કોપીમાંથી B સ્ટેટમેન્ટ")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Choose the monthly ઉતારા (.docx) or one or more FIR copies (.pdf). The crimes are added to the registers (no duplicates) and the B-statement opens ready.", "માસિક ઉતારા (.docx) કે એક/વધુ FIR કોપી (.pdf) પસંદ કરો — ગુના રજીસ્ટરમાં ઉમેરાશે (ડુપ્લીકેટ નહીં) અને B સ્ટેટમેન્ટ તૈયાર ખુલશે.")}</div>
         </div>
-        <button type="button" onClick={() => ref.current && ref.current.click()} disabled={busy} style={btn}>{busy ? "…" : <><WordIcon />{t("Choose Word file", "Word ફાઇલ પસંદ કરો")}</>}</button>
+        <button type="button" onClick={() => ref.current && ref.current.click()} disabled={busy} style={btn}>{busy ? "…" : t("Choose file", "ફાઇલ પસંદ કરો")}</button>
       </div>
+      {busy && prog && <div className="gu" data-fir-progress style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>⏳ {prog}</div>}
       {plan && <CrimeImportReview plan={plan} onCancel={() => setPlan(null)} onApply={apply} />}
     </div>
   );
