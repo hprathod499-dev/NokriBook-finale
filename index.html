@@ -20218,8 +20218,8 @@ function NbDrillNum({ list, title, onShow, children, style }) {
   const n = (list || []).length;
   if (!onShow || !n) return <span style={style}>{children}</span>;
   return (
-    <button type="button" onClick={(ev) => { ev.stopPropagation(); onShow(title, list); }} title={title} className="mono"
-      style={{ background: "transparent", border: "none", padding: 0, margin: 0, font: "inherit", color: "var(--accent-strong)", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3, cursor: "pointer", ...(style || {}) }}>{children}</button>
+    <button type="button" onClick={(ev) => { ev.stopPropagation(); onShow(title, list); }} title={title}
+      style={{ background: "transparent", border: "none", padding: 0, margin: 0, font: "inherit", color: "inherit", textAlign: "inherit", cursor: "pointer", ...(style || {}) }}>{children}</button>
   );
 }
 function CrimeDrillModal({ title, list, onOpen, onBst, onClose }) {
@@ -21181,7 +21181,7 @@ function CrimeAnnualPanel({ ctx, showToast, showList }) {
           <thead><tr>{[t("Head", "હેડ"), t("Reg.", "દાખલ"), t("Det.", "ડીટેક્ટ"), t("Undet.", "અનડીટેક્ટ"), "A", "B", "C", t("Accused", "આરોપી"), t("Stolen ₹", "ગયેલ ₹"), t("Recovered ₹", "મળેલ ₹")].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.map(({ b, s }) => (
-              <tr key={b.id}><td style={{ ...td, textAlign: "left" }}><NbDrillNum list={HL(b.id)} title={`${b.gu} — ${year}`} onShow={showList} style={{ fontFamily: "inherit" }}>{b.gu}</NbDrillNum></td>{[["n", s.n], ["det", s.det], ["und", s.und], ["fa", s.fa], ["fb", s.fb], ["fc", s.fc], ["acc", s.acc]].map(([k, v], i) => <td key={i} className="mono" style={td}>{v ? <NbDrillNum list={HL(b.id).filter(nbAnnF[k])} title={`${b.gu} — ${nbAnnLbl[k]} — ${year}`} onShow={showList}>{v}</NbDrillNum> : "-"}</td>)}<td className="mono" style={td}>{s.stolen ? <NbDrillNum list={HL(b.id).filter((e) => Number(e.stolenValue))} title={`${b.gu} — ગયેલ મુદ્દામાલ`} onShow={showList}>{nbMoney(s.stolen)}</NbDrillNum> : "-"}</td><td className="mono" style={td}>{s.rec + s.cash ? <NbDrillNum list={HL(b.id).filter((e) => Number(e.recoveredValue) || Number(e.recoveredCash))} title={`${b.gu} — મળેલ મુદ્દામાલ`} onShow={showList}>{nbMoney(s.rec + s.cash)}</NbDrillNum> : "-"}</td></tr>
+              <tr key={b.id}><td style={{ ...td, textAlign: "left" }}><NbDrillNum list={HL(b.id)} title={`${b.gu} — ${year}`} onShow={showList}>{b.gu}</NbDrillNum></td>{[["n", s.n], ["det", s.det], ["und", s.und], ["fa", s.fa], ["fb", s.fb], ["fc", s.fc], ["acc", s.acc]].map(([k, v], i) => <td key={i} className="mono" style={td}>{v ? <NbDrillNum list={HL(b.id).filter(nbAnnF[k])} title={`${b.gu} — ${nbAnnLbl[k]} — ${year}`} onShow={showList}>{v}</NbDrillNum> : "-"}</td>)}<td className="mono" style={td}>{s.stolen ? <NbDrillNum list={HL(b.id).filter((e) => Number(e.stolenValue))} title={`${b.gu} — ગયેલ મુદ્દામાલ`} onShow={showList}>{nbMoney(s.stolen)}</NbDrillNum> : "-"}</td><td className="mono" style={td}>{s.rec + s.cash ? <NbDrillNum list={HL(b.id).filter((e) => Number(e.recoveredValue) || Number(e.recoveredCash))} title={`${b.gu} — મળેલ મુદ્દામાલ`} onShow={showList}>{nbMoney(s.rec + s.cash)}</NbDrillNum> : "-"}</td></tr>
             ))}
             {!rows.length && <tr><td colSpan={10} style={{ ...td, padding: 20, color: "var(--text-tertiary)" }}>{t("No crimes in this period.", "આ સમયગાળામાં કોઈ ગુનો નથી.")}</td></tr>}
           </tbody>
