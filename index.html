@@ -20687,6 +20687,7 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
   return (
     <div>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <CrimeWordImport entries={ctx.entries} showToast={showToast} showBst={showBst} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <b>{t("Month", "માસ")}:</b>
         <input type="month" value={ym} onChange={(e) => e.target.value && setYm(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
@@ -20727,6 +20728,262 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
     </div>
   );
 }
+// ---------- Word (.docx) ઉતારા → register entries → B-statement ----------
+// The .docx is read on the phone: a small zip reader + the browser's own
+// "deflate-raw" decompressor, then the Word XML is walked table by table.
+async function nbDocxXml(buf) {
+  const u = new Uint8Array(buf), dv = new DataView(buf);
+  if (!(u[0] === 0x50 && u[1] === 0x4b)) throw new Error(u[0] === 0xd0 && u[1] === 0xcf ? "old-doc" : "not-docx");
+  let eocd = -1;
+  for (let i = u.length - 22; i >= Math.max(0, u.length - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("not-docx");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder("utf-8");
+  for (let k = 0; k < count; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), loc = dv.getUint32(p + 42, true);
+    const name = dec.decode(u.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    if (name !== "word/document.xml") continue;
+    const start = loc + 30 + dv.getUint16(loc + 26, true) + dv.getUint16(loc + 28, true);
+    const data = u.subarray(start, start + csize);
+    if (method === 0) return dec.decode(data);
+    if (method !== 8) throw new Error("not-docx");
+    if (typeof DecompressionStream !== "function") throw new Error("old-browser");
+    const st = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return await new Response(st).text();
+  }
+  throw new Error("not-docx");
+}
+// body → [{ p: text } | { rows: [[cellText per grid column]] }]
+function nbDocxBlocks(xml) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const kids = (el, name) => Array.from(el.childNodes).filter((n) => n.nodeType === 1 && n.localName === name);
+  const ptext = (p) => {
+    let s = "";
+    p.querySelectorAll("*").forEach((n) => { if (n.localName === "t") s += n.textContent; else if (n.localName === "tab") s += " "; else if (n.localName === "br" || n.localName === "cr") s += "\n"; });
+    return s;
+  };
+  const cellText = (tc) => Array.from(tc.getElementsByTagNameNS("*", "p")).map(ptext).join("\n");
+  const attr = (el, name) => { if (!el) return null; for (const a of Array.from(el.attributes)) if (a.localName === name) return a.value; return null; };
+  const body = doc.getElementsByTagNameNS("*", "body")[0];
+  if (!body) return [];
+  const out = [];
+  const walk = (parent) => Array.from(parent.childNodes).forEach((el) => {
+    if (el.nodeType !== 1) return;
+    if (el.localName === "p") out.push({ p: ptext(el).trim() });
+    else if (el.localName === "sdt") { const c = kids(el, "sdtContent")[0]; if (c) walk(c); }
+    else if (el.localName === "tbl") {
+      const rows = []; let prev = [];
+      kids(el, "tr").forEach((tr) => {
+        const row = [];
+        kids(tr, "tc").forEach((tc) => {
+          const pr = kids(tc, "tcPr")[0];
+          const span = Number(attr(pr && kids(pr, "gridSpan")[0], "val")) || 1;
+          const vm = pr && kids(pr, "vMerge")[0];
+          const cont = vm && attr(vm, "val") !== "restart";
+          const col = row.length;
+          for (let i = 0; i < span; i++) row.push(cont ? (prev[col + i] || "") : cellText(tc));
+        });
+        rows.push(row); prev = row;
+      });
+      out.push({ rows });
+    }
+  });
+  walk(body);
+  return out;
+}
+const nbWA = (s) => nbAsciiDigits(String(s || ""));
+function nbWClean(s) {
+  s = String(s || "").replace(/‍/g, "").replace(/ /g, " ");
+  return s.split("\n").map((l) => l.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim().replace(/\n{3,}/g, "\n\n");
+}
+function nbWDates(s) {
+  const out = []; const re = /(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2,4})/g; let m; const a = nbWA(s);
+  while ((m = re.exec(a))) { const d = +m[1], mo = +m[2]; let y = m[3]; y = +(y.length === 2 ? "20" + y : y); if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y > 2000 && y < 2100) out.push([`${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`, m.index + m[0].length]); }
+  return out;
+}
+function nbWDateTime(s) {
+  const L = nbWDates(s); if (!L.length) return ["", ""];
+  const rest = nbWA(s).slice(L[0][1]);
+  const m = rest.match(/(?:^|[^\d/])(\d{1,2})\s*[/:.]\s*(\d{2})(?![\d/])/);
+  return [L[0][0], m && +m[1] < 24 && +m[2] < 60 ? String(+m[1]).padStart(2, "0") + ":" + m[2] : ""];
+}
+function nbWFir(s) {
+  const a = nbWA(s), z = a.replace(/[\s‍]/g, "");
+  let m = z.match(/1119\d{4}(\d\d)(\d{2,5})(?!\d)/) || z.match(/\d{8}(\d\d)(\d{4})(?!\d)/);
+  if (m) { let n = +m[2]; if (n > 2000) n = +m[2].slice(0, -1); return [String(n), "20" + m[1]]; }
+  m = a.match(/નં[.\s:-]*0*(\d{1,4})\s*\/\s*(\d{2,4})/);
+  if (m) return [String(+m[1]), m[2].length === 2 ? "20" + m[2] : m[2]];
+  return [null, null];
+}
+function nbWNoYear(s) { const m = nbWA(s).match(/(\d{1,4})\s*[/-]\s*(\d{2,4})/); return m ? [String(+m[1]), m[2].length === 2 ? "20" + m[2] : m[2]] : [null, null]; }
+// "(૧) રમેશ ઉ.વ.૨૨ ... (૨) ગીતાબેન ઉ.વ.૩૦" → [{age:"22",g:"M"},{age:"30",g:"F"}]
+function nbWPeople(text) {
+  const t = nbWClean(text);
+  if (!t || /^\s*(અજાણ્યો|અજાણ્યા|અજાણ|-)\s*/.test(t) && !/\(\s*[૧1]\s*\)/.test(t)) return [];
+  let parts = t.split(/\(\s*[0-9૦-૯]{1,2}\s*\)/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length <= 1) parts = t.split(/\n+/).filter((x) => x.trim());
+  const L = parts.map((x) => { const am = nbWA(x).match(/ઉ\.?\s?વ\.?[\s.:-]*(\d{1,3})/); return { age: am ? am[1] : "", g: /બેન|વા\/ઓ|ડો\/ઓ|દિકરી|પુત્રી/.test(x) ? "F" : "M" }; });
+  return L.some((p) => p.age) ? L : [];
+}
+// what the B-statement needs that the register doesn't hold: guessed where it is safe
+function nbWAutoFill(e) {
+  const f = nbWA(e.facts || "");
+  const amts = [...f.matchAll(/(?:કિ\.?\s?ર[ૂુ]\.?|કિંમત\s*ર[ૂુ]\.?|ર[ૂુ]પ[િી]યા|ર[ૂુ]\.)[\s:-]*([\d,]{3,})/g)].map((m) => Number(m[1].replace(/,/g, ""))).filter((n) => n > 0);
+  const head = Number(nbGuessHead44(e.sections) || 0);
+  const prop = [3, 4, 5, 6, 7, 8, 9, 10, 32].includes(head);
+  if (prop && amts.length) {
+    const tot = /કુલ\s*કિ/.test(f) ? amts[amts.length - 1] : Math.max(...amts);
+    if (!e.stolenValue) e.stolenValue = String(tot);
+    if (!e.loss) e.loss = `કિ.રૂ. ${nbG(nbMoney(tot))}/-`;
+  }
+  const mo = { 3: "ધાડ પાડી આર્થિક લાભ મેળવવા", 4: "ધાડ પાડી આર્થિક લાભ મેળવવા", 5: "લુંટ કરી આર્થિક લાભ મેળવવા", 6: "ઘરફોડ ચોરી કરી આર્થિક લાભ મેળવવા", 7: "ઘરફોડ ચોરી કરી આર્થિક લાભ મેળવવા", 8: "ચોરી કરી આર્થિક લાભ મેળવવા", 9: "છેતરપીંડી કરી આર્થિક લાભ મેળવવા", 10: "વિશ્વાસઘાત કરી આર્થિક લાભ મેળવવા", 32: "બળજબરીથી પૈસા પડાવવા" }[head];
+  if (mo && !e.motive) e.motive = mo;
+  return e;
+}
+function nbParseUtaraBlocks(blocks) {
+  let month = "";
+  blocks.forEach((b) => { if (!month && b.p) { const m = nbWA(b.p).match(/માહે[\s:.-]*(\d{1,2})\s*\/\s*(\d{2,4})/); if (m) month = (m[2].length === 2 ? "20" + m[2] : m[2]) + "-" + String(+m[1]).padStart(2, "0"); } });
+  const out = {}; let cur = null;
+  const put = (e) => { const k = nbEntryKey(e); out[k] = out[k] ? { ...e, ...Object.fromEntries(Object.entries(out[k]).filter(([, v]) => v !== "" && v != null)) } : e; };
+  const hdr = (row, keys) => { const m = {}; row.forEach((h, i) => { h = nbWA(h); keys.forEach(([k, pats]) => { if (m[k] == null && pats.some((p) => h.includes(p))) m[k] = i; }); }); return m; };
+  const now = Date.now();
+  blocks.forEach((b) => {
+    if (b.p != null) {
+      const x = b.p;
+      if (/ભાગ/.test(x) && /પત્રક/.test(x)) { if (/ભાગ\s*[–-]?\s*એ|ભાગ-A/.test(x)) cur = "A"; else if (/બી/.test(x)) cur = "B"; else if (/સી/.test(x)) cur = "C"; }
+      else if (/અ\.?\s?મોત/.test(x) && x.length < 120) cur = "AD";
+      else if (/જાણવા\s*જોગ/.test(x) && x.length < 120) cur = "JJ";
+      else if (/^ગુમ|ગુમ\s/.test(x) && x.length < 120) cur = "GUM";
+      return;
+    }
+    const R = b.rows;
+    if (!R || !R.length) return;
+    // a table without a heading: guess from its header row
+    let kind = cur;
+    const h0 = nbWA(R[0].join(" "));
+    if (/અ\.?\s?મોત\s*નં/.test(h0)) kind = "AD";
+    else if (/ગુમ\s*નં|ગુમ\s*થનાર/.test(h0)) kind = "GUM";
+    else if (/જા\.?\s?જોગ\s*ન/.test(h0)) kind = "JJ";
+    else if (/ગુ\.?\s?ર\.?\s?નં/.test(h0) && /ફરીયાદી|ફરિયાદી/.test(h0) && !["A", "B", "C"].includes(kind)) kind = "A";
+    if (!kind) return;
+    if (["A", "B", "C"].includes(kind)) {
+      R.slice(1).forEach((c) => {
+        if (c.length < 11) return;
+        const [no, year] = nbWFir(c[2]); if (!no) return;
+        const t2 = nbWA(c[2]); let reg = kind;
+        if (/બી\s*પાર્ટ|ભાગ\s*-?\s*બી|B\s*–?\s*પાર્ટ/.test(t2)) reg = "B";
+        else if (/સી\s*પાર્ટ|ભાગ\s*-?\s*સી/.test(t2)) reg = "C";
+        else if (/એ\s*\.?\s*પાર્ટ|ભાગ\s*-?\s*એ|A\s*–?\s*પાર્ટ|ભાગ-A/.test(t2)) reg = "A";
+        else if (reg === "B" && /ભારતીય\s*ન્યાય|BNS|બી\.?\s?એન\.?\s?એસ/.test(t2) && !/223/.test(t2)) reg = "A";
+        if (reg === "A" && /પ્રોહી/.test(t2) && !/ભારતીય\s*ન્યાય|BNS|બી\.?\s?એન\.?\s?એસ/.test(t2)) reg = "C";
+        let [rd, rt] = nbWDateTime(c[4]);
+        if (!rd) [rd, rt] = nbWDateTime(c[3]);
+        // a mistyped date in the extract is kept inside the extract's own month
+        if (rd && month && nbYM(rd) !== month) { const last = new Date(+month.slice(0, 4), +month.slice(5, 7), 0).getDate(); rd = month + "-" + String(Math.min(+rd.slice(8, 10), last)).padStart(2, "0"); }
+        let secs = nbWClean(c[2]);
+        const sa = nbWA(secs);
+        const m = sa.match(/\d{8}[\d\s]{4,}(?:[./]?\s*\/\s*(?:20)?\d\d)?/) || sa.match(/\/\s*(?:20)?2\d(?!\d)/);
+        if (m) secs = secs.slice(m.index + m[0].length).replace(/^[\s,.-]+/, "").trim() || secs;
+        const e = { id: `w${reg}${no}_${year}`, reg, no, year, regDate: rd || (month ? month + "-01" : ""), regTime: rt, sections: secs,
+          occText: nbWClean(c[3]), place: nbWClean(c[5]), complainant: nbWClean(c[6]), accused: nbWClean(c[7]), arrestText: nbWClean(c[8]),
+          facts: nbWClean(c[9]), io: nbWClean(c[10]), disposal: c.length > 11 ? nbWClean(c[11]) : "", createdAt: now, updatedAt: now };
+        if (reg === "B" || reg === "C") e.detected = true;
+        if (reg === "A") {
+          const acc = e.accused.trim();
+          e.detected = !!acc && !(/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(acc) && !acc.includes("\n")) && acc !== "-";
+          if (e.detected && e.arrestText && !/તપાસ/.test(e.arrestText)) { const d = nbWDates(e.arrestText)[0]; if (d) e.arrestDate = d[0]; }
+          const L = nbWPeople(e.accused); if (L.length) e.accList = L;
+          nbWAutoFill(e);
+        }
+        if (!e.regDate) return;
+        put(e);
+      });
+    } else if (kind === "AD") {
+      R.slice(1).forEach((c0) => {
+        let c = c0.slice(); if (["ધારી", "ધારી પો.સ્ટે"].includes(nbWClean(c[1]))) c = [c[0], ...c.slice(2)];
+        const m0 = nbWA(c[1]).match(/નં[^\d]*([\d ]+?)\s*[-/]\s*(\d{2,4})/); if (!m0) return;
+        const m = [m0[0], String(Number(m0[1].replace(/\s/g, "")) || ""), m0[2]]; if (!m[1]) return;
+        const y = m[2].length === 2 ? "20" + m[2] : m[2];
+        const [rd, rt] = nbWDateTime(c[3]);
+        const dec = nbWClean(c[5]), facts = nbWClean(c[11] || "");
+        const am = nbWA(dec).match(/ઉ\.?\s?વ[.\s-]*(\d+)/);
+        put({ id: `wAD${+m[1]}_${y}`, reg: "AD", no: String(+m[1]), year: y, regDate: rd || (month ? month + "-01" : ""), regTime: rt, sections: "BNSS ક.૧૯૪",
+          kind: /ગળાફાસો|ઝેરી દવા|આપઘાત|પી જતા|પી ગયેલ/.test(facts) ? "sui" : "acc", occText: nbWClean(c[2]), informant: nbWClean(c[4]), deceased: dec,
+          dGender: /બેન|વા\/ઓ|ડો\/ઓ|સ્ત્રી/.test(dec) ? "F" : "M", ...(am ? { dAge: am[1] } : {}), facts, writer: nbWClean(c[12] || ""), io: nbWClean(c[13] || ""), createdAt: now, updatedAt: now });
+      });
+    } else {
+      const hm = hdr(R[0], [["no", ["જોગ નં", "ગુમ નં", "નું નામ/"]], ["when", ["બ.બ.તા"]], ["writer", ["દા.ક"]], ["informant", ["જાહેર કરનાર"]], ["missing", ["ગુમ થનાર"]], ["facts", ["ટુંક વિગત"]], ["io", ["ત.ક"]], ["victim", ["ભોગ બનનાર"]], ["jjType", ["પ્રકાર"]]]);
+      R.slice(1).forEach((c) => {
+        if (!c.length || !nbWA(c[0]).trim() || /^\s*\d\s*$/.test(nbWA(c[0]))) return;
+        const [no, y] = nbWNoYear(c[hm.no != null ? hm.no : 0]); if (!no) return;
+        const allt = c.join(" "); const mm = allt.match(/બ\.?\s?જા\.?\s?તા\.?\s?વ[^\d]*/);
+        const [rd, rt] = nbWDateTime(mm ? allt.slice(mm.index + mm[0].length) : c[hm.when != null ? hm.when : 1]);
+        const e = { id: `w${kind}${no}_${y}`, reg: kind, no, year: y, regDate: rd || (month ? month + "-01" : ""), regTime: rt, occText: hm.when != null ? nbWClean(c[hm.when]) : "", createdAt: now, updatedAt: now };
+        ["writer", "informant", "missing", "facts", "io", "victim", "jjType"].forEach((k) => { if (hm[k] != null && hm[k] < c.length) e[k] = nbWClean(c[hm[k]]); });
+        if (kind === "GUM") { const mg = e.missing || ""; e.mGender = /બેન|ડો\/ઓ|વા\/ઓ/.test(mg) ? "F" : "M"; const am = nbWA(mg).match(/ઉ\.?\s?વ[.\s-]*(\d+)/); if (am) e.mAge = am[1]; }
+        if (e.regDate) put(e);
+      });
+    }
+  });
+  const entries = Object.values(out).map((e) => nbNormEntry(e));
+  if (!month) { const c = {}; entries.forEach((e) => { const k = nbYM(e.regDate); c[k] = (c[k] || 0) + 1; }); month = Object.keys(c).sort((a, b) => c[b] - c[a])[0] || ""; }
+  return { entries, month };
+}
+function CrimeWordImport({ entries, showToast, showBst, compact }) {
+  const { t } = useLang();
+  const ref = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [plan, setPlan] = useState(null);
+  const [info, setInfo] = useState(null);
+  const pick = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const xml = await nbDocxXml(await file.arrayBuffer());
+      const { entries: L, month } = nbParseUtaraBlocks(nbDocxBlocks(xml));
+      if (!L.length) { window.alert(t("No crime rows were found in this Word file. Please choose the monthly ઉતારા (register extract) file.", "આ Word ફાઇલમાં ગુનાની કોઈ લાઇન મળી નહીં. માસિક ઉતારા વાળી ફાઇલ પસંદ કરો.")); return; }
+      const p = await nbImportPlan({ entries: L, monthly: {} }, entries || []);
+      setInfo({ month, L, name: file.name });
+      setPlan(p);
+    } catch (e) {
+      console.error(e);
+      const m = String(e && e.message);
+      window.alert(m === "old-doc" ? t("This is an old .doc file. Open it in Word and use Save As → Word Document (.docx), then choose it again.", "આ જૂની .doc ફાઇલ છે. Word માં ખોલી Save As → Word Document (.docx) કરી ફરી પસંદ કરો.")
+        : m === "old-browser" ? t("This browser can't read Word files. Please update Chrome / Safari.", "આ બ્રાઉઝર Word ફાઇલ વાંચી શકતું નથી. Chrome / Safari અપડેટ કરો.")
+        : t("Couldn't read this file. Please choose a Word (.docx) file.", "આ ફાઇલ વાંચી શકાઇ નહીં. Word (.docx) ફાઇલ પસંદ કરો."));
+    } finally { setBusy(false); }
+  };
+  const apply = async () => {
+    const p = plan;
+    await nbImportApply(p);
+    const upd = p.conflicts.filter((c) => c.choice !== "mine").length;
+    showToast(t(`Added ${p.add.length} new, updated ${upd}, skipped ${p.same}`, `${p.add.length} નવા ઉમેર્યા, ${upd} સુધાર્યા, ${p.same} છોડ્યા`));
+    // the crimes of this file, by the id they have on this device now
+    const mineByKey = {}; (await nbEntryStore.all()).forEach((e) => { mineByKey[nbEntryKey(e)] = e; });
+    const A = info.L.filter((e) => e.reg === "A").map((e) => mineByKey[nbEntryKey(e)] || e);
+    setPlan(null);
+    if (showBst && A.length) setTimeout(() => showBst(`B સ્ટેટમેન્ટ — ${info.month ? "માહે-" + nbYMLabel(info.month) : info.name}`, A), 300);
+  };
+  const btn = { background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 2 };
+  return (
+    <div data-word-import style={compact ? {} : { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+      <input ref={ref} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} onChange={(ev) => { pick(ev.target.files && ev.target.files[0]); ev.target.value = ""; }} data-word-input />
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 220px" }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}><WordIcon />{t("Make the B-statement from a Word file", "Word ફાઇલમાંથી B સ્ટેટમેન્ટ")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Choose the monthly ઉતારા (.docx). Its crimes are added to the registers (no duplicates) and the B-statement opens ready.", "માસિક ઉતારા (.docx) પસંદ કરો — ગુના રજીસ્ટરમાં ઉમેરાશે (ડુપ્લીકેટ નહીં) અને B સ્ટેટમેન્ટ તૈયાર ખુલશે.")}</div>
+        </div>
+        <button type="button" onClick={() => ref.current && ref.current.click()} disabled={busy} style={btn}>{busy ? "…" : <><WordIcon />{t("Choose Word file", "Word ફાઇલ પસંદ કરો")}</>}</button>
+      </div>
+      {plan && <CrimeImportReview plan={plan} onCancel={() => setPlan(null)} onApply={apply} />}
+    </div>
+  );
+}
+
 // Utara / B-statement and counts for any "from … to …" dates.
 function CrimeRangeReports({ ctx, showList, showBst }) {
   const { t } = useLang();
