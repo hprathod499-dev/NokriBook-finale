@@ -18562,13 +18562,23 @@ function nbCrimeDb() {
         if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta");
         if (!d.objectStoreNames.contains("entries")) d.createObjectStore("entries", { keyPath: "id" });
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const d = req.result;
+        // Phones (Safari especially) close the storage connection when the app
+        // sits in the background; forget it so the next save opens a fresh one.
+        d.onclose = () => { if (_nbCrimeDbP && _nbCrimeDbHandle === d) { _nbCrimeDbP = null; _nbCrimeDbHandle = null; } };
+        d.onversionchange = () => { try { d.close(); } catch (e) {} if (_nbCrimeDbHandle === d) { _nbCrimeDbP = null; _nbCrimeDbHandle = null; } };
+        _nbCrimeDbHandle = d;
+        resolve(d);
+      };
       req.onerror = () => { _nbCrimeDbP = null; reject(req.error || new Error("Storage unavailable")); };
+      req.onblocked = () => console.warn("nb_crime open blocked by another tab");
     });
   }
   return _nbCrimeDbP;
 }
-function nbIdb(store, mode, fn) {
+let _nbCrimeDbHandle = null;
+function nbIdbOnce(store, mode, fn) {
   return nbCrimeDb().then((d) => new Promise((resolve, reject) => {
     const tx = d.transaction(store, mode);
     const r = fn(tx.objectStore(store));
@@ -18578,6 +18588,20 @@ function nbIdb(store, mode, fn) {
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error || new Error("Storage write cancelled"));
   }));
+}
+// One retry on a fresh connection: a closed / lost connection ("InvalidStateError",
+// "connection is closing", "server lost") must not silently lose a save.
+function nbIdb(store, mode, fn) {
+  return nbIdbOnce(store, mode, fn).catch((err) => {
+    console.warn("crime storage: retrying on a new connection", err);
+    try { if (_nbCrimeDbHandle) _nbCrimeDbHandle.close(); } catch (e) {}
+    _nbCrimeDbP = null; _nbCrimeDbHandle = null;
+    return nbIdbOnce(store, mode, fn);
+  });
+}
+function nbSaveFailed(t, err) {
+  console.error("crime save failed", err);
+  window.alert(t("Could not save — the phone's storage did not accept it. Please try Save again. If it keeps failing, close and reopen the app (your other entries are safe).", "સચવાયું નહીં — ફોનના સ્ટોરેજે સ્વીકાર્યું નહીં. ફરી સાચવો દબાવો. વારંવાર થાય તો ઍપ બંધ કરીને ફરી ખોલો (બાકીની એન્ટ્રી સલામત છે).") + "\n\n(" + ((err && (err.name || err.message)) || "error") + ")");
 }
 let _nbCrimeBc = null;
 try { _nbCrimeBc = new BroadcastChannel("nb-crime"); _nbCrimeBc.onmessage = () => window.dispatchEvent(new Event(NB_CRIME_EVT)); } catch (e) {}
@@ -20096,8 +20120,11 @@ function nbEntryAge(e, asOf) {
 // ---------- entry form ----------
 function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings, profile, onBst }) {
   const { t, lang } = useLang();
-  useEscToClose(onClose);
   const [e, setE] = useState(() => JSON.parse(JSON.stringify(initial)));
+  const startRef = useRef(JSON.stringify(e));
+  // closing with unsaved changes asks first, so an edit is never lost by a stray tap
+  const tryClose = () => { if (JSON.stringify(e) === startRef.current || window.confirm(t("You have changes that are not saved. Close without saving?", "ફેરફાર સચવાયા નથી. સાચવ્યા વગર બંધ કરવું છે?"))) onClose(); };
+  useEscToClose(tryClose);
   const [busy, setBusy] = useState(false);
   const fields = nbRegFields(e.reg);
   const reg = nbReg(e.reg);
@@ -20188,7 +20215,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", zIndex: 2, borderRadius: "12px 12px 0 0" }}>
           <div className="disp" style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{reg.gu} — {initial.updatedAt ? t("Edit", "સુધારો") : t("New entry", "નવી એન્ટ્રી")}{e.no ? " · " + nbG(e.no) + "/" + nbG(e.year) : ""}</div>
           {onBst && e.reg === "A" && <button type="button" onClick={() => onBst(e)} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>📄 {t("B-statement", "B સ્ટેટમેન્ટ")}</button>}
-          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
+          <button onClick={tryClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
         <div style={{ padding: "4px 18px 16px" }}>
           {["A", "B", "C", "M"].includes(e.reg) && e.no && (
@@ -20205,7 +20232,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
         <div style={{ display: "flex", gap: 8, padding: "12px 18px", borderTop: "1px solid var(--border-soft)", position: "sticky", bottom: 0, background: "var(--bg-surface)", borderRadius: "0 0 12px 12px" }}>
           {initial.updatedAt && <button onClick={() => { if (window.confirm(t("Delete this entry permanently?", "આ એન્ટ્રી કાયમ માટે ડિલીટ કરવી છે?"))) onDelete(e.id); }} className="gu" style={{ background: "transparent", border: "1px solid var(--status-error-border)", color: "var(--status-error-text)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>🗑 {t("Delete", "ડિલીટ")}</button>}
           <div style={{ flex: 1 }} />
-          <button onClick={onClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+          <button onClick={tryClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
           <button onClick={save} disabled={busy} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 14, fontWeight: 700 }}>{busy ? "…" : t("Save", "સાચવો")}</button>
         </div>
       </div>
@@ -20281,7 +20308,7 @@ function NbFraudRow({ e, raw, onOpen, showToast }) {
   const [rec, setRec] = useState(e.recoveredValue || e.cyberReturned || "");
   const [note, setNote] = useState(e.frNote || "");
   useEffect(() => { setLost(e.stolenValue || e.cyberAmt || ""); setRec(e.recoveredValue || e.cyberReturned || ""); setNote(e.frNote || ""); }, [e.id, e.updatedAt]);
-  const save = async (patch) => { await nbEntryStore.put({ ...(raw || e), ...patch, updatedAt: Date.now() }); showToast(t("Saved", "સચવાયું")); };
+  const save = async (patch) => { try { await nbEntryStore.put({ ...(raw || e), ...patch, updatedAt: Date.now() }); showToast(t("Saved", "સચવાયું")); } catch (err) { nbSaveFailed(t, err); } };
   const numIn = (v) => nbAsciiDigits(v).replace(/[^\d]/g, "").slice(0, 10);
   const lbl = { fontSize: 11.5, color: "var(--text-secondary)", display: "block", marginBottom: 2 };
   const inp = { ...nbCrInput, width: "100%", minHeight: 34 };
@@ -20436,8 +20463,15 @@ function CrimeRegisterView({ profile, showToast, look }) {
   const showBst = (title, list) => setBsv({ title, ids: (list || []).map((e) => e.id) });
   if (!entries || !settings || !monthly) return <div className="gu" style={{ padding: 30, textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>;
   const ctx = nbCrCtx(entries, profile, settings, monthly, ym);
-  const saveEntry = async (e) => { await nbEntryStore.put(e); setEditing(null); showToast(t("Saved", "સચવાયું")); };
-  const delEntry = async (id) => { await nbEntryStore.del(id); setEditing(null); showToast(t("Deleted", "ડિલીટ થયું")); };
+  const saveEntry = async (e) => {
+    try {
+      await nbEntryStore.put(e);
+      const back = await nbIdb("entries", "readonly", (st) => st.get(e.id));
+      if (!back || back.updatedAt !== e.updatedAt) throw new Error("not found after saving");
+      setEditing(null); showToast(t("Saved", "સચવાયું"));
+    } catch (err) { nbSaveFailed(t, err); }
+  };
+  const delEntry = async (id) => { try { await nbEntryStore.del(id); setEditing(null); showToast(t("Deleted", "ડિલીટ થયું")); } catch (err) { nbSaveFailed(t, err); } };
   const tabBtn = (on) => ({ background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13.5, fontWeight: 700 });
   return (
     <div className="gu">
@@ -20737,7 +20771,7 @@ function CrimeMonthlyInputs({ ctx, ym, setYm, monthly, showToast }) {
   const [m, setM] = useState(() => JSON.parse(JSON.stringify(monthly[ym] || {})));
   useEffect(() => { setM(JSON.parse(JSON.stringify(monthly[ym] || {}))); }, [ym]);
   const dirty = JSON.stringify(m) !== JSON.stringify(monthly[ym] || {});
-  const save = async () => { await nbCrimeStore.setMeta("monthly", { ...monthly, [ym]: m }); showToast(t("Saved", "સચવાયું")); };
+  const save = async () => { try { await nbCrimeStore.setMeta("monthly", { ...monthly, [ym]: m }); showToast(t("Saved", "સચવાયું")); } catch (err) { nbSaveFailed(t, err); } };
   const setIn = (path, v) => setM((x) => { const n = JSON.parse(JSON.stringify(x)); let o = n; for (let i = 0; i < path.length - 1; i++) { o[path[i]] = o[path[i]] || {}; o = o[path[i]]; } o[path[path.length - 1]] = v; return n; });
   const get = (path) => path.reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), m);
   const num = (path, ph, w) => <input type="text" inputMode="numeric" value={get(path) == null ? "" : get(path)} placeholder={ph == null ? "" : String(ph)} onChange={(e) => setIn(path, nbAsciiDigits(e.target.value).replace(/\D/g, "").slice(0, 7))} className="mono" style={{ width: w || 62, fontSize: 13, textAlign: "center", boxSizing: "border-box" }} />;
@@ -20848,7 +20882,7 @@ function CrimeRegSettings({ settings, profile, showToast, look }) {
       <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>{t("Example for C.R. 419:", "ગુ.ર.નં. ૪૧૯ નું ઉદાહરણ:")} <b className="mono">{ex}/{nbG(new Date().getFullYear())}</b> {t("(code + year + 4-digit number)", "(કોડ + વર્ષ + ૪ અંકનો નંબર)")}</div>
       <label style={nbCrLabel}>{t("Short station name used in documents", "દસ્તાવેજમાં પો.સ્ટે.નું ટુંકુ નામ")}</label>
       <input type="text" value={s.psShort} onChange={(e) => setS({ ...s, psShort: e.target.value.slice(0, 40) })} className="gu" style={nbCrInput} placeholder={nbPsShort(profile, {})} />
-      <button onClick={async () => { await nbCrimeStore.setMeta("regSettings", s); showToast(t("Saved", "સચવાયું")); }} className="gu" style={{ marginTop: 14, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 14, fontWeight: 700 }}>{t("Save", "સાચવો")}</button>
+      <button onClick={async () => { try { await nbCrimeStore.setMeta("regSettings", s); showToast(t("Saved", "સચવાયું")); } catch (err) { nbSaveFailed(t, err); } }} className="gu" style={{ marginTop: 14, background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 14, fontWeight: 700 }}>{t("Save", "સાચવો")}</button>
       <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 14, lineHeight: 1.6 }}>
         {t("Tip: enter old cases that are still pending (any year) once, with their reason. The 3-month and 6-month pending lists of the review then fill themselves.", "સૂચન: જૂના પેન્ડીંગ ગુના (કોઈપણ વર્ષના) તેના કારણ સાથે એક વાર ભરો. પછી રિવ્યુના ૩ માસ અને ૬ માસ ઉપરના પેન્ડીંગ પત્રક આપોઆપ ભરાશે.")}
       </div>
