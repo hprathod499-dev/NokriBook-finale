@@ -20591,7 +20591,15 @@ function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q, setQ, onlyPen
       {!onlyPending && !s && <NbRangePicker from={rng.from} to={rng.to} onChange={(a, b) => setRng({ from: a, to: b })} />}
       {s && <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 6 }}>{t(`${list.length} found in all registers, all dates`, `બધા રજીસ્ટર, બધી તારીખોમાં ${nbG(list.length)} મળ્યા`)}</div>}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} data-reg-search placeholder={t("Search all registers: number, name, place, section… (English or ગુજરાતી)", "બધા રજીસ્ટરમાં શોધો: નંબર, નામ, સ્થળ, કલમ… (ગુજરાતી કે English)")} className="gu" style={{ flex: "1 1 220px", fontSize: 13.5 }} />
+        <div style={{ position: "relative", flex: "1 1 240px", minWidth: 0 }}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          <input type="text" inputMode="search" enterKeyHint="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }} data-reg-search aria-label={t("Search", "શોધો")}
+            placeholder={t("Search number, name, place, section…", "નંબર, નામ, સ્થળ, કલમ શોધો…")} className="gu"
+            style={{ width: "100%", boxSizing: "border-box", minHeight: 42, fontSize: 14.5, padding: "9px 38px 9px 38px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none" }}
+            onFocus={(e) => { e.currentTarget.style.borderColor = "var(--accent-strong)"; e.currentTarget.style.boxShadow = "0 0 0 3px var(--accent-light)"; }}
+            onBlur={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }} />
+          {q && <button type="button" onClick={() => setQ("")} aria-label={t("Clear", "સાફ કરો")} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 28, height: 28, borderRadius: 14, border: "none", background: "var(--bg-page)", color: "var(--text-secondary)", fontSize: 14, lineHeight: "28px", padding: 0, cursor: "pointer" }}>✕</button>}
+        </div>
         <label style={{ fontSize: 12.5, display: "flex", gap: 5, alignItems: "center" }}><input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} /> {t("All pending", "બધા પેન્ડીંગ")}</label>
         <button onClick={onNew} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 14, fontWeight: 700 }}>+ {t("New", "નવી")} {lang === "gu" ? r.gu : r.en}</button>
       </div>
