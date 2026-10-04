@@ -19284,7 +19284,8 @@ function nbAsciiDigits(s) { return String(s || "").replace(/[૦-૯]/g, (d) => 
 // "BNS કલમ ૩૦૩(૨), ૩૩૧(એ)" -> Set{"303","303(2)","331","331(a)"}; text after
 // another Act's name (MV / GP / Prohibition / Atrocity …) is ignored.
 function nbSectionTokens(sections) {
-  let s = nbAsciiDigits(sections).toLowerCase();
+  // long digit runs are FIR / phone numbers, never sections
+  let s = nbAsciiDigits(sections).toLowerCase().replace(/\d{4,}(\s*\/\s*\d{2,4})?/g, " ");
   const cut = s.search(/એમ\.?\s?વી|m\.?\s?v\.?\s?act|જી\.?\s?પી|g\.?\s?p\.?\s?act|gp act|પ્રોહી|prohi|એટ્રો|atroc|પોક્સો|પોકસો|pocso|ndps|આર્મ્સ|arms|દહેજ|dowry|i\.?\s?t\.?\s?act|આઇ\.?ટી/);
   if (cut > 0) s = s.slice(0, cut);
   s = s.replace(/\(\s*એ\s*\)/g, "(a)").replace(/\(\s*બી\s*\)/g, "(b)").replace(/\(\s*સી\s*\)/g, "(c)").replace(/\(\s*ડી\s*\)/g, "(d)").replace(/\(\s*ઇ\s*\)/g, "(e)");
@@ -20040,7 +20041,7 @@ function nbEntryAge(e, asOf) {
 }
 
 // ---------- entry form ----------
-function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings, profile }) {
+function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings, profile, onBst }) {
   const { t, lang } = useLang();
   useEscToClose(onClose);
   const [e, setE] = useState(() => JSON.parse(JSON.stringify(initial)));
@@ -20128,6 +20129,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
       <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 760, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", zIndex: 2, borderRadius: "12px 12px 0 0" }}>
           <div className="disp" style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{reg.gu} — {initial.updatedAt ? t("Edit", "સુધારો") : t("New entry", "નવી એન્ટ્રી")}{e.no ? " · " + nbG(e.no) + "/" + nbG(e.year) : ""}</div>
+          {onBst && e.reg === "A" && <button type="button" onClick={() => onBst(e)} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>📄 {t("B-statement", "B સ્ટેટમેન્ટ")}</button>}
           <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
         <div style={{ padding: "4px 18px 16px" }}>
@@ -20172,6 +20174,10 @@ function CrimeRegisterView({ profile, showToast, look }) {
   const [q, setQ] = useState("");
   const [onlyPending, setOnlyPending] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [drill, setDrill] = useState(null); // { title, ids }
+  const [bsv, setBsv] = useState(null);     // { title, ids }
+  const showList = (title, list) => setDrill({ title, ids: (list || []).map((e) => e.id) });
+  const showBst = (title, list) => setBsv({ title, ids: (list || []).map((e) => e.id) });
   if (!entries || !settings || !monthly) return <div className="gu" style={{ padding: 30, textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>;
   const ctx = nbCrCtx(entries, profile, settings, monthly, ym);
   const saveEntry = async (e) => { await nbEntryStore.put(e); setEditing(null); showToast(t("Saved", "સચવાયું")); };
@@ -20187,11 +20193,118 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
       {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} ym={ym} setYm={setYm} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
-      {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} />}
+      {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} showList={showList} showBst={showBst} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
-      {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} />}
+      {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
-      {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} />}
+      {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
+      {bsv && <CrimeBStatementView title={bsv.title} list={bsv.draft ? [nbNormEntry(bsv.draft)] : ctx.entries.filter((e) => bsv.ids.includes(e.id))} ctx={ctx} onClose={() => setBsv(null)} />}
+      {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} onBst={(e) => setBsv({ title: "B સ્ટેટમેન્ટ — " + nbG(e.no || "") + "/" + nbG(String(e.year || "").slice(-2)), ids: [e.id], draft: e })} />}
+    </div>
+  );
+}
+// ---------- Tap any number → the crimes behind it ----------
+function nbEntryTitle(e) {
+  const r = nbReg(e.reg);
+  if (e.reg === "A") return nbHeadLabel(e);
+  if (e.reg === "B") return (NB_PARTB_HEADS.find((h) => h.id === (e.partBHead || nbGuessPartB(e.sections))) || {}).name || r.gu;
+  if (e.reg === "C") return (NB_C_KINDS.find((k) => k[0] === (e.cKind || nbGuessCKind(e))) || [])[1] || "પ્રોહીબીશન";
+  if (e.reg === "AD") return (e.kind === "sui" ? "આપઘાત" : e.kind === "nat" ? "કુદરતી / અન્ય" : "અકસ્માત") + (e.deceased ? " — " + String(e.deceased).split("\n")[0].slice(0, 40) : "");
+  if (e.reg === "JJ") return e.jjType || r.gu;
+  if (e.reg === "GUM") return String(e.missing || "").split("\n")[0].slice(0, 40) || r.gu;
+  return r.gu;
+}
+function NbDrillNum({ list, title, onShow, children, style }) {
+  const n = (list || []).length;
+  if (!onShow || !n) return <span style={style}>{children}</span>;
+  return (
+    <button type="button" onClick={(ev) => { ev.stopPropagation(); onShow(title, list); }} title={title} className="mono"
+      style={{ background: "transparent", border: "none", padding: 0, margin: 0, font: "inherit", color: "var(--accent-strong)", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3, cursor: "pointer", ...(style || {}) }}>{children}</button>
+  );
+}
+function CrimeDrillModal({ title, list, onOpen, onBst, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const today = todayStr();
+  const sorted = list.slice().sort((a, b) => (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.no) || 0) - (Number(a.no) || 0));
+  const aList = sorted.filter((e) => e.reg === "A");
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 120, padding: "12px 10px", overflowY: "auto" }}>
+      <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 720, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", borderRadius: "12px 12px 0 0", zIndex: 2 }}>
+          <div style={{ flex: 1 }}>
+            <div className="disp" style={{ fontSize: 15.5, fontWeight: 700 }}>{title}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t(`${list.length} entries — tap one to open it`, `${nbG(list.length)} એન્ટ્રી — ખોલવા દબાવો`)}</div>
+          </div>
+          {onBst && aList.length > 0 && <button type="button" onClick={() => onBst(t("B-statement — ", "B સ્ટેટમેન્ટ — ") + title, aList)} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>📄 {t("B-statement", "B સ્ટેટમેન્ટ")}</button>}
+          <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
+        </div>
+        <div style={{ padding: "10px 12px 14px" }}>
+          {sorted.map((e) => {
+            const r = nbReg(e.reg);
+            const pend = nbPendingAt(e, today);
+            return (
+              <button key={e.id} type="button" onClick={() => onOpen(e)} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "var(--bg-page)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px", marginBottom: 7, color: "var(--text-primary)", cursor: "pointer" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 5, padding: "0 5px" }}>{r.gu}</span>
+                  <b className="mono">{nbG(e.no || "?")}/{nbG(String(e.year || "").slice(-2))}</b>
+                  <b>{nbEntryTitle(e)}</b>
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
+                  <div style={{ flex: 1 }} />
+                  {r.crime && (e.detected ? <span style={{ fontSize: 11.5, color: "var(--status-success-text)" }}>✓ {t("Detected", "ડીટેક્ટ")}</span> : <span style={{ fontSize: 11.5, color: "var(--status-error-text)" }}>{t("Undetected", "અનડીટેક્ટ")}</span>)}
+                  {e.closeType ? <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{nbCloseLabel(e)}{e.finalNo ? " નં." + nbG(e.finalNo) : ""}</span> : pend && <span style={{ fontSize: 11.5, color: "var(--status-warning-text, #b7791f)" }}>{t("Pending", "પેન્ડીંગ")}{e.pendingReason ? " · " + e.pendingReason : ""}</span>}
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[e.sections, e.place, String(e.complainant || e.informant || "").split("\n")[0], e.io].filter(Boolean).join(" · ")}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+// B-statement on screen (one crime or a whole list), with Word / PDF.
+function CrimeBStatementView({ title, list, ctx, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [pdf, setPdf] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const L = nbBStatementOrder(list.filter((e) => e.reg === "A"));
+  const model = () => { const B = [{ p: `${ctx.ps} પો.સ્ટે. બી-સ્ટેટમેન્ટ`, b: true, sz: 24, center: true, after: 160 }]; L.forEach((e, i) => { B.push(...nbBStatementTable(e, ctx, i + 1)); B.push({ p: "", after: 120 }); }); return B; };
+  const fname = L.length === 1 ? `b-statement-${L[0].no}-${L[0].year}` : `b-statement-${todayStr()}`;
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)" };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 140, padding: "12px 10px", overflowY: "auto" }}>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 760, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "14px 16px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", borderRadius: "12px 12px 0 0", zIndex: 2 }}>
+          <div className="disp" style={{ flex: 1, fontSize: 15.5, fontWeight: 700, minWidth: 160 }}>📄 {title}</div>
+          <button type="button" disabled={!L.length} onClick={() => nbDeliverBlob(nbModelDocx(model(), {}), fname + ".docx", "B સ્ટેટમેન્ટ")} style={btn}>⬇ Word</button>
+          <button type="button" disabled={!L.length || busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(model(), {}), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : "⬇ PDF"}</button>
+          <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
+        </div>
+        <div style={{ padding: "12px 16px 18px" }}>
+          {!L.length && <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)" }}>{t("No Part A crimes here.", "અહીં ભાગ-એ નો કોઈ ગુનો નથી.")}</div>}
+          {L.map((e, i) => {
+            const blk = nbBStatementTable(e, ctx, i + 1);
+            const rows = blk[1].rows;
+            return (
+              <div key={e.id} style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{blk[0].p}</div>
+                <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                  <tbody>{rows.map((r, j) => (
+                    <tr key={j}>
+                      <td style={{ border: "1px solid var(--border)", padding: "5px 6px", width: 32, textAlign: "center", verticalAlign: "top" }}>{r[0].t}</td>
+                      <td style={{ border: "1px solid var(--border)", padding: "5px 6px", width: "32%", fontWeight: 700, verticalAlign: "top" }}>{r[1].t}</td>
+                      <td style={{ border: "1px solid var(--border)", padding: "5px 6px", whiteSpace: "pre-wrap", verticalAlign: "top", color: r[2].t && r[2].t !== "-" ? "var(--text-primary)" : "var(--status-error-text)" }}>{r[2].t && r[2].t !== "-" ? r[2].t : "—"}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -20242,7 +20355,7 @@ function CrimeRegisterList({ entries, reg, setReg, ym, setYm, q, setQ, onlyPendi
     </div>
   );
 }
-function CrimeReportsPanel({ ctx, ym, setYm, showToast }) {
+function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
   const { t } = useLang();
   const [busy, setBusy] = useState("");
   const [pdf, setPdf] = useState(null);
@@ -20260,7 +20373,8 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast }) {
   const E = ctx.entries;
   const inM = (k) => E.filter((e) => e.reg === k && nbYM(e.regDate) === ym);
   const end = ctx.end;
-  const pend = (k, m) => E.filter((e) => e.reg === k && e.regDate && e.regDate <= nbMonthsBefore(end, m) && nbPendingAt(e, end)).length;
+  const pendL = (k, m) => E.filter((e) => e.reg === k && e.regDate && e.regDate <= nbMonthsBefore(end, m) && nbPendingAt(e, end));
+  const pend = (k, m) => pendL(k, m).length;
   const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" };
   const txt = nbDailyCrimeText(ctx, day);
   return (
@@ -20276,8 +20390,8 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast }) {
           return (
             <div key={k} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 10px" }}>
               <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{l}</div>
-              <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}>{L.length}{["A", "B", "C"].includes(k) ? <span style={{ fontSize: 12, color: "var(--status-success-text)", fontWeight: 600 }}> · {L.filter((e) => e.detected).length} {t("det.", "ડીટે.")}</span> : null}</div>
-              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{t("pending >3m", "૩ માસ ઉપર")}: {pend(k, 3)} · {t(">6m", "૬ માસ ઉપર")}: {pend(k, 6)}</div>
+              <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}><NbDrillNum list={L} title={`${l} — ${nbYMLabel(ym)}`} onShow={showList}>{L.length}</NbDrillNum>{["A", "B", "C"].includes(k) ? <span style={{ fontSize: 12, color: "var(--status-success-text)", fontWeight: 600 }}> · <NbDrillNum list={L.filter((e) => e.detected)} title={`${l} — ${t("detected", "ડીટેક્ટ")} — ${nbYMLabel(ym)}`} onShow={showList}>{L.filter((e) => e.detected).length}</NbDrillNum> {t("det.", "ડીટે.")}</span> : null}</div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{t("pending >3m", "૩ માસ ઉપર")}: <NbDrillNum list={pendL(k, 3)} title={`${l} — ${t("pending over 3 months", "૩ માસ ઉપર પેન્ડીંગ")}`} onShow={showList}>{pend(k, 3)}</NbDrillNum> · {t(">6m", "૬ માસ ઉપર")}: <NbDrillNum list={pendL(k, 6)} title={`${l} — ${t("pending over 6 months", "૬ માસ ઉપર પેન્ડીંગ")}`} onShow={showList}>{pend(k, 6)}</NbDrillNum></div>
             </div>
           );
         })}
@@ -20288,6 +20402,7 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast }) {
             <div style={{ fontWeight: 700, fontSize: 14 }}>📄 {d[1]}</div>
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{d[2]} · {nbYMLabel(ym)}</div>
           </div>
+          {d[0] === "bst" && showBst && <button onClick={() => showBst(`B સ્ટેટમેન્ટ — ${nbYMLabel(ym)}`, inM("A"))} style={btn}>👁 {t("View", "જુઓ")}</button>}
           <button onClick={() => word(d)} style={btn}>⬇ Word</button>
           <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : "⬇ PDF"}</button>
         </div>
@@ -21004,7 +21119,12 @@ function NbBookHeadField({ e, setE }) {
 }
 
 // ----- Annual tab -----
-function CrimeAnnualPanel({ ctx, showToast }) {
+const nbAnnF = {
+  n: () => true, det: (e) => !!e.detected, und: (e) => !e.detected, cs: (e) => e.closeType === "cs",
+  fa: (e) => e.closeType === "fa", fb: (e) => e.closeType === "fb", fc: (e) => e.closeType === "fc", acc: (e) => nbPeople(e.accList).length > 0,
+};
+const nbAnnLbl = { n: "દાખલ", det: "ડીટેક્ટ", und: "અનડીટેક્ટ", cs: "ચાર્જશીટ", fa: "'A' ફાઇનલ", fb: "'B' ફાઇનલ", fc: "'C' ફાઇનલ", acc: "આરોપી વિગત સાથે" };
+function CrimeAnnualPanel({ ctx, showToast, showList }) {
   const { t } = useLang();
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(String(thisYear));
@@ -21026,6 +21146,7 @@ function CrimeAnnualPanel({ ctx, showToast }) {
   const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "center", whiteSpace: "nowrap", position: "sticky", top: 0, background: "var(--bg-surface)" };
   const td = { padding: "5px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 13, textAlign: "center" };
   const moved = E.filter((e) => (e.headHistory || []).length).length;
+  const HL = (id) => E.filter((e) => nbBookHeadOf(e) === id);
   return (
     <div>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
@@ -21036,10 +21157,12 @@ function CrimeAnnualPanel({ ctx, showToast }) {
         <select value={upto} onChange={(ev) => setUpto(ev.target.value)} className="gu" style={{ fontSize: 14 }}>{NB_GU_MON_SHORT.map((m, i) => <option key={i} value={String(i + 1)}>{m}{i === 11 ? " (" + t("full year", "આખું વર્ષ") + ")" : ""}</option>)}</select>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 14 }}>
-        {[[t("Registered", "દાખલ"), tot.n], [t("Detected", "ડીટેક્ટ"), tot.det], [t("Undetected", "અનડીટેક્ટ"), tot.und], ["'A' / 'B' / 'C'", `${tot.fa} / ${tot.fb} / ${tot.fc}`], [t("Accused", "આરોપી"), `${tot.acc}${tot.juv ? " (" + tot.juv + " " + t("juv.", "કિશોર") + ")" : ""}`], [t("Head transfers", "હેડ ફેરફાર"), moved]].map(([l, v], i) => (
+        {[[t("Registered", "દાખલ"), [[tot.n, E]]], [t("Detected", "ડીટેક્ટ"), [[tot.det, E.filter(nbAnnF.det)]]], [t("Undetected", "અનડીટેક્ટ"), [[tot.und, E.filter(nbAnnF.und)]]],
+          ["'A' / 'B' / 'C' " + t("final", "ફાઇનલ"), [[tot.fa, E.filter(nbAnnF.fa), "'A'"], [tot.fb, E.filter(nbAnnF.fb), "'B'"], [tot.fc, E.filter(nbAnnF.fc), "'C'"]]],
+          [t("Accused", "આરોપી") + (tot.juv ? " (" + tot.juv + " " + t("juv.", "કિશોર") + ")" : ""), [[tot.acc, E.filter(nbAnnF.acc)]]], [t("Head transfers", "હેડ ફેરફાર"), [[moved, E.filter((e) => (e.headHistory || []).length)]]]].map(([l, parts], i) => (
           <div key={i} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 10px" }}>
             <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{l}</div>
-            <div className="mono" style={{ fontSize: 19, fontWeight: 700 }}>{v}</div>
+            <div className="mono" style={{ fontSize: 19, fontWeight: 700 }}>{parts.map(([v, list, sub], j) => <React.Fragment key={j}>{j ? " / " : ""}<NbDrillNum list={list} title={`${sub ? sub + " " : ""}${l} — ${year}`} onShow={showList}>{v}</NbDrillNum></React.Fragment>)}</div>
           </div>
         ))}
       </div>
@@ -21058,7 +21181,7 @@ function CrimeAnnualPanel({ ctx, showToast }) {
           <thead><tr>{[t("Head", "હેડ"), t("Reg.", "દાખલ"), t("Det.", "ડીટેક્ટ"), t("Undet.", "અનડીટેક્ટ"), "A", "B", "C", t("Accused", "આરોપી"), t("Stolen ₹", "ગયેલ ₹"), t("Recovered ₹", "મળેલ ₹")].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
           <tbody>
             {rows.map(({ b, s }) => (
-              <tr key={b.id}><td style={{ ...td, textAlign: "left" }}>{b.gu}</td>{[s.n, s.det, s.und, s.fa, s.fb, s.fc, s.acc].map((v, i) => <td key={i} className="mono" style={td}>{v || "-"}</td>)}<td className="mono" style={td}>{s.stolen ? nbMoney(s.stolen) : "-"}</td><td className="mono" style={td}>{s.rec + s.cash ? nbMoney(s.rec + s.cash) : "-"}</td></tr>
+              <tr key={b.id}><td style={{ ...td, textAlign: "left" }}><NbDrillNum list={HL(b.id)} title={`${b.gu} — ${year}`} onShow={showList} style={{ fontFamily: "inherit" }}>{b.gu}</NbDrillNum></td>{[["n", s.n], ["det", s.det], ["und", s.und], ["fa", s.fa], ["fb", s.fb], ["fc", s.fc], ["acc", s.acc]].map(([k, v], i) => <td key={i} className="mono" style={td}>{v ? <NbDrillNum list={HL(b.id).filter(nbAnnF[k])} title={`${b.gu} — ${nbAnnLbl[k]} — ${year}`} onShow={showList}>{v}</NbDrillNum> : "-"}</td>)}<td className="mono" style={td}>{s.stolen ? <NbDrillNum list={HL(b.id).filter((e) => Number(e.stolenValue))} title={`${b.gu} — ગયેલ મુદ્દામાલ`} onShow={showList}>{nbMoney(s.stolen)}</NbDrillNum> : "-"}</td><td className="mono" style={td}>{s.rec + s.cash ? <NbDrillNum list={HL(b.id).filter((e) => Number(e.recoveredValue) || Number(e.recoveredCash))} title={`${b.gu} — મળેલ મુદ્દામાલ`} onShow={showList}>{nbMoney(s.rec + s.cash)}</NbDrillNum> : "-"}</td></tr>
             ))}
             {!rows.length && <tr><td colSpan={10} style={{ ...td, padding: 20, color: "var(--text-tertiary)" }}>{t("No crimes in this period.", "આ સમયગાળામાં કોઈ ગુનો નથી.")}</td></tr>}
           </tbody>
