@@ -20414,7 +20414,6 @@ function CrimeRegSettings({ settings, profile, showToast, look }) {
   const ex = nbFirNo({ no: "419", year: String(new Date().getFullYear()) }, s);
   return (
     <>
-    {look && <CrimeLookSettings look={look} />}
     <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16, maxWidth: 560 }}>
       <label style={nbCrLabel}>{t("FIR number prefix (station code)", "ગુ.ર.નં. ની શરૂઆત (પો.સ્ટે. કોડ)")}</label>
       <input type="text" inputMode="numeric" value={s.firPrefix} onChange={(e) => setS({ ...s, firPrefix: nbAsciiDigits(e.target.value).replace(/\D/g, "").slice(0, 12) })} className="mono" style={nbCrInput} placeholder="11193018" />
