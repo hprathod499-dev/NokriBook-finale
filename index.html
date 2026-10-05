@@ -20029,6 +20029,7 @@ function nbRegFields(reg) {
     { sec: "status", en: "Status", gu: "ડીટેક્ટ / પેન્ડીંગ / નિકાલ" },
     nbF("detected", "Detected", "ડીટેક્ટ", "chk"), nbF("detectDate", "Detected on", "ડીટેક્ટ તારીખ", "date"),
     nbF("detAgency", "Detected by", "ડીટેક્ટ કરનાર એજન્સી", "sel", { opts: NB_AGENCIES, when: (e) => !!e.detected }),
+    nbF("regAgency", "Registered by (agency)", "ગુનો દાખલ કરનાર એજન્સી", "sel", { opts: [["", "— ફરિયાદી પરથી આપોઆપ —"], ...NB_REG_AGENCIES] }),
     ...status,
     nbF("finalNo", "A/B/C final (summary) no.", "A/B/C ફાઇનલ (સમરી) નંબર", "text", { when: (e) => ["fa", "fb", "fc"].includes(e.closeType) }),
     { sec: "book", en: "Annual crime book", gu: "વાર્ષિક ગુના પત્રક" },
@@ -20162,6 +20163,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
     setBusy(true);
     try {
       const out = { ...e, updatedAt: Date.now() };
+      { const pr = ["A", "B", "C"].includes(out.reg) ? nbProhiReg(out.sections) : ""; if (pr && pr !== out.reg) { window.alert(pr === "C" ? t("Liquor (drinking / possession) cases go in Part C only — moved to Part C.", "દારૂ પીવાના / કબજાના ગુના ફક્ત ભાગ-સી માં જ — ભાગ-સી માં મૂક્યો.") : t("Drunk driving (M.V. 185) goes in Part B only — moved to Part B.", "દારૂ પીને વાહન (એમ.વી. ૧૮૫) ફક્ત ભાગ-બી માં જ — ભાગ-બી માં મૂક્યો.")); out.reg = pr; if (pr === "B") out.partBHead = "mv185"; out.detected = true; } }
       if (out.reg === "A") { if (!out.head44) out.head44 = guess || 43; if (out._rhAuto !== false) out.reviewHead = (out.acts || []).includes("POCSO") ? "" : NB_HEAD_TO_REVIEW[Number(out.head44)] || ""; }
       if (out.reg === "C" && !out.cKind) out.cKind = nbGuessCKind(out);
       if (["A", "B", "C", "M"].includes(out.reg)) out.bookHead = out._bookAuto === false && nbBookHead(out.bookHead) ? out.bookHead : nbGuessBookHead(out);
@@ -20449,6 +20451,131 @@ function CrimeFraudPanel({ ctx, entries, showToast, showList, onOpen }) {
     </div>
   );
 }
+// Parts by the station's rule: drinking / country / English liquor → C,
+// drunk driving (M.V. 185) → B. Kept on every load, so an old file or a
+// wrong pick can't put them back in another part.
+async function nbApplyProhiRules() {
+  const all = await nbEntryStore.all();
+  const fix = [];
+  all.forEach((e) => {
+    if (!["A", "B", "C"].includes(e.reg)) return;
+    const r = nbProhiReg(e.sections);
+    if (!r || r === e.reg) return;
+    const n = { ...e, reg: r };
+    if (r === "B") { n.partBHead = "mv185"; n.detected = true; }
+    if (r === "C") { n.detected = true; delete n.partBHead; }
+    if (e.reg === "A") { delete n.head44; delete n.reviewHead; }
+    fix.push(n);
+  });
+  if (fix.length) await nbEntryStore.putMany(fix);
+  return fix.length;
+}
+function nbProhiModel(ctx, R, L, filt) {
+  const B = [];
+  const lbl = nbRangeLabel(R);
+  const ag = (k) => (NB_REG_AGENCIES.find((x) => x[0] === k) || [k, "જાણ નથી"])[1];
+  B.push({ p: `${ctx.ps} પોલીસ સ્ટેશન — પ્રોહીબીશન ગુનાની વિગત ${lbl}`, b: true, sz: 24, center: true, after: 40 });
+  if (filt) B.push({ p: filt, sz: 18, center: true, after: 100 });
+  const rows = NB_PROHI_KINDS.map(([k, l]) => {
+    const K = L.filter((e) => nbProhiKind(e) === k); if (!K.length) return null;
+    const q = K.reduce((a, e) => { const x = nbProhiQty(e); return { l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, acc: a.acc + nbAccusedCount(e) }; }, { l: 0, b: 0, v: 0, acc: 0 });
+    return [l, K.length, q.acc, q.b, q.l, q.v];
+  }).filter(Boolean);
+  const T = rows.reduce((a, r) => [a[0], a[1] + r[1], a[2] + r[2], a[3] + r[3], a[4] + r[4], a[5] + r[5]], ["કુલ", 0, 0, 0, 0, 0]);
+  const cn = (v) => nbCell(v ? nbG(Math.round(v * 100) / 100) : "-", { center: true });
+  B.push({ table: true, sz: 18, widths: [3600, 1200, 1300, 1300, 1300, 1800], headRows: [["પ્રકાર", "ગુના", "આરોપી", "બોટલ / ટીન", "લીટર", "કુલ મુદ્દામાલ ₹"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: [...rows.map((r) => [nbCell(r[0]), cn(r[1]), cn(r[2]), cn(r[3]), cn(r[4]), nbCell(r[5] ? nbG(nbMoney(r[5])) : "-", { center: true })]), [nbCell("કુલ", { b: true }), ...[1, 2, 3, 4].map((i) => nbCell(nbG(Math.round(T[i] * 100) / 100), { center: true, b: true })), nbCell(nbG(nbMoney(T[5])), { center: true, b: true })]], after: 160 });
+  B.push({ p: "ગુનાવાર વિગત", b: true, sz: 22, after: 60 });
+  B.push({ table: true, sz: 16, widths: [500, 1500, 1100, 1900, 1500, 2600, 800, 900, 800, 1300], headRows: [["ક્રમ", "ગુ.ર.નં.", "તારીખ", "પ્રકાર", "એજન્સી", "આરોપી", "સંખ્યા", "બોટલ", "લીટર", "મુદ્દામાલ ₹"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: L.map((e, i) => { const q = nbProhiQty(e); return [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(ag(nbRegAgencyOf(e, ctx.ps))), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 160)), cn(nbAccusedCount(e)), cn(q.bottles), cn(q.litres), nbCell(q.value ? nbG(nbMoney(q.value)) : "-", { center: true })]; }), after: 120 });
+  return B;
+}
+function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
+  const { t } = useLang();
+  const today = todayStr();
+  const [R, setR] = useState(() => ({ from: nbYM(today) + "-01", to: today }));
+  const [agency, setAgency] = useState("all");
+  const [kind, setKind] = useState("all");
+  const [busy, setBusy] = useState("");
+  const [pdf, setPdf] = useState(null);
+  const ps = ctx.ps;
+  const base = nbSortEntries(ctx.entries.filter((e) => nbProhiKind(e) && e.regDate && e.regDate >= R.from && e.regDate <= R.to));
+  const L = base.filter((e) => (agency === "all" || (nbRegAgencyOf(e, ps) || "unk") === agency) && (kind === "all" || nbProhiKind(e) === kind));
+  const agName = (k) => (NB_REG_AGENCIES.find((x) => x[0] === k) || [k, t("Not known", "જાણ નથી")])[1];
+  const kName = (k) => (NB_PROHI_KINDS.find((x) => x[0] === k) || [k, k])[1];
+  const filt = [agency !== "all" ? t("Agency: ", "એજન્સી: ") + agName(agency) : "", kind !== "all" ? t("Type: ", "પ્રકાર: ") + kName(kind) : ""].filter(Boolean).join(" · ");
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" };
+  const card = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 };
+  const fname = `prohibition-${R.from}-to-${R.to}`;
+  const model = () => nbProhiModel(ctx, R, L, filt);
+  const sel = { fontSize: 13.5, padding: "7px 8px", borderRadius: 8 };
+  const sum = (list) => list.reduce((a, e) => { const x = nbProhiQty(e); return { n: a.n + 1, l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, acc: a.acc + nbAccusedCount(e) }; }, { n: 0, l: 0, b: 0, v: 0, acc: 0 });
+  const rawOf = (e) => (entries || []).find((x) => x.id === e.id) || e;
+  const setAg = async (e, v) => { try { await nbEntryStore.put({ ...rawOf(e), regAgency: v, updatedAt: Date.now() }); showToast(t("Saved", "સચવાયું")); } catch (err) { nbSaveFailed(t, err); } };
+  const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "center", whiteSpace: "nowrap" };
+  const td = { padding: "5px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 13, textAlign: "center" };
+  const kinds = NB_PROHI_KINDS.filter(([k]) => base.some((e) => nbProhiKind(e) === k));
+  const ags = [...NB_REG_AGENCIES.map((a) => a[0]), "unk"].filter((k) => base.some((e) => (nbRegAgencyOf(e, ps) || "unk") === k));
+  return (
+    <div data-prohi>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={card}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>🍾 {t("Prohibition cases — drive report", "પ્રોહીબીશન ગુના — ડ્રાઇવ પત્રક")}</div>
+        <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={agency} onChange={(ev) => setAgency(ev.target.value)} className="gu" data-prohi-agency style={sel}>
+            <option value="all">{t("All agencies", "બધી એજન્સી")}</option>
+            {[...NB_REG_AGENCIES, ["unk", t("Not known", "જાણ નથી")]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <select value={kind} onChange={(ev) => setKind(ev.target.value)} className="gu" data-prohi-kind style={sel}>
+            <option value="all">{t("All types", "બધા પ્રકાર")}</option>
+            {NB_PROHI_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <div style={{ flex: 1 }} />
+          <button type="button" onClick={() => { try { nbDeliverBlob(nbModelDocx(model(), { landscape: true }), fname + ".docx", "પ્રોહી પત્રક"); } catch (e) { console.error(e); } }} style={btn}><WordIcon />Word</button>
+          <button type="button" disabled={!!busy} onClick={async () => { setBusy("p"); try { setPdf({ doc: await nbModelPdf(model(), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); } finally { setBusy(""); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+        </div>
+      </div>
+      <div style={{ ...card, overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 520 }}>
+          <thead><tr>{[t("Type", "પ્રકાર"), t("Cases", "ગુના"), t("Accused", "આરોપી"), t("Bottles", "બોટલ"), t("Litres", "લીટર"), t("Value ₹", "મુદ્દામાલ ₹")].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {[...NB_PROHI_KINDS.map(([k, l]) => [l, L.filter((e) => nbProhiKind(e) === k)]).filter((r) => r[1].length), [t("Total", "કુલ"), L]].map(([l, K], i, arr) => { const s = sum(K); const last = i === arr.length - 1; return (
+              <tr key={i} style={last ? { fontWeight: 700 } : {}}><td style={{ ...td, textAlign: "left" }}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{l}</NbDrillNum></td>
+                <td className="mono" style={td}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{nbG(s.n)}</NbDrillNum></td><td className="mono" style={td}>{nbG(s.acc)}</td><td className="mono" style={td}>{s.b ? nbG(s.b) : "-"}</td><td className="mono" style={td}>{s.l ? nbG(Math.round(s.l * 100) / 100) : "-"}</td><td className="mono" style={td}>{s.v ? nbG(nbMoney(s.v)) : "-"}</td></tr>); })}
+          </tbody>
+        </table>
+      </div>
+      {ags.length > 0 && <div style={{ ...card, overflowX: "auto" }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>{t("By registering agency", "ગુનો દાખલ કરનાર એજન્સી મુજબ")}</div>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 420 }}>
+          <thead><tr><th style={{ ...th, textAlign: "left" }}>{t("Agency", "એજન્સી")}</th>{kinds.map(([k, l]) => <th key={k} style={th}>{l}</th>)}<th style={th}>{t("Total", "કુલ")}</th></tr></thead>
+          <tbody>{ags.map((a) => { const A = base.filter((e) => (nbRegAgencyOf(e, ps) || "unk") === a); return (
+            <tr key={a}><td style={{ ...td, textAlign: "left" }}><button type="button" onClick={() => setAgency(a)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer" }}>{agName(a)}</button></td>
+              {kinds.map(([k, l]) => { const K = A.filter((e) => nbProhiKind(e) === k); return <td key={k} className="mono" style={td}>{K.length ? <NbDrillNum list={K} title={`${agName(a)} — ${l}`} onShow={showList}>{nbG(K.length)}</NbDrillNum> : "-"}</td>; })}
+              <td className="mono" style={{ ...td, fontWeight: 700 }}><NbDrillNum list={A} title={agName(a)} onShow={showList}>{nbG(A.length)}</NbDrillNum></td></tr>); })}</tbody>
+        </table>
+      </div>}
+      <div style={card}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>{t(`${L.length} cases`, `${nbG(L.length)} ગુના`)}{filt ? " · " + filt : ""}</div>
+        {L.map((e) => { const q = nbProhiQty(e); const ag = nbRegAgencyOf(e, ps); return (
+          <div key={e.id} data-prohi-row style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid var(--border-soft)", padding: "7px 0", fontSize: 13 }}>
+            <button type="button" onClick={() => onOpen(rawOf(e))} className="mono" style={{ background: "transparent", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: "inherit", cursor: "pointer" }}>{nbReg(e.reg).gu} {nbG(e.no)}/{nbG(String(e.year).slice(-2))}</button>
+            <span style={{ color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
+            <span>{kName(nbProhiKind(e))}</span>
+            <span style={{ color: "var(--text-secondary)" }}>{t("accused", "આરોપી")} {nbG(nbAccusedCount(e))}</span>
+            {(q.bottles || q.litres || q.value) ? <span className="mono">{[q.bottles && nbG(q.bottles) + " બોટલ", q.litres && nbG(q.litres) + " લી.", q.value && "₹" + nbG(nbMoney(q.value))].filter(Boolean).join(" · ")}</span> : null}
+            <div style={{ flex: 1 }} />
+            <select value={e.regAgency || ""} onChange={(ev) => setAg(e, ev.target.value)} className="gu" style={{ fontSize: 12.5, padding: "4px 6px", borderRadius: 7 }}>
+              <option value="">{ag ? agName(ag) + t(" (from complainant)", " (ફરિયાદી પરથી)") : t("Agency: not known", "એજન્સી: જાણ નથી")}</option>
+              {NB_REG_AGENCIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </div>); })}
+        {!L.length && <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("No cases in these dates.", "આ તારીખોમાં કોઈ ગુનો નથી.")}</div>}
+      </div>
+    </div>
+  );
+}
 function CrimeRegisterView({ profile, showToast, look }) {
   const { t, lang } = useLang();
   const entries = useLocalEntries();
@@ -20458,7 +20585,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
     let alive = true;
     const load = () => Promise.all([nbCrimeStore.getMeta("regSettings"), nbCrimeStore.getMeta("monthly")]).then(([s, m]) => { if (!alive) return; setSettingsState(s || {}); setMonthlyState(m || {}); });
     // also after every restore, so an old file can't bring the guessed dates back
-    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).finally(load);
+    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).finally(load);
     nbMigrateOldCases().catch((e) => console.warn("migration", e)).finally(loadClean);
     window.addEventListener(NB_CRIME_EVT, loadClean);
     return () => { alive = false; window.removeEventListener(NB_CRIME_EVT, loadClean); };
@@ -20493,6 +20620,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("rep")} style={tabBtn(tab === "rep")}>📄 {t("Monthly reports", "માસિક અહેવાલ")}</button>
         <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
         <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
+        <button onClick={() => setTab("pr")} style={tabBtn(tab === "pr")} data-tab-pr>🍾 {t("Prohibition", "પ્રોહી / દારૂ")}</button>
         <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
@@ -20500,6 +20628,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} showList={showList} showBst={showBst} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
       {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
+      {tab === "pr" && <CrimeProhiPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
@@ -20703,7 +20832,9 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
       <CrimeWordImport entries={ctx.entries} showToast={showToast} showBst={showBst} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <b>{t("Month", "માસ")}:</b>
+        <button type="button" onClick={() => setYm(nbYMShift(ym, -1))} aria-label="◀" data-ym-prev style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>◀</button>
         <input type="month" value={ym} onChange={(e) => e.target.value && setYm(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
+        <button type="button" onClick={() => setYm(nbYMShift(ym, 1))} aria-label="▶" data-ym-next style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>▶</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[["A", "ભાગ-એ"], ["B", "ભાગ-બી"], ["C", "ભાગ-સી"], ["AD", "અ.મોત"], ["JJ", "જાણવા જોગ"], ["GUM", "ગુમ"]].map(([k, l]) => {
@@ -21010,6 +21141,7 @@ function nbParseUtaraBlocks(blocks) {
         else if (/એ\s*\.?\s*પાર્ટ|ભાગ\s*-?\s*એ|A\s*–?\s*પાર્ટ|ભાગ-A/.test(t2)) reg = "A";
         else if (reg === "B" && /ભારતીય\s*ન્યાય|BNS|બી\.?\s?એન\.?\s?એસ/.test(t2) && !/223/.test(t2)) reg = "A";
         if (reg === "A" && /પ્રોહી/.test(t2) && !/ભારતીય\s*ન્યાય|BNS|બી\.?\s?એન\.?\s?એસ/.test(t2)) reg = "C";
+        { const pr = nbProhiReg(t2); if (pr) reg = pr; }
         let [rd, rt] = nbWDateTime(c[4]);
         if (!rd) [rd, rt] = nbWDateTime(c[3]);
         // a mistyped date in the extract is kept inside the extract's own month
@@ -21022,6 +21154,7 @@ function nbParseUtaraBlocks(blocks) {
           occText: nbWClean(c[3]), place: nbWClean(c[5]), complainant: nbWClean(c[6]), accused: nbWClean(c[7]), arrestText: nbWClean(c[8]),
           facts: nbWClean(c[9]), io: nbWClean(c[10]), disposal: c.length > 11 ? nbWClean(c[11]) : "", createdAt: now, updatedAt: now };
         if (reg === "B" || reg === "C") e.detected = true;
+        if (reg === "B" && nbIsDD185(secs)) e.partBHead = "mv185";
         if (reg === "A") {
           const acc = e.accused.trim();
           e.detected = !!acc && !(/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(acc) && !acc.includes("\n")) && acc !== "-";
@@ -21255,7 +21388,7 @@ function nbFirToEntry(pages, fileName) {
   const prohi = /પ્રોહી|prohib/i.test(sections + " " + act);
   const toks = Array.from(nbSectionTokens(secs)).filter((x) => /^\d+$/.test(x));
   const onlyB = toks.length && toks.every((x) => ["223", "281", "285", "292", "296"].includes(x));
-  const reg = prohi ? "C" : /જુગાર|gambl|ઞુગાર|આર્મ્સ|arms|જી\.?પી|એમ\.?વી|m\.?v\.?\s?act|g\.?p\.?\s?act/i.test(act) || onlyB ? "B" : "A";
+  const reg = nbProhiReg(sections) || (prohi ? "C" : "") || (/જુગાર|gambl|ઞુગાર|આર્મ્સ|arms|જી\.?પી|એમ\.?વી|m\.?v\.?\s?act|g\.?p\.?\s?act/i.test(act) || onlyB ? "B" : "A");
   const accT = accText.trim();
   const unknown = !accT || /^\s*(\(૧\)\s*)?(અજાણ્યો|અજાણ્યા|અજાણ)/.test(accT) && accused.length <= 1;
   const e = { id: `f${reg}${no}_${year}`, reg, no, year, regDate, regTime, sections, occText, place, complainant, accused: accT, facts, io, createdAt: now, updatedAt: now, firSource: fileName || "FIR" };
@@ -21413,7 +21546,9 @@ function CrimeMonthlyInputs({ ctx, ym, setYm, monthly, showToast }) {
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <b>{t("Month", "માસ")}:</b>
+        <button type="button" onClick={() => setYm(nbYMShift(ym, -1))} aria-label="◀" data-ym-prev style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>◀</button>
         <input type="month" value={ym} onChange={(e) => e.target.value && setYm(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
+        <button type="button" onClick={() => setYm(nbYMShift(ym, 1))} aria-label="▶" data-ym-next style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>▶</button>
         <div style={{ flex: 1 }} />
         <button onClick={save} disabled={!dirty} className="gu" style={{ background: dirty ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 14, fontWeight: 700 }}>{dirty ? t("Save", "સાચવો") : "✓ " + t("Saved", "સચવાયું")}</button>
       </div>
@@ -21759,10 +21894,66 @@ function nbGuessCKind(e) {
   const a = nbAsciiDigits(((e.sections || "") + " " + (e.facts || "")).toLowerCase()).replace(/\s+/g, "");
   if (/66\(?1\)?\-?\(?(b|બી)|પીધેલ|પીધેલી|કેફીપીણુ/.test(a)) return "drink";
   if (/આથો|wash/.test(a)) return "wash";
-  if (/વિદેશી|ઇંગ્લીશ|ઈંગ્લીશ|english|બીયર|beer|65\(?(e|ઇ|ઈ)\)?/.test(a)) return "fl";
+  if (/વિદેશી|ઇંગ્લીશ|ઈંગ્લીશ|ઇગ્લીશ|ઇંગ્લિશ|english|બીયર|beer|whisky|vodka|વ્હીસ્કી|વોડકા|65\(?(e|ઇ|ઈ)\)?/.test(a)) return "fl";
   if (/દેશી|65\(?(a|એ)\)?|65\-?(a|એ)|પ્રોહી/.test(a)) return "cl";
   return "other";
 }
+// ---------- Prohibition (liquor) cases: part, agency, quantity ----------
+// Station rules: drinking / country / English liquor cases are Part C only;
+// drunk driving (M.V. Act 185) is Part B only, never C.
+const NB_REG_AGENCIES = [["local", "સ્થાનિક પોલીસ સ્ટેશન"], ["lcb", "એલ.સી.બી."], ["sog", "એસ.ઓ.જી."], ["smc", "એસ.એમ.સી."], ["traffic", "જિલ્લા ટ્રાફિક"], ["other", "અન્ય એજન્સી"]];
+const nbIsDD185 = (s) => { const a = nbAsciiDigits(s || ""); return /(?:^|\D)185(?:\D|$)/.test(a) && /એમ\.?\s?વી|m\.?\s?v|મોટર\s*વાહન|વાહન|mvact/i.test(a); };
+const nbIsProhi = (s) => /પ્રોહી|પ્રોહિ|નશાબંધી|prohi/i.test(s || "");
+const nbHasOtherLaw = (s) => /ભારતીય\s*ન્યાય|બી\.?\s?એન\.?\s?એસ|BNS|આઇ\.?\s?પી\.?\s?સી|IPC|જી\.?\s?પી\.?\s?એ|આર્મ્સ|NDPS|એન\.?ડી\.?પી/i.test(s || "");
+// the part a crime must be in by these rules, or "" when the rules say nothing
+function nbProhiReg(sections) {
+  const s = sections || "";
+  if (nbIsDD185(s)) return "B";
+  if (nbIsProhi(s) && !nbHasOtherLaw(s)) return "C";
+  return "";
+}
+// who registered it — read from the complainant (the police officer in these cases)
+function nbGuessRegAgency(e, ps) {
+  const c = nbAsciiDigits([e.complainant, e.writer].filter(Boolean).join(" "));
+  if (!c.trim()) return "";
+  if (/એલ\.?\s?સી\.?\s?બી|એલસીબી|એલ\s+સી\s+બી|L\.?\s?C\.?\s?B|લોકલ\s*ક્રાઇમ/i.test(c)) return "lcb";
+  if (/એસ\.?\s?ઓ\.?\s?જી|એસઓજી|S\.?\s?O\.?\s?G|સ્પેશ્યલ\s*ઓપરેશન/i.test(c)) return "sog";
+  if (/એસ\.?\s?એમ\.?\s?સી|એસએમસી|S\.?\s?M\.?\s?C|સ્ટેટ\s*મોની/i.test(c)) return "smc";
+  if (/ટ્રાફ[ીિ]ક|traffic/i.test(c)) return "traffic";
+  const name = String(ps || "").replace(/\s*(પોલીસ\s*સ્ટેશન|પો\.?\s?સ્ટે\.?).*$/, "").trim();
+  if (name && c.includes(name) && /પોલીસ|પો\.?\s?સ્ટે|પો\s+સ્ટે/.test(c)) return "local";
+  if (/નોકરી|બ\.?\s?નં|કોન્સ|પો\.?\s?સ\.?\s?ઇ|પો\.?\s?ઇન્સ|હેડ/.test(c)) return "other";
+  return "";
+}
+const nbRegAgencyOf = (e, ps) => e.regAgency || nbGuessRegAgency(e, ps);
+// litres / bottles / value written in the facts (as written — never estimated)
+function nbProhiQty(e) {
+  const f = nbAsciiDigits(e.facts || "").replace(/,(?=\d{3})/g, "");
+  const num = (s) => Number(String(s).replace(/,/g, "")) || 0;
+  let litres = 0, bottles = 0;
+  [...f.matchAll(/(\d+(?:\.\d+)?)\s*(?:\([^)]{0,20}\)|[^\d\s(]{1,10})?\s*(?:લી(?:ટર|\.)|લીટર|liter|litre)/gi)].forEach((m) => { litres += num(m[1]); });
+  if (!litres) [...f.matchAll(/લી(?:ટર|\.)\s*(?:[^\d\s(]{1,12}\s*)?[-:.(]?\s*(\d+(?:\.\d+)?)/g)].forEach((m) => { litres += num(m[1]); });
+  [...f.matchAll(/(?:બોટલ|બોટલો|ટીન|ટીમ|કવાટર|ક્વાટર|ચપટા)\s*(?:નંગ)?\s*[-:]?\s*(\d+)/g)].forEach((m) => { bottles += num(m[1]); });
+  if (!bottles) [...f.matchAll(/(\d+)\s*(?:\([^)]{0,20}\))?\s*(?:નંગ\s*)?(?:બોટલ|ટીન|કવાટર|ક્વાટર)/g)].forEach((m) => { bottles += num(m[1]); });
+  const tot = f.match(/કુલ\s*(?:ક[િી](?:ં)?\.?\s?(?:રૂ|ર[ુૂ])ા?\.?|કિંમત\s*(?:રૂ|ર[ુૂ])ા?\.?|રૂા?\.?)\s*[-:]?\s*(\d+(?:\.\d+)?)/);
+  let value = tot ? num(tot[1]) : 0;
+  if (!value) { const all = [...f.matchAll(/(?:ક[િી](?:ં)?\.?\s?(?:રૂ|ર[ુૂ])ા?\.?|કિંમત\s*(?:રૂ|ર[ુૂ])ા?\.?)\s*[-:]?\s*(\d+(?:\.\d+)?)/g)].map((m) => num(m[1])); value = all.length ? Math.max(...all) : 0; }
+  return { litres: Number(e.litres) || litres || 0, bottles: Number(e.bottles) || bottles || 0, value: Number(e.seizedValue) || value || 0 };
+}
+function nbAccusedCount(e) {
+  const L = nbPeople(e.accList); if (L.length) return L.length;
+  const t = String(e.accused || "").trim(); if (!t || t === "-") return 0;
+  const n = (t.match(/\(\s*[0-9૦-૯]{1,2}\s*\)/g) || []).length;
+  return n || 1;
+}
+// liquor-case kind used by the drive report
+function nbProhiKind(e) {
+  if (e.reg === "B" && (nbIsDD185(e.sections) || (e.partBHead || nbGuessPartB(e.sections)) === "mv185")) return "dd";
+  if (e.reg !== "C") return "";
+  const k = e.cKind || nbGuessCKind(e);
+  return k === "other" ? "cother" : k;
+}
+const NB_PROHI_KINDS = [["fl", "ઇંગ્લીશ / વિદેશી દારૂ"], ["cl", "દેશી દારૂ"], ["wash", "આથો (વોશ)"], ["drink", "દારૂ પીધેલ (૬૬(૧)(બી))"], ["dd", "દારૂ પીને વાહન (એમ.વી. ૧૮૫)"], ["cother", "અન્ય પ્રોહી"]];
 const NB_BOOK_HEADS = [
   { id: "acc", gu: "અકસ્માત (સાદો / ગંભીર)", h: [26, 25, 22] },
   { id: "fatal", gu: "ફેટલ અકસ્માત", h: [24] },
@@ -21943,20 +22134,48 @@ function nbRangePresets(t) {
     ["all", t("All", "બધું"), "2000-01-01", today],
   ];
 }
+// ◀ ▶ move the period by its own length: a whole-month period by months, any other by days
+function nbRangeShift(from, to, dir) {
+  const today = todayStr();
+  const isFirst = from.slice(8) === "01";
+  const toEnd = to === nbYMEnd(nbYM(to)) || (to === today && nbYM(to) === nbYM(today));
+  if (isFirst && toEnd) {
+    const n = (Number(to.slice(0, 4)) * 12 + Number(to.slice(5, 7))) - (Number(from.slice(0, 4)) * 12 + Number(from.slice(5, 7))) + 1;
+    const f = nbYMShift(nbYM(from), dir * n) + "-01";
+    let t2 = nbYMEnd(nbYMShift(nbYM(to), dir * n));
+    if (f > today) return null;
+    if (t2 > today) t2 = today;
+    return [f, t2];
+  }
+  const d0 = new Date(from + "T00:00:00"), d1 = new Date(to + "T00:00:00");
+  const len = Math.round((d1 - d0) / 86400000) + 1;
+  const sh = (d) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + dir * len); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); };
+  const f = sh(from); if (f > today) return null;
+  return [f, sh(to)];
+}
 function NbRangePicker({ from, to, onChange, extra }) {
   const { t } = useLang();
   const P = nbRangePresets(t);
-  const qb = (on) => ({ background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 16, padding: "4px 10px", fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" });
+  const cur = P.find((x) => x[2] === from && x[3] === to);
+  const arrow = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, color: "var(--text-primary)", cursor: "pointer", flexShrink: 0 };
+  const move = (dir) => { const r = nbRangeShift(from, to, dir); if (r) onChange(r[0], r[1]); };
+  const nextOk = !!nbRangeShift(from, to, 1);
+  const lbl = from && to ? (from.slice(8) === "01" && to === nbYMEnd(nbYM(to)) && nbYM(from) === nbYM(to) ? NB_GU_MON_SHORT[Number(from.slice(5, 7)) - 1] + " " + nbG(from.slice(0, 4)) : nbG(formatDMY(from)) + " – " + nbG(formatDMY(to))) : "";
   return (
     <div data-range style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <button type="button" onClick={() => move(-1)} aria-label={t("Earlier", "પાછળ")} data-range-prev style={arrow}>◀</button>
+        <select value={cur ? cur[0] : "custom"} onChange={(ev) => { const x = P.find((p) => p[0] === ev.target.value); if (x) onChange(x[2], x[3]); }} className="gu" data-range-select style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, padding: "7px 8px", borderRadius: 8, height: 36 }}>
+          {P.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          {!cur && <option value="custom">{lbl || t("Custom dates", "પસંદ કરેલી તારીખો")}</option>}
+        </select>
+        <button type="button" onClick={() => move(1)} disabled={!nextOk} aria-label={t("Later", "આગળ")} data-range-next style={{ ...arrow, opacity: nextOk ? 1 : 0.4 }}>▶</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
         <NbDateInput value={from} onChange={(e) => e.target.value && onChange(e.target.value, to < e.target.value ? e.target.value : to)} style={{ ...nbCrDate, width: 140 }} data-range-from />
         <b className="gu" style={{ fontSize: 13 }}>{t("to", "થી")}</b>
         <NbDateInput value={to} onChange={(e) => e.target.value && onChange(from > e.target.value ? e.target.value : from, e.target.value)} style={{ ...nbCrDate, width: 140 }} data-range-to />
         {extra}
-      </div>
-      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
-        {P.map(([k, l, a, b]) => <button key={k} type="button" data-range-preset={k} onClick={() => onChange(a, b)} className="gu" style={qb(from === a && to === b)}>{l}</button>)}
       </div>
     </div>
   );
