@@ -20206,7 +20206,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
         {NB_REGS.filter((r) => r.crime).map((r) => <option key={r.k} value={r.k}>{r.gu}</option>)}
       </select>
     );
-    else if (f.type === "people") ctl = <NbPeopleEditor value={v} kind={f.who} fromText={f.who === "acc" ? e.accused : ""} onChange={(x) => set(f.k, x)} />;
+    else if (f.type === "people") ctl = <NbPeopleEditor value={v} kind={f.who} fromText={f.who === "acc" && e.accused ? { text: e.accused, arrest: e.arrestText } : null} onChange={(x) => set(f.k, x)} />;
     else if (f.type === "bookhead") ctl = <NbBookHeadField e={e} setE={setE} />;
     else if (f.type === "ckind") ctl = <select value={v || nbGuessCKind(e)} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={inp}>{NB_C_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>;
     else ctl = <input type="text" value={v == null ? "" : v} placeholder={f.ph || ""} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={inp} />;
@@ -20857,6 +20857,99 @@ function nbWAutoFill(e) {
   if (mo && !e.motive) e.motive = mo;
   return e;
 }
+// Accused list with each person's arrest status, read from the document text
+// (B-statement column 3 / ઉતારા accused + arrest columns). Only what the text
+// says is used; a person the text says nothing about is "અટક બાકી".
+const NB_AR_GROUP = /તમામ|ત્રણેય|બન્ને|બંન્ને|બંને|ચારેય|પાંચેય|બધા|બધાને/;
+function nbArDate(s) {
+  const m = nbWA(s).match(/(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{4}|\d{2})(?!\d)/);
+  if (!m) return "";
+  const y = m[3].length === 2 ? "20" + m[3] : m[3], mo = +m[2], d = +m[1];
+  return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}` : "";
+}
+function nbArKind(s) {
+  if (/મરણ\s*ગય|મૃત્યુ\s*પામ|મરણ\s*પામ/.test(s)) return "dead";
+  if (/અટક\s*કર|અટક\s*તા|અટક\s*થય|ધરપકડ/.test(s)) return "yes";
+  if (/નોટીસ|નોટિસ/.test(s) && !/નોટીસ\s*ઇશ્યુ\s*કરવા\s*પર/.test(s)) return "notice";
+  if (/પુ?છપરછ|પૂછપરછ|પુછપરછ/.test(s)) return "asked";
+  return "";
+}
+// "૩ તથા ૪" / "૧ ,૨ ,૫" / "૦૧ થી ૪" → [3,4] …
+function nbArNums(s) {
+  const a = nbWA(s); const out = new Set();
+  a.replace(/(\d{1,2})\s*(?:થી|-|to)\s*(\d{1,2})/g, (m, x, y) => { for (let i = +x; i <= +y && i - +x < 30; i++) out.add(i); return " "; })
+    .replace(/\d{1,2}/g, (m) => { out.add(+m); return " "; });
+  return Array.from(out).filter((n) => n > 0).sort((x, y) => x - y);
+}
+function nbAccusedWithArrests(text, arrestCol) {
+  let T = nbWClean(text || "");
+  if (!T || /^\s*-?\s*$/.test(T)) return [];
+  // 1) numbered statements: "આરોપી નં.૩ તથા ૪ નાઓને તા.૧૩/૦૯/૨૬ … અટક કરેલ છે."
+  const byNo = {};
+  const re = /આરોપી\s*નં[.\s:-]*((?:[0-9૦-૯]{1,2}\s*(?:,|તથા|અને|થી|-)?\s*)+)[\s\S]{0,110}?(?:અટક|પુ?છપરછ|પૂછપરછ|નોટીસ|નોટિસ|મરણ)[^.]{0,45}?(?:છે|આવેલ|કરેલ)\.?/g;
+  let m; const cut = [];
+  const A = nbWA(T);
+  while ((m = re.exec(A))) {
+    const kind = nbArKind(m[0]); if (!kind) continue;
+    const dt = nbArDate(m[0]);
+    nbArNums(m[1]).forEach((n) => { byNo[n] = { st: kind, arrestDate: dt }; });
+    cut.push([m.index, m.index + m[0].length]);
+  }
+  for (let i = cut.length - 1; i >= 0; i--) T = T.slice(0, cut[i][0]) + " " + T.slice(cut[i][1]);
+  T = T.replace(/\s{2,}/g, " ").trim();
+  // 2) split into people
+  if (/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)\b/.test(T) && !/[(]\s*[૧1]\s*[)]|^\s*[૧1]\s*\)/.test(T)) T = "(1) " + T;
+  const numbered = /(?:\(|^|\s)\(?\s*[0-9૦-૯]{1,2}\s*\)/.test(T);
+  let parts = numbered ? T.split(/(?:\(|^|\s)\(?\s*[0-9૦-૯]{1,2}\s*\)/).map((x) => x.trim()).filter(Boolean) : [];
+  if (!numbered) {
+    // no numbering: one person per line; a line that is only a status note joins the line above
+    const isNote = (l) => !/રહે|ઉ\.?\s?વ|ભાઇ|ભાઈ|બેન|ઇસમ/.test(l) || /^\s*(તા\.?|તારીખ)\s*[0-9૦-૯]/.test(l);
+    T.split(/\n+/).map((x) => x.trim()).filter(Boolean).forEach((l) => { if (parts.length && isNote(l)) parts[parts.length - 1] += " " + l; else parts.push(l); });
+  }
+  // a statement inside one person's text: "… તા.૨૦/૦૭/૨૦૨૬ ના ક.૨૩/૩૦ વાગ્યે અટક કરેલ છે."
+  const inRe = /(?:તા\.?\s*[-.]?\s*)?[0-9૦-૯]{1,2}\s*[/.-]\s*[0-9૦-૯]{1,2}\s*[/.-]\s*[0-9૦-૯]{2,4}[^()]{0,60}?(?:અટક\s*કર(?:ેલ|વામા[ંં]?\s*આવેલ)|પુ?છપરછ\s*કર(?:ેલ|વામા[ંં]?\s*આવેલ)|પૂછપરછ\s*કર(?:ેલ|વામા[ંં]?\s*આવેલ)|નોટીસ\s*આપ(?:ેલ|વામા[ંં]?\s*આવેલ))[^.()]*\.?|અટક\s*(?:કર્યા\s*)?તા\.?\s*[-.]?\s*[0-9૦-૯]{1,2}\s*[/.-]\s*[0-9૦-૯]{1,2}\s*[/.-]\s*[0-9૦-૯]{2,4}[^()]*?(?:વાગ્યે|$)/;
+  const rows = parts.map((x) => {
+    let name = x, st = "", arrestDate = "", group = false;
+    const mm = x.match(inRe);
+    if (mm) {
+      st = nbArKind(mm[0]); arrestDate = nbArDate(mm[0]);
+      group = NB_AR_GROUP.test(x.slice(0, mm.index));
+      name = (x.slice(0, mm.index) + " " + x.slice(mm.index + mm[0].length));
+    }
+    name = name.replace(/\s*(તપાસ\s*(ચાલુ|શરૂ|શરુ)\s*છે\.?|તપાસ\s*ચાલુ\.?|તપાસચાલુ\s*છે\.?)\s*/g, " ").replace(/\s+/g, " ").replace(/[,\s.]+$/, "").trim();
+    let note = "";
+    const nm = name.match(/\s(સાહેદ\S*\s+તપાસી|આરોપી\s*ને\s*નોટીસ|અરોપી\s*ને\s*નોટીસ)[^]*$/);
+    if (nm) { note = nm[0].trim(); name = name.slice(0, nm.index).trim(); }
+    const am = nbWA(x).match(/ઉ\.?\s?વ\.?[\s.:-]*(\d{1,3})/);
+    return { name, ...(note ? { note } : {}), age: am ? am[1] : "", g: /બેન|વા\/ઓ|વા\.ઓ|વા ઓ|ડો\/ઓ|ડોઓ|દિકરી|પુત્રી|\bબા\b|બા\s|સાસુ|નણંદ|જેઠાણી|સુરભી|તૃપ્તીબા|હેતલબા/.test(x) ? "F" : "M", st, arrestDate, _group: group };
+  }).filter((r) => r.name);
+  // a statement written once after "રહે.તમામ / ત્રણેય …" in the last person's text is for everybody
+  const last = rows[rows.length - 1];
+  if (last && last.st && last._group) rows.forEach((r) => { if (!r.st) { r.st = last.st; r.arrestDate = last.arrestDate; } });
+  Object.entries(byNo).forEach(([n, v]) => { const r = rows[+n - 1]; if (r) { r.st = v.st; r.arrestDate = v.arrestDate; } });
+  // the register's own arrest column, when it speaks for all
+  const col = nbWClean(arrestCol || "");
+  if (col && !rows.some((r) => r.st)) { const k = nbArKind(col); if (k && k !== "dead") rows.forEach((r) => { r.st = k; r.arrestDate = nbArDate(col); }); }
+  rows.forEach((r) => { delete r._group; if (!r.st) r.st = "no"; if (!r.arrestDate) delete r.arrestDate; });
+  return rows;
+}
+// joining two copies of one crime's accused list: a real action (arrest,
+// questioning, notice, death) in either copy beats "અટક બાકી"; when both
+// have one, the later copy (b) wins. Names / ages fill in where missing.
+function nbMergeAccList(a, b) {
+  const A = nbPeople(a), B = nbPeople(b);
+  if (!A.length) return B; if (!B.length) return A;
+  const n = Math.max(A.length, B.length), out = [];
+  for (let i = 0; i < n; i++) {
+    const x = A[i] || {}, y = B[i] || {};
+    const r = { ...x };
+    ["name", "age", "mon", "g", "note"].forEach((k) => { if ((r[k] === "" || r[k] == null) && y[k] !== "" && y[k] != null) r[k] = y[k]; });
+    const act = (p) => p.st && p.st !== "no";
+    if (act(y) || !act(x) && y.st) { r.st = y.st; if (y.arrestDate) r.arrestDate = y.arrestDate; else delete r.arrestDate; }
+    out.push(r);
+  }
+  return out;
+}
 function nbParseUtaraBlocks(blocks) {
   let month = "";
   blocks.forEach((b) => { if (!month && b.p) { const m = nbWA(b.p).match(/માહે[\s:.-]*(\d{1,2})\s*\/\s*(\d{2,4})/); if (m) month = (m[2].length === 2 ? "20" + m[2] : m[2]) + "-" + String(+m[1]).padStart(2, "0"); } });
@@ -20875,6 +20968,30 @@ function nbParseUtaraBlocks(blocks) {
     }
     const R = b.rows;
     if (!R || !R.length) return;
+    // a B-statement table (one crime, 11 numbered rows)
+    if (R.length >= 8 && R[0].length >= 3 && /ગુ\.?\s?ર\.?\s?નં/.test(nbWA(R[0][1])) && R.some((r) => /આરોપી/.test(r[1] || ""))) {
+      const [no, year] = nbWFir(R[0][2]); if (!no) return;
+      const h = nbWA(R[0][2]);
+      const reg = /બી\s*પાર્ટ|ભાગ\s*-?\s*બી|B\s*[–-]?\s*પાર્ટ/.test(h) ? "B" : /સી\s*પાર્ટ|ભાગ\s*-?\s*સી/.test(h) ? "C" : "A";
+      const row = (re) => { const r = R.find((x) => re.test(x[1] || "")); return r ? nbWClean(r[2] || "") : ""; };
+      const dash = (v) => (v && v !== "-" ? v : "");
+      let secs = nbWClean(R[0][2]); const sa = nbWA(secs);
+      const sm = sa.match(/\d{8}[\d\s]{4,}(?:[./]?\s*\/\s*(?:20)?\d\d)?/) || sa.match(/\/\s*(?:20)?2\d(?!\d)/);
+      if (sm) secs = secs.slice(sm.index + sm[0].length).replace(/^[\s,.-]+/, "").trim() || secs;
+      const regTxt = row(/ગુ\.?\s?જા\.?\s?તા/);
+      let [rd, rt] = nbWDateTime(regTxt);
+      const occ = row(/ગુ\.?\s?બ\.?\s?તા/);
+      const accTxt = row(/આરોપી/);
+      const e = { id: `w${reg}${no}_${year}`, reg, no, year, regDate: rd || "", regTime: rt, sections: secs, occText: occ,
+        complainant: row(/ફરિયાદી|ફરીયાદી/), accused: accTxt, motive: dash(row(/હેતુ|એમ\.?\s?ઓ/)), loss: dash(row(/નુકશાન|નુકસાન|વળતર/)),
+        io: row(/ત\.?\s?ક\.?\s?અધિ/), facts: row(/ટૂંક\s*વિગત|ટુંક\s*વિગત/) && !/તપાસ/.test((R.find((x) => /ટૂંક\s*વિગત|ટુંક\s*વિગત/.test(x[1] || "")) || [])[1] || "") ? row(/ટૂંક\s*વિગત|ટુંક\s*વિગત/) : "",
+        investigation: dash(row(/કરેલ\s*તપાસ/)), statusText: dash(row(/પેન્.?ડીંગ|પેન્ડિંગ/)), createdAt: now, updatedAt: now, _bst: 1 };
+      if (reg === "A" && accTxt && !/^\s*-?\s*$/.test(accTxt)) { const L = nbAccusedWithArrests(accTxt, ""); if (L.length) e.accList = L; }
+      if (!e.regDate) { if (!month) return; e.regDate = month + "-01"; e._noDate = 1; }
+      Object.keys(e).forEach((k) => { if (e[k] === "") delete e[k]; });
+      put(e);
+      return;
+    }
     // a table without a heading: guess from its header row
     let kind = cur;
     const h0 = nbWA(R[0].join(" "));
@@ -20909,7 +21026,7 @@ function nbParseUtaraBlocks(blocks) {
           const acc = e.accused.trim();
           e.detected = !!acc && !(/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(acc) && !acc.includes("\n")) && acc !== "-";
           if (e.detected && e.arrestText && !/તપાસ/.test(e.arrestText)) { const d = nbWDates(e.arrestText)[0]; if (d) e.arrestDate = d[0]; }
-          const L = nbWPeople(e.accused); if (L.length) e.accList = L;
+          if (e.accused && !/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(e.accused) || /\(\s*[૨2]\s*\)/.test(e.accused)) { const L = nbAccusedWithArrests(e.accused, e.arrestText); if (L.length) e.accList = L; }
           nbWAutoFill(e);
         }
         if (!e.regDate) return;
@@ -21144,7 +21261,7 @@ function nbFirToEntry(pages, fileName) {
   const e = { id: `f${reg}${no}_${year}`, reg, no, year, regDate, regTime, sections, occText, place, complainant, accused: accT, facts, io, createdAt: now, updatedAt: now, firSource: fileName || "FIR" };
   if (reg !== "A") e.detected = true; else e.detected = !unknown;
   if (totalTxt && Number(totalTxt) > 0) { e.stolenValue = String(Number(totalTxt)); e.loss = `કિ.રૂ. ${nbG(nbMoney(Number(totalTxt)))}/-`; }
-  const ppl = nbWPeople(accT); if (ppl.length) e.accList = ppl;
+  const ppl = accT ? nbAccusedWithArrests(accT, "") : []; if (ppl.length) e.accList = ppl;
   nbWAutoFill(e);
   return { entry: nbNormEntry(e), ok: !!(no && year && regDate), missing: [!no && "ગુ.ર.નં.", !regDate && "તારીખ", !secs && "કલમ", !complainant && "ફરિયાદી", !facts && "હકીકત"].filter(Boolean) };
 }
@@ -21167,7 +21284,7 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
     if (!files.length) return;
     setBusy(true); setProg("");
     try {
-      const L = []; let month = ""; const bad = [];
+      const L = []; let month = ""; const bad = []; const parsed = [];
       for (let k = 0; k < files.length; k++) {
         const file = files[k];
         if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") {
@@ -21176,9 +21293,26 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
         } else {
           const xml = await nbDocxXml(await file.arrayBuffer());
           const res = nbParseUtaraBlocks(nbDocxBlocks(xml));
-          L.push(...res.entries); month = month || res.month;
+          parsed.push(res); month = month || res.month;
         }
       }
+      // the same crime in several monthly files: the later month's B-statement
+      // decides the arrest status / pending reason; other boxes only fill gaps
+      parsed.sort((a, b) => (a.month || "").localeCompare(b.month || ""));
+      const byK = {}; L.forEach((e) => { byK[nbEntryKey(e)] = e; });
+      parsed.forEach((res) => res.entries.forEach((e) => {
+        const k = nbEntryKey(e), o = byK[k];
+        if (!o) { byK[k] = e; L.push(e); return; }
+        Object.keys(e).forEach((f) => {
+          if (f === "accList") o.accList = nbMergeAccList(o.accList, e.accList);
+          else if (["statusText", "investigation"].includes(f) && e[f]) o[f] = e[f];
+          else if (f === "regDate" && o._noDate && !e._noDate) { o.regDate = e.regDate; delete o._noDate; }
+          else if ((o[f] === "" || o[f] == null) && e[f] !== "" && e[f] != null) o[f] = e[f];
+        });
+      }));
+      // no registration date written in the file: never made up — such a crime only updates one already in the app
+      const have = new Set((entries || []).map(nbEntryKey));
+      for (let i = L.length - 1; i >= 0; i--) { const e = L[i]; if (e._noDate) { delete e.regDate; if (!have.has(nbEntryKey(e))) L.splice(i, 1); } delete e._bst; delete e._noDate; }
       if (bad.length) window.alert(t("Could not read the FIR number / date from:\n", "આ FIR માંથી ગુ.ર.નં. / તારીખ વંચાઇ નહીં:\n") + bad.join("\n"));
       if (!L.length) { if (!bad.length) window.alert(t("No crime rows were found in this Word file. Please choose the monthly ઉતારા (register extract) file.", "આ Word ફાઇલમાં ગુનાની કોઈ લાઇન મળી નહીં. માસિક ઉતારા વાળી ફાઇલ પસંદ કરો.")); return; }
       const p = await nbImportPlan({ entries: L, monthly: {} }, entries || []);
@@ -21713,7 +21847,7 @@ const NB_AGENCIES = [["local", "લોકલ પોલીસ"], ["lcb", "એલ.
 // people rows: { age, mon, g } — age in years; months only for juveniles
 function nbPeople(list) { return (Array.isArray(list) ? list : []).filter((p) => p && (p.age !== "" && p.age != null || p.g || (p.name && String(p.name).trim()))); }
 // accused arrest status (per person)
-const NB_ARREST_ST = [["", "— અટકની સ્થિતિ —"], ["yes", "અટક થયેલ"], ["no", "અટક બાકી"], ["notice", "નોટીસ આપેલ (બી.એન.એસ.એસ. ૩૫(૩))"], ["dead", "મરણ ગયેલ"]];
+const NB_ARREST_ST = [["", "— અટકની સ્થિતિ —"], ["yes", "અટક થયેલ"], ["no", "અટક બાકી"], ["asked", "પૂછપરછ કરેલ"], ["notice", "નોટીસ આપેલ (બી.એન.એસ.એસ. ૩૫(૩))"], ["dead", "મરણ ગયેલ"]];
 // "(૧) રમેશ … ઉ.વ.૨૨ … (૨) …" → rows with name / age / gender (status is never guessed)
 function nbAccusedRowsFromText(text) {
   const t = nbWClean(text || "");
@@ -21741,11 +21875,12 @@ function nbAccArrestText(e) {
   const lines = L.map((p, i) => {
     const nm = String(p.name).trim();
     const age = hasAge(p) && !/ઉ\.?\s?વ/.test(nm) ? " ઉ.વ." + nbAgeText(p) : "";
-    const st = p.st === "yes" ? "અટક કરેલ" + (p.arrestDate ? " તા." + nbGDate(p.arrestDate) : "") : p.st === "no" ? "અટક કરવાના બાકી" : p.st === "notice" ? "નોટીસ આપેલ" + (p.arrestDate ? " તા." + nbGDate(p.arrestDate) : "") : p.st === "dead" ? "મરણ ગયેલ" : "";
-    return `(${nbG(i + 1)}) ${nm}${age}${st ? " — " + st : ""}`;
+    const dt = p.arrestDate ? " તા." + nbGDate(p.arrestDate) : "";
+    const st = p.st === "yes" ? "અટક કરેલ" + dt : p.st === "no" ? "અટક કરવાના બાકી" : p.st === "asked" ? "પૂછપરછ કરેલ" + dt : p.st === "notice" ? "નોટીસ આપેલ" + dt : p.st === "dead" ? "મરણ ગયેલ" : "";
+    return `(${nbG(i + 1)}) ${nm}${age}${st ? " — " + st : ""}${p.note ? " (" + p.note + ")" : ""}`;
   });
   const c = (k) => L.filter((p) => p.st === k).length;
-  const sum = [`કુલ આરોપી-${nbG(L.length)}`, c("yes") && `અટક-${nbG(c("yes"))}`, c("notice") && `નોટીસ-${nbG(c("notice"))}`, c("no") && `અટક બાકી-${nbG(c("no"))}`, c("dead") && `મરણ-${nbG(c("dead"))}`].filter(Boolean).join(", ");
+  const sum = [`કુલ આરોપી-${nbG(L.length)}`, c("yes") && `અટક-${nbG(c("yes"))}`, c("asked") && `પૂછપરછ-${nbG(c("asked"))}`, c("notice") && `નોટીસ-${nbG(c("notice"))}`, c("no") && `અટક બાકી-${nbG(c("no"))}`, c("dead") && `મરણ-${nbG(c("dead"))}`].filter(Boolean).join(", ");
   return lines.join("\n") + (L.length > 1 || c("no") ? "\n" + sum : "");
 }
 function nbAgeText(p) {
@@ -21971,18 +22106,18 @@ function NbPeopleEditor({ value, onChange, kind, fromText }) {
             {juv && <React.Fragment><input type="text" inputMode="numeric" value={p.mon || ""} onChange={(ev) => upd(i, "mon", num(ev.target.value, 11))} placeholder="0" className="mono" style={{ ...small, width: 44 }} /><span>{t("months", "માસ")}</span>
               <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--status-warning-text, #b7791f)" }}>{kind === "vic" ? t("child", "બાળક") : t("juvenile", "કિશોર")}</span></React.Fragment>}
             {acc && <select value={p.st || ""} onChange={(ev) => upd(i, "st", ev.target.value)} className="gu" data-acc-st style={{ fontSize: 13.5, padding: "6px 4px" }}>{NB_ARREST_ST.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>}
-            {acc && (p.st === "yes" || p.st === "notice") && <NbDateInput value={p.arrestDate || ""} onChange={(ev) => upd(i, "arrestDate", ev.target.value)} style={{ ...nbCrDate, width: 135 }} />}
+            {acc && (p.st === "yes" || p.st === "notice" || p.st === "asked") && <NbDateInput value={p.arrestDate || ""} onChange={(ev) => upd(i, "arrestDate", ev.target.value)} style={{ ...nbCrDate, width: 135 }} />}
             <button type="button" onClick={() => onChange(L.filter((_, j) => j !== i))} aria-label={t("Remove", "કાઢો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15, cursor: "pointer" }}>✕</button>
           </div>
         );
       })}
       {acc && fromText && <div><button type="button" data-acc-fromtext onClick={() => {
-        const R = nbAccusedRowsFromText(fromText);
+        const R = nbAccusedWithArrests(fromText.text, fromText.arrest);
         if (!R.length) { window.alert(t("No names found in the accused box.", "આરોપીના ખાનામાં નામ મળ્યા નહીં.")); return; }
-        if (L.length && !window.confirm(t("Replace the list below with the names from the accused box? Arrest status already chosen is kept for the same row.", "નીચેની યાદી આરોપીના ખાનાના નામથી બદલવી છે? પસંદ કરેલ અટકની સ્થિતિ એ જ ક્રમમાં રહેશે."))) return;
-        onChange(R.map((r, j) => ({ ...r, ...(L[j] ? { st: L[j].st || "", arrestDate: L[j].arrestDate || "", ...(L[j].age !== "" && L[j].age != null && !r.age ? { age: L[j].age } : {}), ...(L[j].mon ? { mon: L[j].mon } : {}) } : {}) })));
+        if (L.length && !window.confirm(t("Fill the list below from the accused box? What you already chose stays; only empty boxes are filled.", "નીચેની યાદી આરોપીના ખાનામાંથી ભરવી છે? તમે પસંદ કરેલું રહેશે; ફક્ત ખાલી ખાના ભરાશે."))) return;
+        onChange(nbMergeAccList(L.map((x) => (x.st === "no" ? { ...x, st: "" } : x)), R));
       }} className="gu" style={{ fontSize: 12.5, borderRadius: 8, padding: "5px 10px", border: "1px solid var(--border)", background: "var(--bg-surface)", cursor: "pointer" }}>📋 {t("Fill names from the accused box", "આરોપીના ખાનામાંથી નામ ભરો")}</button></div>}
-      {acc && L.length > 0 && (() => { const c = (k) => L.filter((x) => x.st === k).length; return <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Arrested", "અટક")}: <b>{nbG(c("yes"))}</b> · {t("Pending arrest", "અટક બાકી")}: <b style={{ color: c("no") ? "var(--status-error-text)" : undefined }}>{nbG(c("no"))}</b>{c("notice") ? <> · {t("Notice", "નોટીસ")}: <b>{nbG(c("notice"))}</b></> : null}{c("dead") ? <> · {t("Dead", "મરણ")}: <b>{nbG(c("dead"))}</b></> : null}</div>; })()}
+      {acc && L.length > 0 && (() => { const c = (k) => L.filter((x) => x.st === k).length; return <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Arrested", "અટક")}: <b>{nbG(c("yes"))}</b> · {t("Pending arrest", "અટક બાકી")}: <b style={{ color: c("no") ? "var(--status-error-text)" : undefined }}>{nbG(c("no"))}</b>{c("asked") ? <> · {t("Questioned", "પૂછપરછ")}: <b>{nbG(c("asked"))}</b></> : null}{c("notice") ? <> · {t("Notice", "નોટીસ")}: <b>{nbG(c("notice"))}</b></> : null}{c("dead") ? <> · {t("Dead", "મરણ")}: <b>{nbG(c("dead"))}</b></> : null}</div>; })()}
       <div><button type="button" onClick={() => onChange([...L, { g: "M", age: "" }])} className="gu" style={{ fontSize: 12.5, borderRadius: 8, padding: "5px 10px", border: "1px dashed var(--border)", background: "var(--bg-surface)", cursor: "pointer" }}>+ {kind === "vic" ? t("Add victim", "ભોગ બનનાર ઉમેરો") : t("Add accused", "આરોપી ઉમેરો")}</button>
         {L.length > 0 && <span style={{ fontSize: 12, color: "var(--text-secondary)", marginLeft: 8 }}>{t("Total", "કુલ")}: {nbG(L.length)}</span>}</div>
     </div>
@@ -22546,7 +22681,10 @@ async function nbImportApply(plan) {
   plan.conflicts.forEach((c) => {
     if (c.choice === "mine") return;
     const n = { ...c.mine, updatedAt: now };
-    c.diff.forEach((k) => { if (c.choice === "file" || nbImpEmpty(c.mine[k])) n[k] = c.file[k]; });
+    c.diff.forEach((k) => {
+      if (k === "accList" && c.choice === "fill") n[k] = nbMergeAccList(c.mine[k], c.file[k]);
+      else if (c.choice === "file" || nbImpEmpty(c.mine[k])) n[k] = c.file[k];
+    });
     put.push(n);
   });
   if (put.length) await nbEntryStore.putMany(put);
