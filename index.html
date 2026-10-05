@@ -19973,6 +19973,17 @@ function useLocalEntries() {
   return entries;
 }
 // One-time: cases from the older Crime Review become Part-A entries.
+// One-time: an imported Jan–Sep file carried disposal dates that were only
+// guessed (month-end, type "નિકાલ") for cases that left the pending lists.
+// Those are removed, so only dates the user enters remain. An entry the user
+// has edited since the import (updatedAt changed) is never touched.
+async function nbClearGuessedDisposals() {
+  const all = await nbEntryStore.all();
+  const isMonthEnd = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "") && new Date(+d.slice(0, 4), +d.slice(5, 7), 0).getDate() === +d.slice(8, 10);
+  const fix = all.filter((e) => e.closeType === "n" && isMonthEnd(e.closeDate) && Number(e.updatedAt) === 1 && Number(e.createdAt) === 1)
+    .map((e) => { const n = { ...e }; delete n.closeType; delete n.closeDate; return n; });
+  if (fix.length) await nbEntryStore.putMany(fix);
+}
 async function nbMigrateOldCases() {
   if (await nbCrimeStore.getMeta("regMigrated")) return;
   const old = await nbCrimeStore.all();
@@ -20446,9 +20457,11 @@ function CrimeRegisterView({ profile, showToast, look }) {
   useEffect(() => {
     let alive = true;
     const load = () => Promise.all([nbCrimeStore.getMeta("regSettings"), nbCrimeStore.getMeta("monthly")]).then(([s, m]) => { if (!alive) return; setSettingsState(s || {}); setMonthlyState(m || {}); });
-    nbMigrateOldCases().catch((e) => console.warn("migration", e)).finally(load);
-    window.addEventListener(NB_CRIME_EVT, load);
-    return () => { alive = false; window.removeEventListener(NB_CRIME_EVT, load); };
+    // also after every restore, so an old file can't bring the guessed dates back
+    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).finally(load);
+    nbMigrateOldCases().catch((e) => console.warn("migration", e)).finally(loadClean);
+    window.addEventListener(NB_CRIME_EVT, loadClean);
+    return () => { alive = false; window.removeEventListener(NB_CRIME_EVT, loadClean); };
   }, []);
   const [tab, setTab] = useState("reg");
   const [reg, setReg] = useState("A");
