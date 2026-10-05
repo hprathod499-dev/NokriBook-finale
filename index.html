@@ -20478,16 +20478,17 @@ function nbProhiModel(ctx, R, L, filt) {
   if (filt) B.push({ p: filt, sz: 18, center: true, after: 100 });
   const rows = NB_PROHI_KINDS.map(([k, l]) => {
     const K = L.filter((e) => nbProhiKind(e) === k); if (!K.length) return null;
-    const q = K.reduce((a, e) => { const x = nbProhiQty(e); return { l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, acc: a.acc + nbAccusedCount(e) }; }, { l: 0, b: 0, v: 0, acc: 0 });
-    return [l, K.length, q.acc, q.b, q.l, q.v];
+    const q = K.reduce((a, e) => { const x = nbProhiQty(e); return { l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, o: a.o + x.other, acc: a.acc + nbAccusedCount(e) }; }, { l: 0, b: 0, v: 0, o: 0, acc: 0 });
+    return [l, K.length, q.acc, q.b, q.l, q.v, q.o];
   }).filter(Boolean);
-  const T = rows.reduce((a, r) => [a[0], a[1] + r[1], a[2] + r[2], a[3] + r[3], a[4] + r[4], a[5] + r[5]], ["કુલ", 0, 0, 0, 0, 0]);
+  const T = rows.reduce((a, r) => [a[0], a[1] + r[1], a[2] + r[2], a[3] + r[3], a[4] + r[4], a[5] + r[5], a[6] + r[6]], ["કુલ", 0, 0, 0, 0, 0, 0]);
+  const rs = (v, b) => nbCell(v ? nbG(nbMoney(v)) : "-", { center: true, b });
   const cn = (v) => nbCell(v ? nbG(Math.round(v * 100) / 100) : "-", { center: true });
-  B.push({ table: true, sz: 18, widths: [3600, 1200, 1300, 1300, 1300, 1800], headRows: [["પ્રકાર", "ગુના", "આરોપી", "બોટલ / ટીન", "લીટર", "કુલ મુદ્દામાલ ₹"].map((x) => nbCell(x, { b: true, center: true }))],
-    rows: [...rows.map((r) => [nbCell(r[0]), cn(r[1]), cn(r[2]), cn(r[3]), cn(r[4]), nbCell(r[5] ? nbG(nbMoney(r[5])) : "-", { center: true })]), [nbCell("કુલ", { b: true }), ...[1, 2, 3, 4].map((i) => nbCell(nbG(Math.round(T[i] * 100) / 100), { center: true, b: true })), nbCell(nbG(nbMoney(T[5])), { center: true, b: true })]], after: 160 });
+  B.push({ table: true, sz: 18, widths: [3300, 1000, 1100, 1200, 1100, 1700, 1700, 1700], headRows: [["પ્રકાર", "ગુના", "આરોપી", "બોટલ / ટીન", "લીટર", "દારૂની કિંમત ₹", "વાહન / અન્ય ₹", "કુલ મુદ્દામાલ ₹"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: [...rows.map((r) => [nbCell(r[0]), cn(r[1]), cn(r[2]), cn(r[3]), cn(r[4]), rs(r[5]), rs(r[6]), rs(r[5] + r[6])]), [nbCell("કુલ", { b: true }), ...[1, 2, 3, 4].map((i) => nbCell(nbG(Math.round(T[i] * 100) / 100), { center: true, b: true })), rs(T[5], true), rs(T[6], true), rs(T[5] + T[6], true)]], after: 160 });
   B.push({ p: "ગુનાવાર વિગત", b: true, sz: 22, after: 60 });
-  B.push({ table: true, sz: 16, widths: [500, 1500, 1100, 1900, 1500, 2600, 800, 900, 800, 1300], headRows: [["ક્રમ", "ગુ.ર.નં.", "તારીખ", "પ્રકાર", "એજન્સી", "આરોપી", "સંખ્યા", "બોટલ", "લીટર", "મુદ્દામાલ ₹"].map((x) => nbCell(x, { b: true, center: true }))],
-    rows: L.map((e, i) => { const q = nbProhiQty(e); return [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(ag(nbRegAgencyOf(e, ctx.ps))), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 160)), cn(nbAccusedCount(e)), cn(q.bottles), cn(q.litres), nbCell(q.value ? nbG(nbMoney(q.value)) : "-", { center: true })]; }), after: 120 });
+  B.push({ table: true, sz: 16, widths: [450, 1400, 1000, 1700, 1300, 2400, 700, 800, 700, 1200, 1100], headRows: [["ક્રમ", "ગુ.ર.નં.", "તારીખ", "પ્રકાર", "એજન્સી", "આરોપી", "સંખ્યા", "બોટલ", "લીટર", "દારૂ ₹", "વાહન / અન્ય ₹"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: L.map((e, i) => { const q = nbProhiQty(e); return [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(ag(nbRegAgencyOf(e, ctx.ps))), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 160)), cn(nbAccusedCount(e)), cn(q.bottles), cn(q.litres), rs(q.value), rs(q.other)]; }), after: 120 });
   return B;
 }
 function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
@@ -20509,7 +20510,7 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
   const fname = `prohibition-${R.from}-to-${R.to}`;
   const model = () => nbProhiModel(ctx, R, L, filt);
   const sel = { fontSize: 13.5, padding: "7px 8px", borderRadius: 8 };
-  const sum = (list) => list.reduce((a, e) => { const x = nbProhiQty(e); return { n: a.n + 1, l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, acc: a.acc + nbAccusedCount(e) }; }, { n: 0, l: 0, b: 0, v: 0, acc: 0 });
+  const sum = (list) => list.reduce((a, e) => { const x = nbProhiQty(e); return { n: a.n + 1, l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, o: a.o + x.other, acc: a.acc + nbAccusedCount(e) }; }, { n: 0, l: 0, b: 0, v: 0, o: 0, acc: 0 });
   const rawOf = (e) => (entries || []).find((x) => x.id === e.id) || e;
   const setAg = async (e, v) => { try { await nbEntryStore.put({ ...rawOf(e), regAgency: v, updatedAt: Date.now() }); showToast(t("Saved", "સચવાયું")); } catch (err) { nbSaveFailed(t, err); } };
   const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "center", whiteSpace: "nowrap" };
@@ -20537,12 +20538,12 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
         </div>
       </div>
       <div style={{ ...card, overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 520 }}>
-          <thead><tr>{[t("Type", "પ્રકાર"), t("Cases", "ગુના"), t("Accused", "આરોપી"), t("Bottles", "બોટલ"), t("Litres", "લીટર"), t("Value ₹", "મુદ્દામાલ ₹")].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 620 }}>
+          <thead><tr>{[t("Type", "પ્રકાર"), t("Cases", "ગુના"), t("Accused", "આરોપી"), t("Bottles", "બોટલ"), t("Litres", "લીટર"), t("Liquor ₹", "દારૂની કિંમત ₹"), t("Vehicle / other ₹", "વાહન / અન્ય ₹")].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
           <tbody>
             {[...NB_PROHI_KINDS.map(([k, l]) => [l, L.filter((e) => nbProhiKind(e) === k)]).filter((r) => r[1].length), [t("Total", "કુલ"), L]].map(([l, K], i, arr) => { const s = sum(K); const last = i === arr.length - 1; return (
               <tr key={i} style={last ? { fontWeight: 700 } : {}}><td style={{ ...td, textAlign: "left" }}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{l}</NbDrillNum></td>
-                <td className="mono" style={td}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{nbG(s.n)}</NbDrillNum></td><td className="mono" style={td}>{nbG(s.acc)}</td><td className="mono" style={td}>{s.b ? nbG(s.b) : "-"}</td><td className="mono" style={td}>{s.l ? nbG(Math.round(s.l * 100) / 100) : "-"}</td><td className="mono" style={td}>{s.v ? nbG(nbMoney(s.v)) : "-"}</td></tr>); })}
+                <td className="mono" style={td}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{nbG(s.n)}</NbDrillNum></td><td className="mono" style={td}>{nbG(s.acc)}</td><td className="mono" style={td}>{s.b ? nbG(s.b) : "-"}</td><td className="mono" style={td}>{s.l ? nbG(Math.round(s.l * 100) / 100) : "-"}</td><td className="mono" style={td}>{s.v ? nbG(nbMoney(s.v)) : "-"}</td><td className="mono" style={td}>{s.o ? nbG(nbMoney(s.o)) : "-"}</td></tr>); })}
           </tbody>
         </table>
       </div>
@@ -20564,7 +20565,7 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
             <span style={{ color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
             <span>{kName(nbProhiKind(e))}</span>
             <span style={{ color: "var(--text-secondary)" }}>{t("accused", "આરોપી")} {nbG(nbAccusedCount(e))}</span>
-            {(q.bottles || q.litres || q.value) ? <span className="mono">{[q.bottles && nbG(q.bottles) + " બોટલ", q.litres && nbG(q.litres) + " લી.", q.value && "₹" + nbG(nbMoney(q.value))].filter(Boolean).join(" · ")}</span> : null}
+            {(q.bottles || q.litres || q.total) ? <span className="mono">{[q.bottles && nbG(q.bottles) + " બોટલ", q.litres && nbG(q.litres) + " લી.", q.value && "દારૂ ₹" + nbG(nbMoney(q.value)), q.other && "વાહન/અન્ય ₹" + nbG(nbMoney(q.other))].filter(Boolean).join(" · ")}</span> : null}
             <div style={{ flex: 1 }} />
             <select value={e.regAgency || ""} onChange={(ev) => setAg(e, ev.target.value)} className="gu" style={{ fontSize: 12.5, padding: "4px 6px", borderRadius: 7 }}>
               <option value="">{ag ? agName(ag) + t(" (from complainant)", " (ફરિયાદી પરથી)") : t("Agency: not known", "એજન્સી: જાણ નથી")}</option>
@@ -21926,19 +21927,36 @@ function nbGuessRegAgency(e, ps) {
   return "";
 }
 const nbRegAgencyOf = (e, ps) => e.regAgency || nbGuessRegAgency(e, ps);
-// litres / bottles / value written in the facts (as written — never estimated)
+// litres / bottles / value written in the facts (as written — never estimated).
+// value = the liquor; other = vehicles / phones seized with it; total = both.
 function nbProhiQty(e) {
-  const f = nbAsciiDigits(e.facts || "").replace(/,(?=\d{3})/g, "");
+  const f = nbAsciiDigits(e.facts || "").replace(/(\d),(?=\d{2,3}\b)/g, "$1");
   const num = (s) => Number(String(s).replace(/,/g, "")) || 0;
-  let litres = 0, bottles = 0;
-  [...f.matchAll(/(\d+(?:\.\d+)?)\s*(?:\([^)]{0,20}\)|[^\d\s(]{1,10})?\s*(?:લી(?:ટર|\.)|લીટર|liter|litre)/gi)].forEach((m) => { litres += num(m[1]); });
-  if (!litres) [...f.matchAll(/લી(?:ટર|\.)\s*(?:[^\d\s(]{1,12}\s*)?[-:.(]?\s*(\d+(?:\.\d+)?)/g)].forEach((m) => { litres += num(m[1]); });
-  [...f.matchAll(/(?:બોટલ|બોટલો|ટીન|ટીમ|કવાટર|ક્વાટર|ચપટા)\s*(?:નંગ)?\s*[-:]?\s*(\d+)/g)].forEach((m) => { bottles += num(m[1]); });
-  if (!bottles) [...f.matchAll(/(\d+)\s*(?:\([^)]{0,20}\))?\s*(?:નંગ\s*)?(?:બોટલ|ટીન|કવાટર|ક્વાટર)/g)].forEach((m) => { bottles += num(m[1]); });
-  const tot = f.match(/કુલ\s*(?:ક[િી](?:ં)?\.?\s?(?:રૂ|ર[ુૂ])ા?\.?|કિંમત\s*(?:રૂ|ર[ુૂ])ા?\.?|રૂા?\.?)\s*[-:]?\s*(\d+(?:\.\d+)?)/);
-  let value = tot ? num(tot[1]) : 0;
-  if (!value) { const all = [...f.matchAll(/(?:ક[િી](?:ં)?\.?\s?(?:રૂ|ર[ુૂ])ા?\.?|કિંમત\s*(?:રૂ|ર[ુૂ])ા?\.?)\s*[-:]?\s*(\d+(?:\.\d+)?)/g)].map((m) => num(m[1])); value = all.length ? Math.max(...all) : 0; }
-  return { litres: Number(e.litres) || litres || 0, bottles: Number(e.bottles) || bottles || 0, value: Number(e.seizedValue) || value || 0 };
+  const RS = "(?:ક[િી]ં?\\.?\\s?(?:રૂ|ર[ુૂ])ા?\\.?|કિંમત\\s*(?:રૂ|ર[ુૂ])ા?\\.?|રૂા?\\.)\\s*[-:]?\\s*(\\d+(?:\\.\\d+)?)";
+  const all = (re) => [...f.matchAll(re)];
+  // litres
+  let litres = 0;
+  all(/(\d+(?:\.\d+)?)\s*(?:\([^)]{0,20}\)|[^\d\s(]{1,10})?\s*(?:લી(?:ટર|\.)|liter|litre)/gi).forEach((m) => { litres += num(m[1]); });
+  if (!litres) all(/લી(?:ટર|\.)\s*(?:[^\d\s(]{1,12}\s*)?[-:.(]?\s*(\d+(?:\.\d+)?)/g).forEach((m) => { litres += num(m[1]); });
+  // bottles: the final "કુલ બોટલ નંગ-…" when written, else the items
+  const BOT = "(?:બોટલ|બોટલો|ટીન|કવાટર|ક્વાટર|ચપટા)";
+  const fin = all(new RegExp("કુલ\\s*" + BOT + "\\s*(?:નંગ)?\\s*[-:]?\\s*(\\d+)", "g"));
+  let bottles = 0;
+  if (fin.length) bottles = num(fin[fin.length - 1][1]);
+  else {
+    const a = all(new RegExp(BOT + "(?:\\s*(?:કુલ|નંગ))*\\s*[-:]?\\s*(\\d+)(?!\\s*(?:ml|એમ\\.?\\s?એલ|મી\\.?\\s?લી))", "gi"));
+    if (a.length) a.forEach((m) => { bottles += num(m[1]); });
+    else all(new RegExp("(\\d+)\\s*(?:\\([^)]{0,20}\\))?\\s*(?:/-)?\\s*(?:નંગ\\s*)?" + BOT, "g")).forEach((m) => { bottles += num(m[1]); });
+  }
+  // value: the last "કુલ …રૂ." is the grand total; vehicles / phones are kept apart
+  const tots = all(new RegExp("કુલ\\s*" + RS, "g"));
+  const amts = all(new RegExp(RS, "g")).map((m) => num(m[1]));
+  let total = tots.length ? num(tots[tots.length - 1][1]) : amts.length ? Math.max(...amts) : 0;
+  let other = 0;
+  all(new RegExp("(?:મોટર\\s*સા[ઇય]કલ|મો\\.?\\s?સા\\.?|બાઇક|બાઈક|એક્ટીવા|સ્કુટર|સ્કૂટર|ફોર\\s*વ્હીલ|કાર\\s|રીક્ષા|ટ્રેક્ટર|વાહન|મોબાઇલ|મોબાઈલ|ફોન)(?:(?!બોટલ|લીટર|દારૂ|દારુ|કુલ)[\\s\\S]){0,140}?" + RS, "g")).forEach((m) => { other += num(m[1]); });
+  if (other >= total) other = 0;
+  if (Number(e.seizedValue)) total = Number(e.seizedValue);
+  return { litres: Number(e.litres) || litres || 0, bottles: Number(e.bottles) || bottles || 0, value: Math.max(0, total - other), other, total };
 }
 function nbAccusedCount(e) {
   const L = nbPeople(e.accList); if (L.length) return L.length;
