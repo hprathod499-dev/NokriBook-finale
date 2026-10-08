@@ -20501,7 +20501,7 @@ function NbItemsModal({ title, list, cat, onOpen, onClose }) {
           {rows.map(({ e, x }, i) => (
             <div key={i} data-item-row style={{ background: "var(--bg-page)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                <button type="button" onClick={() => onOpen && onOpen(e)} className="mono" style={{ background: "transparent", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: "var(--accent-strong)", cursor: "pointer", textDecoration: "underline" }}>{nbReg(e.reg).gu} {nbG(e.no)}/{nbG(String(e.year).slice(-2))}</button>
+                <button type="button" onClick={() => onOpen && onOpen(e)} className="mono" style={{ background: "transparent", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: "inherit", cursor: "pointer" }}>{nbReg(e.reg).gu} {nbG(e.no)}/{nbG(String(e.year).slice(-2))}</button>
                 <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
                 <b>{x.label}{x.n > 1 ? " × " + nbG(x.n) + " નંગ" : ""}</b>
                 <div style={{ flex: 1 }} />
@@ -20601,7 +20601,7 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
             {[...NB_PROHI_KINDS.map(([k, l]) => [l, L.filter((e) => nbProhiKind(e) === k)]).filter((r) => r[1].length), [t("Total", "કુલ"), L]].map(([l, K], i, arr) => { const s = sum(K); const last = i === arr.length - 1; return (
               <tr key={i} style={last ? { fontWeight: 700 } : {}}><td style={{ ...td, textAlign: "left" }}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{l}</NbDrillNum></td>
                 <td className="mono" style={td}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{nbG(s.n)}</NbDrillNum></td><td className="mono" style={td}>{nbG(s.acc)}</td><td className="mono" style={td}>{s.b ? nbG(s.b) : "-"}</td><td className="mono" style={td}>{s.l ? nbG(Math.round(s.l * 100) / 100) : "-"}</td><td className="mono" style={td}>{s.v ? nbG(nbMoney(s.v)) : "-"}</td>
-                {icats.map(([c, cl]) => { const S = nbItemsSum(K, c); return <td key={c} className="mono" style={td}>{S.k ? <button type="button" data-items-cell={c} onClick={() => setItemsOf({ title: `${l} — ${nbRangeLabel(R)}`, list: K, cat: c })} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "var(--accent-strong)", textDecoration: "underline", cursor: "pointer", lineHeight: 1.25 }}><div>{nbG(S.n)} {t("pcs", "નંગ")}</div><div>₹{nbG(nbMoney(S.v))}</div></button> : "-"}</td>; })}</tr>); })}
+                {icats.map(([c, cl]) => { const S = nbItemsSum(K, c); return <td key={c} className="mono" style={td}>{S.k ? <button type="button" data-items-cell={c} onClick={() => setItemsOf({ title: `${l} — ${nbRangeLabel(R)}`, list: K, cat: c })} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", lineHeight: 1.25 }}><div>{nbG(S.n)} {t("pcs", "નંગ")}</div><div>₹{nbG(nbMoney(S.v))}</div></button> : "-"}</td>; })}</tr>); })}
           </tbody>
         </table>
       </div>
