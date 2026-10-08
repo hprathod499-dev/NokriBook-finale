@@ -20470,25 +20470,79 @@ async function nbApplyProhiRules() {
   if (fix.length) await nbEntryStore.putMany(fix);
   return fix.length;
 }
+// each kind of seized thing is reported on its own, never lumped together
+const NB_ITEM_CATS = [["can", "કેન / ડબ્બા"], ["vehicle", "વાહન"], ["mobile", "મોબાઇલ"], ["cash", "રોકડ"]];
+const nbItemCatName = (c) => (NB_ITEM_CATS.find((x) => x[0] === c) || [c, c])[1];
+// [{ e, x }] for one category across these cases
+const nbItemsOf = (list, cat) => {
+  const out = [];
+  (list || []).forEach((e) => nbProhiQty(e).items.forEach((x) => { if ((x.cat || (x.kind === "can" ? "can" : "vehicle")) === cat) out.push({ e, x }); }));
+  return out;
+};
+const nbItemsSum = (list, cat) => nbItemsOf(list, cat).reduce((a, { x }) => ({ n: a.n + (Number(x.n) || 1), v: a.v + (Number(x.value) || 0), k: a.k + 1 }), { n: 0, v: 0, k: 0 });
+const nbItemValText = (x) => x.value ? "₹" + nbG(nbMoney(x.value)) : x.inPrice ? "દારૂની કિંમતમાં સામેલ" : x.inTotal ? "કુલ કિંમતમાં સામેલ" : "કિંમત લખેલ નથી";
+const nbItemLine = (x) => `${nbItemCatName(x.cat || (x.kind === "can" ? "can" : "vehicle"))}: ${x.label}${x.n > 1 ? " × " + nbG(x.n) + " નંગ" : ""} — ${nbItemValText(x)}`;
+function NbItemsModal({ title, list, cat, onOpen, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const rows = nbItemsOf(list, cat);
+  const S = nbItemsSum(list, cat);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} className="modal-backdrop" data-items-modal onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 120, padding: "12px 10px", overflowY: "auto" }}>
+      <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 720, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", borderRadius: "12px 12px 0 0", zIndex: 2 }}>
+          <div style={{ flex: 1 }}>
+            <div className="disp" style={{ fontSize: 15.5, fontWeight: 700 }}>{nbItemCatName(cat)} — {title}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t(`${S.k} cases`, `${nbG(S.k)} ગુનામાં`)} · {nbG(S.n)} {t("pcs", "નંગ")} · {t("written value", "લખેલ કિંમત")} ₹{nbG(nbMoney(S.v))}</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
+        </div>
+        <div style={{ padding: "10px 12px 14px" }}>
+          {rows.map(({ e, x }, i) => (
+            <div key={i} data-item-row style={{ background: "var(--bg-page)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                <button type="button" onClick={() => onOpen && onOpen(e)} className="mono" style={{ background: "transparent", border: "none", padding: 0, font: "inherit", fontWeight: 700, color: "var(--accent-strong)", cursor: "pointer", textDecoration: "underline" }}>{nbReg(e.reg).gu} {nbG(e.no)}/{nbG(String(e.year).slice(-2))}</button>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
+                <b>{x.label}{x.n > 1 ? " × " + nbG(x.n) + " નંગ" : ""}</b>
+                <div style={{ flex: 1 }} />
+                <b className="mono" style={{ color: x.value ? "var(--text-primary)" : "var(--text-tertiary)", fontWeight: x.value ? 700 : 500, fontSize: x.value ? 14 : 12 }}>{nbItemValText(x)}</b>
+              </div>
+              {x.src && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, borderLeft: "3px solid var(--border)", paddingLeft: 8 }}>{t("Utara: ", "ઉતારો: ")}“{nbG(x.src)}”</div>}
+            </div>
+          ))}
+          {!rows.length && <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("Nothing seized of this kind.", "આ પ્રકારનો કોઈ મુદ્દામાલ નથી.")}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
 function nbProhiModel(ctx, R, L, filt) {
   const B = [];
   const lbl = nbRangeLabel(R);
   const ag = (k) => (NB_REG_AGENCIES.find((x) => x[0] === k) || [k, "જાણ નથી"])[1];
   B.push({ p: `${ctx.ps} પોલીસ સ્ટેશન — પ્રોહીબીશન ગુનાની વિગત ${lbl}`, b: true, sz: 24, center: true, after: 40 });
   if (filt) B.push({ p: filt, sz: 18, center: true, after: 100 });
-  const rows = NB_PROHI_KINDS.map(([k, l]) => {
-    const K = L.filter((e) => nbProhiKind(e) === k); if (!K.length) return null;
-    const q = K.reduce((a, e) => { const x = nbProhiQty(e); return { l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, o: a.o + x.other + x.can.value, cn: a.cn + x.can.n, acc: a.acc + nbAccusedCount(e) }; }, { l: 0, b: 0, v: 0, o: 0, cn: 0, acc: 0 });
-    return [l, K.length, q.acc, q.b, q.l, q.v, q.o, q.cn];
-  }).filter(Boolean);
-  const T = rows.reduce((a, r) => [a[0], a[1] + r[1], a[2] + r[2], a[3] + r[3], a[4] + r[4], a[5] + r[5], a[6] + r[6], a[7] + r[7]], ["કુલ", 0, 0, 0, 0, 0, 0, 0]);
+  const cats = NB_ITEM_CATS.filter(([c]) => c === "can" || nbItemsOf(L, c).length);
+  const sumOf = (K) => { const q = K.reduce((a, e) => { const x = nbProhiQty(e); return { l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, acc: a.acc + nbAccusedCount(e) }; }, { l: 0, b: 0, v: 0, acc: 0 }); return { ...q, n: K.length, it: cats.map(([c]) => nbItemsSum(K, c)) }; };
+  const rows = [...NB_PROHI_KINDS.map(([k, l]) => [l, L.filter((e) => nbProhiKind(e) === k)]).filter((r) => r[1].length), ["કુલ", L]].map(([l, K]) => [l, sumOf(K)]);
   const rs = (v, b) => nbCell(v ? nbG(nbMoney(v)) : "-", { center: true, b });
-  const cn = (v) => nbCell(v ? nbG(Math.round(v * 100) / 100) : "-", { center: true });
-  B.push({ table: true, sz: 18, widths: [3100, 900, 1000, 1100, 1000, 1600, 1100, 1600, 1700], headRows: [["પ્રકાર", "ગુના", "આરોપી", "બોટલ / ટીન", "લીટર", "દારૂની કિંમત ₹", "કેન / ડબ્બા", "વાહન / કેન / અન્ય ₹", "કુલ મુદ્દામાલ ₹"].map((x) => nbCell(x, { b: true, center: true }))],
-    rows: [...rows.map((r) => [nbCell(r[0]), cn(r[1]), cn(r[2]), cn(r[3]), cn(r[4]), rs(r[5]), cn(r[7]), rs(r[6]), rs(r[5] + r[6])]), [nbCell("કુલ", { b: true }), ...[1, 2, 3, 4].map((i) => nbCell(nbG(Math.round(T[i] * 100) / 100), { center: true, b: true })), rs(T[5], true), nbCell(nbG(T[7]), { center: true, b: true }), rs(T[6], true), rs(T[5] + T[6], true)]], after: 160 });
+  const cn = (v, b) => nbCell(v ? nbG(Math.round(v * 100) / 100) : "-", { center: true, b });
+  const ic = (s, b) => nbCell(s.k ? `${nbG(s.n)} નંગ\n₹${nbG(nbMoney(s.v))}` : "-", { center: true, b });
+  const cw = Math.max(1000, Math.floor(5200 / cats.length));
+  B.push({ table: true, sz: 18, widths: [2900, 800, 900, 1000, 900, 1500, ...cats.map(() => cw), 1500], headRows: [["પ્રકાર", "ગુના", "આરોપી", "બોટલ / ટીન", "લીટર", "દારૂની કિંમત ₹", ...cats.map(([, l]) => l), "કુલ મુદ્દામાલ ₹"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: rows.map(([l, q], i) => { const b = i === rows.length - 1; return [nbCell(l, { b }), cn(q.n, b), cn(q.acc, b), cn(q.b, b), cn(q.l, b), rs(q.v, b), ...q.it.map((s) => ic(s, b)), rs(q.v + q.it.reduce((a, s) => a + s.v, 0), b)]; }), after: 160 });
+  // item-wise: every can / vehicle / phone / cash on its own line, with its value as written
+  cats.forEach(([c, cl]) => {
+    const I = nbItemsOf(L, c); if (!I.length) return;
+    const S = nbItemsSum(L, c);
+    B.push({ p: `${cl} — વસ્તુવાર વિગત (${nbG(S.k)} ગુના, ${nbG(S.n)} નંગ, ₹${nbG(nbMoney(S.v))})`, b: true, sz: 20, after: 40 });
+    B.push({ table: true, sz: 16, widths: [500, 1500, 1100, 3200, 800, 1800, 5000], headRows: [["ક્રમ", "ગુ.ર.નં.", "તારીખ", "વસ્તુ", "નંગ", "કિંમત ₹", "ઉતારામાં લખેલ"].map((x) => nbCell(x, { b: true, center: true }))],
+      rows: [...I.map(({ e, x }, i) => [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell(x.label), cn(x.n || 1), nbCell(x.value ? nbG(nbMoney(x.value)) : nbItemValText(x), { center: true }), nbCell(nbG(x.src || "-"))]),
+        [nbCell(""), nbCell("કુલ", { b: true }), nbCell(""), nbCell(""), cn(S.n, true), rs(S.v, true), nbCell("")]], after: 140 });
+  });
   B.push({ p: "ગુનાવાર વિગત", b: true, sz: 22, after: 60 });
-  B.push({ table: true, sz: 16, widths: [450, 1400, 1000, 1700, 1300, 2400, 700, 800, 700, 1200, 1100], headRows: [["ક્રમ", "ગુ.ર.નં.", "તારીખ", "પ્રકાર", "એજન્સી", "આરોપી", "સંખ્યા", "બોટલ", "લીટર", "દારૂ ₹", "અન્ય મુદ્દામાલ (કેન / વાહન)"].map((x) => nbCell(x, { b: true, center: true }))],
-    rows: L.map((e, i) => { const q = nbProhiQty(e); return [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(ag(nbRegAgencyOf(e, ctx.ps))), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 160)), cn(nbAccusedCount(e)), cn(q.bottles), cn(q.litres), rs(q.value), nbCell(q.items.map((x) => `${x.label}${x.n > 1 ? " ×" + nbG(x.n) : ""}${x.value ? " ₹" + nbG(nbMoney(x.value)) : x.inPrice ? " (કિંમતમાં)" : ""}`).join(", ") || "-")]; }), after: 120 });
+  B.push({ table: true, sz: 16, widths: [450, 1400, 1000, 1700, 1300, 2400, 700, 800, 700, 1200, 1100], headRows: [["ક્રમ", "ગુ.ર.નં.", "તારીખ", "પ્રકાર", "એજન્સી", "આરોપી", "સંખ્યા", "બોટલ", "લીટર", "દારૂ ₹", "અન્ય મુદ્દામાલ (દરેક અલગ)"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: L.map((e, i) => { const q = nbProhiQty(e); return [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(ag(nbRegAgencyOf(e, ctx.ps))), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 160)), cn(nbAccusedCount(e)), cn(q.bottles), cn(q.litres), rs(q.value), nbCell(q.items.map(nbItemLine).join("\n") || "-")]; }), after: 120 });
   return B;
 }
 function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
@@ -20499,6 +20553,7 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
   const [kind, setKind] = useState("all");
   const [busy, setBusy] = useState("");
   const [pdf, setPdf] = useState(null);
+  const [itemsOf, setItemsOf] = useState(null);
   const ps = ctx.ps;
   const base = nbSortEntries(ctx.entries.filter((e) => nbProhiKind(e) && e.regDate && e.regDate >= R.from && e.regDate <= R.to));
   const L = base.filter((e) => (agency === "all" || (nbRegAgencyOf(e, ps) || "unk") === agency) && (kind === "all" || nbProhiKind(e) === kind));
@@ -20510,7 +20565,8 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
   const fname = `prohibition-${R.from}-to-${R.to}`;
   const model = () => nbProhiModel(ctx, R, L, filt);
   const sel = { fontSize: 13.5, padding: "7px 8px", borderRadius: 8 };
-  const sum = (list) => list.reduce((a, e) => { const x = nbProhiQty(e); return { n: a.n + 1, l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, o: a.o + x.other + x.can.value, acc: a.acc + nbAccusedCount(e) }; }, { n: 0, l: 0, b: 0, v: 0, o: 0, acc: 0 });
+  const sum = (list) => list.reduce((a, e) => { const x = nbProhiQty(e); return { n: a.n + 1, l: a.l + x.litres, b: a.b + x.bottles, v: a.v + x.value, acc: a.acc + nbAccusedCount(e) }; }, { n: 0, l: 0, b: 0, v: 0, acc: 0 });
+  const icats = NB_ITEM_CATS.filter(([c]) => c === "can" || nbItemsOf(base, c).length);
   const rawOf = (e) => (entries || []).find((x) => x.id === e.id) || e;
   const setAg = async (e, v) => { try { await nbEntryStore.put({ ...rawOf(e), regAgency: v, updatedAt: Date.now() }); showToast(t("Saved", "સચવાયું")); } catch (err) { nbSaveFailed(t, err); } };
   const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "center", whiteSpace: "nowrap" };
@@ -20520,6 +20576,7 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
   return (
     <div data-prohi>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      {itemsOf && <NbItemsModal {...itemsOf} onOpen={(e) => { setItemsOf(null); onOpen(rawOf(e)); }} onClose={() => setItemsOf(null)} />}
       <div style={card}>
         <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>🍾 {t("Prohibition cases — drive report", "પ્રોહીબીશન ગુના — ડ્રાઇવ પત્રક")}</div>
         <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
@@ -20539,11 +20596,12 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
       </div>
       <div style={{ ...card, overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 620 }}>
-          <thead><tr>{[t("Type", "પ્રકાર"), t("Cases", "ગુના"), t("Accused", "આરોપી"), t("Bottles", "બોટલ"), t("Litres", "લીટર"), t("Liquor ₹", "દારૂની કિંમત ₹"), t("Cans / vehicle / other ₹", "કેન / વાહન / અન્ય ₹")].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
+          <thead><tr>{[t("Type", "પ્રકાર"), t("Cases", "ગુના"), t("Accused", "આરોપી"), t("Bottles", "બોટલ"), t("Litres", "લીટર"), t("Liquor ₹", "દારૂની કિંમત ₹"), ...icats.map(([, l]) => l)].map((h, i) => <th key={i} style={{ ...th, textAlign: i ? "center" : "left" }}>{h}</th>)}</tr></thead>
           <tbody>
             {[...NB_PROHI_KINDS.map(([k, l]) => [l, L.filter((e) => nbProhiKind(e) === k)]).filter((r) => r[1].length), [t("Total", "કુલ"), L]].map(([l, K], i, arr) => { const s = sum(K); const last = i === arr.length - 1; return (
               <tr key={i} style={last ? { fontWeight: 700 } : {}}><td style={{ ...td, textAlign: "left" }}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{l}</NbDrillNum></td>
-                <td className="mono" style={td}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{nbG(s.n)}</NbDrillNum></td><td className="mono" style={td}>{nbG(s.acc)}</td><td className="mono" style={td}>{s.b ? nbG(s.b) : "-"}</td><td className="mono" style={td}>{s.l ? nbG(Math.round(s.l * 100) / 100) : "-"}</td><td className="mono" style={td}>{s.v ? nbG(nbMoney(s.v)) : "-"}</td><td className="mono" style={td}>{s.o ? nbG(nbMoney(s.o)) : "-"}</td></tr>); })}
+                <td className="mono" style={td}><NbDrillNum list={K} title={`${l} — ${nbRangeLabel(R)}`} onShow={showList}>{nbG(s.n)}</NbDrillNum></td><td className="mono" style={td}>{nbG(s.acc)}</td><td className="mono" style={td}>{s.b ? nbG(s.b) : "-"}</td><td className="mono" style={td}>{s.l ? nbG(Math.round(s.l * 100) / 100) : "-"}</td><td className="mono" style={td}>{s.v ? nbG(nbMoney(s.v)) : "-"}</td>
+                {icats.map(([c, cl]) => { const S = nbItemsSum(K, c); return <td key={c} className="mono" style={td}>{S.k ? <button type="button" data-items-cell={c} onClick={() => setItemsOf({ title: `${l} — ${nbRangeLabel(R)}`, list: K, cat: c })} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "var(--accent-strong)", textDecoration: "underline", cursor: "pointer", lineHeight: 1.25 }}><div>{nbG(S.n)} {t("pcs", "નંગ")}</div><div>₹{nbG(nbMoney(S.v))}</div></button> : "-"}</td>; })}</tr>); })}
           </tbody>
         </table>
       </div>
@@ -20565,7 +20623,7 @@ function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
             <span style={{ color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
             <span>{kName(nbProhiKind(e))}</span>
             <span style={{ color: "var(--text-secondary)" }}>{t("accused", "આરોપી")} {nbG(nbAccusedCount(e))}</span>
-            {(q.bottles || q.litres || q.total) ? <span className="mono">{[q.bottles && nbG(q.bottles) + " બોટલ", q.litres && nbG(q.litres) + " લી.", q.value && "દારૂ ₹" + nbG(nbMoney(q.value)), ...q.items.map((x) => `${x.label}${x.n > 1 ? " ×" + nbG(x.n) : ""}${x.value ? " ₹" + nbG(nbMoney(x.value)) : x.inPrice ? " (કિંમતમાં)" : ""}`)].filter(Boolean).join(" · ")}</span> : null}
+            {(q.bottles || q.litres || q.total) ? <span className="mono">{[q.bottles && nbG(q.bottles) + " બોટલ", q.litres && nbG(q.litres) + " લી.", q.value && "દારૂ ₹" + nbG(nbMoney(q.value)), ...q.items.map(nbItemLine)].filter(Boolean).join(" · ")}</span> : null}
             <div style={{ flex: 1 }} />
             <select value={e.regAgency || ""} onChange={(ev) => setAg(e, ev.target.value)} className="gu" style={{ fontSize: 12.5, padding: "4px 6px", borderRadius: 7 }}>
               <option value="">{ag ? agName(ag) + t(" (from complainant)", " (ફરિયાદી પરથી)") : t("Agency: not known", "એજન્સી: જાણ નથી")}</option>
@@ -20632,7 +20690,7 @@ function nbDriveModel(ctx, dr, s) {
   if (s.L.length) {
     B.push({ p: "ગુનાવાર વિગત", b: true, sz: 20, after: 60 });
     B.push({ table: true, sz: 16, widths: [450, 1500, 1900, 1800, 3200, 1300, 1300, 1800], headRows: [["ક્રમ", "ગુ.ર.નં.", "બનાવ તા.ટા.", "પ્રકાર", "આરોપી", "જથ્થો", "દારૂ કિ.રૂ.", "અન્ય મુદ્દામાલ"].map((x) => H(x))],
-      rows: s.L.map((e, i) => { const q = nbProhiQty(e); return [c(nbG(i + 1)), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), c(nbAtLabel(nbOccAt(e))), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 140) + (nbAccPresent(e) ? "" : " (હાજર નહી)")), c([q.litres && nbG(q.litres) + " લી.", q.bottles && nbG(q.bottles) + " બોટલ"].filter(Boolean).join(", ") || "-"), c(q.value ? nbG(nbMoney(q.value)) : "-"), nbCell(q.items.map((x) => `${x.label}${x.n > 1 ? " ×" + nbG(x.n) : ""}${x.value ? " ₹" + nbG(nbMoney(x.value)) : x.inPrice ? " (કિંમતમાં સામેલ)" : ""}`).join(", ") || "-")]; }), after: 120 });
+      rows: s.L.map((e, i) => { const q = nbProhiQty(e); return [c(nbG(i + 1)), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), c(nbAtLabel(nbOccAt(e))), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 140) + (nbAccPresent(e) ? "" : " (હાજર નહી)")), c([q.litres && nbG(q.litres) + " લી.", q.bottles && nbG(q.bottles) + " બોટલ"].filter(Boolean).join(", ") || "-"), c(q.value ? nbG(nbMoney(q.value)) : "-"), nbCell(q.items.map(nbItemLine).join("\n") || "-")]; }), after: 120 });
   }
   return B;
 }
@@ -20695,8 +20753,7 @@ function CrimeDrivePanel({ ctx, pd, savePd, showList, showToast }) {
             {cell(t("Accused caught", "પકડાયેલ આરોપી"), nb2(s.caught), s.raids.filter(nbAccPresent))}
             {cell(t("Drinking cases", "પીવાના"), nb2(s.drink.length), s.drink)}
             {s.dd.length > 0 && cell(t("Drunk driving", "પીને વાહન (૧૮૫)"), nb2(s.dd.length), s.dd)}
-            {s.cans > 0 && cell(t("Cans / containers", "કેન / ડબ્બા"), nbG(s.cans) + (s.canV ? " · ₹" + nbG(s.canV) : ""))}
-            {s.otherV > 0 && cell(t("Vehicles / other ₹", "વાહન / અન્ય ₹"), nbG(nbMoney(s.otherV)))}
+            {NB_ITEM_CATS.map(([c, cl]) => { const S = nbItemsSum(s.L, c); return S.k > 0 && <React.Fragment key={c}>{cell(cl + t(" (pcs)", " (નંગ)"), nbG(S.n), nbItemsOf(s.L, c).map((r) => r.e).filter((e, i, a) => a.indexOf(e) === i))}{cell(cl + " ₹", S.v ? nbG(nbMoney(S.v)) : "-")}</React.Fragment>; })}
           </div>
         </div>
         <div style={card}>
@@ -22254,7 +22311,8 @@ function nbProhiQty(e) {
   all(new RegExp("(" + VEH + ")((?:(?!બોટલ|લીટર|દારૂ|દારુ|કુલ)[\\s\\S]){0,140}?)" + RS, "g")).forEach((m) => {
     const w = m[1]; const reg = (m[2].match(/GJ[-\s]?\d{1,2}[-\s]?[A-Z]{0,3}[-\s]?\d{1,4}/i) || [""])[0];
     const kind = /મોબાઇલ|મોબાઈલ|ફોન/.test(w) ? "મોબાઇલ ફોન" : /રોકડ/.test(w) ? "રોકડ રકમ" : /મો\.?\s?સા|મોટર|બાઇક|બાઈક|એક્ટીવા|સ્કુ|સ્કૂ/.test(w) ? "મોટર સાયકલ" : w;
-    items.push({ kind: "veh", label: kind + (reg ? " " + reg.toUpperCase() : ""), n: 1, value: num(m[3]) });
+    const cat = /મોબાઇલ|મોબાઈલ|ફોન/.test(w) ? "mobile" : /રોકડ/.test(w) ? "cash" : "vehicle";
+    items.push({ kind: "veh", cat, label: kind + (reg ? " " + reg.toUpperCase() : ""), n: 1, value: num(m[3]), src: m[0].replace(/\s+/g, " ").trim() });
   });
   const CAN = "કેન|કેરબા|ડબ્બા|ડબલા|બાચકા|કોથળી";
   const canM = f.match(new RegExp("(" + CAN + ")"));
@@ -22264,11 +22322,13 @@ function nbProhiQty(e) {
     const incl = !vm && new RegExp("(?:" + CAN + ")\\s*સહ[િી]ત").test(f);
     const nm = f.match(new RegExp("(?:" + CAN + ")\\S*\\s*નંગ[-\\s:]*(\\d+)")) || f.match(new RegExp("નંગ[-\\s:]*(\\d+)\\s*(?:પ્લાસ્ટીકન?[ાીે]?\\s*)?(?:" + CAN + ")"));
     const word = { "કેન": "કેન", "કેરબા": "કેરબા", "ડબ્બા": "ડબ્બા", "ડબલા": "ડબ્બા", "બાચકા": "બાચકા", "કોથળી": "કોથળી" }[canM[1]] || canM[1];
-    items.push({ kind: "can", label: word, n: nm ? num(nm[1]) || 1 : 1, value: vm ? num(vm[1]) : 0, inPrice: incl });
+    const at = vm ? vm.index : canM.index;
+    const src = vm ? vm[0] : f.slice(Math.max(0, f.lastIndexOf(" ", Math.max(0, at - 50)) + 1), Math.min(f.length, at + 90));
+    items.push({ kind: "can", cat: "can", label: word, n: nm ? num(nm[1]) || 1 : 1, value: vm ? num(vm[1]) : 0, inPrice: incl, src: src.replace(/\s+/g, " ").trim() });
   }
   let other = items.filter((x) => x.kind === "veh").reduce((a, x) => a + x.value, 0);
   const can = items.filter((x) => x.kind === "can").reduce((a, x) => ({ n: a.n + x.n, value: a.value + x.value }), { n: 0, value: 0 });
-  if (other + can.value >= total) { other = 0; items.forEach((x) => { if (x.kind === "veh") x.value = 0; }); }
+  if (other + can.value >= total) { other = 0; items.forEach((x) => { if (x.kind === "veh") { x.value = 0; x.inTotal = true; } }); }
   if (Number(e.seizedValue)) total = Number(e.seizedValue);
   return { litres: Number(e.litres) || litres || 0, bottles: Number(e.bottles) || bottles || 0, value: Math.max(0, total - other - (can.value < total ? can.value : 0)), other, can, items, total };
 }
