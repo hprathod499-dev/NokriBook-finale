@@ -19443,10 +19443,26 @@ function nbCloseLabel(e) {
   const t = (NB_CLOSE_TYPES.find((x) => x[0] === e.closeType) || [])[1] || "";
   return t + (e.closeDate ? " તા." + nbGDate(e.closeDate) : "");
 }
-function nbIsOpen(e, asOf) { return !e.closeDate || e.closeDate > asOf || (e.reg === "GUM" ? false : false); }
+// a charge-sheet / summary closes the case even before its date is written in
+function nbIsOpen(e, asOf) { return e.closeDate ? e.closeDate > asOf : !e.closeType; }
 function nbPendingAt(e, asOf) {
   if (e.reg === "GUM") return !e.foundDate || e.foundDate > asOf;
-  return !(e.closeDate && e.closeDate <= asOf);
+  if (e.closeDate) return e.closeDate > asOf;
+  return !e.closeType;
+}
+// court case after the charge-sheet, and the court's final judgment
+const NB_COURT_TYPES = [["sc", "સેશન્સ કેસ નં."], ["cc", "ફોજદારી કેસ નં. (CC)"], ["atro", "સ્પેશિયલ એટ્રો. કેસ નં."], ["pocso", "સ્પેશિયલ પોક્સો કેસ નં."], ["ndps", "સ્પેશિયલ NDPS કેસ નં."]];
+const NB_VERDICTS = [["proved", "સાબિત (સજા)"], ["notproved", "ના સાબિત (નિર્દોષ છુટકારો)"]];
+const NB_SENTENCES = [["jailfine", "કેદની સજા + રોકડ દંડ"], ["fine", "માત્ર રોકડ દંડ"], ["jail", "માત્ર કેદની સજા"]];
+function nbCourtLabel(e) {
+  if (!e.courtType && !e.courtNo) return "";
+  const t = (NB_COURT_TYPES.find((x) => x[0] === e.courtType) || [, "કોર્ટ કેસ નં."])[1];
+  let s = t + " " + nbG(e.courtNo || "-");
+  if (e.verdict) {
+    s += " — " + (e.verdict === "proved" ? "સાબિત" : "ના સાબિત") + (e.courtDate ? " તા." + nbGDate(e.courtDate) : "");
+    if (e.verdict === "proved") s += [e.sentence !== "fine" && e.jailTerm ? " કેદ: " + nbG(e.jailTerm) : "", e.sentence !== "jail" && Number(e.fineAmt) ? " દંડ ₹" + nbG(nbMoney(e.fineAmt)) : ""].join("");
+  }
+  return s;
 }
 // e.g. ("2026-09-30", 3) -> "2026-06-30"
 function nbMonthsBefore(date, n) {
@@ -20007,7 +20023,19 @@ function nbRegFields(reg) {
   const status = [
     nbF("pendingReason", "Pending reason", "પેન્ડીંગ રહેવાનું કારણ", "sel", { opts: [["", "—"], ...NB_PENDING_REASONS.map((r) => [r, r])] }),
     nbF("closeType", "Disposal", "નિકાલનો પ્રકાર", "sel", { opts: [["", "— પેન્ડીંગ (તપાસ ચાલુ) —"], ...NB_CLOSE_TYPES] }),
-    nbF("closeDate", "Disposal date", "નિકાલ તારીખ", "date"),
+    nbF("closeDate", "Date", "તારીખ", "date"),
+  ];
+  const isCs = (e) => e.closeType === "cs";
+  const proved = (e) => isCs(e) && e.verdict === "proved";
+  const court = [
+    nbF("csNo", "Charge-sheet no.", "ચાર્જશીટ નંબર", "text", { when: isCs }),
+    nbF("courtType", "Court case type", "કોર્ટ કેસનો પ્રકાર", "sel", { opts: [["", "—"], ...NB_COURT_TYPES], when: isCs }),
+    nbF("courtNo", "Court case no.", "કોર્ટ કેસ નંબર", "text", { when: (e) => isCs(e) && !!e.courtType }),
+    nbF("verdict", "Court disposal (judgment)", "કોર્ટ નિકાલ (ચુકાદો)", "sel", { opts: [["", "— કોર્ટમાં ચાલુ —"], ...NB_VERDICTS], when: (e) => isCs(e) && !!e.courtType }),
+    nbF("courtDate", "Judgment date", "ચુકાદા તારીખ", "date", { when: (e) => isCs(e) && !!e.verdict }),
+    nbF("sentence", "Sentence", "સજાની વિગત", "sel", { opts: [["", "—"], ...NB_SENTENCES], when: proved }),
+    nbF("jailTerm", "Imprisonment", "કેદની સજા (મુદત)", "text", { ph: "દા.ત. ૩ વર્ષ સખત કેદ", when: (e) => proved(e) && ["jailfine", "jail"].includes(e.sentence) }),
+    nbF("fineAmt", "Fine ₹", "રોકડ દંડ ₹", "num", { when: (e) => proved(e) && ["jailfine", "fine"].includes(e.sentence) }),
   ];
   if (crime) return [
     { sec: "basic", en: "FIR", gu: "ગુનો" },
@@ -20032,6 +20060,7 @@ function nbRegFields(reg) {
     nbF("regAgency", "Registered by (agency)", "ગુનો દાખલ કરનાર એજન્સી", "sel", { opts: [["", "— ફરિયાદી પરથી આપોઆપ —"], ...NB_REG_AGENCIES] }),
     ...status,
     nbF("finalNo", "A/B/C final (summary) no.", "A/B/C ફાઇનલ (સમરી) નંબર", "text", { when: (e) => ["fa", "fb", "fc"].includes(e.closeType) }),
+    ...court,
     { sec: "book", en: "Annual crime book", gu: "વાર્ષિક ગુના પત્રક" },
     nbF("bookHead", "Head in the annual book", "વાર્ષિક પત્રકનો હેડ", "bookhead", { wide: true }),
     ...(reg === "A" ? [
@@ -20151,7 +20180,6 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
     if (k === "partBHead") n._pbAuto = false;
     if (k === "reviewHead") n._rhAuto = false;
     if (k === "detected" && v && !x.detectDate) n.detectDate = todayStr();
-    if (k === "closeType" && v && !x.closeDate) n.closeDate = todayStr();
     return n;
   });
   const dup = e.no && entries.some((o) => o.id !== e.id && String(o.year) === String(e.year) && String(o.no) === String(e.no) && (["A", "B", "C", "M"].includes(e.reg) ? ["A", "B", "C", "M"].includes(o.reg) : o.reg === e.reg));
@@ -21040,7 +21068,7 @@ function CrimeDrillModal({ title, list, onOpen, onBst, onClose }) {
                   <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
                   <div style={{ flex: 1 }} />
                   {r.crime && (e.detected ? <span style={{ fontSize: 11.5, color: "var(--status-success-text)" }}>✓ {t("Detected", "ડીટેક્ટ")}</span> : <span style={{ fontSize: 11.5, color: "var(--status-error-text)" }}>{t("Undetected", "અનડીટેક્ટ")}</span>)}
-                  {e.closeType ? <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{nbCloseLabel(e)}{e.finalNo ? " નં." + nbG(e.finalNo) : ""}</span> : pend && <span style={{ fontSize: 11.5, color: "var(--status-warning-text, #b7791f)" }}>{t("Pending", "પેન્ડીંગ")}{e.pendingReason ? " · " + e.pendingReason : ""}</span>}
+                  {e.closeType ? <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{nbCloseLabel(e)}{e.finalNo ? " નં." + nbG(e.finalNo) : ""}{e.csNo ? " નં." + nbG(e.csNo) : ""}{nbCourtLabel(e) ? " · " + nbCourtLabel(e) : ""}</span> : pend && <span style={{ fontSize: 11.5, color: "var(--status-warning-text, #b7791f)" }}>{t("Pending", "પેન્ડીંગ")}{e.pendingReason ? " · " + e.pendingReason : ""}</span>}
                 </div>
                 <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[e.sections, e.place, String(e.complainant || e.informant || "").split("\n")[0], e.io].filter(Boolean).join(" · ")}</div>
               </button>
