@@ -12766,6 +12766,10 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
   const [pdf, setPdf] = useState(null);
   const [copied, setCopied] = useState(false);
   const [recCat, setRecCat] = useState("");
+  // same choices as Group duty: a note, and marking everyone Outstation for the dates
+  const [recNote, setRecNote] = useState("");
+  const [recOut, setRecOut] = useState(false);
+  const [recOutType, setRecOutType] = useState("");
   const dirty = draft && cur && JSON.stringify(draft) !== JSON.stringify(cur);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setPoint = (id, patch) => setDraft((d) => ({ ...d, points: d.points.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
@@ -12892,22 +12896,59 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
       <div className="gu" style={{ marginTop: 16, padding: 12, border: "1px solid var(--border)", borderRadius: 10, background: "var(--bg-surface)" }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{t("Count it as duty (optional)", "ડ્યુટી તરીકે ગણો (વૈકલ્પિક)")}</div>
         {draft.recordedCat ? (
-          <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>✓ {t("Recorded in", "નોંધાયું")}: {((data.categories || []).find((c) => c.id === draft.recordedCat) || {}).label || "—"}</div>
-        ) : (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <select value={recCat} onChange={(e) => setRecCat(e.target.value)} className="gu" style={{ fontSize: 13 }}>
-              <option value="">{t("Choose work type…", "કામનો પ્રકાર પસંદ કરો…")}</option>
-              {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
-            <button disabled={!recCat || !total} onClick={() => {
-              if (dirty) { window.alert(t("Save first.", "પહેલાં સાચવો.")); return; }
-              const people = Array.from(new Set(draft.points.flatMap((p) => (p.staff || []).filter((x) => typeof x === "string")))).map((num) => ({ number: num, name: (data.staff[num] || {}).name || num }));
-              if (!window.confirm(t(`Add this bandobast to the duty history of ${people.length} staff under this work type, for ${formatDMY(draft.from)}${draft.to && draft.to !== draft.from ? " – " + formatDMY(draft.to) : ""}?`, `${people.length} સ્ટાફના ડ્યુટી ઇતિહાસમાં આ કામના પ્રકાર હેઠળ ઉમેરવું છે?`))) return;
-              assignGroupDuty(recCat, people, draft.from, draft.to || draft.from, "🚧 " + (draft.title || t("Bandobast", "બંદોબસ્ત")), null, false);
-              saveBandobast({ ...draft, recordedCat: recCat });
-            }} className="gu" style={{ ...btn, opacity: recCat && total ? 1 : 0.5 }}>{t("Record in duty history", "ડ્યુટી ઇતિહાસમાં નોંધો")}</button>
-          </div>
-        )}
+          <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>✓ {t("Recorded in", "નોંધાયું")}: {((data.categories || []).find((c) => c.id === draft.recordedCat) || {}).label || "—"}{draft.recordedNote ? " · " + draft.recordedNote : ""}{draft.recordedOut ? " · " + t("Outstation", "બહારગામ") + ": " + (((data.outstationTypes || DEFAULT_OUTSTATION_TYPES).find((o) => o.id === draft.recordedOut) || {}).label || "") : ""}</div>
+        ) : (() => {
+          const outTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
+          const outType = recOutType || (outTypes[0] ? outTypes[0].id : "");
+          const toD = draft.to || draft.from;
+          const days = dateRangeStrs(draft.from, toD).length;
+          const baseNote = "🚧 " + (draft.title || t("Bandobast", "બંદોબસ્ત"));
+          const lab = { display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 };
+          const full = { width: "100%", boxSizing: "border-box", fontSize: 13 };
+          const ok = recCat && total && (!recOut || outType);
+          return (
+            <div data-bb-record style={{ display: "grid", gap: 12, maxWidth: 560 }}>
+              <div>
+                <label className="gu" style={lab}>{t("Work type", "કામનો પ્રકાર")}</label>
+                <select value={recCat} onChange={(e) => setRecCat(e.target.value)} className="gu" style={full} data-bb-cat>
+                  <option value="">{t("Choose work type…", "કામનો પ્રકાર પસંદ કરો…")}</option>
+                  {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              {recCat && <>
+                <div className="gu" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 12.5, color: "var(--text-secondary)" }}>
+                  <span>{t("Dates", "તારીખ")}: <b style={{ color: "var(--text-primary)" }}>{formatDMY(draft.from)}{toD !== draft.from ? " – " + formatDMY(toD) : ""}</b></span>
+                  {days > 1 && <span style={{ fontSize: 11.5, fontWeight: 600, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 20, padding: "3px 10px" }}>{t(`${days} days`, `${days} દિવસ`)}</span>}
+                  <span>· {t(`${total} staff`, `${total} સ્ટાફ`)}</span>
+                </div>
+                <div>
+                  <label className="gu" style={lab}>{t("Note (optional)", "નોંધ (વૈકલ્પિક)")}</label>
+                  <input type="text" value={recNote} onChange={(e) => setRecNote(e.target.value.slice(0, 200))} placeholder={baseNote} className="gu" style={full} data-bb-note />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: recOut ? "var(--status-purple-bg)" : "var(--bg-surface-2)", border: "1px solid " + (recOut ? "var(--status-purple-border)" : "var(--border-soft)"), borderRadius: 8, padding: "10px 12px" }}>
+                  <label className="gu" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 600, color: recOut ? "var(--status-purple-text)" : "var(--text-secondary)", cursor: "pointer", flex: "1 1 220px" }}>
+                    <input type="checkbox" checked={recOut} onChange={(e) => setRecOut(e.target.checked)} data-bb-out />
+                    {t("Also mark everyone Outstation for these dates", "આ તારીખો માટે બધાને બહારગામ તરીકે પણ માર્ક કરો")}
+                  </label>
+                  {recOut && (
+                    <select value={outType} onChange={(e) => setRecOutType(e.target.value)} className="gu" style={{ fontSize: 12.5, padding: "5px 8px" }}>
+                      {outTypes.map((ot) => <option key={ot.id} value={ot.id}>{ot.label}</option>)}
+                    </select>
+                  )}
+                </div>
+              </>}
+              <button disabled={!ok} onClick={() => {
+                if (dirty) { window.alert(t("Save first.", "પહેલાં સાચવો.")); return; }
+                const people = Array.from(new Set(draft.points.flatMap((p) => (p.staff || []).filter((x) => typeof x === "string")))).map((num) => ({ number: num, name: (data.staff[num] || {}).name || num }));
+                if (!window.confirm(t(`Add this bandobast to the duty history of ${people.length} staff under this work type, for ${formatDMY(draft.from)}${toD !== draft.from ? " – " + formatDMY(toD) : ""}${recOut ? ", and mark them Outstation" : ""}?`, `${people.length} સ્ટાફના ડ્યુટી ઇતિહાસમાં આ બંદોબસ્ત ${formatDMY(draft.from)}${toD !== draft.from ? " – " + formatDMY(toD) : ""} માટે નોંધવો છે${recOut ? " અને બધાને બહારગામ માર્ક કરવા છે" : ""}?`))) return;
+                const note = baseNote + (recNote.trim() ? " — " + recNote.trim() : "");
+                assignGroupDuty(recCat, people, draft.from, toD, note, recOut ? outType : null, false);
+                saveBandobast({ ...draft, recordedCat: recCat, ...(recNote.trim() ? { recordedNote: recNote.trim() } : {}), ...(recOut ? { recordedOut: outType } : {}) });
+                setRecNote(""); setRecOut(false);
+              }} className="gu" data-bb-record-btn style={{ background: ok ? "var(--accent)" : "var(--bg-surface-2)", color: ok ? "var(--accent-text)" : "var(--text-tertiary)", border: ok ? "none" : "1px solid var(--border)", borderRadius: 8, padding: "10px 16px", fontSize: 13.5, fontWeight: 700, width: "100%", cursor: ok ? "pointer" : "default" }}>{t("Record in duty history", "ડ્યુટી ઇતિહાસમાં નોંધો")}</button>
+            </div>
+          );
+        })()}
       </div>
       <button onClick={() => { if (window.confirm(t("Delete this bandobast? It goes to the Recycle bin.", "આ બંદોબસ્ત ડિલીટ કરવો છે? તે રિસાયકલ બિનમાં જશે."))) { deleteBandobast(draft.id); onOpen(null); } }} className="gu" style={{ marginTop: 18, background: "transparent", border: "none", color: "var(--status-error-text)", fontSize: 13, cursor: "pointer" }}>🗑️ {t("Delete bandobast", "બંદોબસ્ત ડિલીટ કરો")}</button>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
