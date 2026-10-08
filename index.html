@@ -20054,6 +20054,7 @@ function nbRegFields(reg) {
     nbF("arrestText", "Arrest details", "અટકની વિગત", "text", { ph: "તા.૦૧/૦૯/૨૬ ના અટક કરેલ છે" }), nbF("arrestDate", "Arrest date", "અટક તારીખ", "date"),
     nbF("facts", "Brief facts", "ગુનાની ટુંક વિગત", "area", { wide: true, rows: 4 }),
     nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી (નામ અને હોદ્દો)", "text", { wide: true }),
+    nbF("ioNow", "Investigation now with (if changed)", "હાલના તપાસ અધિકારી (બદલાયા હોય તો)", "text", { wide: true }), nbF("ioRank", "IO rank", "તપાસ અધિકારીનો હોદ્દો", "sel", { opts: [["", "— લખાણ પરથી આપોઆપ —"], ...NB_IO_RANKS] }),
     { sec: "status", en: "Status", gu: "ડીટેક્ટ / પેન્ડીંગ / નિકાલ" },
     nbF("detected", "Detected", "ડીટેક્ટ", "chk"), nbF("detectDate", "Detected on", "ડીટેક્ટ તારીખ", "date"),
     nbF("detAgency", "Detected by", "ડીટેક્ટ કરનાર એજન્સી", "sel", { opts: NB_AGENCIES, when: (e) => !!e.detected }),
@@ -20109,7 +20110,7 @@ function nbRegFields(reg) {
     nbF("marriageYears", "Woman: years of marriage", "સ્ત્રી કિસ્સામાં લગ્ન ગાળો (વર્ષ)", "num"), nbF("jointFamily", "Joint family?", "સંયુક્ત કુટુંબમાં?", "text"), nbF("parentsInformed", "Parents informed?", "પીયર પક્ષને જાણ?", "text"),
     nbF("oneLine", "One-line cause (women cases)", "એક લીટીમાં વિગત (સ્ત્રી બનાવ)", "text", { wide: true }),
     nbF("facts", "Brief facts", "ટુંક વિગત", "area", { wide: true, rows: 4 }),
-    nbF("writer", "Written by", "દા.ક.અધિ.શ્રી", "text"), nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી", "text"),
+    nbF("writer", "Written by", "દા.ક.અધિ.શ્રી", "text"), nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી", "text"), nbF("ioNow", "Investigation now with (if changed)", "હાલના તપાસ અધિકારી (બદલાયા હોય તો)", "text", { wide: true }), nbF("ioRank", "IO rank", "તપાસ અધિકારીનો હોદ્દો", "sel", { opts: [["", "— લખાણ પરથી આપોઆપ —"], ...NB_IO_RANKS] }),
     ...status, nbF("remarks", "Remarks", "રીમાર્કસ", "text", { wide: true }),
   ];
   if (reg === "JJ") return [
@@ -20121,7 +20122,7 @@ function nbRegFields(reg) {
     nbF("writer", "Written by", "દા.ક.અધિ.શ્રી", "text"), nbF("informant", "Informant", "જાહેર કરનારનું નામ", "area"),
     nbF("fsl", "FSL informed (date/time)", "FSL ને જાણ તારીખ / સમય", "text"), nbF("victim", "Victim", "ભોગ બનનાર", "area"),
     nbF("facts", "Brief facts with cause", "સચોટ કારણ સહિત ટુંક વિગત", "area", { wide: true, rows: 4 }),
-    nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી", "text"), nbF("piVisit", "PI visit", "થાણા અધિ. વિઝીટ તા.-સમય", "text"), nbF("sdpoVisit", "SDPO visit", "SDPO વિઝીટ તા.-સમય", "text"),
+    nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી", "text"), nbF("ioNow", "Investigation now with (if changed)", "હાલના તપાસ અધિકારી (બદલાયા હોય તો)", "text", { wide: true }), nbF("ioRank", "IO rank", "તપાસ અધિકારીનો હોદ્દો", "sel", { opts: [["", "— લખાણ પરથી આપોઆપ —"], ...NB_IO_RANKS] }), nbF("piVisit", "PI visit", "થાણા અધિ. વિઝીટ તા.-સમય", "text"), nbF("sdpoVisit", "SDPO visit", "SDPO વિઝીટ તા.-સમય", "text"),
     ...status, nbF("remarks", "Remarks", "રીમાર્કસ", "text", { wide: true }),
   ];
   return [
@@ -20133,7 +20134,7 @@ function nbRegFields(reg) {
     nbF("missing", "Missing person", "ગુમ થનારનું નામ / ઉ.વ. / સરનામું", "area", { wide: true }),
     nbF("mGender", "Gender", "જાતિ", "sel", { opts: [["M", "પુરૂષ / છોકરો"], ["F", "સ્ત્રી / છોકરી"]] }), nbF("mAge", "Age", "ઉંમર", "num"),
     nbF("facts", "Brief facts with cause", "સચોટ કારણ સહિત ટુંક વિગત", "area", { wide: true, rows: 3 }),
-    nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી", "text"), nbF("kidnap", "Kidnapping case registered", "અપહરણનો ગુનો દાખલ થયો", "chk"),
+    nbF("io", "Investigating officer", "ત.ક.અધિ.શ્રી", "text"), nbF("ioNow", "Investigation now with (if changed)", "હાલના તપાસ અધિકારી (બદલાયા હોય તો)", "text", { wide: true }), nbF("ioRank", "IO rank", "તપાસ અધિકારીનો હોદ્દો", "sel", { opts: [["", "— લખાણ પરથી આપોઆપ —"], ...NB_IO_RANKS] }), nbF("kidnap", "Kidnapping case registered", "અપહરણનો ગુનો દાખલ થયો", "chk"),
     nbF("foundDate", "Found on", "પરત મળ્યા તારીખ", "date"), nbF("remarks", "Remarks", "રીમાર્કસ", "text", { wide: true }),
   ];
 }
@@ -20573,6 +20574,151 @@ function nbProhiModel(ctx, R, L, filt) {
     rows: L.map((e, i) => { const q = nbProhiQty(e); return [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell((NB_PROHI_KINDS.find((k) => k[0] === nbProhiKind(e)) || ["", ""])[1]), nbCell(ag(nbRegAgencyOf(e, ctx.ps))), nbCell(String(e.accused || "-").replace(/\s+/g, " ").slice(0, 160)), cn(nbAccusedCount(e)), cn(q.bottles), cn(q.litres), rs(q.value), nbCell(q.items.map(nbItemLine).join("\n") || "-")]; }), after: 120 });
   return B;
 }
+// ---------- who holds the investigation: rank, and whether the officer is outside this station ----------
+const NB_IO_RANKS = [["PI", "પો.ઇન્સ. (PI)"], ["PSI", "પો.સ.ઇ. (PSI)"], ["ASI", "એ.એસ.આઇ. (ASI)"], ["HC", "હેડ કોન્સ. (HC)"], ["PC", "પો.કોન્સ. (PC)"], ["other", "અન્ય"]];
+// the same officer written differently ("એન.બી.માઢક" / "નિખિલ ભીખુભાઇ માઢક") → one key:
+// sound of the two initials + the surname's consonants
+const NB_IO_SOUND = (() => { const m = {}; [["કખ", "K"], ["ગઘ", "G"], ["ચછ", "C"], ["જઝ", "J"], ["ટઠતથ", "T"], ["ડઢદધ", "D"], ["નણ", "N"], ["પફ", "P"], ["બભ", "B"], ["મ", "M"], ["ય", "Y"], ["ર", "R"], ["લળ", "L"], ["વ", "V"], ["સશષ", "S"], ["હ", "H"], ["અઆ", "A"], ["ઇઈ", "I"], ["ઉઊ", "U"], ["એઐ", "E"], ["ઓઔ", "O"]].forEach(([cs, v]) => [...cs].forEach((c) => { m[c] = v; })); return m; })();
+const NB_IO_INIT = { "એન": "N", "બી": "B", "ડી": "D", "જે": "J", "આર": "R", "એમ": "M", "એચ": "H", "એસ": "S", "કે": "K", "વી": "V", "પી": "P", "જી": "G", "સી": "C", "ટી": "T", "યુ": "U", "એલ": "L", "એ": "A", "ઓ": "O", "આઇ": "I", "આઈ": "I", "વાય": "Y", "એફ": "F", "ઇ": "E", "ઈ": "E", "ઝેડ": "Z" };
+function nbIoKey(s) {
+  let a = " " + String(s || "").replace(/[()\[\],:;।\/]/g, " ") + " ";
+  a = a.replace(/\s(?:U|A|I\/C)?(?:PI|PSI|ASI|HC|PC|DYSP|SP)(?=[\s.\u0A80-\u0AFF])/gi, " ").replace(/(?:PI|PSI|ASI|HC|PC)(?=[.\u0A80-\u0AFF])/g, " ");
+  const parts = a.split(/અનાર્મ|અના|આર્મ|એ\.?\s?એ?ે?સ\.?\s?આ[ઇઈ]?|આસીસ્ટન્ટ|હ્વેડ|હે[ડઙદ]?\.?\s*\.?\s*કો(?:ન્સ્ટેબલ|ન્સ|ંસ)?\.?|હે[ડઙદ]|કોન્સ્ટેબલ|કોન્સ|પો\.?\s?સ|પ્?ો\.?\s?[ઇઈ]|પોલીસ|ઇ\.?\s?ચા|[ઇઈ]ન્સ|સબ|ના\.?\s?પો|નાયબ|DYSP|Rank|SOG|LCB|સેલ|શાખા|વુમન|\sસા\.?\s|સાહેબ/i);
+  a = parts.find((x) => (x.replace(/શ્રી[ો]?\.?|ત\.?\s?ક\.?\s?અ/g, " ").match(/[\u0A95-\u0AB9][\u0A80-\u0AFF]*/g) || []).length >= 2) || parts[0];
+  a = a.replace(/ત\.?\s?ક\.?\s?અ(?:ધિ)?\.?\s?(?:શ્રી)?\s*-?/g, " ").replace(/શ્રી[ો]?\.?/g, " ").replace(/[0-9૦-૯]+\.?/g, " ");
+  const tok = a.split(/[.\s]+/).filter((w) => /[\u0A80-\u0AFF]/.test(w));
+  if (!tok.length) return "";
+  if (tok.length === 1) return tok[0];
+  const snd = (w) => NB_IO_INIT[w] || NB_IO_SOUND[w[0]] || w[0];
+  const last = tok[tok.length - 1].replace(/ઘ/g, "ધ");
+  return tok.slice(0, -1).slice(0, 2).map(snd).join("") + "|" + [...last].map((c) => NB_IO_SOUND[c] || "").join("");
+}
+function nbIoRankRaw(s) {
+  const a = " " + String(s || "").replace(/\s+/g, " ") + " ";
+  if (/D\.?\s?Y\.?\s?S\.?\s?P|ના\.?\s?પો\.?\s?અધિ|નાયબ\s*પોલીસ\s*અધિ|પોલીસ\s*અધિક્ષક|\bS\.?P\.?\b/i.test(a)) return "other";
+  if (/(?:^|[^A-Z])(?:U|A)?ASI|એ\.?\s?એ?ે?સ\.?\s?આ[ઇઈ]|એસ\.?\s?એસ\.?\s?આ[ઇઈ]|આસી(?:સ્ટન્ટ|\.)\s*સબ/i.test(a)) return "ASI";
+  if (/(?:^|[^A-Z])PSI|પો\.?\s?સ(?:બ)?\.?\s?[ઇઈ]|પો\.?\s?સબ\.?\s?[ઇઈ]ન્સ|સબ\s*[ઇઈ]ન્સ(?:પેક્ટર)?|સબ\s*ઈન્સ/i.test(a)) return "PSI";
+  if (/(?:^|[^A-Z])PI(?![A-Z])|પ્?ો\.?\s?[ઇઈ]ન્સ|પોલીસ\s*[ઇઈ]ન્સ|[ઇઈ]\.?\s?ચા\.?\s?પો|પો\.?\s?[ઇઈ]\.?(?=\s|$)/i.test(a)) return "PI";
+  if (/(?:^|[^A-Z])(?:U|A)?HC|હે[ડઙદ]|હે\.?\s?કો|હ્વેડ|H\.?C\./i.test(a)) return "HC";
+  if (/(?:^|[^A-Z])(?:U|A|L)?PC(?![A-Z])|પો\.?\s?કો(?:ન્સ)?|કોન્સ્ટેબલ|કોન્સ\.?|[એયુ]\.?\s?પી\.?\s?સી|લોકરક્ષક|એલ\.?\s?આર\.?\s?ડી/i.test(a)) return "PC";
+  return "";
+}
+// another station / unit named in the text → an officer from outside
+function nbIoOutside(s, ps) {
+  const a = String(s || "");
+  if (/D\.?\s?Y\.?\s?S\.?\s?P|ના\.?\s?પો\.?\s?અધિ|નાયબ|અધિક્ષક|સેલ|શાખા|SOG|LCB|એસ\.?\s?ઓ\.?\s?જી|એલ\.?\s?સી\.?\s?બી|S\.?C\.?\s?S\.?T|CID|સી\.?આઇ\.?ડી/i.test(a)) return true;
+  const name = String(ps || "").replace(/\s*(પોલીસ\s*સ્ટેશન|પો\.?\s?સ્ટે\.?).*$/, "").trim();
+  const m = a.match(/([઀-૿]+)\s*(?:પો\.?\s?સ્ટે|પાો\.?\s?સ્ટે|પો\.?\s?સ્‍ટે|પોલીસ\s*સ્ટેશન)/);
+  if (m && name && !m[1].includes(name) && !/અના|કોન્સ|હેડ|ઇન્સ|ઈન્સ|આઇ|સબ|ટે/.test(m[1])) return true;
+  return false;
+}
+// rank of the officer holding a case: the entry's own choice, else read from the text,
+// else learnt from the same officer written with a rank elsewhere (known: key → rank)
+function nbIoRankOf(e, ps, known) {
+  if (e.ioRank) return e.ioRank;
+  const s = e.ioNow || e.io || "";
+  if (!String(s).trim()) return "";
+  if (nbIoOutside(s, ps)) return "other";
+  return nbIoRankRaw(s) || (known && known[nbIoKey(s)]) || "other";
+}
+function nbIoKnownRanks(entries, ps) {
+  const k = {};
+  (entries || []).forEach((e) => { const s = e.ioNow || e.io; if (!s || nbIoOutside(s, ps)) return; const r = nbIoRankRaw(s); const key = nbIoKey(s); if (r && key) k[key] = r; });
+  return k;
+}
+// columns of the pending-by-officer table (as in the visit report)
+const NB_IO_COLS = [["A", "એ પાર્ટ"], ["B", "બી પાર્ટ"], ["C", "સી પાર્ટ"], ["AD", "અ.મોત"], ["JJ", "જા.જોગ / ગુમ"], ["M", "અન્ય"]];
+const nbIoCol = (e) => (e.reg === "GUM" ? "JJ" : e.reg);
+function nbIoPendingModel(ctx, asOf) {
+  const ps = ctx.ps;
+  const P = nbSortEntries(ctx.entries.filter((e) => e.regDate && e.regDate <= asOf && nbPendingAt(e, asOf)));
+  const known = nbIoKnownRanks(ctx.entries, ps);
+  const rankOf = (e) => nbIoRankOf(e, ps, known) || "none";
+  const cols = NB_IO_COLS.filter(([c]) => c !== "M" || P.some((e) => nbIoCol(e) === "M"));
+  const ranks = [...NB_IO_RANKS, ["none", "ત.ક.અ. લખેલ નથી"]].filter(([r]) => r !== "none" || P.some((e) => rankOf(e) === "none"));
+  // officers, grouped as the same person however the name was written
+  const off = {};
+  P.forEach((e) => {
+    const r = rankOf(e); const s = String(e.ioNow || e.io || "").replace(/\s+/g, " ").trim();
+    const k = r + "|" + (nbIoKey(s) || s);
+    const o = off[k] || (off[k] = { r, names: {}, list: [] });
+    o.names[s] = (o.names[s] || 0) + 1; o.list.push(e);
+  });
+  const officers = Object.values(off).map((o) => ({ ...o, name: Object.entries(o.names).sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)[0][0] || "-" }))
+    .sort((a, b) => ranks.findIndex((x) => x[0] === a.r) - ranks.findIndex((x) => x[0] === b.r) || b.list.length - a.list.length);
+  return { P, cols, ranks, rankOf, officers };
+}
+function nbIoDocModel(ctx, asOf, M) {
+  const B = [];
+  const c = (v, b) => nbCell(v ? nbG(String(v).padStart(2, "0")) : "-", { center: true, b });
+  B.push({ p: `${ctx.ps} — તપાસ અધિકારીના હોદ્દા મુજબ પેન્ડીંગ તપાસ (તા.${nbGDate(asOf)} ની સ્થિતિ)`, b: true, sz: 24, center: true, after: 120 });
+  const row = (lbl, L, b) => [nbCell(lbl, { b }), ...M.cols.map(([k]) => c(L.filter((e) => nbIoCol(e) === k).length, b)), c(L.length, true)];
+  B.push({ table: true, sz: 20, widths: [2600, ...M.cols.map(() => 1300), 1300], headRows: [["હોદ્દો", ...M.cols.map((x) => x[1]), "કુલ"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: [...M.ranks.map(([r, l]) => row(l, M.P.filter((e) => M.rankOf(e) === r))), row("કુલ", M.P, true)], after: 120 });
+  B.push({ p: "નોંધ: \"અન્ય\" માં ઉપરના સિવાયના હોદ્દા તથા આ પોલીસ સ્ટેશન સિવાયના (સેલ / શાખા / અન્ય પો.સ્ટે. / ના.પો.અધિ. વગેરે) અધિકારી પાસેની તપાસ ગણેલ છે.", sz: 16, after: 160 });
+  B.push({ p: "અધિકારીવાર વિગત", b: true, sz: 22, after: 60 });
+  B.push({ table: true, sz: 17, widths: [1500, 4200, ...M.cols.map(() => 1000), 1000], headRows: [["હોદ્દો", "તપાસ અધિકારી", ...M.cols.map((x) => x[1]), "કુલ"].map((x) => nbCell(x, { b: true, center: true }))],
+    rows: M.officers.map((o) => [nbCell((M.ranks.find((x) => x[0] === o.r) || ["", ""])[1]), nbCell(o.name.slice(0, 120)), ...M.cols.map(([k]) => c(o.list.filter((e) => nbIoCol(e) === k).length)), c(o.list.length, true)]), after: 160 });
+  M.cols.forEach(([k, l]) => {
+    const L = M.P.filter((e) => nbIoCol(e) === k); if (!L.length) return;
+    B.push({ p: `${l} — પેન્ડીંગ (${nbG(L.length)})`, b: true, sz: 20, after: 40 });
+    B.push({ table: true, sz: 16, widths: [600, 1700, 1300, 3600, 1500, 4300], headRows: [["ક્રમ", "ગુ.ર.નં.", "તારીખ", "કલમ", "હોદ્દો", "તપાસ અધિકારી / પેન્ડીંગ કારણ"].map((x) => nbCell(x, { b: true, center: true }))],
+      rows: L.map((e, i) => [nbCell(nbG(i + 1), { center: true }), nbCell(`${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(String(e.year).slice(-2))}`), nbCell(nbGDate(e.regDate), { center: true }), nbCell(String(e.sections || "-").replace(/\s+/g, " ").slice(0, 120)), nbCell((M.ranks.find((x) => x[0] === M.rankOf(e)) || ["", "-"])[1]), nbCell(String(e.ioNow || e.io || "-").replace(/\s+/g, " ").slice(0, 120) + (e.pendingReason ? "\n" + e.pendingReason : ""))]), after: 120 });
+  });
+  return B;
+}
+function CrimeIoPanel({ ctx, showList }) {
+  const { t } = useLang();
+  const today = todayStr();
+  const [asOf, setAsOf] = useState(today);
+  const [busy, setBusy] = useState(false);
+  const [pdf, setPdf] = useState(null);
+  const M = useMemo(() => nbIoPendingModel(ctx, asOf), [ctx.entries, asOf]);
+  const card = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 };
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" };
+  const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "center", whiteSpace: "nowrap" };
+  const td = { padding: "6px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 13.5, textAlign: "center" };
+  const lastMonthEnd = (() => { const d = new Date(today + "T00:00:00"); d.setDate(0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const fname = `pending-by-officer-${asOf}`;
+  const model = () => nbIoDocModel(ctx, asOf, M);
+  const num = (L, title, bold) => <td className="mono" style={{ ...td, fontWeight: bold ? 700 : 400 }}>{L.length ? <NbDrillNum list={L} title={title} onShow={showList}>{nbG(L.length)}</NbDrillNum> : "-"}</td>;
+  const rowCells = (L, lbl, bold) => <>{M.cols.map(([k, l]) => <React.Fragment key={k}>{num(L.filter((e) => nbIoCol(e) === k), `${lbl} — ${l}`, bold)}</React.Fragment>)}{num(L, lbl, true)}</>;
+  const rName = (r) => (M.ranks.find((x) => x[0] === r) || ["", r])[1];
+  return (
+    <div data-io-panel>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={card}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>👮 {t("Pending investigations by officer's rank", "તપાસ અધિકારીના હોદ્દા મુજબ પેન્ડીંગ તપાસ")}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{t("Pending as on", "પેન્ડીંગ — તારીખ")}</span>
+          <NbDateInput value={asOf} onChange={(ev) => ev.target.value && setAsOf(ev.target.value)} style={{ ...nbCrDate, width: 140 }} data-io-asof />
+          <button type="button" onClick={() => setAsOf(today)} style={btn}>{t("Today", "આજે")}</button>
+          <button type="button" onClick={() => setAsOf(lastMonthEnd)} style={btn}>{t("Last month end", "ગયા માસનો અંત")}</button>
+          <div style={{ flex: 1 }} />
+          <button type="button" onClick={() => { try { nbDeliverBlob(nbModelDocx(model(), { landscape: true }), fname + ".docx", "પેન્ડીંગ તપાસ"); } catch (e) { console.error(e); } }} style={btn}><WordIcon />Word</button>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(model(), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+        </div>
+      </div>
+      <div style={{ ...card, overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 520 }} data-io-table>
+          <thead><tr><th style={{ ...th, textAlign: "left" }}>{t("Rank", "હોદ્દો")}</th>{M.cols.map(([k, l]) => <th key={k} style={th}>{l}</th>)}<th style={th}>{t("Total", "કુલ")}</th></tr></thead>
+          <tbody>
+            {M.ranks.map(([r, l]) => { const L = M.P.filter((e) => M.rankOf(e) === r); return <tr key={r} data-io-rank={r}><td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{l}</td>{rowCells(L, l)}</tr>; })}
+            <tr style={{ fontWeight: 700 }}><td style={{ ...td, textAlign: "left" }}>{t("Total", "કુલ")}</td>{rowCells(M.P, t("All pending", "બધા પેન્ડીંગ"), true)}</tr>
+          </tbody>
+        </table>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>{t("\"Other\" = any other rank, and officers outside this station (cell / branch / other police station / Dy.SP etc.). The rank is read from the investigating officer's text; change it in the case if it is wrong.", "\"અન્ય\" = ઉપરના સિવાયના હોદ્દા તથા આ પો.સ્ટે. સિવાયના અધિકારી (સેલ / શાખા / અન્ય પો.સ્ટે. / ના.પો.અધિ. વગેરે). હોદ્દો ત.ક.અધિ.ના લખાણ પરથી લીધો છે; ખોટો હોય તો ગુનામાં જઈ બદલો.")}</div>
+      </div>
+      <div style={{ ...card, overflowX: "auto" }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>{t("Officer-wise", "અધિકારીવાર")}</div>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 620 }}>
+          <thead><tr><th style={{ ...th, textAlign: "left" }}>{t("Rank", "હોદ્દો")}</th><th style={{ ...th, textAlign: "left" }}>{t("Officer", "તપાસ અધિકારી")}</th>{M.cols.map(([k, l]) => <th key={k} style={th}>{l}</th>)}<th style={th}>{t("Total", "કુલ")}</th></tr></thead>
+          <tbody>{M.officers.map((o, i) => <tr key={i} data-io-officer><td style={{ ...td, textAlign: "left", whiteSpace: "nowrap", color: "var(--text-secondary)" }}>{rName(o.r)}</td><td style={{ ...td, textAlign: "left", maxWidth: 280 }}>{o.name || "-"}</td>{rowCells(o.list, o.name)}</tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 function CrimeProhiPanel({ ctx, entries, showToast, showList, onOpen }) {
   const { t } = useLang();
   const today = todayStr();
@@ -21003,6 +21149,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
         <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
         <button onClick={() => setTab("pr")} style={tabBtn(tab === "pr")} data-tab-pr>🍾 {t("Prohibition", "પ્રોહી / દારૂ")}</button>
+        <button onClick={() => setTab("io")} style={tabBtn(tab === "io")} data-tab-io>👮 {t("Pending by officer", "ત.ક.અ. મુજબ પેન્ડીંગ")}</button>
         <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
@@ -21011,6 +21158,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
       {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
       {tab === "pr" && <CrimeProhiHub ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
+      {tab === "io" && <CrimeIoPanel ctx={ctx} showList={showList} />}
       {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
