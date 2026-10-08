@@ -19567,6 +19567,17 @@ async function nbModelPdf(blocks, opts) {
     ensure(pt * 0.6);
     y = nbPdfParagraph2(doc, txt, M, y, W, pt, bl.center ? "center" : bl.right ? "right" : "left", bl.b) + (bl.after != null ? bl.after / 60 : 1.5);
   }
+  // footer: the police station's name (not the website) and the page number
+  const foot = (opts && opts.foot) || nbCrFootName;
+  const n = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i);
+    if (foot) nbPdfParagraph2(doc, foot, M, PH - 10, W * 0.7, 8, "left", false);
+    doc.setFontSize(8); doc.setTextColor(110);
+    doc.text(`${i} / ${n}`, PW - M, PH - 6, { align: "right" });
+    doc.setTextColor(0);
+  }
+  doc.__nbFooter = true;
   return doc;
 }
 function nbPdfParagraph2(doc, text, x, y, widthMm, fontPt, align, bold) {
@@ -19634,7 +19645,11 @@ function nbNormEntry(e) {
   if (n.reg === "B" && !n.partBHead) n.partBHead = nbGuessPartB(n.sections);
   return n;
 }
+// the station's name printed at the foot of every crime-register PDF page
+let nbCrFootName = "";
 function nbCrCtx(entries, profile, settings, monthly, ym) {
+  const ps0 = nbPsShort(profile, settings), dist = String((profile && profile.district) || "").trim();
+  if (ps0) nbCrFootName = ps0 + " પોલીસ સ્ટેશન" + (dist ? ", જી. " + dist : "");
   return { entries: (entries || []).map(nbNormEntry), profile: profile || {}, settings: settings || {}, monthly: monthly || {}, ym, ps: nbPsShort(profile, settings), end: nbYMEnd(ym), start: ym + "-01" };
 }
 function nbInMonth(e, ym) { return nbYM(e.regDate) === ym; }
