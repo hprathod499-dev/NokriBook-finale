@@ -20038,14 +20038,15 @@ function nbRegFields(reg) {
   const status = [
     nbF("pendingReason", "Pending reason", "પેન્ડીંગ રહેવાનું કારણ", "sel", { opts: [["", "—"], ...NB_PENDING_REASONS.map((r) => [r, r])] }),
     nbF("closeType", "Disposal", "નિકાલનો પ્રકાર", "sel", { opts: [["", "— પેન્ડીંગ (તપાસ ચાલુ) —"], ...NB_CLOSE_TYPES] }),
-    nbF("closeDate", "Date", "તારીખ", "date"),
+    nbF("closeDate", "Date", "તારીખ", "date", { when: (e) => e.closeType !== "cs" }),
   ];
   const isCs = (e) => e.closeType === "cs";
   const proved = (e) => isCs(e) && e.verdict === "proved";
   const court = [
-    nbF("csNo", "Charge-sheet no.", "ચાર્જશીટ નંબર", "text", { when: isCs }),
+    // each number with its own date right under it
+    nbF("_csPair", "", "", "stack", { when: isCs, items: [nbF("csNo", "Charge-sheet no.", "ચાર્જશીટ નંબર", "text"), nbF("closeDate", "Charge-sheet date", "ચાર્જશીટ કર્યા તારીખ", "date")] }),
     nbF("courtType", "Court case type", "કોર્ટ કેસનો પ્રકાર", "sel", { opts: [["", "—"], ...NB_COURT_TYPES], when: isCs }),
-    nbF("courtNo", "Court case no.", "કોર્ટ કેસ નંબર", "text", { when: (e) => isCs(e) && !!e.courtType }),
+    nbF("_courtPair", "", "", "stack", { when: (e) => isCs(e) && !!e.courtType, items: [nbF("courtNo", "Court case no.", "કોર્ટ કેસ નંબર", "text"), nbF("courtNoDate", "Court case no. given on", "કોર્ટે કેસ નંબર આપ્યા તારીખ", "date")] }),
     nbF("verdict", "Court disposal (judgment)", "કોર્ટ નિકાલ (ચુકાદો)", "sel", { opts: [["", "— કોર્ટમાં ચાલુ —"], ...NB_VERDICTS], when: (e) => isCs(e) && !!e.courtType }),
     nbF("courtDate", "Judgment date", "ચુકાદા તારીખ", "date", { when: (e) => isCs(e) && !!e.verdict }),
     nbF("sentence", "Sentence", "સજાની વિગત", "sel", { opts: [["", "—"], ...NB_SENTENCES], when: proved }),
@@ -20195,7 +20196,6 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
     if (k === "head44") n._headAuto = false;
     if (k === "partBHead") n._pbAuto = false;
     if (k === "reviewHead") n._rhAuto = false;
-    if (k === "detected" && v && !x.detectDate) n.detectDate = todayStr();
     return n;
   });
   const dup = e.no && entries.some((o) => o.id !== e.id && String(o.year) === String(e.year) && String(o.no) === String(e.no) && (["A", "B", "C", "M"].includes(e.reg) ? ["A", "B", "C", "M"].includes(o.reg) : o.reg === e.reg));
@@ -20219,6 +20219,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
   const inp = { width: "100%", boxSizing: "border-box", fontSize: 13.5 };
   const renderField = (f) => {
     if (f.when && !f.when(e)) return null;
+    if (f.type === "stack") return <div key={f.k} data-stack={f.k} style={{ display: "grid", gap: 10, alignContent: "start" }}>{f.items.map(renderField)}</div>;
     const v = e[f.k];
     let ctl;
     if (f.type === "area") ctl = <textarea value={v || ""} rows={f.rows || 2} placeholder={f.ph || ""} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={{ ...inp, resize: "vertical" }} />;
@@ -23439,7 +23440,7 @@ function nbImpShow(k, v) {
   return String(v);
 }
 function nbImpLabel(reg, k) {
-  const f = nbRegFields(reg).find((x) => x.k === k);
+  const f = nbRegFields(reg).flatMap((x) => x.items || [x]).find((x) => x.k === k);
   if (f) return f.gu;
   return { reg: "રજીસ્ટર", headHistory: "હેડ ફેરફાર", bookHead: "વાર્ષિક હેડ", acts: "ખાસ અધિનિયમ", reviewHead: "રિવ્યુ હેડ", head44: "હેડ" }[k] || k;
 }
