@@ -20609,24 +20609,41 @@ function nbIoKey(s) {
   const last = tok[tok.length - 1].replace(/ઘ/g, "ધ");
   return tok.slice(0, -1).slice(0, 2).map(snd).join("") + "|" + [...last].map((c) => NB_IO_SOUND[c] || "").join("");
 }
+// the rank written first in the text (the investigating officer comes before any visiting officer)
 function nbIoRankRaw(s) {
   const a = " " + String(s || "").replace(/\s+/g, " ") + " ";
-  if (/D\.?\s?Y\.?\s?S\.?\s?P|ના\.?\s?પો\.?\s?અધિ|નાયબ\s*પોલીસ\s*અધિ|પોલીસ\s*અધિક્ષક|\bS\.?P\.?\b/i.test(a)) return "other";
-  if (/(?:^|[^A-Z])(?:U|A)?ASI|એ\.?\s?એ?ે?સ\.?\s?આ[ઇઈ]|એસ\.?\s?એસ\.?\s?આ[ઇઈ]|આસી(?:સ્ટન્ટ|\.)\s*સબ/i.test(a)) return "ASI";
-  if (/(?:^|[^A-Z])PSI|પો\.?\s?સ(?:બ)?\.?\s?[ઇઈ]|પો\.?\s?સબ\.?\s?[ઇઈ]ન્સ|સબ\s*[ઇઈ]ન્સ(?:પેક્ટર)?|સબ\s*ઈન્સ/i.test(a)) return "PSI";
-  if (/(?:^|[^A-Z])PI(?![A-Z])|પ્?ો\.?\s?[ઇઈ]ન્સ|પોલીસ\s*[ઇઈ]ન્સ|[ઇઈ]\.?\s?ચા\.?\s?પો|પો\.?\s?[ઇઈ]\.?(?=\s|$)/i.test(a)) return "PI";
-  if (/(?:^|[^A-Z])(?:U|A)?HC|હે[ડઙદ]|હે\.?\s?કો|હ્વેડ|H\.?C\./i.test(a)) return "HC";
-  if (/(?:^|[^A-Z])(?:U|A|L)?PC(?![A-Z])|પો\.?\s?કો(?:ન્સ)?|કોન્સ્ટેબલ|કોન્સ\.?|[એયુ]\.?\s?પી\.?\s?સી|લોકરક્ષક|એલ\.?\s?આર\.?\s?ડી/i.test(a)) return "PC";
-  return "";
+  const R = [
+    ["other", /D\.?\s?Y\.?\s?S\.?\s?P|ના\.?\s?પો\.?\s?અધિ|નાયબ\s*પોલીસ\s*અધિ|પોલીસ\s*અધિક્ષક|\bS\.?P\.?\b/i],
+    ["ASI", /(?:^|[^A-Z])(?:U|A)?ASI|એ\.?\s?એ?ે?સ\.?\s?આ[ઇઈ]|એસ\.?\s?એસ\.?\s?આ[ઇઈ]|આસી(?:સ્ટન્ટ|\.)\s*સબ/i],
+    ["PSI", /(?:^|[^A-Z])PSI|પો\.?\s?સ(?:બ)?\.?\s?[ઇઈ]|પો\.?\s?સબ\.?\s?[ઇઈ]ન્સ|સબ\s*[ઇઈ]ન્સ(?:પેક્ટર)?|સબ\s*ઈન્સ/i],
+    ["PI", /(?:^|[^A-Z])PI(?![A-Z])|પ્?ો\.?\s?[ઇઈ]ન્સ|પોલીસ\s*[ઇઈ]ન્સ|[ઇઈ]\.?\s?ચા\.?\s?પો|પો\.?\s?[ઇઈ]\.?(?=\s|$)/i],
+    ["HC", /(?:^|[^A-Z])(?:U|A)?HC|હે[ડઙદ]|હે\.?\s?કો|હ્વેડ|H\.?C\./i],
+    ["PC", /(?:^|[^A-Z])(?:U|A|L)?PC(?![A-Z])|પો\.?\s?કો(?:ન્સ)?|કોન્સ્ટેબલ|કોન્સ\.?|[એયુ]\.?\s?પી\.?\s?સી|લોકરક્ષક|એલ\.?\s?આર\.?\s?ડી/i]
+  ];
+  let best = "", at = Infinity;
+  R.forEach(([r, re]) => { const m = a.match(re); if (m && m.index < at) { at = m.index; best = r; } });
+  return best;
 }
-// another station / unit named in the text → an officer from outside
-function nbIoOutside(s, ps) {
+// "<place> પો.સ્ટે." / "<place> પોલીસ સ્ટેશન" written in an officer's text → "<place>"
+const NB_IO_PS_RE = /([\u0A80-\u0AFF]+?)\s*(?:પ્?ા?ો\.?\s?સ\u200d?્?\u200d?ટે|પોલીસ\s*સ્ટેશન)/;
+const nbIoPlace = (s) => { const m = String(s || "").match(NB_IO_PS_RE); return m && !/અના|કોન્સ|હેડ|ઇન્સ|ઈન્સ|આઇ|આઈ|સબ|ટે|શ્રી/.test(m[1]) ? m[1] : ""; };
+// this station's own place word: from the profile, else the place most officers' texts name
+function nbIoHome(entries, ps) {
+  const w = String(ps || "").split(/[\s,]+/).find((x) => /[\u0A80-\u0AFF]/.test(x));
+  const c = {};
+  (entries || []).forEach((e) => { const p = nbIoPlace(e.ioNow || e.io); if (p) c[p] = (c[p] || 0) + 1; });
+  const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  return [w, top && top[0]].filter(Boolean);
+}
+// an officer outside this station: a cell / branch / senior officer, or another station named.
+// Anything written as this station ("ધારી પો.સ્ટે." / "ધારી પોલીસ સ્ટેશન") is never outside.
+function nbIoOutside(s, ps, home) {
   const a = String(s || "");
+  const H = home && home.length ? home : nbIoHome([], ps);
+  const place = nbIoPlace(a);
+  if (place && H.some((h) => place.includes(h) || h.includes(place))) return false;
   if (/D\.?\s?Y\.?\s?S\.?\s?P|ના\.?\s?પો\.?\s?અધિ|નાયબ|અધિક્ષક|સેલ|શાખા|SOG|LCB|એસ\.?\s?ઓ\.?\s?જી|એલ\.?\s?સી\.?\s?બી|S\.?C\.?\s?S\.?T|CID|સી\.?આઇ\.?ડી/i.test(a)) return true;
-  const name = String(ps || "").replace(/\s*(પોલીસ\s*સ્ટેશન|પો\.?\s?સ્ટે\.?).*$/, "").trim();
-  const m = a.match(/([઀-૿]+)\s*(?:પો\.?\s?સ્ટે|પાો\.?\s?સ્ટે|પો\.?\s?સ્‍ટે|પોલીસ\s*સ્ટેશન)/);
-  if (m && name && !m[1].includes(name) && !/અના|કોન્સ|હેડ|ઇન્સ|ઈન્સ|આઇ|સબ|ટે/.test(m[1])) return true;
-  return false;
+  return !!(place && H.length);
 }
 // rank of the officer holding a case: the entry's own choice, else read from the text,
 // else learnt from the same officer written with a rank elsewhere (known: key → rank)
@@ -20634,12 +20651,14 @@ function nbIoRankOf(e, ps, known) {
   if (e.ioRank) return e.ioRank;
   const s = e.ioNow || e.io || "";
   if (!String(s).trim()) return "";
-  if (nbIoOutside(s, ps)) return "other";
+  if (nbIoOutside(s, ps, known && known.__home)) return "other";
   return nbIoRankRaw(s) || (known && known[nbIoKey(s)]) || "other";
 }
 function nbIoKnownRanks(entries, ps) {
   const k = {};
-  (entries || []).forEach((e) => { const s = e.ioNow || e.io; if (!s || nbIoOutside(s, ps)) return; const r = nbIoRankRaw(s); const key = nbIoKey(s); if (r && key) k[key] = r; });
+  const home = nbIoHome(entries, ps);
+  Object.defineProperty(k, "__home", { value: home, enumerable: false });
+  (entries || []).forEach((e) => { const s = e.ioNow || e.io; if (!s || nbIoOutside(s, ps, home)) return; const r = nbIoRankRaw(s); const key = nbIoKey(s); if (r && key) k[key] = r; });
   return k;
 }
 // columns of the pending-by-officer table (as in the visit report)
