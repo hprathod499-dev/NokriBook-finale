@@ -4345,57 +4345,6 @@ function StationUsersSection({ access, divider, initialOpen }) {
     </div>
   );
 }
-function JoinStationModal({ user, onClose }) {
-  const { t } = useLang();
-  useEscToClose(onClose);
-  const [code, setCode] = useState("");
-  const [msg, setMsg] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState(null);
-  useEffect(() => {
-    if (!user) return;
-    return db.collection("joinRequests").doc(user.uid).onSnapshot((snap) => setPending(snap.exists ? snap.data() : null), () => setPending(null));
-  }, [user]);
-  const send = async () => {
-    const c = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (c.length < 6) { setMsg(t("Enter the code from your station.", "તમારા સ્ટેશનનો કોડ નાખો.")); return; }
-    setBusy(true); setMsg("");
-    try {
-      const snap = await db.collection("joinCodes").doc(c).get();
-      if (!snap.exists) { setMsg(t("This code is not valid. Ask your station for the current code.", "આ કોડ માન્ય નથી. તમારા સ્ટેશનને હાલનો કોડ પૂછો.")); setBusy(false); return; }
-      const owner = snap.data().owner;
-      if (owner === user.uid) { setMsg(t("That's your own station's code.", "આ તમારા પોતાના સ્ટેશનનો કોડ છે.")); setBusy(false); return; }
-      await db.collection("joinRequests").doc(user.uid).set({ owner, code: c, name: (user.displayName || "").slice(0, 80), email: (user.email || "").slice(0, 120), at: Date.now() });
-    } catch (e) { console.error(e); setMsg(t("Couldn't send the request — check the connection.", "વિનંતી મોકલી શકાઈ નહીં — જોડાણ તપાસો.")); }
-    setBusy(false);
-  };
-  return (
-    <div role="dialog" aria-modal="true" aria-label={t("Join a station", "સ્ટેશન સાથે જોડાઓ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
-      <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 400, maxWidth: "100%", padding: 22 }}>
-        <div className="disp" style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>🔑 {t("Join your station", "તમારા સ્ટેશન સાથે જોડાઓ")}</div>
-        {pending ? (
-          <React.Fragment>
-            <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--text-secondary)" }}>⏳ {t("Request sent. Ask the station owner to approve you in Nokri Book → Settings → Station users. This screen opens the station by itself once you're approved.", "વિનંતી મોકલાઈ. સ્ટેશન માલિકને Nokri Book → સેટિંગ્સ → સ્ટેશન વપરાશકર્તાઓ માં મંજૂરી આપવા કહો. મંજૂરી મળતાં સ્ટેશન આપમેળે ખુલશે.")}</div>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-              <button onClick={() => db.collection("joinRequests").doc(user.uid).delete().catch(() => {})} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel request", "વિનંતી રદ કરો")}</button>
-              <button onClick={onClose} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700 }}>{t("Close", "બંધ કરો")}</button>
-            </div>
-          </React.Fragment>
-        ) : (
-          <React.Fragment>
-            <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 12 }}>{t("Enter the join code. The station owner finds it in Settings → Station users.", "જોડાવાનો કોડ નાખો. સ્ટેશન માલિકને તે સેટિંગ્સ → સ્ટેશન વપરાશકર્તાઓ માં મળશે.")}</div>
-            <input type="text" autoFocus value={code} onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 12))} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="ABCD2345" className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 22, letterSpacing: 4, textAlign: "center", padding: "8px 0" }} />
-            {msg && <div style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 8 }}>{msg}</div>}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-              <button onClick={onClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
-              <button onClick={send} disabled={busy} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700 }}>{busy ? "…" : t("Send request", "વિનંતી મોકલો")}</button>
-            </div>
-          </React.Fragment>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function SettingsPanel({ initialSection, user, signOutUser, formatAllData, storagePct, stationAccess, onShowActivity, onDeleteAccount, stationName, onSaveStationName, state, onSaveState, district, onSaveDistrict, stationApprovalStatus, onRequestNewStation, onHelp, onSignIn, onChooseBackupFolder, onRecoverLocalBackup, theme, setTheme, onClose, exportBackup }) {
   const { t, lang, setLang } = useLang();
@@ -4938,32 +4887,6 @@ function mapAuthError(err, t) {
       return t("Sign-in failed — please try again.", "સાઇન ઇન નિષ્ફળ — કૃપા કરી ફરી પ્રયાસ કરો.");
   }
 }
-const authBtnPrimary = {
-  background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 10,
-  padding: "11px 18px", fontSize: 14, fontWeight: 600, width: "100%",
-  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-  boxShadow: "0 3px 10px rgba(0,0,0,0.15)", transition: "transform 0.1s",
-};
-const authBtnSecondary = {
-  background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 10,
-  padding: "11px 18px", fontSize: 14, fontWeight: 600, width: "100%",
-  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-  boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-};
-// Each sign-in method gets its own colour so the card reads as a set of
-// distinct doors in, not a stack of identical grey bars.
-const authBtnGoogle = {
-  ...authBtnPrimary,
-  background: "linear-gradient(135deg, #4285F4, #2A5FCC)",
-};
-const authBtnEmail = {
-  ...authBtnPrimary,
-  background: "linear-gradient(135deg, #E8A33D, #C2791B)",
-};
-const authLinkBtn = {
-  background: "transparent", border: "none", color: "var(--text-secondary)", padding: 0,
-  fontSize: 12, textDecoration: "underline", cursor: "pointer",
-};
 // Small coloured badge used inside each sign-in button — a quick visual
 // tag for the method rather than an exact reproduction of any brand's logo.
 function AuthIcon({ kind }) {
@@ -11803,14 +11726,6 @@ function nbLeaveAllowance(data, staffRec, typeId) {
   const lt = (data.leaveTypes || []).find((x) => x.id === typeId);
   return nbIsCasualLeave(lt) ? NB_CL_DAYS : null;
 }
-// Short name for a leave type shown next to a person ("CL", "EL", "LRD SL").
-function nbLeaveAbbr(lt) {
-  const label = (lt && lt.label) || "";
-  if (nbIsCasualLeave(lt)) return "CL";
-  if (!/^[\x00-\x7F]+$/.test(label)) return label.length > 10 ? label.slice(0, 10) + "…" : label;
-  const words = label.replace(/\bleave\b/i, "L").split(/\s+/).filter(Boolean);
-  return words.map((w) => (/^[A-Z]{2,}$/.test(w) ? w + " " : w[0].toUpperCase())).join("").trim();
-}
 // Text warning if adding this leave takes someone over their allowance.
 function nbLeaveOverLimit(data, number, typeId, from, to, alreadyQueued, t) {
   const st = (data.staff || {})[number];
@@ -18580,20 +18495,7 @@ const NB_CRIME_TYPES = [
   { id: "missing-person", gu: "ગુમ થયેલ વ્યક્તિ", en: "Missing person", k: "gum thayel missing", limit: 60, victim: true },
   { id: "other", gu: "અન્ય", en: "Other", k: "anya other", limit: 60 },
 ];
-const NB_SUMMARY_TYPES = {
-  A: { gu: "આરોપી મળી આવેલ નથી", en: "Accused not traced" },
-  B: { gu: "ખોટી ફરિયાદ", en: "False complaint" },
-  C: { gu: "પોતે જ બનાવ બનાવેલ", en: "Incident caused by the person himself" },
-};
-const NB_DEFAULT_COURTS = ["ધારી", "બગસરા", "અમરેલી", "સાવરકુંડલા", "રાજુલા", "કુંકાવાવ", "લાઠી", "બાબરા"];
 
-function nbCrimeType(id) { return NB_CRIME_TYPES.find((c) => c.id === id) || null; }
-function nbCaseTypeLabel(c, lang) {
-  if (!c) return "—";
-  if (c.crimeType === "custom") return c.crimeTypeCustom || "—";
-  const ct = nbCrimeType(c.crimeType);
-  return ct ? (lang === "gu" ? ct.gu : ct.en) : (c.crimeTypeCustom || c.crimeType || "—");
-}
 // Bilingual search: Gujarati, English, typed Gujarati-in-English, sections.
 function nbCrimeTypeMatches(ct, q) {
   const s = String(q || "").trim().toLowerCase();
@@ -18601,68 +18503,8 @@ function nbCrimeTypeMatches(ct, q) {
   const hay = (ct.gu + " " + ct.en + " " + (ct.k || "") + " " + ct.id).toLowerCase();
   return s.split(/\s+/).every((w) => hay.includes(w));
 }
-function nbDaysBetween(a, b) {
-  if (!a || !b) return null;
-  return Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
-}
-// Charge-sheet clock: days since registration, and whether it is overdue.
-function nbChargeStatus(c, today = todayStr()) {
-  const limit = c.chargeLimit === 90 ? 90 : 60;
-  if (c.status === "undetected") return { limit, days: null, overdue: false, done: true };
-  if (c.chargesheetDate) return { limit, days: nbDaysBetween(c.regDate, c.chargesheetDate), overdue: false, done: true, late: nbDaysBetween(c.regDate, c.chargesheetDate) > limit };
-  const days = nbDaysBetween(c.regDate, today);
-  return { limit, days, overdue: days != null && days > limit, done: false };
-}
 const nbMoney = (n) => (Number(n) || 0).toLocaleString("en-IN");
-const nbPct = (a, b) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0);
 
-// The review figures for a set of cases.
-function nbCrimeStats(cases) {
-  const s = { registered: 0, detected: 0, undetected: 0, investigation: 0, summaryA: 0, summaryB: 0, summaryC: 0,
-    accused: 0, arrested: 0, accusedMale: 0, accusedFemale: 0, lost: 0, recovered: 0, chargesheets: 0, overdue: 0, victims: [] };
-  cases.forEach((c) => {
-    s.registered += 1;
-    if (c.status === "detected") s.detected += 1;
-    else if (c.status === "undetected") { s.undetected += 1; if (c.summaryType === "A") s.summaryA += 1; if (c.summaryType === "B") s.summaryB += 1; if (c.summaryType === "C") s.summaryC += 1; }
-    else s.investigation += 1;
-    (c.accused || []).forEach((a) => { s.accused += 1; if (a.arrested) s.arrested += 1; if (a.gender === "M") s.accusedMale += 1; if (a.gender === "F") s.accusedFemale += 1; });
-    s.lost += Number(c.propertyLost) || 0;
-    s.recovered += Number(c.propertyRecovered) || 0;
-    if (c.chargesheetDate || c.chargesheetNo) s.chargesheets += 1;
-    if (nbChargeStatus(c).overdue) s.overdue += 1;
-    (c.victims || []).forEach((v) => s.victims.push(v));
-  });
-  s.detectionPct = nbPct(s.detected, s.registered);
-  s.recoveryPct = nbPct(s.recovered, s.lost);
-  return s;
-}
-function nbFilterCases(cases, { typeId, from, to, station }) {
-  return cases.filter((c) =>
-    (!typeId || typeId === "all" || (typeId === "custom:" + (c.crimeTypeCustom || "") && c.crimeType === "custom") || c.crimeType === typeId) &&
-    (!from || (c.regDate || "") >= from) && (!to || (c.regDate || "") <= to) &&
-    (!station || station === "all" || c.owner === station));
-}
-// Same-length period just before, and the same dates one year earlier.
-function nbShiftRange(from, to, how) {
-  const d = (s) => new Date(s + "T00:00:00");
-  const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
-  if (how === "year") { const a = d(from), b = d(to); a.setFullYear(a.getFullYear() - 1); b.setFullYear(b.getFullYear() - 1); return [iso(a), iso(b)]; }
-  // Whole calendar months (e.g. 1 Oct – 31 Oct) -> the same number of
-  // whole months just before (1 Sep – 30 Sep).
-  const a0 = d(from), b0 = d(to), bNext = new Date(b0); bNext.setDate(bNext.getDate() + 1);
-  if (a0.getDate() === 1 && bNext.getDate() === 1) {
-    const months = (b0.getFullYear() - a0.getFullYear()) * 12 + (b0.getMonth() - a0.getMonth()) + 1;
-    return [iso(new Date(a0.getFullYear(), a0.getMonth() - months, 1)), iso(new Date(a0.getFullYear(), a0.getMonth(), 0))];
-  }
-  const len = nbDaysBetween(from, to) + 1;
-  const b = d(from); b.setDate(b.getDate() - 1); const a = new Date(b); a.setDate(a.getDate() - (len - 1));
-  return [iso(a), iso(b)];
-}
-function nbMonthRange(offset = 0) {
-  const now = new Date(); const a = new Date(now.getFullYear(), now.getMonth() + offset, 1); const b = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
-  const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
-  return [iso(a), iso(b)];
-}
 
 // ---------- ON-DEVICE STORAGE (no internet) ----------
 // Every case is kept in this browser's own database (IndexedDB) — nothing
@@ -18763,77 +18605,6 @@ const nbCrInput = { width: "100%", boxSizing: "border-box", fontSize: 13 };
 // iPad / iPhone date boxes ignore width:100% unless min-width is cleared.
 const nbCrDate = { ...nbCrInput, display: "block", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", appearance: "none", minHeight: 36, textAlign: "left" };
 const nbCrLabel = { display: "block", fontSize: 11.5, fontWeight: 600, color: "var(--text-secondary)", margin: "10px 0 4px" };
-function CrimeTypePicker({ value, customValue, onChange, allowAll, allowCustom = true, compact }) {
-  const { t, lang } = useLang();
-  const current = value === "all" ? t("All crime types", "બધા ગુનાના પ્રકાર") : value === "custom" ? (customValue || "") : (nbCrimeType(value) ? (lang === "gu" ? nbCrimeType(value).gu : nbCrimeType(value).en) : "");
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const off = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", off);
-    return () => document.removeEventListener("mousedown", off);
-  }, [open]);
-  const matches = NB_CRIME_TYPES.filter((c) => nbCrimeTypeMatches(c, q));
-  const pick = (id, custom) => { onChange(id, custom || ""); setQ(""); setOpen(false); };
-  return (
-    <div ref={wrapRef} style={{ position: "relative", minWidth: compact ? 200 : 0 }}>
-      <input
-        type="text" value={open ? q : current} placeholder={t("Search crime type — Gujarati or English", "ગુનાનો પ્રકાર શોધો — ગુજરાતી કે અંગ્રેજી")}
-        onFocus={() => { setOpen(true); setQ(""); }} onChange={(e) => { setQ(e.target.value); setOpen(true); }}
-        className="gu" style={nbCrInput}
-      />
-      {open && (
-        <div style={{ position: "absolute", zIndex: 60, top: "calc(100% + 2px)", left: 0, right: 0, maxHeight: 280, overflowY: "auto", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
-          {allowAll && (
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => pick("all")} className="gu" style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
-              {t("All crime types", "બધા ગુનાના પ્રકાર")}
-            </button>
-          )}
-          {matches.map((c) => (
-            <button key={c.id} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(c.id)} className="gu" style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 12px", background: c.id === value ? "var(--accent-light)" : "transparent", border: "none", fontSize: 12.5, cursor: "pointer", color: "var(--text-primary)" }}>
-              {c.gu} <span style={{ color: "var(--text-tertiary)" }}>— {c.en}</span>
-            </button>
-          ))}
-          {allowCustom && q.trim() && !matches.some((c) => c.gu === q.trim() || c.en.toLowerCase() === q.trim().toLowerCase()) && (
-            <button onMouseDown={(e) => e.preventDefault()} onClick={() => pick("custom", q.trim())} className="gu" style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", border: "none", borderTop: "1px solid var(--border-soft)", fontSize: 12.5, color: "var(--accent-strong)", fontWeight: 600, cursor: "pointer" }}>
-              + {t(`Use "${q.trim()}" as a new crime type`, `"${q.trim()}" ને નવા ગુનાના પ્રકાર તરીકે વાપરો`)}
-            </button>
-          )}
-          {matches.length === 0 && !allowCustom && <div className="gu" style={{ padding: "8px 12px", fontSize: 12.5, color: "var(--text-tertiary)" }}>{t("No match", "કોઈ મેળ નથી")}</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-function PeopleRows({ rows, onChange, withArrest, label }) {
-  const { t } = useLang();
-  const set = (i, k, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
-  return (
-    <div>
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-          <input type="text" value={r.name || ""} onChange={(e) => set(i, "name", e.target.value)} placeholder={t("Name", "નામ")} className="gu" style={{ ...nbCrInput, flex: "2 1 160px", width: "auto" }} />
-          <select value={r.gender || ""} onChange={(e) => set(i, "gender", e.target.value)} className="gu" style={{ fontSize: 13, flex: "0 0 auto" }}>
-            <option value="">{t("Gender", "જાતિ")}</option>
-            <option value="M">{t("Male", "પુરુષ")}</option>
-            <option value="F">{t("Female", "સ્ત્રી")}</option>
-            <option value="O">{t("Other", "અન્ય")}</option>
-          </select>
-          <input type="number" min="0" max="120" value={r.age ?? ""} onChange={(e) => set(i, "age", e.target.value === "" ? null : Math.max(0, Math.min(120, Number(e.target.value))))} placeholder={t("Age", "ઉંમર")} style={{ ...nbCrInput, width: 70, flex: "0 0 70px" }} />
-          {withArrest && (
-            <label className="gu" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-              <input type="checkbox" checked={!!r.arrested} onChange={(e) => set(i, "arrested", e.target.checked)} /> {t("Arrested", "પકડાયેલ")}
-            </label>
-          )}
-          <button onClick={() => onChange(rows.filter((_, j) => j !== i))} title={t("Remove", "કાઢી નાખો")} style={{ ...iconBtn, flex: "0 0 auto" }}>✕</button>
-        </div>
-      ))}
-      <button onClick={() => onChange([...rows, withArrest ? { name: "", gender: "", age: null, arrested: true } : { name: "", gender: "", age: null }])} className="gu" style={{ ...iconBtnWide }}>+ {label}</button>
-    </div>
-  );
-}
 
 // ---------- the case form (one FIR) ----------
 const NB_EMPTY_CASE = {
@@ -18843,137 +18614,6 @@ const NB_EMPTY_CASE = {
   chargeLimit: 60, chargesheetNo: "", chargesheetDate: "", court: "", ccNo: "", ccYear: "",
   summaryType: null, summaryNo: "", summaryDate: "", remarks: "",
 };
-function CrimeCaseForm({ initial, readOnly, onSave, onDelete, onClose, courts }) {
-  const { t, lang } = useLang();
-  useEscToClose(onClose);
-  const [c, setC] = useState(() => ({ ...NB_EMPTY_CASE, regDate: todayStr(), ...(initial || {}) }));
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const set = (k, v) => setC((p) => ({ ...p, [k]: v }));
-  const ct = nbCrimeType(c.crimeType);
-  const charge = nbChargeStatus(c);
-  const save = async () => {
-    setErr("");
-    if (!String(c.crNo).trim()) return setErr(t("Enter the FIR / C.R. number.", "ગુના નંબર લખો."));
-    if (!c.regDate) return setErr(t("Enter the registration date.", "ગુનો દાખલ તારીખ લખો."));
-    if (!c.crimeType) return setErr(t("Choose the crime type.", "ગુનાનો પ્રકાર પસંદ કરો."));
-    setBusy(true);
-    try { await onSave(c); } catch (e) { setErr(e.message || String(e)); setBusy(false); }
-  };
-  const ro = !!readOnly;
-  const box = { border: "1px solid var(--border)", borderRadius: 10, padding: "6px 14px 12px", marginTop: 12 };
-  const h = (txt) => <div className="disp gu" style={{ fontSize: 13, fontWeight: 700, marginTop: 8 }}>{txt}</div>;
-  return (
-    <div role="dialog" aria-modal="true" aria-label={t("Case", "ગુનો")} className="modal-backdrop" onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 110, padding: 16, overflowY: "auto" }}>
-      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 620, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", margin: "auto 0" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{initial && initial.id ? t("Case details", "ગુનાની વિગત") : t("New case", "નવો ગુનો")}</div>
-          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)" }}>✕</button>
-        </div>
-        <fieldset disabled={ro} style={{ border: "none", padding: 0, margin: 0 }}>
-          {/* 1. FIR */}
-          <div style={box}>
-            {h(t("1. Case (FIR)", "૧. ગુનાની વિગત"))}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("C.R. / FIR number", "ગુના નંબર")}</label><input type="text" value={c.crNo} onChange={(e) => set("crNo", e.target.value.slice(0, 20))} className="mono" style={nbCrInput} placeholder="25" /></div>
-              <div style={{ flex: "0 1 90px" }}><label style={nbCrLabel}>{t("Year", "વર્ષ")}</label><input type="text" value={c.crYear} onChange={(e) => set("crYear", e.target.value.replace(/\D/g, "").slice(0, 4))} className="mono" style={nbCrInput} /></div>
-              <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Registered on", "ગુનો દાખલ તારીખ")}</label><NbDateInput value={c.regDate} onChange={(e) => set("regDate", e.target.value)} style={nbCrDate} /></div>
-            </div>
-            <label style={nbCrLabel}>{t("Crime type", "ગુનાનો પ્રકાર")}</label>
-            <CrimeTypePicker value={c.crimeType} customValue={c.crimeTypeCustom} onChange={(id, custom) => setC((p) => ({ ...p, crimeType: id, crimeTypeCustom: custom, chargeLimit: (nbCrimeType(id) || {}).limit || p.chargeLimit || 60 }))} />
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 160px" }}><label style={nbCrLabel}>{t("Sections (BNS / IPC)", "કલમ")}</label><input type="text" value={c.sections} onChange={(e) => set("sections", e.target.value.slice(0, 200))} style={nbCrInput} placeholder="303(2), 331(4)" /></div>
-              <div style={{ flex: "1 1 160px" }}><label style={nbCrLabel}>{t("Place of offence", "સ્થળ")}</label><input type="text" value={c.place} onChange={(e) => set("place", e.target.value.slice(0, 200))} className="gu" style={nbCrInput} /></div>
-            </div>
-            <label style={nbCrLabel}>{t("Complainant's name", "ફરિયાદીનું નામ")}</label>
-            <input type="text" value={c.complainantName} onChange={(e) => set("complainantName", e.target.value.slice(0, 120))} className="gu" style={nbCrInput} />
-            <label style={nbCrLabel}>{t("Complainant's address", "ફરિયાદીનું સરનામું")}</label>
-            <input type="text" value={c.complainantAddress} onChange={(e) => set("complainantAddress", e.target.value.slice(0, 300))} className="gu" style={nbCrInput} />
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Property lost (₹)", "ગયેલ માલ (₹)")}</label><input type="number" min="0" value={c.propertyLost ?? ""} onChange={(e) => set("propertyLost", e.target.value === "" ? null : Math.max(0, Number(e.target.value)))} style={nbCrInput} /></div>
-              <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Property recovered (₹)", "મળેલ માલ (₹)")}</label><input type="number" min="0" value={c.propertyRecovered ?? ""} onChange={(e) => set("propertyRecovered", e.target.value === "" ? null : Math.max(0, Number(e.target.value)))} style={nbCrInput} /></div>
-            </div>
-          </div>
-          {/* 2. Status */}
-          <div style={box}>
-            {h(t("2. Status", "૨. સ્થિતિ"))}
-            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              {[["investigation", t("Under investigation", "તપાસ ચાલુ")], ["detected", t("Detected", "ડિટેક્ટ")], ["undetected", t("Undetected (summary)", "અનડિટેક્ટ (સમરી)")]].map(([k, lbl]) => (
-                <button key={k} type="button" onClick={() => set("status", k)} style={catTabBtn(c.status === k)} className="gu">{lbl}</button>
-              ))}
-            </div>
-            {c.status === "detected" && (
-              <React.Fragment>
-                <label style={nbCrLabel}>{t("Accused", "આરોપી")}</label>
-                <PeopleRows rows={c.accused || []} onChange={(v) => set("accused", v)} withArrest label={t("Add accused", "આરોપી ઉમેરો")} />
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("Charge-sheet no.", "ચાર્જશીટ નંબર")}</label><input type="text" value={c.chargesheetNo} onChange={(e) => set("chargesheetNo", e.target.value.slice(0, 30))} className="mono" style={nbCrInput} /></div>
-                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}</label><NbDateInput value={c.chargesheetDate} onChange={(e) => set("chargesheetDate", e.target.value)} style={nbCrDate} /></div>
-                  <div style={{ flex: "0 1 120px" }}><label style={nbCrLabel}>{t("Time limit", "સમય મર્યાદા")}</label>
-                    <select value={c.chargeLimit} onChange={(e) => set("chargeLimit", Number(e.target.value))} className="gu" style={{ ...nbCrInput }}>
-                      <option value={60}>60 {t("days", "દિવસ")}</option><option value={90}>90 {t("days", "દિવસ")}</option>
-                    </select>
-                  </div>
-                </div>
-                {c.regDate && (
-                  <div className="gu" style={{ fontSize: 12, marginTop: 6, color: charge.overdue || charge.late ? "var(--status-error-text)" : "var(--text-secondary)" }}>
-                    {c.chargesheetDate
-                      ? t(`Charge-sheet filed in ${charge.days} days (limit ${charge.limit})${charge.late ? " — LATE" : ""}`, `${charge.days} દિવસમાં ચાર્જશીટ મોકલ્યું (મર્યાદા ${charge.limit})${charge.late ? " — મોડું" : ""}`)
-                      : t(`${charge.days} days since registration — ${charge.overdue ? "charge-sheet OVERDUE" : `${charge.limit - charge.days} days left for charge-sheet`}`, `ગુનો દાખલ થયાને ${charge.days} દિવસ — ${charge.overdue ? "ચાર્જશીટ મુદત વીતી ગઈ" : `ચાર્જશીટ માટે ${charge.limit - charge.days} દિવસ બાકી`}`)}
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ flex: "1 1 160px" }}><label style={nbCrLabel}>{t("Court", "કોર્ટ")}</label>
-                    <input type="text" list="nb-courts" value={c.court} onChange={(e) => set("court", e.target.value.slice(0, 80))} className="gu" style={nbCrInput} />
-                    <datalist id="nb-courts">{(courts || NB_DEFAULT_COURTS).map((x) => <option key={x} value={x} />)}</datalist>
-                  </div>
-                  <div style={{ flex: "1 1 110px" }}><label style={nbCrLabel}>{t("C.C. number", "સી.સી. નંબર")}</label><input type="text" value={c.ccNo} onChange={(e) => set("ccNo", e.target.value.slice(0, 30))} className="mono" style={nbCrInput} /></div>
-                  <div style={{ flex: "0 1 90px" }}><label style={nbCrLabel}>{t("C.C. year", "વર્ષ")}</label><input type="text" value={c.ccYear} onChange={(e) => set("ccYear", e.target.value.replace(/\D/g, "").slice(0, 4))} className="mono" style={nbCrInput} /></div>
-                </div>
-              </React.Fragment>
-            )}
-            {c.status === "undetected" && (
-              <React.Fragment>
-                <label style={nbCrLabel}>{t("Summary type", "સમરી પ્રકાર")}</label>
-                {Object.entries(NB_SUMMARY_TYPES).map(([k, v]) => (
-                  <label key={k} className="gu" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0" }}>
-                    <input type="radio" name="nb-summary" checked={c.summaryType === k} onChange={() => set("summaryType", k)} /> <b>{k}</b> — {lang === "gu" ? v.gu : v.en}
-                  </label>
-                ))}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ flex: "1 1 120px" }}><label style={nbCrLabel}>{t("Summary number", "સમરી નંબર")}</label><input type="text" value={c.summaryNo} onChange={(e) => set("summaryNo", e.target.value.slice(0, 30))} className="mono" style={nbCrInput} /></div>
-                  <div style={{ flex: "1 1 150px" }}><label style={nbCrLabel}>{t("Summary date", "સમરી તારીખ")}</label><NbDateInput value={c.summaryDate} onChange={(e) => set("summaryDate", e.target.value)} style={nbCrDate} /></div>
-                </div>
-              </React.Fragment>
-            )}
-          </div>
-          {/* 3. Victims */}
-          <div style={box}>
-            {h(t("3. Victims (optional)", "૩. ભોગ બનનાર (વૈકલ્પિક)"))}
-            <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", margin: "4px 0 8px" }}>
-              {ct && ct.victim ? t("Recommended for this crime type — used for victim age / gender in the review.", "આ ગુનાના પ્રકાર માટે ભરવું જોઈએ — સમીક્ષામાં ભોગ બનનારની ઉંમર / જાતિ માટે.") : t("Fill in if useful (e.g. kidnapping, POCSO, hurt).", "જરૂરી હોય તો ભરો (દા.ત. અપહરણ, પોક્સો, ઈજા).")}
-            </div>
-            <PeopleRows rows={c.victims || []} onChange={(v) => set("victims", v)} label={t("Add victim", "ભોગ બનનાર ઉમેરો")} />
-          </div>
-          <label style={nbCrLabel}>{t("Remarks", "નોંધ")}</label>
-          <input type="text" value={c.remarks} onChange={(e) => set("remarks", e.target.value.slice(0, 300))} className="gu" style={nbCrInput} />
-        </fieldset>
-        {err && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 10 }}>{err}</div>}
-        {!ro && (
-          <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div>{initial && initial.id && onDelete && (
-              <button onClick={() => { if (window.confirm(t("Delete this case permanently?", "આ ગુનો કાયમ માટે ડિલીટ કરવો છે?"))) onDelete(initial.id); }} className="gu" style={{ background: "transparent", color: "var(--status-error-text)", border: "1px solid var(--status-error-text)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Delete", "ડિલીટ")}</button>
-            )}</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={onClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
-              <button onClick={save} disabled={busy} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700 }}>{busy ? t("Saving…", "સાચવી રહ્યા છીએ…") : t("Save", "સાચવો")}</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ---------- report PDF / CSV ----------
 async function downloadCrimeReviewPdf({ title, subtitle, head, rows, stationName, district, extraLines, filename }) {
@@ -19005,303 +18645,6 @@ async function downloadCrimeReviewPdf({ title, subtitle, head, rows, stationName
   return { doc, filename: filename || `nokri-book-crime-review-${todayStr()}.pdf` };
 }
 
-// ---------- the Crime Review page (station or district) ----------
-function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, state, stations, initialTab, onTabChange, onBack }) {
-  const { t, lang } = useLang();
-  const isDistrict = false; // Crime Review is per device only (no district view)
-  const [monthFrom, monthTo] = nbMonthRange(0);
-  const [from, setFrom] = useState(monthFrom);
-  const [to, setTo] = useState(monthTo);
-  const { cases, error } = useLocalCrimeCases();
-  const [tab, setTabRaw] = useState(initialTab || "cases");
-  useEffect(() => { if (initialTab) setTabRaw(initialTab); }, [initialTab]);
-  const setTab = (v) => { setTabRaw(v); if (onTabChange) onTabChange(v); };
-  const [editing, setEditing] = useState(null); // case object, or {} for new
-  const [toast, setToast] = useState("");
-  const [pdfReady, setPdfReady] = useState(null);
-  const [pdfBusy, setPdfBusy] = useState(false);
-  // filters (shared by both tabs)
-  const [typeId, setTypeId] = useState("all");
-  const [station, setStation] = useState("all");
-  const [statusF, setStatusF] = useState("all");
-  const [search, setSearch] = useState("");
-  const [compare, setCompare] = useState(true);
-  const stationNameOf = (uid) => ((stations || []).find((s) => s.uid === uid) || {}).stationName || "—";
-  const courts = useMemo(() => Array.from(new Set([...(NB_DEFAULT_COURTS), ...((cases || []).map((c) => c.court).filter(Boolean))])), [cases]);
-
-  const showToast = (m) => { setToast(m); setTimeout(() => setToast(""), 2600); };
-  const saveCase = async (c) => {
-    const clean = {};
-    Object.keys(NB_EMPTY_CASE).forEach((k) => { clean[k] = c[k] === undefined ? NB_EMPTY_CASE[k] : c[k]; });
-    clean.crNo = String(clean.crNo).trim();
-    clean.accused = (clean.accused || []).filter((a) => (a.name || "").trim() || a.age != null).map((a) => ({ name: (a.name || "").trim().slice(0, 120), gender: a.gender || "", age: a.age == null ? null : Number(a.age), arrested: !!a.arrested }));
-    clean.victims = (clean.victims || []).filter((v) => (v.name || "").trim() || v.age != null).map((v) => ({ name: (v.name || "").trim().slice(0, 120), gender: v.gender || "", age: v.age == null ? null : Number(v.age) }));
-    if (clean.status !== "undetected") { clean.summaryType = null; clean.summaryNo = ""; clean.summaryDate = ""; }
-    if (clean.status !== "detected") { clean.chargesheetNo = ""; clean.chargesheetDate = ""; clean.court = ""; clean.ccNo = ""; clean.ccYear = ""; }
-    const docData = { ...clean, district: district || "", state: state || "", stationName: stationName || "", updatedAt: Date.now() };
-    const dup = (cases || []).find((x) => x.id !== c.id && String(x.crNo) === clean.crNo && String(x.crYear) === String(clean.crYear));
-    if (dup && !window.confirm(t(`Case ${clean.crNo}/${clean.crYear} already exists. Save another one anyway?`, `ગુનો ${clean.crNo}/${clean.crYear} પહેલેથી છે. છતાં બીજો સાચવવો છે?`))) throw new Error(t("Not saved.", "સચવાયું નથી."));
-    await nbCrimeStore.put({ ...docData, id: c.id || nbNewCaseId(), createdAt: c.createdAt || Date.now() });
-    setEditing(null);
-    showToast(t("Case saved", "ગુનો સચવાયો"));
-  };
-  const deleteCase = async (id) => { await nbCrimeStore.del(id); setEditing(null); showToast(t("Case deleted", "ગુનો ડિલીટ થયો")); };
-
-  // ----- cases tab -----
-  const visibleCases = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return nbFilterCases(cases || [], { typeId, from, to, station }).filter((c) =>
-      (statusF === "all" || (statusF === "overdue" ? nbChargeStatus(c).overdue : c.status === statusF)) &&
-      (!q || nbSrch([c.crNo + "/" + c.crYear, c.sections, c.place, c.complainantName, nbCaseTypeLabel(c, "gu"), nbCaseTypeLabel(c, "en"), ...(c.accused || []).map((a) => a.name), stationNameOf(c.owner)].join(" "), q)));
-  }, [cases, typeId, from, to, station, statusF, search]);
-
-  // ----- report tab -----
-  const inRange = useMemo(() => nbFilterCases(cases || [], { typeId, from, to, station }), [cases, typeId, from, to, station]);
-  const stats = useMemo(() => nbCrimeStats(inRange), [inRange]);
-  const [pf, pt] = from && to ? nbShiftRange(from, to, "prev") : [null, null];
-  const [yf, yt] = from && to ? nbShiftRange(from, to, "year") : [null, null];
-  const prevStats = useMemo(() => (pf ? nbCrimeStats(nbFilterCases(cases || [], { typeId, from: pf, to: pt, station })) : null), [cases, typeId, pf, pt, station]);
-  const yearStats = useMemo(() => (yf ? nbCrimeStats(nbFilterCases(cases || [], { typeId, from: yf, to: yt, station })) : null), [cases, typeId, yf, yt, station]);
-  // per crime type (when "All") or per station (district)
-  const breakdown = useMemo(() => {
-    const groups = new Map();
-    inRange.forEach((c) => {
-      const key = isDistrict && station === "all" && typeId !== "all" ? c.owner : (c.crimeType === "custom" ? "custom:" + c.crimeTypeCustom : c.crimeType);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c);
-    });
-    return Array.from(groups.entries()).map(([key, list]) => ({
-      key, label: isDistrict && station === "all" && typeId !== "all" ? stationNameOf(key) : nbCaseTypeLabel(list[0], lang), s: nbCrimeStats(list),
-    })).sort((a, b) => b.s.registered - a.s.registered);
-  }, [inRange, isDistrict, station, typeId, lang]);
-  const stationBreakdown = useMemo(() => {
-    if (!isDistrict) return [];
-    const by = new Map();
-    inRange.forEach((c) => { if (!by.has(c.owner)) by.set(c.owner, []); by.get(c.owner).push(c); });
-    return (stations || []).map((s) => ({ uid: s.uid, label: s.stationName || "—", s: nbCrimeStats(by.get(s.uid) || []) }));
-  }, [inRange, isDistrict, stations]);
-  const overdueList = useMemo(() => (cases || []).filter((c) => (station === "all" || c.owner === station) && nbChargeStatus(c).overdue), [cases, station]);
-
-  const typeLabel = typeId === "all" ? t("All crime types", "બધા ગુનાના પ્રકાર") : typeId.startsWith("custom:") ? typeId.slice(7) : nbCaseTypeLabel({ crimeType: typeId }, lang);
-  const rangeLabel = `${from ? formatDMY(from) : "…"} – ${to ? formatDMY(to) : "…"}`;
-  const trend = (now, before) => {
-    if (before == null) return null;
-    const d = now - before;
-    return <span style={{ fontSize: 11, color: d > 0 ? "var(--status-error-text)" : d < 0 ? "var(--status-success-text)" : "var(--text-tertiary)" }}>{d > 0 ? "▲" : d < 0 ? "▼" : "="}{d !== 0 ? Math.abs(d) : ""}</span>;
-  };
-  const COLS = [
-    ["registered", t("Registered", "દાખલ થયેલ ગુના")], ["detected", t("Detected", "ડિટેક્ટ")], ["undetected", t("Undetected", "અનડિટેક્ટ")],
-    ["investigation", t("Under investigation", "તપાસ ચાલુ")], ["arrested", t("Accused arrested", "પકડાયેલ આરોપી")],
-  ];
-  const statCard = (label, value, sub) => (
-    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", minWidth: 130, flex: "1 1 130px" }}>
-      <div className="gu" style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{label}</div>
-      <div className="disp" style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
-      {sub && <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{sub}</div>}
-    </div>
-  );
-  const exportRows = () => {
-    const head = [isDistrict && station === "all" ? "Station" : "Crime type",
-      "Registered", "Detected", "Undetected (A/B/C)", "Under investigation", "Accused (arrested / total)", "Property lost (Rs)", "Recovered (Rs)", "Recovery %", "Detection %"];
-    const row = (label, s) => [label, s.registered, s.detected, `${s.undetected} (${s.summaryA}/${s.summaryB}/${s.summaryC})`, s.investigation, `${s.arrested} / ${s.accused}`, nbMoney(s.lost), nbMoney(s.recovered), s.recoveryPct + "%", s.detectionPct + "%"];
-    const rows = (isDistrict && station === "all" && typeId === "all" ? stationBreakdown : breakdown).map((b) => row(b.label, b.s));
-    rows.push(row("Total", stats));
-    return { head, rows };
-  };
-  const doPdf = async () => {
-    setPdfBusy(true);
-    try {
-      const { head, rows } = exportRows();
-      const lines = [];
-      if (compare && prevStats) lines.push(`Previous period (${formatDMY(pf)} – ${formatDMY(pt)}): registered ${prevStats.registered}, detected ${prevStats.detected}`);
-      if (compare && yearStats) lines.push(`Same period last year (${formatDMY(yf)} – ${formatDMY(yt)}): registered ${yearStats.registered}, detected ${yearStats.detected}`);
-      if (stats.victims.length) lines.push("Victim ages: " + stats.victims.map((v) => v.age).filter((a) => a != null).sort((a, b) => a - b).join(", "));
-      if (overdueList.length) lines.push(`Charge-sheet overdue: ${overdueList.length} case(s) — ` + overdueList.slice(0, 12).map((c) => `${c.crNo}/${c.crYear}`).join(", "));
-      const subtitle = `${typeId === "all" ? "All crime types" : (nbCrimeType(typeId) || {}).en || typeLabel} · ${rangeLabel}${isDistrict && station !== "all" ? " · " + stationNameOf(station) : ""}`;
-      setPdfReady(await downloadCrimeReviewPdf({ title: "Crime Review", subtitle, head, rows, stationName: isDistrict ? (station !== "all" ? stationNameOf(station) : null) : stationName, district: district || districtId, extraLines: lines }));
-    } catch (e) { console.error("Crime review PDF failed:", e); window.alert(t("Could not make the PDF — check your connection and try again.", "PDF બની શક્યું નહીં — જોડાણ તપાસીને ફરી પ્રયત્ન કરો.")); }
-    finally { setPdfBusy(false); }
-  };
-  const doWord = () => {
-    const { head, rows } = exportRows();
-    nbTableDocx({ title: "Crime Review", subtitle: typeLabel + " · " + rangeLabel, head, rows, stationName, district, filename: `nokri-book-crime-review-${from}-to-${to}.docx` });
-  };
-  const casesExport = () => {
-    const head = ["C.R. no", "Year", "Registered", "Station", "Crime type", "Sections", "Place", "Complainant", "Status", "Summary", "Accused (arrested/total)", "Property lost", "Recovered", "Charge-sheet no", "Charge-sheet date", "Days to charge-sheet", "Court", "C.C. no/year", "Victims (age)"];
-    const rows = visibleCases.map((c) => { const cs = nbChargeStatus(c); return [c.crNo, c.crYear, formatDMY(c.regDate), isDistrict ? stationNameOf(c.owner) : stationName, nbCaseTypeLabel(c, lang), c.sections, c.place, c.complainantName, c.status, c.summaryType || "", `${(c.accused || []).filter((a) => a.arrested).length}/${(c.accused || []).length}`, c.propertyLost || 0, c.propertyRecovered || 0, c.chargesheetNo, c.chargesheetDate ? formatDMY(c.chargesheetDate) : "", c.chargesheetDate ? cs.days : "", c.court, c.ccNo ? `${c.ccNo}/${c.ccYear}` : "", (c.victims || []).map((v) => v.age).filter((a) => a != null).join(" ")]; });
-    return { title: "Crime Cases", subtitle: `${rows.length} case(s)`, head, rows, stationName, district };
-  };
-  const doCasesWord = () => nbTableDocx({ ...casesExport(), filename: `nokri-book-crime-cases-${todayStr()}.docx` });
-  const doCasesPdf = async () => {
-    setPdfBusy(true);
-    try { setPdfReady(await downloadCrimeReviewPdf({ ...casesExport(), filename: `nokri-book-crime-cases-${todayStr()}.pdf` })); }
-    catch (e) { window.alert(t("Could not make the PDF — check your connection and try again.", "PDF બની શક્યું નહીં — જોડાણ તપાસીને ફરી પ્રયત્ન કરો.")); }
-    finally { setPdfBusy(false); }
-  };
-  const statusBadge = (c) => {
-    const cs = nbChargeStatus(c);
-    const m = c.status === "detected" ? [t("Detected", "ડિટેક્ટ"), "var(--status-success-text)"] : c.status === "undetected" ? [t("Summary", "સમરી") + " " + (c.summaryType || ""), "var(--text-secondary)"] : [t("Investigation", "તપાસ ચાલુ"), "var(--accent-strong)"];
-    return (
-      <span className="gu" style={{ fontSize: 10.5, fontWeight: 700, color: m[1], border: "1px solid " + m[1], borderRadius: 20, padding: "1px 7px", whiteSpace: "nowrap" }}>
-        {m[0]}{cs.overdue ? " ⚠️" : ""}
-      </span>
-    );
-  };
-
-  return (
-    <React.Fragment>
-      {/* one row: tabs on the left, "+ New case" on the right */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        {onBack && <button onClick={onBack} className="gu" style={{ ...iconBtnWide }}>← {t("Back", "પાછા")}</button>}
-        <button onClick={() => setTab("cases")} style={catTabBtn(tab === "cases")} className="gu">📁 {t("Cases", "ગુનાઓ")}</button>
-        <button onClick={() => setTab("report")} style={catTabBtn(tab === "report")} className="gu">📊 {t("Review report", "સમીક્ષા અહેવાલ")}</button>
-        <div style={{ flex: 1 }} />
-        {!isDistrict && <button onClick={() => setEditing({})} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap" }}>+ {t("New case", "નવો ગુનો")}</button>}
-      </div>
-
-      {/* filters: crime head + time span (+ station for district) */}
-      <div style={{ marginBottom: 14, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div style={{ flex: "2 1 240px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Crime head", "ગુનાનો પ્રકાર")}</label>
-          <CrimeTypePicker value={typeId.startsWith("custom:") ? "custom" : typeId} customValue={typeId.startsWith("custom:") ? typeId.slice(7) : ""} onChange={(id, custom) => setTypeId(id === "custom" ? "custom:" + custom : id)} allowAll allowCustom={false} />
-        </div>
-        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("From", "થી")}</label><NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={nbCrDate} /></div>
-        <div style={{ flex: "1 1 140px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("To", "સુધી")}</label><NbDateInput value={to} onChange={(e) => setTo(e.target.value)} style={nbCrDate} /></div>
-        {isDistrict && (
-          <div style={{ flex: "1 1 180px", minWidth: 0 }}><label style={{ ...nbCrLabel, marginTop: 0 }}>{t("Station", "સ્ટેશન")}</label>
-            <select value={station} onChange={(e) => setStation(e.target.value)} className="gu" style={nbCrInput}>
-              <option value="all">{t("All stations", "બધા સ્ટેશન")}</option>
-              {(stations || []).map((s) => <option key={s.uid} value={s.uid}>{s.stationName || s.uid}</option>)}
-            </select>
-          </div>
-        )}
-      </div>
-      {/* quick date ranges — their own row so they never overlap the dates */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-        {[[t("This month", "આ મહિનો"), nbMonthRange(0)], [t("Last month", "ગયો મહિનો"), nbMonthRange(-1)], [t("This year", "આ વર્ષ"), [`${new Date().getFullYear()}-01-01`, `${new Date().getFullYear()}-12-31`]], [t("All dates", "બધી તારીખો"), ["", ""]]].map(([lbl, [a, b]]) => (
-          <button key={lbl} onClick={() => { setFrom(a); setTo(b); }} className="gu" style={{ ...catTabBtn(from === a && to === b), fontSize: 12, padding: "6px 12px" }}>{lbl}</button>
-        ))}
-      </div>
-      </div>
-
-      {error && <div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, marginBottom: 10 }}>{t("Couldn't open this device's storage: ", "આ ડિવાઇસનું સ્ટોરેજ ખુલી શક્યું નહીં: ") + error}</div>}
-      {cases === null && <div className="gu" style={{ color: "var(--text-secondary)", padding: 20 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
-
-      {cases !== null && tab === "cases" && (
-        <React.Fragment>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("Search: C.R. no., name, place, section…", "શોધો: ગુના નંબર, નામ, સ્થળ, કલમ…")} className="gu" style={{ ...nbCrInput, flex: "2 1 220px", width: "auto" }} />
-            <select value={statusF} onChange={(e) => setStatusF(e.target.value)} className="gu" style={{ fontSize: 13 }}>
-              <option value="all">{t("All statuses", "બધી સ્થિતિ")}</option>
-              <option value="investigation">{t("Under investigation", "તપાસ ચાલુ")}</option>
-              <option value="detected">{t("Detected", "ડિટેક્ટ")}</option>
-              <option value="undetected">{t("Undetected (summary)", "અનડિટેક્ટ (સમરી)")}</option>
-              <option value="overdue">{t("Charge-sheet overdue", "ચાર્જશીટ મુદત વીતી")}</option>
-            </select>
-            <button onClick={doCasesWord} className="gu" style={{ ...iconBtnWide }}><WordIcon />Word</button>
-            <button onClick={doCasesPdf} disabled={pdfBusy} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : <><PdfIcon />PDF</>}</button>
-          </div>
-          {visibleCases.length === 0 ? (
-            <div className="gu" style={{ color: "var(--text-tertiary)", padding: 24, textAlign: "center", background: "var(--bg-surface)", border: "1px dashed var(--border)", borderRadius: 10 }}>
-              {(cases || []).length === 0 ? (isDistrict ? t("No cases entered by stations yet.", "સ્ટેશનોએ હજુ કોઈ ગુનો દાખલ કર્યો નથી.") : t("No cases yet — tap “+ New case” to add the first FIR.", "હજુ કોઈ ગુનો નથી — પહેલો ગુનો ઉમેરવા “+ નવો ગુનો” દબાવો.")) : t("No cases match these filters.", "આ ફિલ્ટર મુજબ કોઈ ગુનો નથી.")}
-            </div>
-          ) : visibleCases.map((c) => (
-            <button key={c.id} onClick={() => setEditing(c)} className="gu" style={{ display: "flex", width: "100%", textAlign: "left", gap: 10, alignItems: "center", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 8, cursor: "pointer", color: "var(--text-primary)" }}>
-              <div className="mono" style={{ fontWeight: 700, fontSize: 13, minWidth: 70 }}>{c.crNo}/{c.crYear}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{nbCaseTypeLabel(c, lang)} {c.sections ? <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>· {c.sections}</span> : null}</div>
-                <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                  {formatDMY(c.regDate)}{isDistrict ? " · " + stationNameOf(c.owner) : ""}{c.place ? " · " + c.place : ""}{c.propertyLost ? ` · ₹${nbMoney(c.propertyLost)} / ₹${nbMoney(c.propertyRecovered)}` : ""}{(c.accused || []).length ? ` · ${t("accused", "આરોપી")} ${(c.accused || []).filter((a) => a.arrested).length}/${c.accused.length}` : ""}
-                </div>
-              </div>
-              {statusBadge(c)}
-            </button>
-          ))}
-        </React.Fragment>
-      )}
-
-      {cases !== null && tab === "report" && (
-        <React.Fragment>
-          <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 8 }}>
-            <b style={{ color: "var(--text-primary)" }}>{typeLabel}</b> · {rangeLabel}{isDistrict ? " · " + (station === "all" ? t("All stations", "બધા સ્ટેશન") : stationNameOf(station)) : ""}
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            {statCard(t("Cases registered", "કેટલા ગુના દાખલ થયેલ"), <>{stats.registered} {compare && trend(stats.registered, prevStats && prevStats.registered)}</>, compare && prevStats ? t(`previous period ${prevStats.registered} · last year ${yearStats ? yearStats.registered : "—"}`, `ગયો સમયગાળો ${prevStats.registered} · ગયું વર્ષ ${yearStats ? yearStats.registered : "—"}`) : null)}
-            {statCard(t("Detected", "ડિટેક્ટ"), <>{stats.detected} <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>({stats.detectionPct}%)</span></>, t(`undetected ${stats.undetected} · investigation ${stats.investigation}`, `અનડિટેક્ટ ${stats.undetected} · તપાસ ચાલુ ${stats.investigation}`))}
-            {statCard(t("Accused arrested", "કેટલા આરોપી પકડાયેલ"), `${stats.arrested} / ${stats.accused}`, t(`male ${stats.accusedMale} · female ${stats.accusedFemale}`, `પુરુષ ${stats.accusedMale} · સ્ત્રી ${stats.accusedFemale}`))}
-            {statCard(t("Property lost / recovered", "ગયેલ / મળેલ માલ"), `₹${nbMoney(stats.recovered)}`, t(`of ₹${nbMoney(stats.lost)} · ${stats.recoveryPct}% recovered`, `₹${nbMoney(stats.lost)} માંથી · ${stats.recoveryPct}% મળેલ (ટકાવારી)`))}
-          </div>
-          {stats.undetected > 0 && (
-            <div className="gu" style={{ fontSize: 12.5, marginBottom: 10, color: "var(--text-secondary)" }}>
-              {t("Summaries", "સમરી")}: A {stats.summaryA} · B {stats.summaryB} · C {stats.summaryC}
-            </div>
-          )}
-          {stats.victims.length > 0 && (
-            <div className="gu" style={{ fontSize: 12.5, marginBottom: 10, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
-              <b>{t("Victims", "ભોગ બનનાર")} ({stats.victims.length})</b> — {t("ages (youngest first)", "ઉંમર (નાનેથી મોટા)")}: {stats.victims.map((v) => v.age).filter((a) => a != null).sort((a, b) => a - b).join(", ") || "—"}
-              {" · "}{t("female", "સ્ત્રી")} {stats.victims.filter((v) => v.gender === "F").length}, {t("male", "પુરુષ")} {stats.victims.filter((v) => v.gender === "M").length}
-              {" · "}{t("under 18", "18 વર્ષથી નીચે")}: {stats.victims.filter((v) => v.age != null && v.age < 18).length}
-            </div>
-          )}
-          {/* breakdown table */}
-          {(() => {
-            const list = isDistrict && station === "all" && typeId === "all" ? stationBreakdown : breakdown;
-            const firstCol = isDistrict && station === "all" ? (typeId === "all" ? t("Station", "સ્ટેશન") : t("Station", "સ્ટેશન")) : t("Crime type", "ગુનાનો પ્રકાર");
-            if (!list.length) return <div className="gu" style={{ color: "var(--text-tertiary)", padding: 16 }}>{t("No cases in this period.", "આ સમયગાળામાં કોઈ ગુનો નથી.")}</div>;
-            const th = { textAlign: "left", padding: "7px 8px", fontSize: 11.5, color: "var(--text-secondary)", borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" };
-            const td = { padding: "7px 8px", fontSize: 12.5, borderBottom: "1px solid var(--border-soft)" };
-            return (
-              <div style={{ overflowX: "auto", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10 }}>
-                <table className="gu" style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead><tr>
-                    <th style={th}>{firstCol}</th>{COLS.map(([k, l]) => <th key={k} style={th}>{l}</th>)}
-                    <th style={th}>{t("Lost ₹", "ગયેલ ₹")}</th><th style={th}>{t("Recovered ₹", "મળેલ ₹")}</th><th style={th}>{t("Recovery %", "ટકાવારી")}</th>
-                  </tr></thead>
-                  <tbody>
-                    {list.map((b) => (
-                      <tr key={b.key || b.uid}>
-                        <td style={{ ...td, fontWeight: 600 }}>{b.label}</td>
-                        <td style={td}>{b.s.registered}</td><td style={td}>{b.s.detected}</td><td style={td}>{b.s.undetected}</td><td style={td}>{b.s.investigation}</td>
-                        <td style={td}>{b.s.arrested} / {b.s.accused}</td>
-                        <td style={td}>{nbMoney(b.s.lost)}</td><td style={td}>{nbMoney(b.s.recovered)}</td><td style={td}>{b.s.recoveryPct}%</td>
-                      </tr>
-                    ))}
-                    <tr style={{ background: "var(--bg-surface-2)" }}>
-                      <td style={{ ...td, fontWeight: 700 }}>{t("Total", "કુલ")}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{stats.registered}</td><td style={{ ...td, fontWeight: 700 }}>{stats.detected}</td><td style={{ ...td, fontWeight: 700 }}>{stats.undetected}</td><td style={{ ...td, fontWeight: 700 }}>{stats.investigation}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{stats.arrested} / {stats.accused}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{nbMoney(stats.lost)}</td><td style={{ ...td, fontWeight: 700 }}>{nbMoney(stats.recovered)}</td><td style={{ ...td, fontWeight: 700 }}>{stats.recoveryPct}%</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
-          {overdueList.length > 0 && (
-            <div className="gu" style={{ marginTop: 12, fontSize: 12.5, background: "var(--bg-surface)", border: "1px solid var(--status-error-text)", borderRadius: 10, padding: "8px 12px" }}>
-              <b style={{ color: "var(--status-error-text)" }}>⚠️ {t(`Charge-sheet overdue: ${overdueList.length}`, `ચાર્જશીટ મુદત વીતી: ${overdueList.length}`)}</b>
-              <div style={{ marginTop: 4 }}>{overdueList.map((c) => `${isDistrict ? stationNameOf(c.owner) + " " : ""}${c.crNo}/${c.crYear} (${nbChargeStatus(c).days}/${nbChargeStatus(c).limit} ${t("days", "દિવસ")})`).join(" · ")}</div>
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
-            <label className="gu" style={{ fontSize: 12.5, display: "flex", alignItems: "center", gap: 5 }}><input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} /> {t("Compare with previous period & last year", "ગયા સમયગાળા અને ગયા વર્ષ સાથે સરખામણી")}</label>
-            <div style={{ flex: 1 }} />
-            <button onClick={doPdf} disabled={pdfBusy || !from || !to} className="gu" style={{ ...iconBtnWide }}>{pdfBusy ? "…" : <><PdfIcon />PDF</>}</button>
-            <button onClick={doWord} disabled={!from || !to} className="gu" style={{ ...iconBtnWide }}><WordIcon />Word</button>
-          </div>
-          {(!from || !to) && <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Choose a From and To date for comparison and exports.", "સરખામણી અને એક્સપોર્ટ માટે થી / સુધી તારીખ પસંદ કરો.")}</div>}
-        </React.Fragment>
-      )}
-
-      {editing && (
-        <CrimeCaseForm initial={editing.id ? editing : null} readOnly={isDistrict} courts={courts}
-          onSave={saveCase} onDelete={deleteCase} onClose={() => setEditing(null)} />
-      )}
-      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
-      {toast && <div className="gu toast-anim" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
-    </React.Fragment>
-  );
-}
 
 // ======================================================================
 // The standalone OFFLINE Crime Review app — nokribook.in/crime
@@ -19562,8 +18905,6 @@ function nbCloseLabel(e) {
   const t = (NB_CLOSE_TYPES.find((x) => x[0] === e.closeType) || [])[1] || "";
   return t + (e.closeDate ? " તા." + nbGDate(e.closeDate) : "");
 }
-// a charge-sheet / summary closes the case even before its date is written in
-function nbIsOpen(e, asOf) { return e.closeDate ? e.closeDate > asOf : !e.closeType; }
 function nbPendingAt(e, asOf) {
   if (e.reg === "GUM") return !e.foundDate || e.foundDate > asOf;
   if (e.closeDate) return e.closeDate > asOf;
@@ -21671,15 +21012,6 @@ function nbWFir(s) {
   return [null, null];
 }
 function nbWNoYear(s) { const m = nbWA(s).match(/(\d{1,4})\s*[/-]\s*(\d{2,4})/); return m ? [String(+m[1]), m[2].length === 2 ? "20" + m[2] : m[2]] : [null, null]; }
-// "(૧) રમેશ ઉ.વ.૨૨ ... (૨) ગીતાબેન ઉ.વ.૩૦" → [{age:"22",g:"M"},{age:"30",g:"F"}]
-function nbWPeople(text) {
-  const t = nbWClean(text);
-  if (!t || /^\s*(અજાણ્યો|અજાણ્યા|અજાણ|-)\s*/.test(t) && !/\(\s*[૧1]\s*\)/.test(t)) return [];
-  let parts = t.split(/\(\s*[0-9૦-૯]{1,2}\s*\)/).map((x) => x.trim()).filter(Boolean);
-  if (parts.length <= 1) parts = t.split(/\n+/).filter((x) => x.trim());
-  const L = parts.map((x) => { const am = nbWA(x).match(/ઉ\.?\s?વ\.?[\s.:-]*(\d{1,3})/); return { name: x.replace(/\s+/g, " ").replace(/[,\s]+$/, ""), age: am ? am[1] : "", g: /બેન|વા\/ઓ|ડો\/ઓ|દિકરી|પુત્રી/.test(x) ? "F" : "M" }; });
-  return L.some((p) => p.age) || L.length > 1 ? L : [];
-}
 // what the B-statement needs that the register doesn't hold: guessed where it is safe
 function nbWAutoFill(e) {
   const f = nbWA(e.facts || "");
@@ -22784,25 +22116,6 @@ const NB_AGENCIES = [["local", "લોકલ પોલીસ"], ["lcb", "એલ.
 function nbPeople(list) { return (Array.isArray(list) ? list : []).filter((p) => p && (p.age !== "" && p.age != null || p.g || (p.name && String(p.name).trim()))); }
 // accused arrest status (per person)
 const NB_ARREST_ST = [["", "— અટકની સ્થિતિ —"], ["yes", "અટક થયેલ"], ["no", "અટક બાકી"], ["asked", "પૂછપરછ કરેલ"], ["notice", "નોટીસ આપેલ (બી.એન.એસ.એસ. ૩૫(૩))"], ["dead", "મરણ ગયેલ"]];
-// "(૧) રમેશ … ઉ.વ.૨૨ … (૨) …" → rows with name / age / gender (status is never guessed)
-function nbAccusedRowsFromText(text) {
-  const t = nbWClean(text || "");
-  if (!t || /^\s*(અજાણ્યો|અજાણ્યા|અજાણ|-)\s*$/.test(t)) return [];
-  let parts = t.split(/\(\s*[0-9૦-૯]{1,2}\s*\)/).map((x) => x.trim()).filter(Boolean);
-  if (parts.length <= 1) parts = t.split(/\n+/).map((x) => x.trim()).filter(Boolean);
-  return parts.map((x) => {
-    const am = nbWA(x).match(/ઉ\.?\s?વ\.?[\s.:-]*(\d{1,3})/);
-    // an arrest written in the document itself ("તા.૨૦/૦૭/૨૦૨૬ ના … અટક કરેલ છે") is taken as written — nothing else is assumed
-    const ar = nbWA(x).match(/(?:તા\.?\s*[-.]?\s*)?(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2,4})[^()]{0,40}?અટક\s*કર(?:ેલ|વામાં\s*આવેલ)[^.]*\.?/);
-    let name = x, st = "", arrestDate = "";
-    if (ar) {
-      const y = ar[3].length === 2 ? "20" + ar[3] : ar[3];
-      arrestDate = `${y}-${String(+ar[2]).padStart(2, "0")}-${String(+ar[1]).padStart(2, "0")}`; st = "yes";
-      const at = nbWA(x).indexOf(ar[0]); if (at >= 0) name = x.slice(0, at) + x.slice(at + ar[0].length);
-    }
-    return { name: name.replace(/\s+/g, " ").replace(/[,\s]+$/, ""), age: am ? am[1] : "", g: /બેન|વા\/ઓ|ડો\/ઓ|દિકરી|પુત્રી/.test(x) ? "F" : "M", st, arrestDate };
-  });
-}
 // B-statement column 3: every accused with his own arrest status, then the totals
 function nbAccArrestText(e) {
   const L = nbPeople(e.accList).filter((p) => p.name && String(p.name).trim());
@@ -22854,10 +22167,6 @@ function nbAnnualStats(list) {
   return s;
 }
 const NB_GU_MON_SHORT = ["જાન્યુ.", "ફેબ્રુ.", "માર્ચ", "એપ્રિલ", "મે", "જૂન", "જુલાઈ", "ઓગસ્ટ", "સપ્ટે.", "ઓક્ટો.", "નવે.", "ડિસે."];
-function nbYearEntries(ctx, year, upto) {
-  const hi = `${year}-${String(upto || 12).padStart(2, "0")}-31`;
-  return ctx.entries.filter((e) => ["A", "B", "C", "M"].includes(e.reg) && e.regDate && e.regDate.slice(0, 4) === String(year) && e.regDate <= hi);
-}
 // ---------- Date range ("from … to …") used across the Crime Register ----------
 function nbRangeEntries(ctx, R) { return ctx.entries.filter((e) => ["A", "B", "C", "M"].includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to); }
 function nbShiftYear(d, n) { const y = Number(String(d).slice(0, 4)) + n; const r = y + String(d).slice(4); return r.slice(5) === "02-29" ? y + "-02-28" : r; }
@@ -23542,13 +22851,6 @@ function nbCrimeCsvToCases(text, profile) {
     });
   });
   return { cases: out, errors };
-}
-function nbCrimeTemplateCsv() {
-  const head = NB_CRIME_CSV_COLS.map((c) => c[1]);
-  const ex = ["25", "2026", "05/09/2026", "Theft", "303(2)", "Main bazaar", "Ramesh Patel", "Dhari", "50000", "30000", "Detected", "", "Suresh K; Mahesh P", "1", "12", "20/10/2026", "Dhari", "130", "2026", ""];
-  const ex2 = ["26", "2026", "07/09/2026", "ચોરી", "", "", "", "", "15000", "", "Undetected", "A", "", "", "", "", "", "", "", ""];
-  const esc = (v) => (/[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
-  return "﻿" + [head, ex, ex2].map((r) => r.map(esc).join(",")).join("\r\n");
 }
 // ⚙️ Data: backup, restore, station details, PIN, dark mode, erase.
 function CrimeMenuSection({ id, open, toggle, title, badge, children }) {
