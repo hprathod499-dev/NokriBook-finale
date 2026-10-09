@@ -100,11 +100,32 @@
      work tool people use many times a day, not something that should
      ever feel like it's making them wait. */
   @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes modalScaleIn { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-  @keyframes toastSlideUp { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
-  .modal-backdrop { animation: modalFadeIn 0.15s ease-out; }
-  .modal-card { animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
-  .toast-anim { animation: toastSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes modalScaleIn { 0% { opacity: 0; transform: scale(0.86) translateY(24px); } 60% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes toastSlideUp { 0% { opacity: 0; transform: translate(-50%, 40px) scale(0.9); } 60% { opacity: 1; transform: translate(-50%, -4px) scale(1.02); } 100% { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+  .modal-backdrop { animation: modalFadeIn 0.24s ease-out; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+  .modal-card { animation: modalScaleIn 0.38s cubic-bezier(0.34, 1.36, 0.64, 1); }
+  .toast-anim { animation: toastSlideUp 0.45s cubic-bezier(0.34, 1.36, 0.64, 1); }
+  /* lists / cards / tiles come in one after another */
+  @keyframes nbRise { from { opacity: 0; transform: translateY(16px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .nb-stagger > * { animation: nbRise 0.45s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+  .nb-stagger > :nth-child(2) { animation-delay: 40ms; } .nb-stagger > :nth-child(3) { animation-delay: 80ms; }
+  .nb-stagger > :nth-child(4) { animation-delay: 120ms; } .nb-stagger > :nth-child(5) { animation-delay: 160ms; }
+  .nb-stagger > :nth-child(6) { animation-delay: 200ms; } .nb-stagger > :nth-child(7) { animation-delay: 240ms; }
+  .nb-stagger > :nth-child(8) { animation-delay: 280ms; } .nb-stagger > :nth-child(9) { animation-delay: 320ms; }
+  .nb-stagger > :nth-child(10) { animation-delay: 360ms; } .nb-stagger > :nth-child(11) { animation-delay: 400ms; }
+  .nb-stagger > :nth-child(12) { animation-delay: 440ms; } .nb-stagger > :nth-child(n+13) { animation-delay: 480ms; }
+  .nb-stagger > :nth-child(n+25) { animation: none; }
+  /* the tab just chosen pops */
+  @keyframes nbTabPop { 0% { transform: scale(0.9); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
+  .nb-tab-on { animation: nbTabPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  /* loading placeholders shimmer */
+  @keyframes nbShimmer { from { background-position: -400px 0; } to { background-position: 400px 0; } }
+  .nb-skel { border-radius: 8px; background: linear-gradient(90deg, var(--bg-surface-2) 0%, var(--bg-surface) 50%, var(--bg-surface-2) 100%); background-size: 800px 100%; animation: nbShimmer 1.2s linear infinite; }
+  /* opening splash */
+  @keyframes nbSplashIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+  @keyframes nbSpin { to { transform: rotate(360deg); } }
+  .nb-splash { animation: nbSplashIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .nb-spin { animation: nbSpin 0.9s linear infinite; }
   /* Slow-drifting soft blobs behind the sign-in card — pure CSS
      transform animation (GPU-accelerated, no JS/canvas needed), looped
      and offset so the motion reads as organic rather than a visibly
@@ -118,14 +139,18 @@
   .signin-blob-2 { animation: blobDrift2 12s ease-in-out infinite; animation-delay: -4s; }
   .signin-blob-3 { animation: blobDrift3 9s ease-in-out infinite; animation-delay: -2s; }
   @media (prefers-reduced-motion: reduce) {
-    .modal-backdrop, .modal-card, .toast-anim, .signin-blob-1, .signin-blob-2, .signin-blob-3 { animation: none !important; }
+    .modal-backdrop, .modal-card, .toast-anim, .signin-blob-1, .signin-blob-2, .signin-blob-3, .nb-stagger > *, .nb-tab-on, .nb-skel, .nb-splash, .nb-spin { animation: none !important; }
     button, button:not(:disabled):active { transition: none !important; transform: none !important; }
   }
   button {
     cursor: pointer; font-family: inherit;
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.08s ease;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  button:not(:disabled):active { transform: scale(0.97); }
+  button:not(:disabled):active { transform: scale(0.93); transition-duration: 0.06s; }
+  @media (hover: hover) {
+    button:not(:disabled):hover { transform: translateY(-1px); }
+    button:not(:disabled):active { transform: scale(0.93); }
+  }
   input[type=text], input[type=date], input[type=month], input[type=number], textarea, select {
     font-family: inherit; border: 1px solid var(--border); border-radius: 6px;
     padding: 7px 10px; font-size: 13px; background: var(--bg-surface); color: var(--text-primary);
@@ -153,8 +178,8 @@
      row) wins over this automatically, since inline styles beat a
      plain class rule — so this never fights an existing highlight. */
   tbody tr:hover { background-color: rgba(127, 127, 127, 0.07); }
-  @keyframes viewFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-  .view-fade-in { animation: viewFadeIn 0.18s ease-out; }
+  @keyframes viewFadeIn { from { opacity: 0; transform: translateY(18px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .view-fade-in { animation: viewFadeIn 0.38s cubic-bezier(0.16, 1, 0.3, 1); }
   @media (prefers-reduced-motion: reduce) {
     .view-fade-in { animation: none !important; }
   }
@@ -536,7 +561,10 @@
 </head>
 <body>
 <div id="root">
-  <div style="padding:3rem;text-align:center;color:var(--text-secondary);">Loading…</div>
+  <div style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--text-secondary);">
+    <div class="nb-splash" style="font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:700;color:var(--text-primary);letter-spacing:0.5px;">Nokri Book</div>
+    <div class="nb-spin" style="width:26px;height:26px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent-strong);"></div>
+  </div>
 </div>
 
 <!-- ============================================================
@@ -9640,7 +9668,7 @@ function HomeView({ data, goToCategory }) {
           {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("only work types with a duty assigned today are shown here.", "ફક્ત જેમાં આજે ડ્યુટી સોંપાયેલી છે તે કામના પ્રકારો અહીં બતાવાય છે.")}
         </p>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
+      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
         {cards.map(({ cat, doneToday }) => {
           const phone = doneToday.staffRec && doneToday.staffRec.phone;
           return (
@@ -9724,7 +9752,7 @@ function AssignDutyView({ initialSubTab, onSubTabChange, data, assignDuty, assig
         <RecordLeaveView data={data} setUnavailable={setUnavailable} showToast={showToast} />
       ) : (
         <React.Fragment>
-          <div data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
+          <div className="nb-stagger" data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
             {cards.map(({ cat, doneToday, onDutyToday, nextUp, total }) => {
               const nextPhone = nextUp && nextUp.staffRec && nextUp.staffRec.phone;
               return (
@@ -17342,7 +17370,7 @@ function PublicHomeView({ data, goToCategory }) {
           {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
         </p>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
+      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
         {cards.map(({ cat, doneTodayList, nextUp, total }) => (
           <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -19272,7 +19300,7 @@ function CrimeReviewView({ mode, ownerUid, districtId, stationName, district, st
           onSave={saveCase} onDelete={deleteCase} onClose={() => setEditing(null)} />
       )}
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
-      {toast && <div className="gu" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
+      {toast && <div className="gu toast-anim" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
     </React.Fragment>
   );
 }
@@ -20475,7 +20503,7 @@ function NbFraudRow({ e, raw, onOpen, showToast }) {
         </div>
         {e.facts && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{String(e.facts).replace(/\s+/g, " ")}</div>}
       </button>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
+      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
         <label><span style={lbl}>{t("House/office search", "ઘર/ઓફીસની ઝડતી")}</span>
           <select value={e.frSearch || ""} onChange={(ev) => save({ frSearch: ev.target.value })} data-fr-search style={inp}>{NB_FR_SEARCH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label><span style={lbl}>{t("Bank account seized", "બેંક એકાઉન્ટ સીઝ")}</span>
@@ -20533,7 +20561,7 @@ function CrimeFraudPanel({ ctx, entries, showToast, showList, onOpen }) {
       </div>
     );
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: 5, marginBottom: 10 }}>
+      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: 5, marginBottom: 10 }}>
         {cell(t("Crimes", "ગુના"), nbG(T.n), L)}
         {cell(t("Searched ≤24h", "ઝડતી ૨૪ કલાકમાં"), nbG(T.s24), L.filter((e) => e.frSearch === "24"))}
         {cell(t("Searched 24–72h", "ઝડતી ૨૪–૭૨ કલાક"), nbG(T.s72), L.filter((e) => e.frSearch === "72"))}
@@ -20635,7 +20663,7 @@ function NbItemsModal({ title, list, cat, onOpen, onClose }) {
           </div>
           <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
-        <div style={{ padding: "10px 12px 14px" }}>
+        <div className="nb-stagger" style={{ padding: "10px 12px 14px" }}>
           {rows.map(({ e, x }, i) => (
             <div key={i} data-item-row style={{ background: "var(--bg-page)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
@@ -21022,7 +21050,7 @@ function CrimeDrivePanel({ ctx, pd, savePd, showList, showToast }) {
     const cell = (l, v, list) => (
       <div style={{ background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "6px 8px" }}>
         <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{l}</div>
-        <div className="mono" style={{ fontSize: 16, fontWeight: 700 }}>{list ? <NbDrillNum list={list} title={l} onShow={showList}>{v}</NbDrillNum> : v}</div>
+        <div className="mono" style={{ fontSize: 16, fontWeight: 700 }}>{list ? <NbDrillNum list={list} title={l} onShow={showList}>{v}</NbDrillNum> : nbCountable(v) ? <NbCountUp text={v} /> : v}</div>
       </div>
     );
     const model = () => nbDriveModel(ctx, cur, s);
@@ -21045,7 +21073,7 @@ function CrimeDrivePanel({ ctx, pd, savePd, showList, showToast }) {
         </div>
         <div style={card}>
           <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{t("From the register (automatic)", "રજીસ્ટર પરથી (આપોઆપ)")}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
+          <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
             {cell(t("Successful raids", "સફળ રેઇડ"), nb2(s.success), s.raids)}
             {cell(t("Country liquor", "દેશી દારૂ (લીટર)"), s.clL ? nbG(s.clL) : "-", s.raids.filter((e) => nbProhiKind(e) === "cl"))}
             {cell(t("Value ₹", "દેશી કિ.રૂ."), s.clV ? nbG(nbMoney(s.clV)) : "-")}
@@ -21257,7 +21285,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
   const [bsv, setBsv] = useState(null);     // { title, ids }
   const showList = (title, list) => setDrill({ title, ids: (list || []).map((e) => e.id) });
   const showBst = (title, list) => setBsv({ title, ids: (list || []).map((e) => e.id) });
-  if (!entries || !settings || !monthly) return <div className="gu" style={{ padding: 30, textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>;
+  if (!entries || !settings || !monthly) return <div style={{ padding: 20, display: "grid", gap: 12, maxWidth: 720 }}><div className="nb-skel" style={{ height: 34, width: "55%" }} /><div className="nb-skel" style={{ height: 64 }} /><div className="nb-skel" style={{ height: 64 }} /><div className="nb-skel" style={{ height: 64, width: "80%" }} /></div>;
   const ctx = nbCrCtx(entries, profile, settings, monthly, ym);
   const saveEntry = async (e) => {
     try {
@@ -21272,15 +21300,16 @@ function CrimeRegisterView({ profile, showToast, look }) {
   return (
     <div className="gu">
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-        <button onClick={() => setTab("reg")} style={tabBtn(tab === "reg")}>📋 {t("Registers", "રજીસ્ટર")}</button>
-        <button onClick={() => setTab("rep")} style={tabBtn(tab === "rep")}>📄 {t("Monthly reports", "માસિક અહેવાલ")}</button>
-        <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
-        <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
-        <button onClick={() => setTab("pr")} style={tabBtn(tab === "pr")} data-tab-pr>🍾 {t("Prohibition", "પ્રોહી / દારૂ")}</button>
-        <button onClick={() => setTab("io")} style={tabBtn(tab === "io")} data-tab-io>👮 {t("Pending by officer", "ત.ક.અ. મુજબ પેન્ડીંગ")}</button>
-        <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
-        <button onClick={() => setTab("set")} style={tabBtn(tab === "set")}>⚙️ {t("Settings", "સેટિંગ")}</button>
+        <button onClick={() => setTab("reg")} style={tabBtn(tab === "reg")} className={tab === "reg" ? "nb-tab-on" : ""}>📋 {t("Registers", "રજીસ્ટર")}</button>
+        <button onClick={() => setTab("rep")} style={tabBtn(tab === "rep")} className={tab === "rep" ? "nb-tab-on" : ""}>📄 {t("Monthly reports", "માસિક અહેવાલ")}</button>
+        <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")} className={tab === "inp" ? "nb-tab-on" : ""}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
+        <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")} className={tab === "ann" ? "nb-tab-on" : ""}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
+        <button onClick={() => setTab("pr")} style={tabBtn(tab === "pr")} className={tab === "pr" ? "nb-tab-on" : ""} data-tab-pr>🍾 {t("Prohibition", "પ્રોહી / દારૂ")}</button>
+        <button onClick={() => setTab("io")} style={tabBtn(tab === "io")} className={tab === "io" ? "nb-tab-on" : ""} data-tab-io>👮 {t("Pending by officer", "ત.ક.અ. મુજબ પેન્ડીંગ")}</button>
+        <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} className={tab === "fr" ? "nb-tab-on" : ""} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
+        <button onClick={() => setTab("set")} style={tabBtn(tab === "set")} className={tab === "set" ? "nb-tab-on" : ""}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
+      <div key={tab} className="view-fade-in">
       {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} rng={rng} setRng={setRng} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} showList={showList} showBst={showBst} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
@@ -21289,6 +21318,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "io" && <CrimeIoPanel ctx={ctx} showList={showList} />}
       {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
+      </div>
       {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
       {bsv && <CrimeBStatementView title={bsv.title} list={bsv.draft ? [nbNormEntry(bsv.draft)] : ctx.entries.filter((e) => bsv.ids.includes(e.id))} ctx={ctx} onClose={() => setBsv(null)} />}
       {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} onBst={(e) => setBsv({ title: "B સ્ટેટમેન્ટ — " + nbG(e.no || "") + "/" + nbG(String(e.year || "").slice(-2)), ids: [e.id], draft: e })} />}
@@ -21306,8 +21336,29 @@ function nbEntryTitle(e) {
   if (e.reg === "GUM") return String(e.missing || "").split("\n")[0].slice(0, 40) || r.gu;
   return r.gu;
 }
+// a number that rolls up from 0 when it first appears (keeps Gujarati digits, commas, leading zero)
+function NbCountUp({ text }) {
+  const raw = String(text);
+  const gu = /[૦-૯]/.test(raw), comma = raw.includes(","), ascii = raw.replace(/[૦-૯]/g, (d) => "૦૧૨૩૪૫૬૭૮૯".indexOf(d)).replace(/,/g, "");
+  const target = Number(ascii), pad = /^0\d/.test(ascii) ? ascii.length : 0;
+  const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [v, setV] = useState(reduce || !(target > 1) ? target : 0);
+  useEffect(() => {
+    if (reduce || !(target > 1)) { setV(target); return; }
+    let raf, t0;
+    const dur = Math.min(900, 450 + target * 4);
+    const step = (ts) => { if (!t0) t0 = ts; const p = Math.min(1, (ts - t0) / dur); setV(Math.round(target * (1 - Math.pow(1 - p, 3)))); if (p < 1) raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
+  let out = comma ? Number(v).toLocaleString("en-IN") : String(v);
+  if (pad) out = out.padStart(pad, "0");
+  return <>{gu ? nbGuDigits(out) : out}</>;
+}
+const nbCountable = (c) => typeof c === "string" && /^[0-9૦-૯][0-9૦-૯,]*$/.test(c) && c.length < 12;
 function NbDrillNum({ list, title, onShow, children, style }) {
   const n = (list || []).length;
+  if (nbCountable(children)) children = <NbCountUp text={children} />;
   if (!onShow || !n) return <span style={style}>{children}</span>;
   return (
     <button type="button" onClick={(ev) => { ev.stopPropagation(); onShow(title, list); }} title={title}
@@ -21331,7 +21382,7 @@ function CrimeDrillModal({ title, list, onOpen, onBst, onClose }) {
           {onBst && aList.length > 0 && <button type="button" onClick={() => onBst(t("B-statement — ", "B સ્ટેટમેન્ટ — ") + title, aList)} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>📄 {t("B-statement", "B સ્ટેટમેન્ટ")}</button>}
           <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
-        <div style={{ padding: "10px 12px 14px" }}>
+        <div className="nb-stagger" style={{ padding: "10px 12px 14px" }}>
           {sorted.map((e) => {
             const r = nbReg(e.reg);
             const pend = nbPendingAt(e, today);
@@ -21416,7 +21467,7 @@ function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q, setQ, onlyPen
   const cnt = (k) => entries.filter((e) => e.reg === k && inR(e)).length;
   const r = nbReg(reg);
   return (
-    <div>
+    <div className="nb-stagger">
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         {NB_REGS.map((x) => (
           <button key={x.k} onClick={() => setReg(x.k)} className="gu" style={{ borderRadius: 18, padding: "6px 12px", fontSize: 13, fontWeight: 700, border: "1px solid " + (reg === x.k ? "var(--accent-strong)" : "var(--border)"), background: reg === x.k ? "var(--accent-light)" : "var(--bg-surface)", color: reg === x.k ? "var(--accent-strong)" : "var(--text-primary)" }}>{lang === "gu" ? x.gu : x.en} <span className="mono" style={{ fontWeight: 500, color: "var(--text-tertiary)" }}>{cnt(x.k)}</span></button>
@@ -21494,7 +21545,7 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
         <input type="month" value={ym} onChange={(e) => e.target.value && setYm(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
         <button type="button" onClick={() => setYm(nbYMShift(ym, 1))} aria-label="▶" data-ym-next style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>▶</button>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 14 }}>
+      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[["A", "ભાગ-એ"], ["B", "ભાગ-બી"], ["C", "ભાગ-સી"], ["AD", "અ.મોત"], ["JJ", "જાણવા જોગ"], ["GUM", "ગુમ"]].map(([k, l]) => {
           const L = inM(k);
           return (
@@ -22163,7 +22214,7 @@ function CrimeRangeReports({ ctx, showList, showBst }) {
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>📅 {t("Any period (from … to …)", "કોઈ પણ ગાળો (તારીખ … થી …)")}</div>
       <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6, marginBottom: 10 }}>
+      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6, marginBottom: 10 }}>
         {[["A", "ભાગ-એ"], ["B", "ભાગ-બી"], ["C", "ભાગ-સી"], ["AD", "અ.મોત"], ["JJ", "જાણવા જોગ"], ["GUM", "ગુમ"]].map(([k, l]) => {
           const L = inR(k);
           return (
@@ -22225,7 +22276,7 @@ function CrimeMonthlyInputs({ ctx, ym, setYm, monthly, showToast }) {
       </div>
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>{t("Preventive action this month", "આ માસના અટકાયતી પગલા")}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+        <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
           {NB_PREVENTIVE.map(([k, l]) => (
             <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
               <span style={{ flex: 1 }}>{l}</span>{num(["prev", k])}
@@ -23130,7 +23181,7 @@ function CrimeAnnualPanel({ ctx, showToast, showList }) {
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
       <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
       <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10 }}>{year} · {t(`${E.length} crimes`, `${nbG(E.length)} ગુના`)}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 14 }}>
+      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[[t("Registered", "દાખલ"), [[tot.n, E]]], [t("Detected", "ડીટેક્ટ"), [[tot.det, E.filter(nbAnnF.det)]]], [t("Undetected", "અનડીટેક્ટ"), [[tot.und, E.filter(nbAnnF.und)]]],
           ["'A' / 'B' / 'C' " + t("final", "ફાઇનલ"), [[tot.fa, E.filter(nbAnnF.fa), "'A'"], [tot.fb, E.filter(nbAnnF.fb), "'B'"], [tot.fc, E.filter(nbAnnF.fc), "'C'"]]],
           [t("Accused", "આરોપી") + (tot.juv ? " (" + tot.juv + " " + t("juv.", "કિશોર") + ")" : ""), [[tot.acc, E.filter(nbAnnF.acc)]]], [t("Head transfers", "હેડ ફેરફાર"), [[moved, E.filter((e) => (e.headHistory || []).length)]]]].map(([l, parts], i) => (
@@ -23347,7 +23398,7 @@ function CrimeOfflineApp({ tab }) {
           <CrimeRegisterView profile={profile} showToast={showToast} look={look} />
         </div>
         {showMenu && <CrimeDataMenu meta={meta} cases={cases || []} entries={regEntries || []} onDriveBackup={driveTap} onBackup={doBackup} onClose={() => setShowMenu(false)} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} look={look} bigBtn={bigBtn} />}
-        {toast && <div className="gu" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
+        {toast && <div className="gu toast-anim" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
       </div>
     </LangContext.Provider>
   );
@@ -23634,7 +23685,7 @@ function CrimeImportReview({ plan, onCancel, onApply }) {
           <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Nothing is saved until you press Add. Nothing on this device is deleted.", "‘ઉમેરો’ દબાવો ત્યાં સુધી કંઈ સચવાશે નહીં. આ ડિવાઇસ પરનું કંઈ ડિલીટ થશે નહીં.")}</div>
         </div>
         <div style={{ padding: "12px 14px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginBottom: 12 }}>
+          <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginBottom: 12 }}>
             <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>✅ {t("New — will be added", "નવી — ઉમેરાશે")}</div><b className="mono" data-imp-new={plan.add.length} style={{ fontSize: 20 }}>{plan.add.length}</b></div>
             <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>⏭ {t("Same as mine — skipped", "મારા જેવી જ — છોડી દેવાશે")}</div><b className="mono" data-imp-same={plan.same} style={{ fontSize: 20 }}>{plan.same}</b></div>
             <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>⚠ {t("Same number, different details", "એ જ નંબર, અલગ વિગત")}</div><b className="mono" data-imp-conf={C.length} style={{ fontSize: 20 }}>{C.length}</b></div>
@@ -24207,7 +24258,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
         </div>
 
         {selectedData === undefined && (
-          <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Loading roster…", "રોસ્ટર લોડ થઈ રહ્યું છે…")}</div>
+          <div style={{ padding: 20, display: "grid", gap: 12, maxWidth: 720 }}><div className="nb-skel" style={{ height: 34, width: "55%" }} /><div className="nb-skel" style={{ height: 64 }} /><div className="nb-skel" style={{ height: 64 }} /><div className="nb-skel" style={{ height: 64, width: "80%" }} /></div>
         )}
         {selectedData === null && (
           <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Couldn't load this station's data — Share may not be turned on for this station yet.", "આ સ્ટેશનનો ડેટા લોડ કરી શકાયો નથી — આ સ્ટેશન માટે Share હજુ ચાલુ ન હોઈ શકે.")}</div>
