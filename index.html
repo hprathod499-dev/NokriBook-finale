@@ -1124,16 +1124,23 @@ function nbSkel(word) {
   out += nbSkelLat(lat);
   return out;
 }
+var _nbSrchHay = new Map();
+function nbSrchHay(h) {
+  let v = _nbSrchHay.get(h);
+  if (!v) { v = { hn: nbSrchNorm(h), hw: null }; if (_nbSrchHay.size > 5000) _nbSrchHay.clear(); _nbSrchHay.set(h, v); }
+  return v;
+}
 function nbSrch(hay, q) {
   const qn = nbSrchNorm(q).trim();
   if (!qn) return true;
-  const hn = nbSrchNorm(Array.isArray(hay) ? hay.join(" ") : hay);
+  const H = nbSrchHay(Array.isArray(hay) ? hay.join(" ") : String(hay == null ? "" : hay));
+  const hn = H.hn;
   if (hn.includes(qn)) return true;
   const qd = qn.replace(/[\s,./-]/g, "");
   if (/^\d+$/.test(qd) && qd.length > 1 && hn.replace(/[\s,./-]/g, "").includes(qd)) return true;
   const qw = qn.split(/\s+/).map((x) => (/^\d+$/.test(x) ? { d: x } : { k: nbSkel(x) })).filter((x) => x.d || (x.k && x.k.length >= 2));
   if (!qw.length) return false;
-  const hw = hn.split(/[\s,./()\-:;|]+/).filter(Boolean).map((x) => ({ raw: x, k: nbSkel(x) }));
+  const hw = H.hw || (H.hw = hn.split(/[\s,./()\-:;|]+/).filter(Boolean).map((x) => ({ raw: x, k: nbSkel(x) })));
   const synG = (raw) => NB_SRCH_SYN_MAP[raw] || NB_SRCH_SYN_MAP[raw.replace(/\./g, "")];
   const syn = (raw) => {
     const G = synG(raw);
@@ -4014,7 +4021,13 @@ function DutyRoster() {
         return;
       }
       const dueMs = 2 * 24 * 60 * 60 * 1000;
-      if (Date.now() - new Date(last).getTime() >= dueMs) setBackupReminder(true);
+      if (Date.now() - new Date(last).getTime() < dueMs) return;
+      // at most once in 24 hours: once it has been shown (and closed), it stays away for a full day
+      let shown = 0;
+      try { shown = Number(localStorage.getItem("nb_backup_reminder_shown_at")) || 0; } catch (e) {}
+      if (Date.now() - shown < 24 * 60 * 60 * 1000) return;
+      try { localStorage.setItem("nb_backup_reminder_shown_at", String(Date.now())); } catch (e) {}
+      setBackupReminder(true);
     };
     const t = setTimeout(check, 4000);
     return () => clearTimeout(t);
@@ -15103,7 +15116,21 @@ const NB_PREVENTIVE = [
 const NB_SUMMONS_ROWS = [["sm", "સમન્સ"], ["bw", "જામીન લાયક વોરંટ"], ["nbw", "બિનજામીન લાયક વોરંટ"], ["nt", "નોટીસ"]];
 
 function nbAsciiDigits(s) { return String(s || "").replace(/[૦-૯]/g, (d) => String("૦૧૨૩૪૫૬૭૮૯".indexOf(d))); }
-function nbSectionTokens(sections) {
+// results worked out from one record are kept with that record (records are never changed in place)
+function nbMemoRec(fn, e) {
+  if (!e || typeof e !== "object") return fn(e);
+  const c = fn.__c || (fn.__c = new WeakMap());
+  if (c.has(e)) return c.get(e);
+  const v = fn(e); c.set(e, v); return v;
+}
+function nbMemoStr(fn, s) {
+  const c = fn.__s || (fn.__s = new Map());
+  const k = String(s == null ? "" : s);
+  if (c.has(k)) return c.get(k);
+  const v = fn(s); if (c.size > 5000) c.clear(); c.set(k, v); return v;
+}
+function nbSectionTokens(sections) { return nbMemoStr(nbSectionTokens__, sections); }
+function nbSectionTokens__(sections) {
   let s = nbAsciiDigits(sections).toLowerCase().replace(/\d{4,}(\s*\/\s*\d{2,4})?/g, " ");
   const cut = s.search(/એમ\.?\s?વી|m\.?\s?v\.?\s?act|જી\.?\s?પી|g\.?\s?p\.?\s?act|gp act|પ્રોહી|prohi|એટ્રો|atroc|પોક્સો|પોકસો|pocso|ndps|આર્મ્સ|arms|દહેજ|dowry|i\.?\s?t\.?\s?act|આઇ\.?ટી/);
   if (cut > 0) s = s.slice(0, cut);
@@ -15120,7 +15147,8 @@ function nbSectionTokens(sections) {
   }
   return out;
 }
-function nbGuessHead44(sections) {
+function nbGuessHead44(sections) { return nbMemoStr(nbGuessHead44__, sections); }
+function nbGuessHead44__(sections) {
   const tk = nbSectionTokens(sections);
   if (!tk.size) return null;
   const has = (x) => tk.has(x);
@@ -15138,7 +15166,8 @@ function nbGuessHead44(sections) {
   }
   return 43;
 }
-function nbGuessActs(sections) {
+function nbGuessActs(sections) { return nbMemoStr(nbGuessActs__, sections).slice(); }
+function nbGuessActs__(sections) {
   const s = String(sections || "");
   return NB_ACTS.filter((a) => a.re && a.re.test(s)).map((a) => a.k);
 }
@@ -15364,7 +15393,8 @@ function nbGuAutoTable2(doc, { startY, headRows, body, widths, fontPt, margin })
   return doc.lastAutoTable.finalY;
 }
 
-function nbNormEntry(e) {
+function nbNormEntry(e) { return nbMemoRec(nbNormEntry__, e); }
+function nbNormEntry__(e) {
   if (e.reg !== "A" && e.reg !== "B") return e;
   const n = { ...e };
   if (n.reg === "A" && !n.head44) n.head44 = nbGuessHead44(n.sections) || 43;
@@ -15373,7 +15403,15 @@ function nbNormEntry(e) {
   return n;
 }
 let nbCrFootName = "";
+var _nbCrCtxLast = null;
 function nbCrCtx(entries, profile, settings, monthly, ym) {
+  const L = _nbCrCtxLast;
+  if (L && L.a[0] === entries && L.a[1] === profile && L.a[2] === settings && L.a[3] === monthly && L.a[4] === ym) return L.v;
+  const v = nbCrCtx__(entries, profile, settings, monthly, ym);
+  _nbCrCtxLast = { a: [entries, profile, settings, monthly, ym], v };
+  return v;
+}
+function nbCrCtx__(entries, profile, settings, monthly, ym) {
   const ps0 = nbPsShort(profile, settings), dist = String((profile && profile.district) || "").trim();
   if (ps0) nbCrFootName = ps0 + " પોલીસ સ્ટેશન" + (dist ? ", જી. " + dist : "");
   return { entries: (entries || []).map(nbNormEntry), profile: profile || {}, settings: settings || {}, monthly: monthly || {}, ym, ps: nbPsShort(profile, settings), end: nbYMEnd(ym), start: ym + "-01" };
@@ -16281,7 +16319,8 @@ function nbProhiModel(ctx, R, L, filt) {
 const NB_IO_RANKS = [["PI", "પો.ઇન્સ. (PI)"], ["PSI", "પો.સ.ઇ. (PSI)"], ["ASI", "એ.એસ.આઇ. (ASI)"], ["HC", "હેડ કોન્સ. (HC)"], ["PC", "પો.કોન્સ. (PC)"], ["other", "અન્ય"]];
 const NB_IO_SOUND = (() => { const m = {}; [["કખ", "K"], ["ગઘ", "G"], ["ચછ", "C"], ["જઝ", "J"], ["ટઠતથ", "T"], ["ડઢદધ", "D"], ["નણ", "N"], ["પફ", "P"], ["બભ", "B"], ["મ", "M"], ["ય", "Y"], ["ર", "R"], ["લળ", "L"], ["વ", "V"], ["સશષ", "S"], ["હ", "H"], ["અઆ", "A"], ["ઇઈ", "I"], ["ઉઊ", "U"], ["એઐ", "E"], ["ઓઔ", "O"]].forEach(([cs, v]) => [...cs].forEach((c) => { m[c] = v; })); return m; })();
 const NB_IO_INIT = { "એન": "N", "બી": "B", "ડી": "D", "જે": "J", "આર": "R", "એમ": "M", "એચ": "H", "એસ": "S", "કે": "K", "વી": "V", "પી": "P", "જી": "G", "સી": "C", "ટી": "T", "યુ": "U", "એલ": "L", "એ": "A", "ઓ": "O", "આઇ": "I", "આઈ": "I", "વાય": "Y", "એફ": "F", "ઇ": "E", "ઈ": "E", "ઝેડ": "Z" };
-function nbIoKey(s) {
+function nbIoKey(s) { return nbMemoStr(nbIoKey__, s); }
+function nbIoKey__(s) {
   let a = " " + String(s || "").replace(/[()\[\],:;।\/]/g, " ") + " ";
   a = a.replace(/\s(?:U|A|I\/C)?(?:PI|PSI|ASI|HC|PC|DYSP|SP)(?=[\s.\u0A80-\u0AFF])/gi, " ").replace(/(?:PI|PSI|ASI|HC|PC)(?=[.\u0A80-\u0AFF])/g, " ");
   const parts = a.split(/અનાર્મ|અના|આર્મ|એ\.?\s?એ?ે?સ\.?\s?આ[ઇઈ]?|આસીસ્ટન્ટ|હ્વેડ|હે[ડઙદ]?\.?\s*\.?\s*કો(?:ન્સ્ટેબલ|ન્સ|ંસ)?\.?|હે[ડઙદ]|કોન્સ્ટેબલ|કોન્સ|પો\.?\s?સ|પ્?ો\.?\s?[ઇઈ]|પોલીસ|ઇ\.?\s?ચા|[ઇઈ]ન્સ|સબ|ના\.?\s?પો|નાયબ|DYSP|Rank|SOG|LCB|સેલ|શાખા|વુમન|\sસા\.?\s|સાહેબ/i);
@@ -16294,7 +16333,8 @@ function nbIoKey(s) {
   const last = tok[tok.length - 1].replace(/ઘ/g, "ધ");
   return tok.slice(0, -1).slice(0, 2).map(snd).join("") + "|" + [...last].map((c) => NB_IO_SOUND[c] || "").join("");
 }
-function nbIoRankRaw(s) {
+function nbIoRankRaw(s) { return nbMemoStr(nbIoRankRaw__, s); }
+function nbIoRankRaw__(s) {
   const a = " " + String(s || "").replace(/\s+/g, " ") + " ";
   const R = [
     ["other", /D\.?\s?Y\.?\s?S\.?\s?P|ના\.?\s?પો\.?\s?અધિ|નાયબ\s*પોલીસ\s*અધિ|પોલીસ\s*અધિક્ષક|\bS\.?P\.?\b/i],
@@ -16309,7 +16349,8 @@ function nbIoRankRaw(s) {
   return best;
 }
 const NB_IO_PS_RE = /([\u0A80-\u0AFF]+?)\s*(?:પ્?ા?ો\.?\s?સ\u200d?્?\u200d?ટે|પોલીસ\s*સ્ટેશન)/;
-const nbIoPlace = (s) => { const m = String(s || "").match(NB_IO_PS_RE); return m && !/અના|કોન્સ|હેડ|ઇન્સ|ઈન્સ|આઇ|આઈ|સબ|ટે|શ્રી/.test(m[1]) ? m[1] : ""; };
+const nbIoPlace = (s) => nbMemoStr(nbIoPlace__, s);
+function nbIoPlace__(s) { const m = String(s || "").match(NB_IO_PS_RE); return m && !/અના|કોન્સ|હેડ|ઇન્સ|ઈન્સ|આઇ|આઈ|સબ|ટે|શ્રી/.test(m[1]) ? m[1] : ""; };
 function nbIoHome(entries, ps) {
   const w = String(ps || "").split(/[\s,]+/).find((x) => /[\u0A80-\u0AFF]/.test(x));
   const c = {};
@@ -16820,9 +16861,25 @@ function CrimeRegisterView({ profile, showToast, look }) {
     const load = () => Promise.all([nbCrimeStore.getMeta("regSettings"), nbCrimeStore.getMeta("monthly")]).then(([s, m]) => { if (!alive) return; setSettingsState(s || {}); setMonthlyState(m || {}); });
     const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).finally(load);
     nbMigrateOldCases().catch((e) => console.warn("migration", e)).finally(loadClean);
-    window.addEventListener(NB_CRIME_EVT, loadClean);
-    return () => { alive = false; window.removeEventListener(NB_CRIME_EVT, loadClean); };
+    let tidy = null;
+    const onChange = () => { load(); clearTimeout(tidy); tidy = setTimeout(() => { nbClearGuessedDisposals().catch(() => {}).then(() => nbApplyProhiRules().catch(() => {})); }, 2500); };
+    window.addEventListener(NB_CRIME_EVT, onChange);
+    return () => { alive = false; clearTimeout(tidy); window.removeEventListener(NB_CRIME_EVT, onChange); };
   }, []);
+  // work out the slow per-case readings in the background, a few cases at a time,
+  // so the annual book / prohibition / reports open quickly later
+  useEffect(() => {
+    if (!entries || !entries.length) return;
+    let i = 0, timer = null, dead = false;
+    const step = () => {
+      if (dead) return;
+      const end = Math.min(entries.length, i + 40);
+      for (; i < end; i++) { try { const n = nbNormEntry(entries[i]); nbBookHeadOf(n); nbProhiKind(n); if (n.reg === "C" || n.reg === "B") nbProhiQty(n); } catch (e) {} }
+      if (i < entries.length) timer = setTimeout(step, 16);
+    };
+    timer = setTimeout(step, 800);
+    return () => { dead = true; clearTimeout(timer); };
+  }, [entries]);
   const [tab, setTab] = useState("reg");
   const [reg, setReg] = useState("A");
   const [ym, setYm] = useState(nbYM(todayStr()));
@@ -16997,9 +17054,13 @@ function CrimeBStatementView({ title, list, ctx, onClose }) {
     </div>
   );
 }
-function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q, setQ, onlyPending, setOnlyPending, ctx, onOpen, onNew }) {
+function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q: typedQ, setQ, onlyPending, setOnlyPending, ctx, onOpen, onNew }) {
   const { t, lang } = useLang();
   const today = todayStr();
+  const q = (React.useDeferredValue || ((x) => x))(typedQ);
+  const PAGE = 150;
+  const [shown, setShown] = useState(PAGE);
+  useEffect(() => { setShown(PAGE); }, [q, reg, onlyPending, rng.from, rng.to]);
   const s = q.trim().toLowerCase();
   const inR = (e) => e.regDate && e.regDate >= rng.from && e.regDate <= rng.to;
   let list = s ? entries.slice() : entries.filter((e) => e.reg === reg);
@@ -17023,19 +17084,19 @@ function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q, setQ, onlyPen
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <div style={{ position: "relative", flex: "1 1 240px", minWidth: 0 }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
-          <input type="text" inputMode="search" enterKeyHint="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }} data-reg-search aria-label={t("Search", "શોધો")}
+          <input type="text" inputMode="search" enterKeyHint="search" value={typedQ} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }} data-reg-search aria-label={t("Search", "શોધો")}
             placeholder={t("Search number, name, place, section…", "નંબર, નામ, સ્થળ, કલમ શોધો…")} className="gu"
             style={{ width: "100%", boxSizing: "border-box", minHeight: 42, fontSize: 14.5, padding: "9px 38px 9px 38px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", boxShadow: "none", WebkitAppearance: "none", appearance: "none" }}
             onFocus={(e) => { e.currentTarget.style.borderColor = "var(--accent-strong)"; e.currentTarget.style.boxShadow = "0 0 0 3px var(--accent-light)"; }}
             onBlur={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }} />
-          {q && <button type="button" onClick={() => setQ("")} aria-label={t("Clear", "સાફ કરો")} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 28, height: 28, borderRadius: 14, border: "none", background: "var(--bg-page)", color: "var(--text-secondary)", fontSize: 14, lineHeight: "28px", padding: 0, cursor: "pointer" }}>✕</button>}
+          {typedQ && <button type="button" onClick={() => setQ("")} aria-label={t("Clear", "સાફ કરો")} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 28, height: 28, borderRadius: 14, border: "none", background: "var(--bg-page)", color: "var(--text-secondary)", fontSize: 14, lineHeight: "28px", padding: 0, cursor: "pointer" }}>✕</button>}
         </div>
         <label style={{ fontSize: 12.5, display: "flex", gap: 5, alignItems: "center" }}><input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} /> {t("All pending", "બધા પેન્ડીંગ")}</label>
         <button onClick={onNew} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 14, fontWeight: 700 }}>+ {t("New", "નવી")} {lang === "gu" ? r.gu : r.en}</button>
       </div>
       {!list.length ? (
         <div style={{ padding: 26, textAlign: "center", color: "var(--text-tertiary)", border: "1px dashed var(--border)", borderRadius: 10, fontSize: 13.5 }}>{onlyPending ? t("Nothing pending in this register.", "આ રજીસ્ટરમાં કંઈ પેન્ડીંગ નથી.") : s ? t("Nothing found.", "કંઈ મળ્યું નહીં.") : t("No entries in these dates. Tap “New” to add one.", "આ તારીખોમાં કોઈ એન્ટ્રી નથી. ઉમેરવા “નવી” દબાવો.")}</div>
-      ) : list.map((e) => {
+      ) : list.slice(0, shown).map((e) => {
         const age = nbEntryAge(e, today);
         const pend = nbPendingAt(e, today);
         const r = nbReg(e.reg), reg = e.reg;
@@ -17055,6 +17116,7 @@ function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q, setQ, onlyPen
           </button>
         );
       })}
+      {list.length > shown && <button type="button" data-show-more onClick={() => setShown((n) => n + PAGE * 2)} className="gu" style={{ display: "block", width: "100%", background: "var(--bg-surface)", border: "1px dashed var(--border)", borderRadius: 10, padding: "11px 12px", fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", marginTop: 4 }}>{t(`Show more (${list.length - shown} more)`, `વધુ બતાવો (બાકી ${nbG(list.length - shown)})`)}</button>}
     </div>
   );
 }
@@ -18067,7 +18129,8 @@ function NbTimeRange({ value, onChange, disabled }) {
 }
 
 const NB_C_KINDS = [["fl", "વિદેશી / ઇંગ્લીશ દારૂ"], ["cl", "દેશી દારૂ (કબ્જો)"], ["wash", "આથો (વોશ)"], ["drink", "દારૂ પીધેલ (૬૬(૧)(બી))"], ["other", "અન્ય"]];
-function nbGuessCKind(e) {
+function nbGuessCKind(e) { return nbMemoRec(nbGuessCKind__, e); }
+function nbGuessCKind__(e) {
   const a = nbAsciiDigits(((e.sections || "") + " " + (e.facts || "")).toLowerCase()).replace(/\s+/g, "");
   if (/66\(?1\)?\-?\(?(b|બી)|પીધેલ|પીધેલી|કેફીપીણુ/.test(a)) return "drink";
   if (/આથો|wash/.test(a)) return "wash";
@@ -18098,7 +18161,8 @@ function nbGuessRegAgency(e, ps) {
   return "";
 }
 const nbRegAgencyOf = (e, ps) => e.regAgency || nbGuessRegAgency(e, ps);
-function nbProhiQty(e) {
+function nbProhiQty(e) { return nbMemoRec(nbProhiQty__, e); }
+function nbProhiQty__(e) {
   const f = nbAsciiDigits(e.facts || "").replace(/(\d),(?=\d{2,3}\b)/g, "$1");
   const num = (s) => Number(String(s).replace(/,/g, "")) || 0;
   const RS = "(?:ક[િી]ં?\\.?\\s?(?:રૂ|ર[ુૂ])ા?\\.?|કિંમત\\s*(?:રૂ|ર[ુૂ])ા?\\.?|રૂા?\\.|ક[િી]ં?\\.(?=\\s*\\d))\\s*[-:]?\\s*(\\d+(?:\\.\\d+)?)";
@@ -18143,13 +18207,15 @@ function nbProhiQty(e) {
   if (Number(e.seizedValue)) total = Number(e.seizedValue);
   return { litres: Number(e.litres) || litres || 0, bottles: Number(e.bottles) || bottles || 0, value: Math.max(0, total - other - (can.value < total ? can.value : 0)), other, can, items, total };
 }
-function nbAccusedCount(e) {
+function nbAccusedCount(e) { return nbMemoRec(nbAccusedCount__, e); }
+function nbAccusedCount__(e) {
   const L = nbPeople(e.accList); if (L.length) return L.length;
   const t = String(e.accused || "").trim(); if (!t || t === "-") return 0;
   const n = (t.match(/\(\s*[0-9૦-૯]{1,2}\s*\)/g) || []).length;
   return n || 1;
 }
-function nbProhiKind(e) {
+function nbProhiKind(e) { return nbMemoRec(nbProhiKind__, e); }
+function nbProhiKind__(e) {
   if (e.reg === "B" && (nbIsDD185(e.sections) || (e.partBHead || nbGuessPartB(e.sections)) === "mv185")) return "dd";
   if (e.reg !== "C") return "";
   const k = e.cKind || nbGuessCKind(e);
@@ -18207,7 +18273,8 @@ const NB_BOOK_HEADS = [
 ];
 const NB_BOOK_MINOR = [12, 13, 14, 17, 21, 22, 31, 33, 34, 35, 36, 37, 38, 39, 42, 43, 44];
 function nbBookHead(id) { return NB_BOOK_HEADS.find((b) => b.id === id) || null; }
-function nbGuessBookHead(e) {
+function nbGuessBookHead(e) { return nbMemoRec(nbGuessBookHead__, e); }
+function nbGuessBookHead__(e) {
   if (e.reg === "C") { const k = e.cKind || nbGuessCKind(e); return k === "other" ? "othC" : k; }
   if (e.reg === "M") return "othM";
   const acts = e.acts || nbGuessActs(e.sections);
@@ -18754,6 +18821,7 @@ function CrimeOfflineApp({ tab }) {
     </LangContext.Provider>
   );
 
+  const [nagHidden, setNagHidden] = useState(() => { try { return Date.now() - (Number(localStorage.getItem("nb_crime_backup_nag_at")) || 0) < 86400000; } catch (e) { return false; } });
   if (storeErr) return center(<div className="gu" style={{ color: "var(--status-error-text)", fontSize: 13, textAlign: "center" }}>{t("This browser can't keep data on the device (private browsing?). Open Crime Review in a normal browser window.", "આ બ્રાઉઝર ડિવાઇસ પર ડેટા રાખી શકતું નથી (પ્રાઇવેટ બ્રાઉઝિંગ?). સામાન્ય બ્રાઉઝર વિન્ડોમાં ગુના સમીક્ષા ખોલો.")}<div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{storeErr}</div></div>);
   if (!meta) return center(<div className="gu" style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>);
   if (meta.pinHash && !unlocked) return center(<CrimePinScreen pinHash={meta.pinHash} onUnlock={() => { try { sessionStorage.setItem("nb_crime_unlocked", "1"); } catch (e) {} setUnlocked(true); }} bigBtn={bigBtn} />);
@@ -18762,7 +18830,8 @@ function CrimeOfflineApp({ tab }) {
   const profile = meta.profile;
   const days = meta.lastBackupAt ? Math.floor((Date.now() - meta.lastBackupAt) / 86400000) : null;
   const nEntries = (regEntries || []).length;
-  const needBackup = (nEntries + (cases || []).length) > 0 && (days === null || days >= NB_CRIME_BACKUP_DAYS);
+  const hideNag = () => { try { localStorage.setItem("nb_crime_backup_nag_at", String(Date.now())); } catch (e) {} setNagHidden(true); };
+  const needBackup = !nagHidden && (nEntries + (cases || []).length) > 0 && (days === null || days >= NB_CRIME_BACKUP_DAYS);
   const doBackup = async () => {
     const now = Date.now();
     const [entries, monthly, regSettings] = await Promise.all([nbEntryStore.all(), nbCrimeStore.getMeta("monthly"), nbCrimeStore.getMeta("regSettings")]);
@@ -18801,6 +18870,7 @@ function CrimeOfflineApp({ tab }) {
             <div className="gu" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--status-warning-text, #b7791f)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
               <span style={{ flex: 1, minWidth: 200 }}>⚠️ {days === null ? t("You haven't made a backup yet. If this browser's data is cleared or the device is lost, the cases are gone.", "તમે હજુ બેકઅપ લીધો નથી. આ બ્રાઉઝરનો ડેટા સાફ થાય કે ડિવાઇસ ખોવાય તો ગુનાઓ જતા રહેશે.") : t(`Last backup was ${days} days ago.`, `છેલ્લો બેકઅપ ${days} દિવસ પહેલાં લીધો હતો.`)}</span>
               <button onClick={doBackup} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>⬇ {t("Download backup", "બેકઅપ ડાઉનલોડ કરો")}</button>
+              <button onClick={hideNag} title={t("Hide for 24 hours", "24 કલાક માટે છુપાવો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)", cursor: "pointer", padding: "4px 6px" }}>✕</button>
             </div>
           )}
           <CrimeRegisterView profile={profile} showToast={showToast} look={look} />
