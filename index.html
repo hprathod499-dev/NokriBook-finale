@@ -6963,7 +6963,7 @@ function HomeView({ data, goToCategory }) {
           {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("only work types with a duty assigned today are shown here.", "ફક્ત જેમાં આજે ડ્યુટી સોંપાયેલી છે તે કામના પ્રકારો અહીં બતાવાય છે.")}
         </p>
       )}
-      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
         {cards.map(({ cat, doneToday }) => {
           const phone = doneToday.staffRec && doneToday.staffRec.phone;
           return (
@@ -7044,7 +7044,7 @@ function AssignDutyView({ initialSubTab, onSubTabChange, data, assignDuty, assig
         <RecordLeaveView data={data} setUnavailable={setUnavailable} showToast={showToast} />
       ) : (
         <React.Fragment>
-          <div className="nb-stagger" data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
+          <div data-tour="nb-tour-assignduty-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
             {cards.map(({ cat, doneToday, onDutyToday, nextUp, total }) => {
               const nextPhone = nextUp && nextUp.staffRec && nextUp.staffRec.phone;
               return (
@@ -13755,7 +13755,7 @@ function PublicHomeView({ data, goToCategory }) {
           {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
         </p>
       )}
-      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
         {cards.map(({ cat, doneTodayList, nextUp, total }) => (
           <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
