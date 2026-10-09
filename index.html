@@ -3557,8 +3557,8 @@ function currentUnavailablePeriod(history) {
   if (upcoming.length > 0) return upcoming.reduce((best, p) => (p.from < best.from ? p : best));
   return null;
 }
-function unavailablePeriodUpdate(staffRec, kind, typeId, from, to) {
-  const period = { kind, typeId, from, to: to || null };
+function unavailablePeriodUpdate(staffRec, kind, typeId, from, to, extra) {
+  const period = { kind, typeId, from, to: to || null, ...(extra || {}) };
   const mergedHistory = [...(staffRec.unavailableHistory || []), period];
   const isPastOnly = period.to && period.to < todayStr();
   return {
@@ -3623,6 +3623,21 @@ function effectiveStatus(staffRec, membEntry) {
 
 // Shared by the Home dashboard and the per-work-type view so ranking logic
 // never drifts between the two screens.
+// The person is away (Outstation) on `date` only because this very duty sent them —
+// the Outstation was set together with the duty (Group duty / Bandobast "mark
+// Outstation"), so it is not a clash. Older records without the link are matched
+// by the duty batch covering exactly the same dates as the Outstation period.
+function nbAwayFromThisDuty(m, staffRec, date) {
+  const per = staffRec && staffRec.unavailable;
+  if (!per || unavailKind(per) !== "Outstation") return false;
+  const todays = (m.history || []).filter((e) => historyDate(e) === date && e && e.batch);
+  if (!todays.length) return false;
+  if (per.batch) return todays.some((e) => e.batch === per.batch);
+  return todays.some((e) => {
+    const ds = (m.history || []).filter((x) => x && x.batch === e.batch).map(historyDate).sort();
+    return ds[0] === per.from && ds[ds.length - 1] === per.to;
+  });
+}
 function computeRoster(data, catId) {
   const membership = (data.membership && data.membership[catId]) || [];
   const today = todayStr();
@@ -3638,7 +3653,8 @@ function computeRoster(data, catId) {
     // person), which is what let someone with a low, real waiting value
     // end up ranked #1 ahead of people who'd waited far longer.
     const waiting = m.lastDuty ? daysBetween(m.lastDuty, today) : 99999;
-    return { ...m, name: staffRec.name, staffRec, waiting, onDutyToday: isOnDutyOn(m, today), status, statusLabel };
+    const onDutyToday = isOnDutyOn(m, today);
+    return { ...m, name: staffRec.name, staffRec, waiting, onDutyToday, status, statusLabel, awayForThisDuty: onDutyToday && nbAwayFromThisDuty(m, staffRec, today) };
   });
   // Someone still on today's part of an ongoing multi-day Group Duty is
   // never "next up" no matter what their waiting number computes to —
@@ -8141,7 +8157,7 @@ function DutyRoster() {
     if (outstationTypeId) {
       people.forEach((p) => {
         const rec = nextStaff[p.number];
-        nextStaff[p.number] = { ...rec, ...unavailablePeriodUpdate(rec, "Outstation", outstationTypeId, from, lastDate) };
+        nextStaff[p.number] = { ...rec, ...unavailablePeriodUpdate(rec, "Outstation", outstationTypeId, from, lastDate, { batch, viaCat: catId }) };
       });
     }
     persist({
@@ -9637,7 +9653,7 @@ function HomeView({ data, goToCategory }) {
                 <div>
                   <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
                   <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
-                  {(doneToday.status === "Leave" || doneToday.status === "Outstation") && (
+                  {(doneToday.status === "Leave" || doneToday.status === "Outstation") && !doneToday.awayForThisDuty && (
                     <div className="gu" style={{ fontSize: 11, color: "var(--status-error-text)", fontWeight: 700, marginTop: 3 }}>
                       ⚠ {t(`Also marked ${doneToday.statusLabel} today`, `આજે ${doneToday.statusLabel} તરીકે પણ નોંધાયેલ`)}
                     </div>
