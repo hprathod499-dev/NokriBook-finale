@@ -16074,7 +16074,7 @@ function NbFraudRow({ e, raw, onOpen, showToast }) {
         </div>
         {e.facts && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{String(e.facts).replace(/\s+/g, " ")}</div>}
       </button>
-      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginTop: 8 }}>
         <label><span style={lbl}>{t("House/office search", "ઘર/ઓફીસની ઝડતી")}</span>
           <select value={e.frSearch || ""} onChange={(ev) => save({ frSearch: ev.target.value })} data-fr-search style={inp}>{NB_FR_SEARCH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label><span style={lbl}>{t("Bank account seized", "બેંક એકાઉન્ટ સીઝ")}</span>
@@ -16132,7 +16132,7 @@ function CrimeFraudPanel({ ctx, entries, showToast, showList, onOpen }) {
       </div>
     );
     return (
-      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: 5, marginBottom: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: 5, marginBottom: 10 }}>
         {cell(t("Crimes", "ગુના"), nbG(T.n), L)}
         {cell(t("Searched ≤24h", "ઝડતી ૨૪ કલાકમાં"), nbG(T.s24), L.filter((e) => e.frSearch === "24"))}
         {cell(t("Searched 24–72h", "ઝડતી ૨૪–૭૨ કલાક"), nbG(T.s72), L.filter((e) => e.frSearch === "72"))}
@@ -16229,7 +16229,7 @@ function NbItemsModal({ title, list, cat, onOpen, onClose }) {
           </div>
           <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
-        <div className="nb-stagger" style={{ padding: "10px 12px 14px" }}>
+        <div style={{ padding: "10px 12px 14px" }}>
           {rows.map(({ e, x }, i) => (
             <div key={i} data-item-row style={{ background: "var(--bg-page)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
@@ -16623,7 +16623,7 @@ function CrimeDrivePanel({ ctx, pd, savePd, showList, showToast }) {
         </div>
         <div style={card}>
           <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{t("From the register (automatic)", "રજીસ્ટર પરથી (આપોઆપ)")}</div>
-          <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 6 }}>
             {cell(t("Successful raids", "સફળ રેઇડ"), nb2(s.success), s.raids)}
             {cell(t("Country liquor", "દેશી દારૂ (લીટર)"), s.clL ? nbG(s.clL) : "-", s.raids.filter((e) => nbProhiKind(e) === "cl"))}
             {cell(t("Value ₹", "દેશી કિ.રૂ."), s.clV ? nbG(nbMoney(s.clV)) : "-")}
@@ -16927,7 +16927,7 @@ function CrimeDrillModal({ title, list, onOpen, onBst, onClose }) {
           {onBst && aList.length > 0 && <button type="button" onClick={() => onBst(t("B-statement — ", "B સ્ટેટમેન્ટ — ") + title, aList)} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>📄 {t("B-statement", "B સ્ટેટમેન્ટ")}</button>}
           <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
-        <div className="nb-stagger" style={{ padding: "10px 12px 14px" }}>
+        <div style={{ padding: "10px 12px 14px" }}>
           {sorted.map((e) => {
             const r = nbReg(e.reg);
             const pend = nbPendingAt(e, today);
@@ -17010,7 +17010,7 @@ function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q, setQ, onlyPen
   const cnt = (k) => entries.filter((e) => e.reg === k && inR(e)).length;
   const r = nbReg(reg);
   return (
-    <div className="nb-stagger">
+    <div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         {NB_REGS.map((x) => (
           <button key={x.k} onClick={() => setReg(x.k)} className="gu" style={{ borderRadius: 18, padding: "6px 12px", fontSize: 13, fontWeight: 700, border: "1px solid " + (reg === x.k ? "var(--accent-strong)" : "var(--border)"), background: reg === x.k ? "var(--accent-light)" : "var(--bg-surface)", color: reg === x.k ? "var(--accent-strong)" : "var(--text-primary)" }}>{lang === "gu" ? x.gu : x.en} <span className="mono" style={{ fontWeight: 500, color: "var(--text-tertiary)" }}>{cnt(x.k)}</span></button>
@@ -17088,7 +17088,7 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
         <input type="month" value={ym} onChange={(e) => e.target.value && setYm(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
         <button type="button" onClick={() => setYm(nbYMShift(ym, 1))} aria-label="▶" data-ym-next style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>▶</button>
       </div>
-      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[["A", "ભાગ-એ"], ["B", "ભાગ-બી"], ["C", "ભાગ-સી"], ["AD", "અ.મોત"], ["JJ", "જાણવા જોગ"], ["GUM", "ગુમ"]].map(([k, l]) => {
           const L = inM(k);
           return (
@@ -17700,7 +17700,7 @@ function CrimeRangeReports({ ctx, showList, showBst }) {
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>📅 {t("Any period (from … to …)", "કોઈ પણ ગાળો (તારીખ … થી …)")}</div>
       <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
-      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6, marginBottom: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 6, marginBottom: 10 }}>
         {[["A", "ભાગ-એ"], ["B", "ભાગ-બી"], ["C", "ભાગ-સી"], ["AD", "અ.મોત"], ["JJ", "જાણવા જોગ"], ["GUM", "ગુમ"]].map(([k, l]) => {
           const L = inR(k);
           return (
@@ -17761,7 +17761,7 @@ function CrimeMonthlyInputs({ ctx, ym, setYm, monthly, showToast }) {
       </div>
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>{t("Preventive action this month", "આ માસના અટકાયતી પગલા")}</div>
-        <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
           {NB_PREVENTIVE.map(([k, l]) => (
             <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
               <span style={{ flex: 1 }}>{l}</span>{num(["prev", k])}
@@ -18595,7 +18595,7 @@ function CrimeAnnualPanel({ ctx, showToast, showList }) {
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
       <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
       <div className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10 }}>{year} · {t(`${E.length} crimes`, `${nbG(E.length)} ગુના`)}</div>
-      <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[[t("Registered", "દાખલ"), [[tot.n, E]]], [t("Detected", "ડીટેક્ટ"), [[tot.det, E.filter(nbAnnF.det)]]], [t("Undetected", "અનડીટેક્ટ"), [[tot.und, E.filter(nbAnnF.und)]]],
           ["'A' / 'B' / 'C' " + t("final", "ફાઇનલ"), [[tot.fa, E.filter(nbAnnF.fa), "'A'"], [tot.fb, E.filter(nbAnnF.fb), "'B'"], [tot.fc, E.filter(nbAnnF.fc), "'C'"]]],
           [t("Accused", "આરોપી") + (tot.juv ? " (" + tot.juv + " " + t("juv.", "કિશોર") + ")" : ""), [[tot.acc, E.filter(nbAnnF.acc)]]], [t("Head transfers", "હેડ ફેરફાર"), [[moved, E.filter((e) => (e.headHistory || []).length)]]]].map(([l, parts], i) => (
@@ -19074,7 +19074,7 @@ function CrimeImportReview({ plan, onCancel, onApply }) {
           <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Nothing is saved until you press Add. Nothing on this device is deleted.", "‘ઉમેરો’ દબાવો ત્યાં સુધી કંઈ સચવાશે નહીં. આ ડિવાઇસ પરનું કંઈ ડિલીટ થશે નહીં.")}</div>
         </div>
         <div style={{ padding: "12px 14px" }}>
-          <div className="nb-stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginBottom: 12 }}>
             <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>✅ {t("New — will be added", "નવી — ઉમેરાશે")}</div><b className="mono" data-imp-new={plan.add.length} style={{ fontSize: 20 }}>{plan.add.length}</b></div>
             <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>⏭ {t("Same as mine — skipped", "મારા જેવી જ — છોડી દેવાશે")}</div><b className="mono" data-imp-same={plan.same} style={{ fontSize: 20 }}>{plan.same}</b></div>
             <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>⚠ {t("Same number, different details", "એ જ નંબર, અલગ વિગત")}</div><b className="mono" data-imp-conf={C.length} style={{ fontSize: 20 }}>{C.length}</b></div>
