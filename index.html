@@ -138,10 +138,6 @@
   .signin-blob-1 { animation: blobDrift1 10s ease-in-out infinite; }
   .signin-blob-2 { animation: blobDrift2 12s ease-in-out infinite; animation-delay: -4s; }
   .signin-blob-3 { animation: blobDrift3 9s ease-in-out infinite; animation-delay: -2s; }
-  @media (prefers-reduced-motion: reduce) {
-    .modal-backdrop, .modal-card, .toast-anim, .signin-blob-1, .signin-blob-2, .signin-blob-3, .nb-stagger > *, .nb-tab-on, .nb-skel, .nb-splash, .nb-spin { animation: none !important; }
-    button, button:not(:disabled):active { transition: none !important; transform: none !important; }
-  }
   button {
     cursor: pointer; font-family: inherit;
     transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -180,14 +176,8 @@
   tbody tr:hover { background-color: rgba(127, 127, 127, 0.07); }
   @keyframes viewFadeIn { from { opacity: 0; transform: translateY(18px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
   .view-fade-in { animation: viewFadeIn 0.38s cubic-bezier(0.16, 1, 0.3, 1); }
-  @media (prefers-reduced-motion: reduce) {
-    .view-fade-in { animation: none !important; }
-  }
   @keyframes starPop { 0% { transform: scale(1); } 45% { transform: scale(1.35); } 100% { transform: scale(1); } }
   .star-pop { animation: starPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); display: inline-block; }
-  @media (prefers-reduced-motion: reduce) {
-    .star-pop { animation: none !important; }
-  }
   @media (max-width: 860px) {
     /* Off-canvas sliding drawer instead of stacking the sidebar above the
        content: the sidebar sits fixed and pushed off-screen to the left
@@ -21341,7 +21331,7 @@ function NbCountUp({ text }) {
   const raw = String(text);
   const gu = /[૦-૯]/.test(raw), comma = raw.includes(","), ascii = raw.replace(/[૦-૯]/g, (d) => "૦૧૨૩૪૫૬૭૮૯".indexOf(d)).replace(/,/g, "");
   const target = Number(ascii), pad = /^0\d/.test(ascii) ? ascii.length : 0;
-  const reduce = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduce = false; // animations always on, whatever the phone setting
   const [v, setV] = useState(reduce || !(target > 1) ? target : 0);
   useEffect(() => {
     if (reduce || !(target > 1)) { setV(target); return; }
