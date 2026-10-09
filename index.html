@@ -12789,6 +12789,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
   const [recMode, setRecMode] = useState("one"); // one | multi | noend — as in Group duty
   const [recFrom, setRecFrom] = useState("");
   const [recTo, setRecTo] = useState("");
+  useEffect(() => { if (!recCat) return; const k = (e) => { if (e.key === "Escape") setRecCat(""); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [recCat]);
   const dirty = draft && cur && JSON.stringify(draft) !== JSON.stringify(cur);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setPoint = (id, patch) => setDraft((d) => ({ ...d, points: d.points.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
@@ -12936,7 +12937,20 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
                   {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
               </div>
-              {recCat && <>
+              {recCat && <div role="dialog" aria-modal="true" aria-label={t("Count it as duty", "ડ્યુટી તરીકે ગણો")} className="modal-backdrop" data-bb-modal onClick={() => setRecCat("")} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 16 }}>
+               <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 540, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", zIndex: 1 }}>
+                  <div className="disp" style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>🚧 {t("Count it as duty", "ડ્યુટી તરીકે ગણો")}<div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)" }}>{draft.title || t("Bandobast", "બંદોબસ્ત")}</div></div>
+                  <button type="button" onClick={() => setRecCat("")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)", cursor: "pointer" }}>✕</button>
+                </div>
+                <div style={{ padding: 18, display: "grid", gap: 14 }}>
+                <div>
+                  <label className="gu" style={lab}>{t("Work type", "કામનો પ્રકાર")}</label>
+                <select value={recCat} onChange={(e) => { setRecCat(e.target.value); if (!recFrom) { const tt = draft.to || draft.from; setRecFrom(draft.from); setRecTo(tt); setRecMode(tt !== draft.from ? "multi" : "one"); } }} className="gu" style={full} data-bb-cat2>
+                  <option value="">{t("Choose work type…", "કામનો પ્રકાર પસંદ કરો…")}</option>
+                  {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+                </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   {modeBtn("one", "One day only", "ફક્ત એક દિવસ")}{modeBtn("multi", "Multiple days", "એક કરતાં વધુ દિવસ")}{modeBtn("noend", "No end date", "કોઈ અંતિમ તારીખ નથી")}
                 </div>
@@ -12972,7 +12986,6 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
                     </select>
                   )}
                 </div>
-              </>}
               <button disabled={!ok} onClick={() => {
                 if (dirty) { window.alert(t("Save first.", "પહેલાં સાચવો.")); return; }
                 const people = Array.from(new Set(draft.points.flatMap((p) => (p.staff || []).filter((x) => typeof x === "string")))).map((num) => ({ number: num, name: (data.staff[num] || {}).name || num }));
@@ -12980,8 +12993,11 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
                 const note = baseNote + (recNote.trim() ? " — " + recNote.trim() : "");
                 assignGroupDuty(recCat, people, fromD, toD, note, recOut ? outType : null, false);
                 saveBandobast({ ...draft, recordedCat: recCat, recordedFrom: fromD, recordedTo: toD, ...(recNote.trim() ? { recordedNote: recNote.trim() } : {}), ...(recOut ? { recordedOut: outType } : {}) });
-                setRecNote(""); setRecOut(false); setRecFrom(""); setRecTo("");
+                setRecNote(""); setRecOut(false); setRecFrom(""); setRecTo(""); setRecCat("");
               }} className="gu" data-bb-record-btn style={{ background: ok ? "var(--accent)" : "var(--bg-surface-2)", color: ok ? "var(--accent-text)" : "var(--text-tertiary)", border: ok ? "none" : "1px solid var(--border)", borderRadius: 8, padding: "10px 16px", fontSize: 13.5, fontWeight: 700, width: "100%", cursor: ok ? "pointer" : "default" }}>{t("Record in duty history", "ડ્યુટી ઇતિહાસમાં નોંધો")}</button>
+                </div>
+               </div>
+              </div>}
             </div>
           );
         })()}
