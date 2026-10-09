@@ -1713,7 +1713,7 @@ function ExportMenuButton({ disabled, pdfBusy, onExportWord, onDownloadPdf }) {
       {open && (
         <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", zIndex: 20, minWidth: 150 }}>
           {onExportWord && <button onClick={() => { setOpen(false); onExportWord(); }} className="gu" style={{ ...itemStyle, borderBottom: "1px solid var(--border-soft)" }}><WordIcon />{t("Download Word", "Word ડાઉનલોડ કરો")}</button>}
-          <button onClick={() => { setOpen(false); onDownloadPdf(); }} disabled={pdfBusy} className="gu" style={itemStyle}><PdfIcon />{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
+          <button onClick={() => { setOpen(false); onDownloadPdf(); }} disabled={pdfBusy} className="gu" style={itemStyle}><PdfIcon />{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : t("Download PDF", "PDF ડાઉનલોડ કરો")}</button>
         </div>
       )}
     </div>
