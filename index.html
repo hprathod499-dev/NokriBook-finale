@@ -423,6 +423,7 @@ function nbSubPathFromView(v) {
   return key ? "/" + key : "";
 }
 function nbSiteHost() { const h = (window.location && window.location.hostname) || ""; return !h || /^(localhost|127\.|0\.0\.0\.0)/.test(h) ? "nokribook.in" : h.replace(/^www\./, ""); }
+const NB_SHARE_ON = false;
 function nbShareUrl(token) { return `${window.location.origin}/view/${token}`; }
 const NB_CRIME_OLD_RE = /^\/(?:crime-?review|app\/crime(?:-?review)?|app\/district\/crime-review)(\/report)?$/i;
 function nbIsIsoDate(x) {
@@ -4125,9 +4126,9 @@ function SignInScreen() {
 
             {authAction === "signin" && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: -4 }}>
-                <button type="button" onClick={jumpToShareLink} aria-expanded={showShareLink} className="gu" style={{ background: "none", border: "none", padding: 0, color: showShareLink ? "var(--accent-strong)" : "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                {NB_SHARE_ON ? (<button type="button" onClick={jumpToShareLink} aria-expanded={showShareLink} className="gu" style={{ background: "none", border: "none", padding: 0, color: showShareLink ? "var(--accent-strong)" : "var(--text-secondary)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                   {t("Viewer", "દર્શક")}
-                </button>
+                </button>) : <span />}
                 <button type="button" onClick={handleForgotPassword} className="gu" style={{ background: "none", border: "none", padding: 0, color: "var(--accent-strong)", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                   {t("Forgot Password?", "પાસવર્ડ ભૂલી ગયા?")}
                 </button>
@@ -4546,7 +4547,7 @@ function DutyRoster() {
             if (needsWrite && !snap.metadata.fromCache && !memberRef.current) ref.set(nbPackAccount(nbLiveOf(normalized))).catch(() => {});
             if (firstSnap && !snap.metadata.fromCache) {
               firstSnap = false; pubSyncedAcctRef.current = accountUid;
-              if (nbLsGet("nb_pubchk_" + accountUid) !== todayStr()) { nbLsSet("nb_pubchk_" + accountUid, todayStr()); syncPublicRoster(normalized); }
+              if (nbLsGet("nb_pubchk2_" + accountUid) !== todayStr()) { nbLsSet("nb_pubchk2_" + accountUid, todayStr()); syncPublicRoster(normalized); }
             }
           } else if (d.roster && !migratedRef.current && !snap.metadata.fromCache && !memberRef.current) {
             migratedRef.current = true;
@@ -4659,14 +4660,7 @@ function DutyRoster() {
     const next = pubPendingRef.current;
     pubPendingRef.current = null;
     if (!next || !publicRosterDocRef) return;
-    if (!next.shareEnabled) {
-      if (pubSigRef.current === "off") return;
-      publicRosterDocRef.delete()
-        .then(() => { pubSigRef.current = "off"; })
-        .catch((e) => console.error("Public roster removal failed:", e));
-      return;
-    }
-    const token = next.shareToken || null;
+    const token = NB_SHARE_ON && next.shareEnabled ? next.shareToken || null : null;
     const pub = deepStripUndefined(derivePublicData(nbArchSplit(next, archiveRef.current || {}).live));
     const packedPub = nbPackPublic(pub);
     const packedShared = token ? nbPackPublic({ ...pub, owner: accountUid }) : null;
@@ -4696,14 +4690,14 @@ function DutyRoster() {
   const syncPublicRoster = (next) => {
     if (!publicRosterDocRef) return;
     if (memberRef.current && memberRef.current.role !== "editor") return;
-    const token = next.shareEnabled && next.shareToken ? next.shareToken : null;
+    const token = NB_SHARE_ON && next.shareEnabled && next.shareToken ? next.shareToken : null;
     if (lastShareTokenRef.current && lastShareTokenRef.current !== token) {
       db.collection("sharedRosters").doc(lastShareTokenRef.current).delete().catch(() => {});
       pubSigRef.current = null;
     }
     lastShareTokenRef.current = token;
     pubPendingRef.current = next;
-    const urgent = !next.shareEnabled || !token || (pubSigRef.current || "").indexOf(token + "|") !== 0;
+    const urgent = !pubSigRef.current || (pubSigRef.current || "").indexOf((token || "") + "|") !== 0;
     if (urgent) { flushPublicRoster(); return; }
     if (!pubTimerRef.current) pubTimerRef.current = setTimeout(() => {
       if (pubPendingRef.current && dataRef.current) pubPendingRef.current = dataRef.current;
@@ -5232,7 +5226,11 @@ useEffect(() => {
   ), "error");
   useEffect(() => {
     if (!data || !accountUid || data.blocked) return;
-    if (data.shareEnabled && !data.shareToken) writeToFirestore({ ...dataRef.current, shareToken: nbNewShareToken() });
+    if (NB_SHARE_ON && data.shareEnabled && !data.shareToken) writeToFirestore({ ...dataRef.current, shareToken: nbNewShareToken() });
+    if (!NB_SHARE_ON && myRole === "owner" && (data.shareEnabled || data.shareToken)) {
+      if (data.shareToken) db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {});
+      writeToFirestore({ ...dataRef.current, shareEnabled: false, shareToken: null });
+    }
   }, [data && data.shareEnabled, data && data.shareToken, accountUid]);
 
   const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
@@ -6937,7 +6935,7 @@ const clearCategoryHistory = (catId) => {
               style={{ display: "none" }}
               onChange={(e) => { importBackup(e.target.files[0]); e.target.value = ""; }}
             />
-            {isStationOwner && <button onClick={() => setShowSharePanel((v) => !v)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} aria-label={langCtxValue.t("Share", "શેર")} style={{
+            {NB_SHARE_ON && isStationOwner && <button onClick={() => setShowSharePanel((v) => !v)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} aria-label={langCtxValue.t("Share", "શેર")} style={{
               ...undoRedoBtn(true),
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               background: data.shareEnabled ? "var(--status-success-bg)" : "var(--bg-surface)",
@@ -7060,7 +7058,7 @@ const clearCategoryHistory = (catId) => {
         />
       )}
 
-      {showSharePanel && (
+      {NB_SHARE_ON && showSharePanel && (
         <SharePanel
           enabled={!!data.shareEnabled}
           getShareUrl={ensureShareUrl}
@@ -20222,7 +20220,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
           <div style={{ padding: 20, display: "grid", gap: 12, maxWidth: 720 }}><div className="nb-skel" style={{ height: 34, width: "55%" }} /><div className="nb-skel" style={{ height: 64 }} /><div className="nb-skel" style={{ height: 64 }} /><div className="nb-skel" style={{ height: 64, width: "80%" }} /></div>
         )}
         {selectedData === null && (
-          <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Couldn't load this station's data — Share may not be turned on for this station yet.", "આ સ્ટેશનનો ડેટા લોડ કરી શકાયો નથી — આ સ્ટેશન માટે Share હજુ ચાલુ ન હોઈ શકે.")}</div>
+          <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("This station's data isn't available yet — it appears once someone at the station opens the app.", "આ સ્ટેશનનો ડેટા હજુ ઉપલબ્ધ નથી — સ્ટેશન પર કોઈ એપ ખોલશે પછી દેખાશે.")}</div>
         )}
         {selectedData && (
           <div key={view.mode + (view.catId || "")} className="view-fade-in">
