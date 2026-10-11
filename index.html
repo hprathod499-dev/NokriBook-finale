@@ -4666,7 +4666,7 @@ function DutyRoster() {
     const sig = newPath + "|" + nbStableStr(body);
     if (sig === digestSigRef.current && Date.now() - digestWrittenAtRef.current < NB_DIGEST_HEARTBEAT_MS) return;
     const lsDig = (nbLsGet("nb_digsig_" + accountUid) || "").split("@");
-    if (lsDig[0] === nbHash(sig) && Date.now() - (+lsDig[1] || 0) < NB_DIGEST_HEARTBEAT_MS) { digestSigRef.current = sig; digestWrittenAtRef.current = +lsDig[1]; digestCheckedPathRef.current = newPath; return; }
+    if (lsDig[0] === nbHash(sig) && Date.now() - (+lsDig[1] || 0) < NB_DIGEST_HEARTBEAT_MS && nbLsGet("nb_digchk_" + accountUid) === todayStr()) { digestSigRef.current = sig; digestWrittenAtRef.current = +lsDig[1]; digestCheckedPathRef.current = newPath; return; }
     const key = nbStationKey(next);
     const claimLs = nbLsGet("nb_claim_" + accountUid) || "";
     if (key && claimLs.split("@")[0] === key && Date.now() - (+claimLs.split("@")[1] || 0) < 7 * 24 * 60 * 60 * 1000) digestClaimedKeyRef.current = key;
@@ -4696,6 +4696,7 @@ function DutyRoster() {
         });
     };
     claim.then(() => {
+      nbLsSet("nb_digchk_" + accountUid, todayStr());
       if (digestCheckedPathRef.current === newPath) { write(false); return; }
       digestCheckedPathRef.current = newPath;
       db.doc(newPath).get()
@@ -19790,6 +19791,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
   }, [districtId, nbDaLive]);
 
   const [liveOnDuty, setLiveOnDuty] = useState({});
+  const [liveCounts, setLiveCounts] = useState({});
   const stationUidsKey = (stations || []).map((s) => s.uid).sort().join(",");
   useEffect(() => {
     const uids = stationUidsKey ? stationUidsKey.split(",") : [];
@@ -19809,6 +19811,9 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             const roster = computeRoster(d, c.id);
             roster.filter((p) => p.onDutyToday).forEach((p) => onDutySet.add(p.number));
           });
+          const staffList = Object.values(d.staff || {});
+          const present = staffList.filter((st) => { const u = st.unavailable; return !(u && u.from <= today && (!u.to || today <= u.to)); }).length;
+          setLiveCounts((prev) => ({ ...prev, [uid]: { staff: staffList.length, present } }));
           setLiveOnDuty((prev) => ({ ...prev, [uid]: onDutySet.size }));
         },
         () => setLiveOnDuty((prev) => { const next = { ...prev }; delete next[uid]; return next; })
@@ -19931,7 +19936,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
                         )}
                       </div>
                       <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                        {(s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {(liveOnDuty[s.uid] != null ? liveOnDuty[s.uid] : (s.onDutyToday || 0))} {t("on duty today", "આજે ડ્યુટી પર")}
+                        {liveCounts[s.uid] ? `${liveCounts[s.uid].present} / ${liveCounts[s.uid].staff}` : (s.presentCount != null ? `${s.presentCount} / ${s.staffCount || 0}` : String(s.staffCount || 0))} {t("present", "હાજર")} · {(liveOnDuty[s.uid] != null ? liveOnDuty[s.uid] : (s.onDutyToday || 0))} {t("on duty today", "આજે ડ્યુટી પર")}
                       </div>
                       <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">
                         {t("App last used", "એપ છેલ્લે વપરાઈ")}: {s.updatedAt ? new Date(s.updatedAt).toLocaleString("en-IN", { hourCycle: "h23" }) : "—"}
