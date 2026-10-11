@@ -9365,9 +9365,9 @@ function nbBandobastRows(data, b) {
   return (b.points || []).map((pt) => ({
     name: pt.name || "", note: pt.note || "",
     people: (pt.staff || []).map((x) => {
-      if (x && typeof x === "object") return { desg: x.desg || "", number: "", name: x.name || "" };
+      if (x && typeof x === "object") return { desg: x.desg || "", number: "", name: x.name || "", phone: x.phone || x.mobile || "" };
       const st = (data.staff || {})[x] || {};
-      return { desg: desg(st.designation), number: String(x), name: st.name || "" };
+      return { desg: desg(st.designation), number: String(x), name: st.name || "", phone: st.phone || "" };
     }),
   }));
 }
@@ -9399,16 +9399,17 @@ function nbBandobastLayout(data, b) {
   if (people.some((x) => x.desg)) cols.push({ k: "desg", en: "Designation", gu: "હોદ્દો" });
   if (people.some((x) => x.number)) cols.push({ k: "number", en: "Buckle no.", gu: "બકલ નં." });
   if (people.some((x) => x.name) || cols.length === 1) cols.push({ k: "name", en: "Name", gu: "નામ" });
+  cols.push({ k: "phone", en: "Mobile", gu: "મોબાઇલ" });
   const rows = []; let sr = 0, pi = 0;
   if (usePoint) {
     points.forEach((pt) => {
       pi++;
       const label = `${pi}. ${pt.name || "—"}`;
       const list = pt.people.length ? pt.people : [null];
-      list.forEach((x, j) => rows.push({ sr: x ? String(++sr) : "", point: j === 0 ? { label, note: pt.note, span: list.length } : null, pointCont: j > 0, desg: x ? x.desg : "", number: x ? x.number : "", name: x ? x.name : "—" }));
+      list.forEach((x, j) => rows.push({ sr: x ? String(++sr) : "", point: j === 0 ? { label, note: pt.note, span: list.length } : null, pointCont: j > 0, desg: x ? x.desg : "", number: x ? x.number : "", phone: x ? x.phone : "", name: x ? x.name : "—" }));
     });
   } else {
-    people.forEach((x) => rows.push({ sr: String(++sr), desg: x.desg, number: x.number, name: x.name }));
+    people.forEach((x) => rows.push({ sr: String(++sr), desg: x.desg, number: x.number, name: x.name, phone: x.phone }));
   }
   return { cols, rows, usePoint, pointCount: usePoint ? points.length : 0, total: people.length };
 }
@@ -9449,12 +9450,13 @@ async function downloadBandobastPdf(data, b) {
     if (c.k === "point") colStyles[i] = { cellWidth: POINT_W, fontStyle: "bold" };
     if (c.k === "desg") colStyles[i] = { cellWidth: 28 };
     if (c.k === "number") colStyles[i] = { cellWidth: 24, halign: "center" };
+    if (c.k === "phone") colStyles[i] = { cellWidth: 26, halign: "center" };
   });
   const raw = (c) => (c && typeof c === "object" ? c.content : c);
   doc.autoTable({
     rowPageBreak: "avoid", startY: y,
     head: [L.cols.map((c) => c.en)],
-    body: body.length ? body : [L.cols.map((c, i) => (i === L.cols.length - 1 ? "—" : ""))],
+    body: body.length ? body : [L.cols.map((c) => (c.k === "name" ? "—" : ""))],
     theme: "grid",
     styles: { fontSize: FONT_PT, valign: "middle", textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2, fillColor: [255, 255, 255] },
     headStyles: { fillColor: [217, 217, 217], textColor: [0, 0, 0], fontStyle: "bold", lineColor: [0, 0, 0], lineWidth: 0.2 },
@@ -9531,7 +9533,7 @@ function downloadBandobastDocx(data, b) {
   if (data.district) blocks.push({ text: data.district, center: true, sz: 22 });
   blocks.push({ text: "બંદોબસ્ત / Bandobast" + (b.title ? ": " + b.title : ""), b: true, sz: 26, center: true });
   blocks.push({ text: nbBandobastWhen(b) + (b.place ? " · " + b.place : ""), center: true, sz: 22, after: 200 });
-  const W = { sr: 600, point: 2900, desg: 1600, number: 1300 };
+  const W = { sr: 600, point: 2900, desg: 1600, number: 1300, phone: 1500 };
   const fixed = L.cols.filter((c) => c.k !== "name").reduce((n, c) => n + (W[c.k] || 0), 0);
   const widths = L.cols.map((c) => (c.k === "name" ? Math.max(2400, 10100 - fixed) : W[c.k]));
   const rows = L.rows.map((r) => L.cols.map((c) => {
@@ -9539,7 +9541,7 @@ function downloadBandobastDocx(data, b) {
       const span = r.point ? r.point.span : 0;
       return { t: r.point ? r.point.label + (r.point.note ? "\n" + r.point.note : "") : "", b: true, vMerge: r.point ? (span > 1 ? "restart" : null) : "continue" };
     }
-    return { t: r[c.k] == null ? "" : r[c.k], center: c.k === "sr" || c.k === "number" };
+    return { t: r[c.k] == null ? "" : r[c.k], center: c.k === "sr" || c.k === "number" || c.k === "phone" };
   }));
   blocks.push({ table: true, widths, head: L.cols.map((c) => (c.k === "sr" ? c.gu : `${c.gu} / ${c.en}`)), rows });
   blocks.push({ text: "", after: 120 });
