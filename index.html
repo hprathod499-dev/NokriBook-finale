@@ -682,6 +682,91 @@ function nbReleaseStationNames(uid, keepKey) {
     .then((qs) => Promise.all(qs.docs.filter((d) => d.id !== keepKey).map((d) => d.ref.delete().catch(() => {}))))
     .catch(() => {});
 }
+function nbDeq(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const aa = Array.isArray(a);
+  if (aa !== Array.isArray(b)) return false;
+  if (aa) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!nbDeq(a[i], b[i])) return false;
+    return true;
+  }
+  const ka = Object.keys(a).filter((k) => a[k] !== undefined), kb = Object.keys(b).filter((k) => b[k] !== undefined);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (!nbDeq(a[k], b[k])) return false;
+  return true;
+}
+const nbIsObj = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+function nbArrIdKeys(arr) {
+  const out = [], seen = new Set();
+  for (const el of arr) {
+    const k = nbIsObj(el) ? (el.id != null ? "i:" + el.id : el.number != null ? "n:" + el.number : null) : null;
+    if (k === null || seen.has(k)) return null;
+    seen.add(k); out.push(k);
+  }
+  return out;
+}
+function nbArrContentKeys(arr) {
+  const occ = {};
+  return arr.map((el) => { const j = JSON.stringify(el); occ[j] = (occ[j] || 0) + 1; return "c:" + j + "#" + occ[j]; });
+}
+function nbMergeArr(b, m, t) {
+  const B = Array.isArray(b) ? b : [];
+  let kb = nbArrIdKeys(B), km = nbArrIdKeys(m), kt = nbArrIdKeys(t);
+  if (!kb || !km || !kt) { kb = nbArrContentKeys(B); km = nbArrContentKeys(m); kt = nbArrContentKeys(t); }
+  const mapB = new Map(kb.map((k, i) => [k, B[i]])), mapM = new Map(km.map((k, i) => [k, m[i]])), mapT = new Map(kt.map((k, i) => [k, t[i]]));
+  const keep = new Set();
+  new Set([...kb, ...km, ...kt]).forEach((k) => {
+    const inB = mapB.has(k), inM = mapM.has(k), inT = mapT.has(k);
+    if (!inB) { keep.add(k); return; }
+    if (inM && inT) { keep.add(k); return; }
+    if (inM && !nbDeq(mapM.get(k), mapB.get(k))) keep.add(k);
+    if (inT && !nbDeq(mapT.get(k), mapB.get(k))) keep.add(k);
+  });
+  const orderOf = (keys) => keys.filter((k) => mapB.has(k));
+  const common = (keys, other) => { const o = new Set(other); return orderOf(keys).filter((k) => o.has(k)); };
+  const mineMoved = !nbDeq(common(km, kb), common(kb, km));
+  const [first, second] = mineMoved ? [km, kt] : [kt, km];
+  const res = first.filter((k) => keep.has(k));
+  const placed = new Set(res);
+  second.forEach((k, i) => {
+    if (placed.has(k) || !keep.has(k)) return;
+    let at = 0;
+    for (let j = i - 1; j >= 0; j--) { const p = res.indexOf(second[j]); if (p !== -1) { at = p + 1; break; } }
+    res.splice(at, 0, k); placed.add(k);
+  });
+  kb.concat(km, kt).forEach((k) => { if (keep.has(k) && !placed.has(k)) { res.push(k); placed.add(k); } });
+  return res.map((k) => {
+    const inM = mapM.has(k), inT = mapT.has(k);
+    if (inM && inT) return nbMerge3(mapB.get(k), mapM.get(k), mapT.get(k));
+    return inM ? mapM.get(k) : mapT.get(k);
+  });
+}
+function nbMerge3(b, m, t) {
+  if (m === t) return m;
+  if (nbDeq(m, b)) return t;
+  if (nbDeq(t, b)) return m;
+  if (nbDeq(m, t)) return m;
+  if (nbIsObj(m) && nbIsObj(t)) {
+    const B = nbIsObj(b) ? b : {};
+    const out = {};
+    new Set([...Object.keys(m), ...Object.keys(t), ...Object.keys(B)]).forEach((k) => {
+      const v = nbMerge3(B[k], m[k], t[k]);
+      if (v !== undefined) out[k] = v;
+    });
+    return out;
+  }
+  if (Array.isArray(m) && Array.isArray(t)) return nbMergeArr(b, m, t);
+  return m;
+}
+function nbMergeAccount(base, mine, theirs) {
+  if (!base) return mine;
+  const out = nbMerge3(base, mine, theirs);
+  out._rev = theirs._rev || 0;
+  out.lastModifiedAt = Math.max(mine.lastModifiedAt || 0, theirs.lastModifiedAt || 0) || Date.now();
+  return out;
+}
 function accountDocRef(uid) { return db.collection("accounts").doc(uid); }
 
 const NB_PLAIN_ACCOUNT_KEYS = ["v", "_rev", "stationApprovalStatus", "blocked", "stationRequestedAt", "stationRequestedAtMs", "state", "district", "districtId", "stationName", "shareEnabled", "shareToken", "lastFormat", "lastModifiedAt"];
@@ -4112,6 +4197,7 @@ function DutyRoster() {
   useEffect(() => {
     if (!accountUid) { setData(null); return; }
     setConnError(false);
+    baseDataRef.current = null;
     const ref = accountDocRef(accountUid);
     const unsub = ref.onSnapshot(
       { includeMetadataChanges: true },
@@ -4126,8 +4212,15 @@ function DutyRoster() {
             const normalized = normalizeData(d);
             const needsWrite = !d.leaveTypes || !d.outstationTypes || !d.designations || !d.recycleBin || !d.events || !d.reminderAcks
               || JSON.stringify(normalized.staff) !== JSON.stringify(d.staff);
-            setData(normalized);
-            confirmedRevRef.current = normalized._rev || 0;
+            const prevBase = baseDataRef.current;
+            const shown = pendingWritesRef.current > 0 && prevBase && dataRef.current && (normalized._rev || 0) >= (confirmedRevRef.current || 0)
+              ? nbMergeAccount(prevBase, dataRef.current, normalized) : normalized;
+            if ((normalized._rev || 0) >= (confirmedRevRef.current || 0) || !prevBase) {
+              baseDataRef.current = normalized;
+              confirmedRevRef.current = normalized._rev || 0;
+              dataRef.current = shown;
+              setData(shown);
+            }
             try {
               const prevBackupRaw = localStorage.getItem("nb_auto_backup_" + accountUid);
               const prevStaffCount = prevBackupRaw ? Object.keys(JSON.parse(prevBackupRaw).data.staff || {}).length : -1;
@@ -4230,7 +4323,10 @@ function DutyRoster() {
 
   const dataRef = useRef(data);
   const confirmedRevRef = useRef(data ? (data._rev || 0) : 0);
+  const baseDataRef = useRef(null);
+  const renderedDataRef = useRef(data);
   dataRef.current = data;
+  renderedDataRef.current = data;
 
   const [saveStatus, setSaveStatus] = useState("idle");
   const pendingWritesRef = useRef(0);
@@ -4449,6 +4545,8 @@ function DutyRoster() {
   }, [tick]);
 
   const writeToFirestore = (next) => {
+    const cur = dataRef.current, rendered = renderedDataRef.current;
+    if (next && cur && rendered && rendered !== cur && next !== cur) next = nbMerge3(rendered, next, cur);
     const stamped = { ...next, lastModifiedAt: Date.now() };
     dataRef.current = stamped;
     setData(stamped);
@@ -4458,18 +4556,29 @@ function DutyRoster() {
     setSaveStatus("saving");
 
     const attempt = (delayMs) => {
-      const expectedRev = confirmedRevRef.current;
-      const clean = deepStripUndefined({ ...dataRef.current, _rev: expectedRev + 1 });
+      let expectedRev = 0, clean = null, mineAtTx = null, merged = false;
       db.runTransaction(async (tx) => {
         const freshSnap = await tx.get(docRef);
         const freshData = freshSnap.exists ? freshSnap.data() : null;
         const serverRev = freshData ? (freshData._rev || 0) : 0;
-        if (freshData && serverRev !== expectedRev) {
-          const conflictErr = new Error("Write rejected: another tab or device saved a change first");
-          conflictErr.__conflict = true;
-          conflictErr.freshData = freshData;
-          throw conflictErr;
+        mineAtTx = dataRef.current;
+        let toWrite = mineAtTx;
+        merged = false;
+        if (freshData && serverRev !== confirmedRevRef.current) {
+          let theirs;
+          try { theirs = normalizeData(nbUnpackAccount(freshData)); }
+          catch (err) { const conflictErr = new Error("Couldn't read the latest saved copy"); conflictErr.__conflict = true; conflictErr.freshData = freshData; throw conflictErr; }
+          if (!baseDataRef.current) {
+            const conflictErr = new Error("Write rejected: another tab or device saved a change first");
+            conflictErr.__conflict = true;
+            conflictErr.freshData = freshData;
+            throw conflictErr;
+          }
+          toWrite = nbMergeAccount(baseDataRef.current, mineAtTx, theirs);
+          merged = true;
         }
+        expectedRev = serverRev;
+        clean = deepStripUndefined({ ...toWrite, _rev: serverRev + 1 });
         const newKey = nbStationKey(clean);
         const oldKey = freshData ? nbStationKey(freshData) : null;
         const regRef = (k) => db.collection("stationRegistry").doc(k);
@@ -4494,6 +4603,13 @@ function DutyRoster() {
       })
         .then(() => {
           confirmedRevRef.current = expectedRev + 1;
+          const written = normalizeData(clean);
+          baseDataRef.current = written;
+          if (merged) {
+            const latest = dataRef.current === mineAtTx ? written : nbMergeAccount(mineAtTx, dataRef.current, written);
+            dataRef.current = latest;
+            setData(latest);
+          }
           pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
           if (pendingWritesRef.current === 0) setSaveStatus("idle");
           syncPublicRoster(dataRef.current);
@@ -4510,6 +4626,7 @@ function DutyRoster() {
               dataRef.current = fresh;
               setData(fresh);
               confirmedRevRef.current = fresh._rev || 0;
+              baseDataRef.current = fresh;
             }).catch(() => {});
             return;
           }
@@ -4519,6 +4636,7 @@ function DutyRoster() {
             dataRef.current = normalized;
             setData(normalized);
             confirmedRevRef.current = normalized._rev || 0;
+            baseDataRef.current = normalized;
             pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
             if (pendingWritesRef.current === 0) setSaveStatus("idle");
             showToast(t(
@@ -4538,7 +4656,12 @@ function DutyRoster() {
               dataRef.current = fresh;
               setData(fresh);
               confirmedRevRef.current = fresh._rev || 0;
+              baseDataRef.current = fresh;
             }).catch(() => {});
+            return;
+          }
+          if (e && (e.code === "aborted" || e.code === "failed-precondition")) {
+            retryTimerRef.current = setTimeout(() => attempt(2000), 150 + Math.random() * 900);
             return;
           }
           console.error("Save failed, will retry:", e);
@@ -14640,6 +14763,10 @@ function MasterLocationsEditor() {
 function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTheme }) {
   const { t } = useLang();
   useEffect(() => {
+    let lastReg = 0;
+    try { lastReg = +localStorage.getItem("nb_super_reg_at") || 0; } catch (e) {}
+    if (Date.now() - lastReg < 24 * 60 * 60 * 1000) return;
+    try { localStorage.setItem("nb_super_reg_at", String(Date.now())); } catch (e) {}
     nbRebuildStationIndex();
     db.collectionGroup("stations").get().then((qs) => {
       const list = [];
