@@ -682,6 +682,26 @@ function nbReleaseStationNames(uid, keepKey) {
     .then((qs) => Promise.all(qs.docs.filter((d) => d.id !== keepKey).map((d) => d.ref.delete().catch(() => {}))))
     .catch(() => {});
 }
+function nbHash(str) {
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619); h2 = Math.imul(h2 + c, 2246822519) ^ (h2 >>> 13); }
+  return (h1 >>> 0).toString(36) + "." + (h2 >>> 0).toString(36) + "." + str.length;
+}
+function nbLsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function nbLsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function useNbVisibleLive(ms) {
+  const [live, setLive] = useState(true);
+  useEffect(() => {
+    let timer = null;
+    const on = () => {
+      if (document.visibilityState === "hidden") { if (!timer) timer = setTimeout(() => { timer = null; setLive(false); }, ms || 60000); }
+      else { if (timer) { clearTimeout(timer); timer = null; } setLive(true); }
+    };
+    document.addEventListener("visibilitychange", on);
+    return () => { document.removeEventListener("visibilitychange", on); if (timer) clearTimeout(timer); };
+  }, []);
+  return live;
+}
 function nbDeq(a, b) {
   if (a === b) return true;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
@@ -3980,6 +4000,7 @@ function DutyRoster() {
     return () => unsub();
   }, []);
   const signOutUser = () => {
+    try { Object.keys(localStorage).filter((k) => k.indexOf("nb_norole_") === 0).forEach((k) => localStorage.removeItem(k)); } catch (e) {}
     NB_EXPLICIT_SIGNOUT = true;
     const u = auth.currentUser;
     if (u && u.isAnonymous) {
@@ -3991,8 +4012,11 @@ function DutyRoster() {
   };
   const [isDistrictAdmin, setIsDistrictAdmin] = useState(undefined);
   const [districtAdminDistrictId, setDistrictAdminDistrictId] = useState(null);
+  const noRoleKey = user ? "nb_norole_" + user.uid : null;
+  const noRoleCached = !!noRoleKey && Date.now() - (+nbLsGet(noRoleKey) || 0) < 24 * 60 * 60 * 1000;
   useEffect(() => {
     if (!user) { setIsDistrictAdmin(undefined); setDistrictAdminDistrictId(null); return; }
+    if (noRoleCached) { setDistrictAdminDistrictId(null); setIsDistrictAdmin(false); return; }
     const unsub = db.collection("districtAdmins").doc(user.uid).onSnapshot(
       (snap) => {
         if (snap.exists) {
@@ -4009,12 +4033,16 @@ function DutyRoster() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(undefined);
   useEffect(() => {
     if (!user) { setIsSuperAdmin(undefined); return; }
+    if (noRoleCached) { setIsSuperAdmin(false); return; }
     const unsub = db.collection("superAdmins").doc(user.uid).onSnapshot(
       (snap) => setIsSuperAdmin(snap.exists),
       () => setIsSuperAdmin(false)
     );
     return () => unsub();
   }, [user]);
+  useEffect(() => {
+    if (noRoleKey && !noRoleCached && isDistrictAdmin === false && isSuperAdmin === false) nbLsSet(noRoleKey, String(Date.now()));
+  }, [noRoleKey, isDistrictAdmin, isSuperAdmin]);
   const [memberOf, setMemberOf] = useState(undefined);
   useEffect(() => {
     if (!user) { setMemberOf(undefined); return; }
@@ -4194,10 +4222,13 @@ function DutyRoster() {
     Notification.requestPermission().then((perm) => setNotifPermission(perm));
   };
 
+  const nbLive = useNbVisibleLive(60000);
   useEffect(() => {
     if (!accountUid) { setData(null); return; }
+    if (!nbLive) return;
     setConnError(false);
-    baseDataRef.current = null;
+    if (subAcctRef.current !== accountUid) { baseDataRef.current = null; subAcctRef.current = accountUid; }
+    let firstSnap = pubSyncedAcctRef.current !== accountUid;
     const ref = accountDocRef(accountUid);
     const unsub = ref.onSnapshot(
       { includeMetadataChanges: true },
@@ -4231,7 +4262,10 @@ function DutyRoster() {
               }
             } catch (e) {  }
             if (needsWrite && !snap.metadata.fromCache && !memberRef.current) ref.set(nbPackAccount(normalized)).catch(() => {});
-            syncPublicRoster(normalized);
+            if (firstSnap && !snap.metadata.fromCache) {
+              firstSnap = false; pubSyncedAcctRef.current = accountUid;
+              if (nbLsGet("nb_pubchk_" + accountUid) !== todayStr()) { nbLsSet("nb_pubchk_" + accountUid, todayStr()); syncPublicRoster(normalized); }
+            }
           } else if (d.roster && !migratedRef.current && !snap.metadata.fromCache && !memberRef.current) {
             migratedRef.current = true;
             const migrated = normalizeData(migrateOldRoster(d.roster));
@@ -4252,7 +4286,7 @@ function DutyRoster() {
       }
     );
     return () => unsub();
-  }, [accountUid, retryKey]);
+  }, [accountUid, retryKey, nbLive]);
 
   const writeDoc = (ref, next) => {
     if (!ref) return;
@@ -4324,6 +4358,8 @@ function DutyRoster() {
   const dataRef = useRef(data);
   const confirmedRevRef = useRef(data ? (data._rev || 0) : 0);
   const baseDataRef = useRef(null);
+  const subAcctRef = useRef(null);
+  const pubSyncedAcctRef = useRef(null);
   const renderedDataRef = useRef(data);
   dataRef.current = data;
   renderedDataRef.current = data;
@@ -4337,7 +4373,7 @@ function DutyRoster() {
   const pubTimerRef = useRef(null);
   const pubSigRef = useRef(null);
   const pubCheckedRef = useRef(false);
-  const NB_PUB_DELAY_MS = 15000;
+  const NB_PUB_DELAY_MS = 60000;
   const flushPublicRoster = () => {
     if (pubTimerRef.current) { clearTimeout(pubTimerRef.current); pubTimerRef.current = null; }
     const next = pubPendingRef.current;
@@ -4360,13 +4396,14 @@ function DutyRoster() {
       publicRosterDocRef.set(packedPub),
       token ? db.collection("sharedRosters").doc(token).set(packedShared) : Promise.resolve(),
     ])
-      .then(() => { pubSigRef.current = sig; })
+      .then(() => { pubSigRef.current = sig; nbLsSet("nb_pubsig_" + accountUid, nbHash(sig)); })
       .catch((e) => {
         console.error("Public roster sync failed:", e);
         if (!isRetry) setTimeout(() => write(true), 4000);
       });
     if (pubCheckedRef.current) { write(false); return; }
     pubCheckedRef.current = true;
+    if (nbLsGet("nb_pubsig_" + accountUid) === nbHash(sig)) { pubSigRef.current = sig; return; }
     Promise.all([publicRosterDocRef.get(), token ? db.collection("sharedRosters").doc(token).get() : Promise.resolve(null)])
       .then(([a, b]) => {
         const same = a && a.exists && nbStableStr(a.data()) === nbStableStr(packedPub)
@@ -4399,6 +4436,7 @@ function DutyRoster() {
   const digestTimerRef = useRef(null);
   const digestSigRef = useRef(null);
   const digestWrittenAtRef = useRef(0);
+  const digestDayRef = useRef(null);
   const digestCheckedPathRef = useRef(null);
   const digestClaimedKeyRef = useRef(null);
   const prevAccountRef = useRef(accountUid);
@@ -4414,8 +4452,8 @@ function DutyRoster() {
     digestInitRef.current = false;
     setData(null);
   }, [accountUid]);
-  const NB_DIGEST_DELAY_MS = 30000;
-  const NB_DIGEST_HEARTBEAT_MS = 2 * 60 * 60 * 1000;
+  const NB_DIGEST_DELAY_MS = 120000;
+  const NB_DIGEST_HEARTBEAT_MS = 6 * 60 * 60 * 1000;
   const digestIdSigRef = useRef(null);
   const nbDigestIdSig = (n) => nbStableStr({
     stationName: n.stationName || null, state: n.state || null, district: (n.district || "").trim(),
@@ -4450,6 +4488,7 @@ function DutyRoster() {
     districtDigestPathRef.current = newPath;
     if (!newPath) return;
     const today = todayStr();
+    digestDayRef.current = today;
     const monthPrefix = today.slice(0, 7);
     let monthlyDutyCount = 0;
     const onDutyTodaySet = new Set();
@@ -4480,7 +4519,11 @@ function DutyRoster() {
     };
     const sig = newPath + "|" + nbStableStr(body);
     if (sig === digestSigRef.current && Date.now() - digestWrittenAtRef.current < NB_DIGEST_HEARTBEAT_MS) return;
+    const lsDig = (nbLsGet("nb_digsig_" + accountUid) || "").split("@");
+    if (lsDig[0] === nbHash(sig) && Date.now() - (+lsDig[1] || 0) < NB_DIGEST_HEARTBEAT_MS) { digestSigRef.current = sig; digestWrittenAtRef.current = +lsDig[1]; digestCheckedPathRef.current = newPath; return; }
     const key = nbStationKey(next);
+    const claimLs = nbLsGet("nb_claim_" + accountUid) || "";
+    if (key && claimLs.split("@")[0] === key && Date.now() - (+claimLs.split("@")[1] || 0) < 7 * 24 * 60 * 60 * 1000) digestClaimedKeyRef.current = key;
     const claim = key && digestClaimedKeyRef.current !== key && !memberRef.current
       ? db.collection("stationRegistry").doc(key).get()
           .then((snap) => {
@@ -4494,13 +4537,13 @@ function DutyRoster() {
             });
           })
           .then(() => nbReleaseStationNames(accountUid, key))
-          .then(() => { digestClaimedKeyRef.current = key; })
+          .then(() => { digestClaimedKeyRef.current = key; nbLsSet("nb_claim_" + accountUid, key + "@" + Date.now()); })
           .catch((e) => console.warn("Station name claim failed (already registered by another station, or not on the approved list):", e))
       : Promise.resolve();
     const write = (isRetry) => {
       const at = Date.now();
       db.doc(newPath).set({ ...body, updatedAt: at })
-        .then(() => { digestSigRef.current = sig; digestWrittenAtRef.current = at; })
+        .then(() => { digestSigRef.current = sig; digestWrittenAtRef.current = at; nbLsSet("nb_digsig_" + accountUid, nbHash(sig) + "@" + at); })
         .catch((e) => {
           console.error("District digest sync failed:", e);
           if (!isRetry) setTimeout(() => write(true), 4000);
@@ -4541,7 +4584,9 @@ function DutyRoster() {
     }
   }, [data]);
   useEffect(() => {
-    if (dataRef.current) syncDistrictDigest(dataRef.current);
+    if (!dataRef.current || document.visibilityState === "hidden") return;
+    if (digestDayRef.current === todayStr() && Date.now() - digestWrittenAtRef.current < NB_DIGEST_HEARTBEAT_MS) return;
+    syncDistrictDigest(dataRef.current);
   }, [tick]);
 
   const writeToFirestore = (next) => {
@@ -19548,8 +19593,10 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
       .finally(() => setApprovingUid(null));
   };
 
+  const nbDaLive = useNbVisibleLive(60000);
   useEffect(() => {
     if (!districtId) { setStations([]); return; }
+    if (!nbDaLive) return;
     const unsub = db.collection("districts").doc(districtId).collection("stations").onSnapshot(
       (snap) => {
         const list = [];
@@ -19564,13 +19611,14 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
       () => setStations([])
     );
     return () => unsub();
-  }, [districtId]);
+  }, [districtId, nbDaLive]);
 
   const [liveOnDuty, setLiveOnDuty] = useState({});
   const stationUidsKey = (stations || []).map((s) => s.uid).sort().join(",");
   useEffect(() => {
     const uids = stationUidsKey ? stationUidsKey.split(",") : [];
     if (uids.length === 0) { setLiveOnDuty({}); return; }
+    if (!nbDaLive) return;
     const unsubs = uids.map((uid) =>
       db.collection("publicRosters").doc(uid).onSnapshot(
         (snap) => {
@@ -19591,7 +19639,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
       )
     );
     return () => unsubs.forEach((u) => u());
-  }, [stationUidsKey]);
+  }, [stationUidsKey, nbDaLive]);
 
   useEffect(() => {
     if (!selectedUid) { setSelectedData(undefined); return; }
