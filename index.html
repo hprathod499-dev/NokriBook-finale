@@ -423,7 +423,7 @@ function nbSubPathFromView(v) {
   return key ? "/" + key : "";
 }
 function nbSiteHost() { const h = (window.location && window.location.hostname) || ""; return !h || /^(localhost|127\.|0\.0\.0\.0)/.test(h) ? "nokribook.in" : h.replace(/^www\./, ""); }
-const NB_SHARE_ON = false;
+const NB_SHARE_ON = true;
 function nbShareUrl(token) { return `${window.location.origin}/view/${token}`; }
 const NB_CRIME_OLD_RE = /^\/(?:crime-?review|app\/crime(?:-?review)?|app\/district\/crime-review)(\/report)?$/i;
 function nbIsIsoDate(x) {
@@ -5200,7 +5200,7 @@ useEffect(() => {
   const [formatMode, setFormatMode] = useState("keep");
   const shareUrl = accountUid && data && data.shareEnabled && data.shareToken ? nbShareUrl(data.shareToken) : "";
   const toggleShare = () => {
-    if (!data) return;
+    if (!data || (NB_SHARE_ON && data.shareEnabled)) return;
     const turningOn = !data.shareEnabled;
     const oldToken = dataRef.current.shareToken;
     if (!turningOn && oldToken) db.collection("sharedRosters").doc(oldToken).delete().catch(() => {});
@@ -5226,7 +5226,7 @@ useEffect(() => {
   ), "error");
   useEffect(() => {
     if (!data || !accountUid || data.blocked) return;
-    if (NB_SHARE_ON && data.shareEnabled && !data.shareToken) writeToFirestore({ ...dataRef.current, shareToken: nbNewShareToken() });
+    if (NB_SHARE_ON && myRole === "owner" && (!data.shareEnabled || !data.shareToken)) writeToFirestore({ ...dataRef.current, shareEnabled: true, shareToken: data.shareToken || nbNewShareToken() });
     if (!NB_SHARE_ON && myRole === "owner" && (data.shareEnabled || data.shareToken)) {
       if (data.shareToken) db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {});
       writeToFirestore({ ...dataRef.current, shareEnabled: false, shareToken: null });
@@ -7063,7 +7063,7 @@ const clearCategoryHistory = (catId) => {
           enabled={!!data.shareEnabled}
           getShareUrl={ensureShareUrl}
           stationName={data.stationName}
-          onStop={() => { if (dataRef.current.shareEnabled) toggleShare(); setShowSharePanel(false); }}
+          onStop={null}
           onClose={() => setShowSharePanel(false)}
           showToast={showToast}
         />
@@ -12927,7 +12927,7 @@ function SharePanel({ enabled, getShareUrl, stationName, onStop, onClose, showTo
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
           {t("Copy link", "લિંક કોપી કરો")}
         </button>
-        {enabled && (
+        {enabled && onStop && (
           <button onClick={onStop} style={{ display: "block", width: "100%", marginTop: 2, padding: "8px 14px 6px", background: "transparent", border: "none", borderTop: "1px solid var(--border-soft)", fontSize: 11.5, color: "var(--status-error-text)", textAlign: "left", cursor: "pointer" }} className="gu">
             {t("Stop sharing (old link stops working)", "શેરિંગ બંધ કરો (જૂની લિંક બંધ થશે)")}
           </button>
