@@ -707,7 +707,37 @@ function nbSavePersonal(d, key) {
   const str = JSON.stringify(local);
   if (nbLsGet(key) !== str) nbLsSet(key, str);
 }
-function nbArchiveDocRef(uid) { return db.collection("accounts").doc(uid).collection("archive").doc("history"); }
+function nbArchiveDocRef(uid, key) { return db.collection("accounts").doc(uid).collection("archive").doc(key || "history"); }
+function nbArchMergeDocs(map) { let A = {}; map.forEach((h) => { if (h && Object.keys(h).length) A = nbArchUnion(A, h); }); return A; }
+function nbArchByYear(h) {
+  const out = {};
+  Object.keys(h || {}).forEach((cat) => Object.keys(h[cat] || {}).forEach((num) => (h[cat][num] || []).forEach((e) => {
+    const y = String(historyDate(e) || "").slice(0, 4);
+    if (!/^[0-9]{4}$/.test(y)) return;
+    const c = ((out[y] = out[y] || {})[cat] = out[y][cat] || {});
+    (c[num] = c[num] || []).push(e);
+  })));
+  return out;
+}
+function nbArchPick(removed, h) {
+  let out = null;
+  Object.keys(removed || {}).forEach((cat) => Object.keys(removed[cat] || {}).forEach((num) => {
+    const list = h && h[cat] && h[cat][num];
+    if (!list) return;
+    const have = new Set(list.map(nbHk));
+    const keys = removed[cat][num].filter((k) => have.has(k));
+    if (keys.length) (((out = out || {})[cat] = out[cat] || {})[num] = keys);
+  }));
+  return out;
+}
+let nbNeedLast = { y: 0, at: 0 };
+function nbNeedHistoryFrom(dateStr) {
+  const y = parseInt(String(dateStr || "").slice(0, 4), 10);
+  if (!(y > 1990) || y >= new Date().getFullYear() - 1) return;
+  if (nbNeedLast.y === y && Date.now() - nbNeedLast.at < 3000) return;
+  nbNeedLast = { y, at: Date.now() };
+  setTimeout(() => { try { window.dispatchEvent(new CustomEvent("nb-need-years", { detail: y })); } catch (e) {} }, 0);
+}
 function nbArchPack(h) { return nbPack({ v: 1, h }, ["v"]); }
 function nbArchUnpack(raw) { const d = nbUnpack(raw, ["v"]); return (d && d.h) || {}; }
 function nbArchCutoff() {
@@ -2407,6 +2437,7 @@ function monthBounds(monthStr) {
   return [start, end];
 }
 function groupedDutyCountInRange(history, fromDate, toDate) {
+  nbNeedHistoryFrom(fromDate);
   if (!history || !history.length) return 0;
   const rows = history
     .map((entry, idx) => ({ number: "x", idx, date: historyDate(entry), ts: historyTs(entry), note: historyNote(entry), batch: historyBatch(entry) }))
@@ -2415,6 +2446,7 @@ function groupedDutyCountInRange(history, fromDate, toDate) {
   return groups.filter((g) => g.from <= toDate && g.to >= fromDate).length;
 }
 function monthlyGroupedDutyCount(history, monthStr) {
+  nbNeedHistoryFrom(monthStr);
   const [monthStart, monthEnd] = monthBounds(monthStr);
   return groupedDutyCountInRange(history, monthStart, monthEnd);
 }
@@ -2427,7 +2459,7 @@ function periodBounds(key) {
   return [start, end];
 }
 function periodRangeOf(period) {
-  if (period.key === "custom") return [period.customFrom || "0001-01-01", period.customTo || "9999-12-31"];
+  if (period.key === "custom") { nbNeedHistoryFrom(period.customFrom || "1991-01-01"); return [period.customFrom || "0001-01-01", period.customTo || "9999-12-31"]; }
   return periodBounds(period.key);
 }
 function periodLabel(t, period) {
@@ -4311,6 +4343,19 @@ function DutyRoster() {
     return () => clearTimeout(t);
   }, [data]);
   const archiveRef = useRef(null);
+  const archDocsRef = useRef(new Map());
+  const archFromYearRef = useRef(new Date().getFullYear() - 1);
+  const archApiRef = useRef(null);
+  const nbLoadHistoryFrom = (fromYear) => {
+    const api = archApiRef.current;
+    if (!api) return Promise.resolve();
+    const keys = api.load(fromYear);
+    if (api.ready(keys)) return Promise.resolve();
+    return new Promise((res) => {
+      const iv = setInterval(() => { if (archApiRef.current && archApiRef.current.ready(keys)) { clearInterval(iv); clearTimeout(to); res(); } }, 150);
+      const to = setTimeout(() => { clearInterval(iv); res(); }, 10000);
+    });
+  };
   const nbPersonalKey = () => (accountUid ? "nb_personal_" + accountUid + "_" + ((user && user.uid) || "") : null);
   const nbFromServer = (raw) => nbApplyPersonal(nbArchJoin(normalizeData(raw), archiveRef.current || {}), nbPersonalKey());
   const nbLiveOf = (d) => nbStripPersonal(nbArchSplit(d, archiveRef.current || {}).live);
@@ -4398,30 +4443,72 @@ function DutyRoster() {
     if (!accountUid) { setData(null); return; }
     if (!nbLive) return;
     setConnError(false);
-    if (subAcctRef.current !== accountUid) { baseDataRef.current = null; archiveRef.current = null; subAcctRef.current = accountUid; }
+    if (subAcctRef.current !== accountUid) { baseDataRef.current = null; archiveRef.current = null; archDocsRef.current = new Map(); archFromYearRef.current = new Date().getFullYear() - 1; subAcctRef.current = accountUid; }
     let firstSnap = pubSyncedAcctRef.current !== accountUid;
     const ref = accountDocRef(accountUid);
-    let archReady = false, stash = null;
+    const subs = new Map();
+    const received = new Set();
+    let stash = null, shown = false;
+    const docsMap = archDocsRef.current;
     const rejoin = (d, oldA, newA) => (d ? nbArchJoin(nbArchSplit(d, oldA || {}).live, newA) : d);
-    const onArchive = (A) => {
-      const oldA = archiveRef.current;
-      archiveRef.current = A;
-      if (!archReady) { archReady = true; if (stash) { const st = stash; stash = null; onLive(st); } return; }
-      if (nbDeq(oldA, A)) return;
-      if (baseDataRef.current) baseDataRef.current = rejoin(baseDataRef.current, oldA, A);
-      if (dataRef.current) { const nd = rejoin(dataRef.current, oldA, A); dataRef.current = nd; setData(nd); }
+    const neededKeys = (d) => {
+      const keys = [];
+      if ((d && d.archLegacy) || nbLsGet("nb_archlegacy_gone_" + accountUid) !== "1") keys.push("history");
+      ((d && d.archYears) || []).forEach((y) => { if (Number(y) >= archFromYearRef.current) keys.push("y" + y); });
+      return keys;
     };
-    const unsubA = nbArchiveDocRef(accountUid).onSnapshot(
-      (as) => {
-        let A = {};
-        if (as.exists) { try { A = nbArchUnpack(as.data()); } catch (e) { console.error("Couldn't read the history archive:", e); A = archiveRef.current || {}; } }
-        onArchive(A);
+    const ensure = (keys) => keys.forEach((k) => {
+      if (subs.has(k)) return;
+      subs.set(k, nbArchiveDocRef(accountUid, k).onSnapshot(
+        (as) => {
+          let h = {};
+          if (as.exists) { try { h = nbArchUnpack(as.data()); } catch (e) { console.error("Couldn't read the history archive:", e); h = docsMap.get(k) || {}; } }
+          else if (k === "history" && !as.metadata.fromCache) nbLsSet("nb_archlegacy_gone_" + accountUid, "1");
+          onArchDoc(k, h);
+        },
+        (err) => { console.warn("History archive not available:", k, err && err.code); onArchDoc(k, docsMap.get(k) || {}); }
+      ));
+    });
+    function onArchDoc(k, h) {
+      docsMap.set(k, h);
+      received.add(k);
+      const oldA = archiveRef.current;
+      const newA = nbArchMergeDocs(docsMap);
+      if (stash) { const st = stash; stash = null; onLiveGate(st); return; }
+      if (!shown) return;
+      archiveRef.current = newA;
+      if (nbDeq(oldA, newA)) return;
+      if (baseDataRef.current) baseDataRef.current = rejoin(baseDataRef.current, oldA, newA);
+      if (dataRef.current) { const nd = rejoin(dataRef.current, oldA, newA); dataRef.current = nd; setData(nd); }
+    }
+    function onLiveGate(snap) {
+      let raw = null;
+      if (snap.exists) { try { raw = nbUnpackAccount(snap.data()); } catch (e) { raw = null; } }
+      const keys = raw && raw.v === 2 ? neededKeys(raw) : [];
+      ensure(keys);
+      if (!keys.every((k) => received.has(k))) { stash = snap; return; }
+      const newA = nbArchMergeDocs(docsMap);
+      if (shown && archiveRef.current && !nbDeq(archiveRef.current, newA)) {
+        const oldA = archiveRef.current;
+        if (baseDataRef.current) baseDataRef.current = rejoin(baseDataRef.current, oldA, newA);
+        if (dataRef.current) dataRef.current = rejoin(dataRef.current, oldA, newA);
+      }
+      archiveRef.current = newA;
+      shown = true;
+      onLive(snap);
+    }
+    archApiRef.current = {
+      load: (fromYear) => {
+        if (fromYear < archFromYearRef.current) archFromYearRef.current = fromYear;
+        const keys = neededKeys(dataRef.current);
+        ensure(keys);
+        return keys;
       },
-      (err) => { console.warn("History archive not available:", err && err.code); onArchive(archiveRef.current || {}); }
-    );
+      ready: (keys) => keys.every((k) => received.has(k)),
+    };
     const unsub = ref.onSnapshot(
       { includeMetadataChanges: true },
-      (snap) => { if (!archReady) { stash = snap; return; } onLive(snap); },
+      (snap) => onLiveGate(snap),
       (err) => {
         console.error(err);
         setConnError(true);
@@ -4475,7 +4562,7 @@ function DutyRoster() {
           writeToFirestore(initial);
         }
     }
-    return () => { unsub(); unsubA(); };
+    return () => { unsub(); subs.forEach((u) => u()); if (archApiRef.current) archApiRef.current = null; };
   }, [accountUid, retryKey, nbLive]);
 
   const writeDoc = (ref, next) => {
@@ -4831,8 +4918,15 @@ function DutyRoster() {
         expectedRev = serverRev;
         clean = deepStripUndefined({ ...toWrite, _rev: serverRev + 1 });
         const split = nbArchSplit(clean, archiveRef.current || {});
-        const archRef = nbArchiveDocRef(accountUid);
-        const archSnap = split.removedAny ? await tx.get(archRef) : null;
+        const archEdits = [];
+        if (split.removedAny) {
+          for (const [ak, ah] of archDocsRef.current) {
+            const rk = nbArchPick(split.removed, ah);
+            if (!rk) continue;
+            const r = nbArchiveDocRef(accountUid, ak);
+            archEdits.push({ r, rk, snap: await tx.get(r) });
+          }
+        }
         const newKey = nbStationKey(clean);
         const oldKey = freshData ? nbStationKey(freshData) : null;
         const regRef = (k) => db.collection("stationRegistry").doc(k);
@@ -4844,7 +4938,7 @@ function DutyRoster() {
           throw takenErr;
         }
         tx.set(docRef, nbPackAccount(nbStripPersonal(split.live)));
-        if (archSnap) tx.set(archRef, nbArchPack(nbArchRemove(archSnap.exists ? nbArchUnpack(archSnap.data()) : {}, split.removed)));
+        archEdits.forEach(({ r, rk, snap }) => tx.set(r, nbArchPack(nbArchRemove(snap.exists ? nbArchUnpack(snap.data()) : {}, rk))));
         if (newReg) {
           tx.set(regRef(newKey), {
             uid: accountUid,
@@ -4934,24 +5028,60 @@ function DutyRoster() {
     if (nbLsGet(k) === todayStr()) return;
     nbLsSet(k, todayStr());
     const old = nbArchOld(nbArchSplit(dataRef.current, archiveRef.current).live, nbArchCutoff());
-    if (!old.count) return;
-    const archRef = nbArchiveDocRef(accountUid);
+    const legacyH = archDocsRef.current.get("history");
+    const hasLegacy = !!legacyH && Object.keys(legacyH).length > 0;
+    if (!old.count && !hasLegacy) return;
+    const byYear = nbArchByYear(old.h);
+    const legacyByYear = hasLegacy ? nbArchByYear(legacyH) : {};
+    const years = Array.from(new Set([...Object.keys(byYear), ...Object.keys(legacyByYear)])).sort();
+    const finish = (docs, extra) => {
+      const oldA = archiveRef.current || {};
+      Object.keys(docs).forEach((dk) => archDocsRef.current.set(dk, docs[dk]));
+      const newA = nbArchMergeDocs(archDocsRef.current);
+      archiveRef.current = newA;
+      const rj = (d) => (d ? nbArchJoin(nbArchSplit(d, oldA).live, newA) : d);
+      if (baseDataRef.current) baseDataRef.current = rj(baseDataRef.current);
+      dataRef.current = rj(dataRef.current);
+      writeToFirestore({ ...dataRef.current, ...extra });
+      if (archApiRef.current) archApiRef.current.load(archFromYearRef.current);
+    };
     db.runTransaction(async (tx) => {
-      const as = await tx.get(archRef);
-      const S = nbArchUnion(as.exists ? nbArchUnpack(as.data()) : {}, old.h);
-      tx.set(archRef, nbArchPack(S));
-      return S;
+      const got = [];
+      for (const y of years) { const r = nbArchiveDocRef(accountUid, "y" + y); got.push([y, r, await tx.get(r)]); }
+      const docs = {};
+      got.forEach(([y, r, sn]) => {
+        let S = sn.exists ? nbArchUnpack(sn.data()) : {};
+        S = nbArchUnion(S, legacyByYear[y] || {});
+        S = nbArchUnion(S, byYear[y] || {});
+        tx.set(r, nbArchPack(S));
+        docs["y" + y] = S;
+      });
+      if (hasLegacy) { if (myRole === "owner") tx.delete(nbArchiveDocRef(accountUid, "history")); else tx.set(nbArchiveDocRef(accountUid, "history"), nbArchPack({})); docs.history = {}; }
+      return docs;
     })
-      .then((S) => {
-        const oldA = archiveRef.current || {};
-        archiveRef.current = S;
-        const rj = (d) => (d ? nbArchJoin(nbArchSplit(d, oldA).live, S) : d);
-        if (baseDataRef.current) baseDataRef.current = rj(baseDataRef.current);
-        dataRef.current = rj(dataRef.current);
-        writeToFirestore(dataRef.current);
+      .then((docs) => {
+        const yrs = Array.from(new Set([...((dataRef.current && dataRef.current.archYears) || []).map(Number), ...years.map(Number)])).sort();
+        finish(docs, { archYears: yrs, archLegacy: false });
       })
-      .catch((e) => console.warn("History archive step skipped:", e && (e.code || e.message)));
+      .catch((e) => {
+        if (!(e && e.code === "permission-denied") || !old.count) { console.warn("History archive step skipped:", e && (e.code || e.message)); return; }
+        const r = nbArchiveDocRef(accountUid, "history");
+        db.runTransaction(async (tx) => {
+          const sn = await tx.get(r);
+          const S = nbArchUnion(sn.exists ? nbArchUnpack(sn.data()) : {}, old.h);
+          tx.set(r, nbArchPack(S));
+          return S;
+        })
+          .then((S) => finish({ history: S }, { archLegacy: true }))
+          .catch((e2) => console.warn("History archive step skipped:", e2 && (e2.code || e2.message)));
+      });
   }, [data, canEdit]);
+
+  useEffect(() => {
+    const h = (e) => { if (archApiRef.current && e && e.detail) archApiRef.current.load(Number(e.detail)); };
+    window.addEventListener("nb-need-years", h);
+    return () => window.removeEventListener("nb-need-years", h);
+  }, []);
 
   const persist = (next) => {
     if (!canEdit) {
@@ -5033,7 +5163,8 @@ useEffect(() => {
     if (pubTimerRef.current) { clearTimeout(pubTimerRef.current); pubTimerRef.current = null; }
     if (digestTimerRef.current) { clearTimeout(digestTimerRef.current); digestTimerRef.current = null; }
     pubPendingRef.current = null; digestPendingRef.current = null;
-    const cleanup = [nbArchiveDocRef(accountUid).delete().catch(() => {}).then(() => db.doc(`accounts/${accountUid}`).delete().catch(() => {}))];
+    const archKeys = ["history", ...(((data && data.archYears) || []).map((y) => "y" + y))];
+    const cleanup = [Promise.all(archKeys.map((ak) => nbArchiveDocRef(accountUid, ak).delete().catch(() => {}))).then(() => db.doc(`accounts/${accountUid}`).delete().catch(() => {}))];
     if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
     const districtId = (data && data.district || "").trim();
     if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
@@ -5264,7 +5395,8 @@ useEffect(() => {
       const token = await requestDriveToken(interactive);
       setDriveNeedsReconnect(false);
       const folderId = await findOrCreateDriveFolder(token);
-      await uploadBackupToDrive(token, folderId, JSON.stringify(data, null, 2), { keepalive });
+      await nbLoadHistoryFrom(0);
+      await uploadBackupToDrive(token, folderId, JSON.stringify(dataRef.current || data, null, 2), { keepalive });
       const now = new Date().toISOString();
       localStorage.setItem("nb_drive_last_backup", now);
       localStorage.setItem("nb_drive_connected", "1");
@@ -5571,10 +5703,14 @@ useEffect(() => {
     showToast(t(`${existing ? existing.name : cleanName} added`, `${existing ? existing.name : cleanName} ઉમેરાયું`));
   };
 
-  const formatAllData = (mode) => { if (data) { setFormatMode(mode || "keep"); setShowFormatModal(true); } };
+  const formatAllData = (mode) => { if (data) { nbLoadHistoryFrom(0); setFormatMode(mode || "keep"); setShowFormatModal(true); } };
 
   const performFormatAllData = (buckleNumber) => {
     if (!data) return;
+    if (archApiRef.current && !archApiRef.current.ready(archApiRef.current.load(0))) {
+      showToast(t("Old history is still loading — please try again in a few seconds.", "જૂનો ઇતિહાસ હજુ લોડ થઈ રહ્યો છે — થોડી સેકન્ડ પછી ફરી પ્રયત્ન કરો."), "error");
+      return;
+    }
     const staffRec = data.staff[buckleNumber];
     if (!staffRec) return;
     const preFormatJson = JSON.stringify(data, null, 2);
@@ -6419,8 +6555,9 @@ const clearCategoryHistory = (catId) => {
   const importBackupRef = useRef(null);
   const exportBackup = async () => {
     if (!data) return;
+    await nbLoadHistoryFrom(0);
     const filename = `nokri-book-backup-${todayStr()}-${Date.now()}.json`;
-    const jsonStr = JSON.stringify(data, null, 2);
+    const jsonStr = JSON.stringify(dataRef.current || data, null, 2);
 
     if (window.showDirectoryPicker) {
       try {
@@ -11646,6 +11783,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
   const [swapFor, setSwapFor] = useState(null);
   const { t, lang } = useLang();
   const [month, setMonth] = useState((initialDate || todayStr()).slice(0, 7));
+  useEffect(() => { nbNeedHistoryFrom(month); }, [month]);
   const [selectedDate, setSelectedDateRaw] = useState(initialDate || todayStr());
   const setSelectedDate = (d) => { setSelectedDateRaw(d); if (onDateChange && typeof d === "string") onDateChange(d); };
   useEffect(() => { if (initialDate) { setSelectedDateRaw(initialDate); setMonth(initialDate.slice(0, 7)); } }, [initialDate]);
@@ -12225,6 +12363,7 @@ function DutyNoteModal({ record, onClose }) {
 function ReportView({ initialSort, focus, data }) {
   const { t } = useLang();
   const [month, setMonth] = useState(todayStr().slice(0, 7));
+  useEffect(() => { nbNeedHistoryFrom(month); }, [month]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [sortNames, setSortNames] = useState(initialSort || "name");
