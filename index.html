@@ -812,16 +812,58 @@ function nbHash(str) {
 }
 function nbLsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function nbLsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-function useNbVisibleLive(ms) {
+function nbPausedBar(show, t) {
+  let el = document.getElementById("nb-paused-bar");
+  if (!show) { if (el) el.remove(); return; }
+  if (el) return;
+  el = document.createElement("div");
+  el.id = "nb-paused-bar";
+  el.setAttribute("role", "status");
+  el.className = "gu";
+  el.textContent = t ? t("Live updates paused — tap anywhere to refresh", "લાઇવ અપડેટ થોભાવ્યા છે — તાજું કરવા ગમે ત્યાં ટૅપ કરો") : "Live updates paused — tap anywhere to refresh";
+  el.style.cssText = "position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99999;background:var(--bg-surface,#fff);color:var(--text-secondary,#555);border:1px solid var(--border,#ddd);border-radius:20px;padding:6px 14px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,.12);pointer-events:none;max-width:calc(100% - 32px);text-align:center";
+  document.body.appendChild(el);
+}
+function nbGetOnce(ref, aliveFn, onOk, onErr) {
+  ref.get().then((snap) => { if (aliveFn()) onOk(snap); }, (e) => { if (aliveFn() && onErr) onErr(e); });
+  return () => {};
+}
+function useNbVisibleLive(ms, idleMs, t) {
   const [live, setLive] = useState(true);
+  const idleRef = useRef(idleMs);
+  idleRef.current = idleMs;
+  const tRef = useRef(t);
+  tRef.current = t;
   useEffect(() => {
-    let timer = null;
-    const on = () => {
-      if (document.visibilityState === "hidden") { if (!timer) timer = setTimeout(() => { timer = null; setLive(false); }, ms || 60000); }
-      else { if (timer) { clearTimeout(timer); timer = null; } setLive(true); }
+    let timer = null, idleTimer = null, lastArm = 0, paused = false;
+    const setPaused = (v) => { paused = v; setLive(!v); nbPausedBar(v && document.visibilityState !== "hidden" && !!idleRef.current, tRef.current); };
+    const armIdle = () => {
+      lastArm = Date.now();
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = idleRef.current ? setTimeout(() => { idleTimer = null; if (document.visibilityState !== "hidden") setPaused(true); }, idleRef.current) : null;
     };
+    const wake = () => {
+      if (paused) setPaused(false);
+      if (Date.now() - lastArm > 3000) armIdle();
+    };
+    const on = () => {
+      if (document.visibilityState === "hidden") {
+        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+        nbPausedBar(false);
+        if (!timer) timer = setTimeout(() => { timer = null; paused = true; setLive(false); }, ms || 60000);
+      } else { if (timer) { clearTimeout(timer); timer = null; } setPaused(false); armIdle(); }
+    };
+    const acts = ["pointerdown", "keydown", "touchstart", "wheel"];
     document.addEventListener("visibilitychange", on);
-    return () => { document.removeEventListener("visibilitychange", on); if (timer) clearTimeout(timer); };
+    acts.forEach((a) => window.addEventListener(a, wake, { passive: true, capture: true }));
+    armIdle();
+    return () => {
+      document.removeEventListener("visibilitychange", on);
+      acts.forEach((a) => window.removeEventListener(a, wake, { capture: true }));
+      if (timer) clearTimeout(timer);
+      if (idleTimer) clearTimeout(idleTimer);
+      nbPausedBar(false);
+    };
   }, []);
   return live;
 }
@@ -4349,7 +4391,9 @@ function DutyRoster() {
     Notification.requestPermission().then((perm) => setNotifPermission(perm));
   };
 
-  const nbLive = useNbVisibleLive(60000);
+  const nbLive = useNbVisibleLive(60000, myRole === "viewer" ? 2 * 60 * 1000 : 10 * 60 * 1000, t);
+  const nbLiveRef = useRef(true);
+  nbLiveRef.current = nbLive;
   useEffect(() => {
     if (!accountUid) { setData(null); return; }
     if (!nbLive) return;
@@ -4512,6 +4556,9 @@ function DutyRoster() {
 
   const [saveStatus, setSaveStatus] = useState("idle");
   const pendingWritesRef = useRef(0);
+  const saveQueuedRef = useRef(0);
+  const saveTimerRef = useRef(null);
+  const runSaveRef = useRef(null);
   const retryTimerRef = useRef(null);
 
   const lastShareTokenRef = useRef(null);
@@ -4590,6 +4637,8 @@ function DutyRoster() {
     if (prevAccountRef.current === accountUid) return;
     prevAccountRef.current = accountUid;
     setUndoStack([]); setRedoStack([]);
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    saveQueuedRef.current = 0; pendingWritesRef.current = 0;
     if (pubTimerRef.current) { clearTimeout(pubTimerRef.current); pubTimerRef.current = null; }
     if (digestTimerRef.current) { clearTimeout(digestTimerRef.current); digestTimerRef.current = null; }
     pubPendingRef.current = null; digestPendingRef.current = null;
@@ -4713,6 +4762,7 @@ function DutyRoster() {
   };
   const nbFlushRef = useRef(null);
   nbFlushRef.current = () => {
+    if (saveTimerRef.current && runSaveRef.current) runSaveRef.current();
     if (pubTimerRef.current) { if (pubPendingRef.current && dataRef.current) pubPendingRef.current = dataRef.current; flushPublicRoster(); }
     if (digestTimerRef.current) { if (digestPendingRef.current && dataRef.current) digestPendingRef.current = dataRef.current; flushDistrictDigest(); }
   };
@@ -4731,7 +4781,7 @@ function DutyRoster() {
     }
   }, [data]);
   useEffect(() => {
-    if (!dataRef.current || document.visibilityState === "hidden") return;
+    if (!dataRef.current || document.visibilityState === "hidden" || !nbLiveRef.current) return;
     if (digestDayRef.current === todayStr() && Date.now() - digestWrittenAtRef.current < NB_DIGEST_HEARTBEAT_MS) return;
     syncDistrictDigest(dataRef.current);
   }, [tick]);
@@ -4747,7 +4797,15 @@ function DutyRoster() {
 
     pendingWritesRef.current += 1;
     setSaveStatus("saving");
-
+    saveQueuedRef.current += 1;
+    if (saveTimerRef.current) return;
+    saveTimerRef.current = setTimeout(() => runSaveRef.current && runSaveRef.current(), 1200);
+  };
+  const runSave = () => {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    const nSave = saveQueuedRef.current;
+    saveQueuedRef.current = 0;
+    if (!nSave || !docRef) return;
     const attempt = (delayMs) => {
       let expectedRev = 0, clean = null, mineAtTx = null, merged = false;
       db.runTransaction(async (tx) => {
@@ -4807,14 +4865,14 @@ function DutyRoster() {
             dataRef.current = latest;
             setData(latest);
           }
-          pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+          pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
           if (pendingWritesRef.current === 0) setSaveStatus("idle");
           syncPublicRoster(dataRef.current);
           syncDistrictDigest(dataRef.current);
         })
         .catch((e) => {
           if (e && e.__nameTaken) {
-            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
             if (pendingWritesRef.current === 0) setSaveStatus("idle");
             nameTakenToast();
             docRef.get().then((snap) => {
@@ -4834,7 +4892,7 @@ function DutyRoster() {
             setData(normalized);
             confirmedRevRef.current = normalized._rev || 0;
             baseDataRef.current = normalized;
-            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
             if (pendingWritesRef.current === 0) setSaveStatus("idle");
             showToast(t(
               "Someone else saved a change here at the same moment — your last action wasn't applied, and the screen now shows their update instead. Please try again.",
@@ -4844,7 +4902,7 @@ function DutyRoster() {
           }
           if (e && e.code === "permission-denied") {
             console.error("Save rejected by Security Rules:", e);
-            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+            pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
             if (pendingWritesRef.current === 0) setSaveStatus("idle");
             showToast(t("This change isn't allowed and was not saved.", "આ ફેરફારની મંજૂરી નથી, તેથી સેવ થયો નથી."), "error");
             docRef.get().then((snap) => {
@@ -4868,6 +4926,7 @@ function DutyRoster() {
     };
     attempt(2000);
   };
+  runSaveRef.current = runSave;
 
   useEffect(() => {
     if (!data || !accountUid || !canEdit || data.blocked || archiveRef.current === null) return;
@@ -19772,7 +19831,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
       .finally(() => setApprovingUid(null));
   };
 
-  const nbDaLive = useNbVisibleLive(60000);
+  const nbDaLive = useNbVisibleLive(60000, 10 * 60 * 1000, t);
   useEffect(() => {
     if (!districtId) { setStations([]); return; }
     if (!nbDaLive) return;
@@ -19799,8 +19858,9 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     const uids = stationUidsKey ? stationUidsKey.split(",") : [];
     if (uids.length === 0) { setLiveOnDuty({}); return; }
     if (!nbDaLive) return;
+    let alive = true;
     const unsubs = uids.map((uid) =>
-      db.collection("publicRosters").doc(uid).onSnapshot(
+      nbGetOnce(db.collection("publicRosters").doc(uid), () => alive,
         (snap) => {
           if (!snap.exists || snap.data().v !== 2) {
             setLiveOnDuty((prev) => { const next = { ...prev }; delete next[uid]; return next; });
@@ -19821,7 +19881,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
         () => setLiveOnDuty((prev) => { const next = { ...prev }; delete next[uid]; return next; })
       )
     );
-    return () => unsubs.forEach((u) => u());
+    return () => { alive = false; unsubs.forEach((u) => u()); };
   }, [stationUidsKey, nbDaLive]);
 
   useEffect(() => {
