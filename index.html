@@ -682,6 +682,129 @@ function nbReleaseStationNames(uid, keepKey) {
     .then((qs) => Promise.all(qs.docs.filter((d) => d.id !== keepKey).map((d) => d.ref.delete().catch(() => {}))))
     .catch(() => {});
 }
+const NB_PERSONAL_KEYS = ["seenSections", "hasSeenWelcome", "reminderAcks"];
+function nbStripPersonal(d) {
+  if (!d) return d;
+  const out = { ...d };
+  NB_PERSONAL_KEYS.forEach((k) => { delete out[k]; });
+  return out;
+}
+function nbApplyPersonal(d, key) {
+  if (!d || !key) return d;
+  let local = null;
+  try { local = JSON.parse(nbLsGet(key) || "null"); } catch (e) { local = null; }
+  if (!local || typeof local !== "object") {
+    local = {};
+    NB_PERSONAL_KEYS.forEach((k) => { if (d[k] !== undefined) local[k] = d[k]; });
+    nbLsSet(key, JSON.stringify(local));
+  }
+  return { ...d, ...local };
+}
+function nbSavePersonal(d, key) {
+  if (!d || !key) return;
+  const local = {};
+  NB_PERSONAL_KEYS.forEach((k) => { if (d[k] !== undefined) local[k] = d[k]; });
+  const str = JSON.stringify(local);
+  if (nbLsGet(key) !== str) nbLsSet(key, str);
+}
+function nbArchiveDocRef(uid) { return db.collection("accounts").doc(uid).collection("archive").doc("history"); }
+function nbArchPack(h) { return nbPack({ v: 1, h }, ["v"]); }
+function nbArchUnpack(raw) { const d = nbUnpack(raw, ["v"]); return (d && d.h) || {}; }
+function nbArchCutoff() {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 3);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-01";
+}
+const nbHk = (e) => JSON.stringify(e);
+function nbArchJoin(d, A) {
+  if (!d || !d.membership || !A || !Object.keys(A).length) return d;
+  const membership = {};
+  Object.keys(d.membership).forEach((cat) => {
+    const ac = A[cat];
+    const done = new Set();
+    membership[cat] = (d.membership[cat] || []).map((m) => {
+      const a = ac && ac[m.number];
+      if (!a || !a.length || done.has(m.number)) return m;
+      done.add(m.number);
+      const have = new Map();
+      (m.history || []).forEach((e) => { const k = nbHk(e); have.set(k, (have.get(k) || 0) + 1); });
+      const extra = a.filter((e) => { const k = nbHk(e), c = have.get(k); if (c) { have.set(k, c - 1); return false; } return true; });
+      return extra.length ? { ...m, history: [...extra, ...(m.history || [])] } : m;
+    });
+  });
+  return { ...d, membership };
+}
+function nbArchSplit(d, A) {
+  if (!d || !d.membership || !A || !Object.keys(A).length) return { live: d, removed: null, removedAny: false };
+  const membership = {}, removed = {};
+  let removedAny = false;
+  const addRem = (cat, num, keys) => { if (!keys.length) return; removedAny = true; ((removed[cat] = removed[cat] || {})[num] = (removed[cat][num] || []).concat(keys)); };
+  Object.keys(d.membership).forEach((cat) => {
+    const ac = A[cat] || {};
+    const need = {};
+    membership[cat] = (d.membership[cat] || []).map((m) => {
+      const a = ac[m.number];
+      if (!a || !a.length) return m;
+      if (!need[m.number]) { const mp = new Map(); a.forEach((e) => { const k = nbHk(e); mp.set(k, (mp.get(k) || 0) + 1); }); need[m.number] = mp; }
+      const mp = need[m.number];
+      const hist = [];
+      (m.history || []).forEach((e) => { const k = nbHk(e), c = mp.get(k); if (c) mp.set(k, c - 1); else hist.push(e); });
+      return hist.length === (m.history || []).length ? m : { ...m, history: hist };
+    });
+    Object.keys(ac).forEach((num) => {
+      if (!need[num]) { addRem(cat, num, (ac[num] || []).map(nbHk)); return; }
+      const keys = [];
+      need[num].forEach((c, k) => { for (let i = 0; i < c; i++) keys.push(k); });
+      addRem(cat, num, keys);
+    });
+  });
+  Object.keys(A).forEach((cat) => { if (!d.membership[cat]) Object.keys(A[cat] || {}).forEach((num) => addRem(cat, num, (A[cat][num] || []).map(nbHk))); });
+  return { live: { ...d, membership }, removed, removedAny };
+}
+function nbArchOld(d, cutoff) {
+  const h = {};
+  let count = 0;
+  Object.keys((d && d.membership) || {}).forEach((cat) => {
+    (d.membership[cat] || []).forEach((m) => {
+      const old = (m.history || []).filter((e) => { const dt = historyDate(e); return dt && dt < cutoff; });
+      if (!old.length) return;
+      const c = (h[cat] = h[cat] || {});
+      c[m.number] = (c[m.number] || []).concat(old);
+      count += old.length;
+    });
+  });
+  return { h, count };
+}
+function nbArchUnion(S, add) {
+  const out = JSON.parse(JSON.stringify(S || {}));
+  Object.keys(add || {}).forEach((cat) => {
+    const c = (out[cat] = out[cat] || {});
+    Object.keys(add[cat]).forEach((num) => {
+      const cur = c[num] || [];
+      const have = new Map();
+      cur.forEach((e) => { const k = nbHk(e); have.set(k, (have.get(k) || 0) + 1); });
+      const extra = add[cat][num].filter((e) => { const k = nbHk(e), n = have.get(k); if (n) { have.set(k, n - 1); return false; } return true; });
+      c[num] = cur.concat(extra);
+    });
+  });
+  return out;
+}
+function nbArchRemove(S, removed) {
+  const out = JSON.parse(JSON.stringify(S || {}));
+  Object.keys(removed || {}).forEach((cat) => {
+    Object.keys(removed[cat]).forEach((num) => {
+      const list = out[cat] && out[cat][num];
+      if (!list) return;
+      const drop = new Map();
+      removed[cat][num].forEach((k) => drop.set(k, (drop.get(k) || 0) + 1));
+      const kept = list.filter((e) => { const k = nbHk(e), n = drop.get(k); if (n) { drop.set(k, n - 1); return false; } return true; });
+      if (kept.length) out[cat][num] = kept; else delete out[cat][num];
+    });
+    if (out[cat] && !Object.keys(out[cat]).length) delete out[cat];
+  });
+  return out;
+}
 function nbHash(str) {
   let h1 = 0x811c9dc5, h2 = 0x01000193;
   for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619); h2 = Math.imul(h2 + c, 2246822519) ^ (h2 >>> 13); }
@@ -4145,7 +4268,11 @@ function DutyRoster() {
     const t = setTimeout(check, 4000);
     return () => clearTimeout(t);
   }, [data]);
-  const storagePct = useMemo(() => (data ? Math.round((nbFirestoreBytes(nbPackAccount(data)) + 200) / NB_DOC_LIMIT_BYTES * 1000) / 10 : 0), [data]);
+  const archiveRef = useRef(null);
+  const nbPersonalKey = () => (accountUid ? "nb_personal_" + accountUid + "_" + ((user && user.uid) || "") : null);
+  const nbFromServer = (raw) => nbApplyPersonal(nbArchJoin(normalizeData(raw), archiveRef.current || {}), nbPersonalKey());
+  const nbLiveOf = (d) => nbStripPersonal(nbArchSplit(d, archiveRef.current || {}).live);
+  const storagePct = useMemo(() => (data ? Math.round((nbFirestoreBytes(nbPackAccount(nbLiveOf(data))) + 200) / NB_DOC_LIMIT_BYTES * 1000) / 10 : 0), [data]);
   const [storageDismissed, setStorageDismissed] = useState(0);
   const [didKeep6Format, setDidKeep6Format] = useState(false);
   const storageLevel = storagePct >= 99 ? 110 : storagePct >= 90 ? 90 : 0;
@@ -4227,12 +4354,36 @@ function DutyRoster() {
     if (!accountUid) { setData(null); return; }
     if (!nbLive) return;
     setConnError(false);
-    if (subAcctRef.current !== accountUid) { baseDataRef.current = null; subAcctRef.current = accountUid; }
+    if (subAcctRef.current !== accountUid) { baseDataRef.current = null; archiveRef.current = null; subAcctRef.current = accountUid; }
     let firstSnap = pubSyncedAcctRef.current !== accountUid;
     const ref = accountDocRef(accountUid);
+    let archReady = false, stash = null;
+    const rejoin = (d, oldA, newA) => (d ? nbArchJoin(nbArchSplit(d, oldA || {}).live, newA) : d);
+    const onArchive = (A) => {
+      const oldA = archiveRef.current;
+      archiveRef.current = A;
+      if (!archReady) { archReady = true; if (stash) { const st = stash; stash = null; onLive(st); } return; }
+      if (nbDeq(oldA, A)) return;
+      if (baseDataRef.current) baseDataRef.current = rejoin(baseDataRef.current, oldA, A);
+      if (dataRef.current) { const nd = rejoin(dataRef.current, oldA, A); dataRef.current = nd; setData(nd); }
+    };
+    const unsubA = nbArchiveDocRef(accountUid).onSnapshot(
+      (as) => {
+        let A = {};
+        if (as.exists) { try { A = nbArchUnpack(as.data()); } catch (e) { console.error("Couldn't read the history archive:", e); A = archiveRef.current || {}; } }
+        onArchive(A);
+      },
+      (err) => { console.warn("History archive not available:", err && err.code); onArchive(archiveRef.current || {}); }
+    );
     const unsub = ref.onSnapshot(
       { includeMetadataChanges: true },
-      (snap) => {
+      (snap) => { if (!archReady) { stash = snap; return; } onLive(snap); },
+      (err) => {
+        console.error(err);
+        setConnError(true);
+      }
+    );
+    function onLive(snap) {
         setHasPendingWrites(snap.metadata.hasPendingWrites);
         setConnError(false);
         if (snap.exists) {
@@ -4240,9 +4391,9 @@ function DutyRoster() {
           try { d = nbUnpackAccount(snap.data()); }
           catch (e) { console.error("Couldn't unpack station data:", e); setConnError(true); return; }
           if (d.v === 2) {
-            const normalized = normalizeData(d);
-            const needsWrite = !d.leaveTypes || !d.outstationTypes || !d.designations || !d.recycleBin || !d.events || !d.reminderAcks
-              || JSON.stringify(normalized.staff) !== JSON.stringify(d.staff);
+            const normalized = nbFromServer(d);
+            const needsWrite = !d.leaveTypes || !d.outstationTypes || !d.designations || !d.recycleBin || !d.events
+              || JSON.stringify(normalizeData(d).staff) !== JSON.stringify(d.staff);
             const prevBase = baseDataRef.current;
             const shown = pendingWritesRef.current > 0 && prevBase && dataRef.current && (normalized._rev || 0) >= (confirmedRevRef.current || 0)
               ? nbMergeAccount(prevBase, dataRef.current, normalized) : normalized;
@@ -4261,7 +4412,7 @@ function DutyRoster() {
                 localStorage.setItem("nb_auto_backup_" + accountUid, JSON.stringify({ savedAt: normalized.lastModifiedAt || Date.now(), data: normalized }));
               }
             } catch (e) {  }
-            if (needsWrite && !snap.metadata.fromCache && !memberRef.current) ref.set(nbPackAccount(normalized)).catch(() => {});
+            if (needsWrite && !snap.metadata.fromCache && !memberRef.current) ref.set(nbPackAccount(nbLiveOf(normalized))).catch(() => {});
             if (firstSnap && !snap.metadata.fromCache) {
               firstSnap = false; pubSyncedAcctRef.current = accountUid;
               if (nbLsGet("nb_pubchk_" + accountUid) !== todayStr()) { nbLsSet("nb_pubchk_" + accountUid, todayStr()); syncPublicRoster(normalized); }
@@ -4279,13 +4430,8 @@ function DutyRoster() {
           const initial = buildInitialData();
           writeToFirestore(initial);
         }
-      },
-      (err) => {
-        console.error(err);
-        setConnError(true);
-      }
-    );
-    return () => unsub();
+    }
+    return () => { unsub(); unsubA(); };
   }, [accountUid, retryKey, nbLive]);
 
   const writeDoc = (ref, next) => {
@@ -4387,7 +4533,7 @@ function DutyRoster() {
       return;
     }
     const token = next.shareToken || null;
-    const pub = deepStripUndefined(derivePublicData(next));
+    const pub = deepStripUndefined(derivePublicData(nbArchSplit(next, archiveRef.current || {}).live));
     const packedPub = nbPackPublic(pub);
     const packedShared = token ? nbPackPublic({ ...pub, owner: accountUid }) : null;
     const sig = (token || "") + "|" + nbStableStr(packedPub);
@@ -4592,6 +4738,7 @@ function DutyRoster() {
   const writeToFirestore = (next) => {
     const cur = dataRef.current, rendered = renderedDataRef.current;
     if (next && cur && rendered && rendered !== cur && next !== cur) next = nbMerge3(rendered, next, cur);
+    nbSavePersonal(next, nbPersonalKey());
     const stamped = { ...next, lastModifiedAt: Date.now() };
     dataRef.current = stamped;
     setData(stamped);
@@ -4611,7 +4758,7 @@ function DutyRoster() {
         merged = false;
         if (freshData && serverRev !== confirmedRevRef.current) {
           let theirs;
-          try { theirs = normalizeData(nbUnpackAccount(freshData)); }
+          try { theirs = nbFromServer(nbUnpackAccount(freshData)); }
           catch (err) { const conflictErr = new Error("Couldn't read the latest saved copy"); conflictErr.__conflict = true; conflictErr.freshData = freshData; throw conflictErr; }
           if (!baseDataRef.current) {
             const conflictErr = new Error("Write rejected: another tab or device saved a change first");
@@ -4624,6 +4771,9 @@ function DutyRoster() {
         }
         expectedRev = serverRev;
         clean = deepStripUndefined({ ...toWrite, _rev: serverRev + 1 });
+        const split = nbArchSplit(clean, archiveRef.current || {});
+        const archRef = nbArchiveDocRef(accountUid);
+        const archSnap = split.removedAny ? await tx.get(archRef) : null;
         const newKey = nbStationKey(clean);
         const oldKey = freshData ? nbStationKey(freshData) : null;
         const regRef = (k) => db.collection("stationRegistry").doc(k);
@@ -4634,7 +4784,8 @@ function DutyRoster() {
           takenErr.__nameTaken = true;
           throw takenErr;
         }
-        tx.set(docRef, nbPackAccount(clean));
+        tx.set(docRef, nbPackAccount(nbStripPersonal(split.live)));
+        if (archSnap) tx.set(archRef, nbArchPack(nbArchRemove(archSnap.exists ? nbArchUnpack(archSnap.data()) : {}, split.removed)));
         if (newReg) {
           tx.set(regRef(newKey), {
             uid: accountUid,
@@ -4667,7 +4818,7 @@ function DutyRoster() {
             nameTakenToast();
             docRef.get().then((snap) => {
               if (!snap.exists) return;
-              const fresh = normalizeData(nbUnpackAccount(snap.data()));
+              const fresh = nbFromServer(nbUnpackAccount(snap.data()));
               dataRef.current = fresh;
               setData(fresh);
               confirmedRevRef.current = fresh._rev || 0;
@@ -4677,7 +4828,7 @@ function DutyRoster() {
           }
           if (e && e.__conflict) {
             console.error("Write conflict — another tab/device saved first, this stale write was discarded instead of overwriting it:", e);
-            const normalized = normalizeData(nbUnpackAccount(e.freshData));
+            const normalized = nbFromServer(nbUnpackAccount(e.freshData));
             dataRef.current = normalized;
             setData(normalized);
             confirmedRevRef.current = normalized._rev || 0;
@@ -4697,7 +4848,7 @@ function DutyRoster() {
             showToast(t("This change isn't allowed and was not saved.", "આ ફેરફારની મંજૂરી નથી, તેથી સેવ થયો નથી."), "error");
             docRef.get().then((snap) => {
               if (!snap.exists) return;
-              const fresh = normalizeData(nbUnpackAccount(snap.data()));
+              const fresh = nbFromServer(nbUnpackAccount(snap.data()));
               dataRef.current = fresh;
               setData(fresh);
               confirmedRevRef.current = fresh._rev || 0;
@@ -4716,6 +4867,31 @@ function DutyRoster() {
     };
     attempt(2000);
   };
+
+  useEffect(() => {
+    if (!data || !accountUid || !canEdit || data.blocked || archiveRef.current === null) return;
+    const k = "nb_archstep_" + accountUid;
+    if (nbLsGet(k) === todayStr()) return;
+    nbLsSet(k, todayStr());
+    const old = nbArchOld(nbArchSplit(dataRef.current, archiveRef.current).live, nbArchCutoff());
+    if (!old.count) return;
+    const archRef = nbArchiveDocRef(accountUid);
+    db.runTransaction(async (tx) => {
+      const as = await tx.get(archRef);
+      const S = nbArchUnion(as.exists ? nbArchUnpack(as.data()) : {}, old.h);
+      tx.set(archRef, nbArchPack(S));
+      return S;
+    })
+      .then((S) => {
+        const oldA = archiveRef.current || {};
+        archiveRef.current = S;
+        const rj = (d) => (d ? nbArchJoin(nbArchSplit(d, oldA).live, S) : d);
+        if (baseDataRef.current) baseDataRef.current = rj(baseDataRef.current);
+        dataRef.current = rj(dataRef.current);
+        writeToFirestore(dataRef.current);
+      })
+      .catch((e) => console.warn("History archive step skipped:", e && (e.code || e.message)));
+  }, [data, canEdit]);
 
   const persist = (next) => {
     if (!canEdit) {
@@ -4797,7 +4973,7 @@ useEffect(() => {
     if (pubTimerRef.current) { clearTimeout(pubTimerRef.current); pubTimerRef.current = null; }
     if (digestTimerRef.current) { clearTimeout(digestTimerRef.current); digestTimerRef.current = null; }
     pubPendingRef.current = null; digestPendingRef.current = null;
-    const cleanup = [db.doc(`accounts/${accountUid}`).delete().catch(() => {})];
+    const cleanup = [nbArchiveDocRef(accountUid).delete().catch(() => {}).then(() => db.doc(`accounts/${accountUid}`).delete().catch(() => {}))];
     if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
     const districtId = (data && data.district || "").trim();
     if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
