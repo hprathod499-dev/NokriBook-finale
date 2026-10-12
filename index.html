@@ -15654,7 +15654,7 @@ const NB_ACTS = [
   { k: "MONEY", gu: "નાણાં ધીરધાર અધિનિયમ (વ્યાજખોરી)", short: "નાણાં ધીરધાર", re: /money\s?lend|નાણા[ંં]?\s?ધીર|ધીરધાર|શાહુકાર|વ્યાજખોર/i },
 ];
 const NB_PENDING_REASONS = ["હાઇકોર્ટ મેટર", "આરોપી પકડવા પર બાકી", "રેકર્ડ મેળવવા ઉપર", "શકદારો તપાસવા ઉપર", "ફાઇનલ ભરવા ઉપર", "સારવાર સર્ટી આવવા ઉપર", "FSL સર્ટી આવવા ઉપર", "વધુ તપાસ કરવા ઉપર", "ચાર્જશીટ કરવા ઉપર", "રીપોર્ટ કરવા ઉપર", "પી.એમ.નોટ આવવા ઉપર", "GVCL સર્ટી આવવા ઉપર", "કાગળો ગુમ થયેલ હોય", "અન્ય એજન્સી પાસે તપાસ ઉપર", "અન્ય"];
-const NB_CLOSE_TYPES = [["cs", "ચાર્જશીટ"], ["fa", "ફાઇનલ / સમરી 'A'"], ["fb", "સમરી 'B'"], ["fc", "સમરી 'C'"], ["n", "નિકાલ"]];
+const NB_CLOSE_TYPES = [["cs", "ચાર્જશીટ"], ["fa", "ફાઇનલ / સમરી 'A'"], ["fb", "સમરી 'B'"], ["fc", "સમરી 'C'"], ["ab", "વર્ગ એબેટેડ"], ["hc", "હાઇકોર્ટ હુકમથી FIR રદ"], ["n", "નિકાલ"]];
 const NB_PREVENTIVE = [
   ["p107", "સીઆર.પી.સી. ૧૦૭", "c.r.p.c 107"], ["p108", "સીઆર.પી.સી. ૧૦૮", "c.r.p.c 108"], ["p109", "સીઆર.પી.સી. ૧૦૯", "c.r.p.c 109"], ["p110", "સીઆર.પી.સી. ૧૧૦", "c.r.p.c 110"],
   ["gp55", "જી.પી.એ. ૫૫ (હદપારી)", "GPACT 55"], ["gp56", "જી.પી.એ. ૫૬ (હદપારી)", "GPACT 56"], ["gp57", "જી.પી.એ. ૫૭ (હદપારી)", "GPACT 57"],
@@ -15795,7 +15795,7 @@ function nbHeadLabel(e) {
 }
 function nbCloseLabel(e) {
   if (!e.closeType) return "";
-  const t = (NB_CLOSE_TYPES.find((x) => x[0] === e.closeType) || [])[1] || "";
+  const t = e.closeType === "cs" && e.csKind === "juv" ? "વર્તણૂક અહેવાલ" : (NB_CLOSE_TYPES.find((x) => x[0] === e.closeType) || [])[1] || "";
   return t + (e.closeDate ? " તા." + nbGDate(e.closeDate) : "");
 }
 function nbPendingAt(e, asOf) {
@@ -15803,7 +15803,7 @@ function nbPendingAt(e, asOf) {
   if (e.closeDate) return e.closeDate > asOf;
   return !e.closeType;
 }
-const NB_COURT_TYPES = [["sc", "સેશન્સ કેસ નં."], ["cc", "ફોજદારી કેસ નં. (CC)"], ["atro", "સ્પેશિયલ એટ્રો. કેસ નં."], ["pocso", "સ્પેશિયલ પોક્સો કેસ નં."], ["ndps", "સ્પેશિયલ NDPS કેસ નં."]];
+const NB_COURT_TYPES = [["sc", "સેશન્સ કેસ નં."], ["cc", "ફોજદારી કેસ નં. (CC)"], ["atro", "સ્પેશિયલ એટ્રો. કેસ નં."], ["pocso", "સ્પેશિયલ પોક્સો કેસ નં."], ["ndps", "સ્પેશિયલ NDPS કેસ નં."], ["jcc", "બાળ ફોજદારી કેસ નં. (JJB)"], ["sp", "સ્પેશિયલ કેસ નં."]];
 const NB_VERDICTS = [["proved", "સાબિત (સજા)"], ["notproved", "ના સાબિત (નિર્દોષ છુટકારો)"]];
 const NB_SENTENCES = [["jailfine", "કેદની સજા + રોકડ દંડ"], ["fine", "માત્ર રોકડ દંડ"], ["jail", "માત્ર કેદની સજા"]];
 function nbCourtLabel(e) {
@@ -16366,7 +16366,8 @@ function nbRegFields(reg) {
   const isCs = (e) => e.closeType === "cs";
   const proved = (e) => isCs(e) && e.verdict === "proved";
   const court = [
-    nbF("_csPair", "", "", "stack", { when: isCs, items: [nbF("csNo", "Charge-sheet no.", "ચાર્જશીટ નંબર", "text"), nbF("closeDate", "Charge-sheet date", "ચાર્જશીટ કર્યા તારીખ", "date")] }),
+    nbF("csKind", "Charge-sheet type", "ચાર્જશીટનો પ્રકાર", "sel", { opts: [["", "ચાર્જશીટ"], ["juv", "વર્તણૂક અહેવાલ (કિશોર આરોપી)"]], when: isCs }),
+    nbF("_csPair", "", "", "stack", { when: isCs, items: [nbF("csNo", "Charge-sheet no.", "ચાર્જશીટ / અહેવાલ નંબર", "text"), nbF("closeDate", "Charge-sheet date", "ચાર્જશીટ કર્યા તારીખ", "date")] }),
     nbF("courtType", "Court case type", "કોર્ટ કેસનો પ્રકાર", "sel", { opts: [["", "—"], ...NB_COURT_TYPES], when: isCs }),
     nbF("_courtPair", "", "", "stack", { when: (e) => isCs(e) && !!e.courtType, items: [nbF("courtNo", "Court case no.", "કોર્ટ કેસ નંબર", "text"), nbF("courtNoDate", "Court case no. given on", "કોર્ટે કેસ નંબર આપ્યા તારીખ", "date")] }),
     nbF("verdict", "Court disposal (judgment)", "કોર્ટ નિકાલ (ચુકાદો)", "sel", { opts: [["", "— કોર્ટમાં ચાલુ —"], ...NB_VERDICTS], when: (e) => isCs(e) && !!e.courtType }),
@@ -16374,6 +16375,7 @@ function nbRegFields(reg) {
     nbF("sentence", "Sentence", "સજાની વિગત", "sel", { opts: [["", "—"], ...NB_SENTENCES], when: proved }),
     nbF("jailTerm", "Imprisonment", "કેદની સજા (મુદત)", "text", { ph: "દા.ત. ૩ વર્ષ સખત કેદ", when: (e) => proved(e) && ["jailfine", "jail"].includes(e.sentence) }),
     nbF("fineAmt", "Fine ₹", "રોકડ દંડ ₹", "num", { when: (e) => proved(e) && ["jailfine", "fine"].includes(e.sentence) }),
+    nbF("accVd", "Judgment for each accused", "દરેક આરોપીનો ચુકાદો / સજા", "accvd", { wide: true, when: (e) => isCs(e) && !!e.verdict }),
   ];
   if (crime) return [
     { sec: "basic", en: "FIR", gu: "ગુનો" },
@@ -16398,7 +16400,8 @@ function nbRegFields(reg) {
     nbF("detAgency", "Detected by", "ડીટેક્ટ કરનાર એજન્સી", "sel", { opts: NB_AGENCIES, when: (e) => !!e.detected }),
     nbF("regAgency", "Registered by (agency)", "ગુનો દાખલ કરનાર એજન્સી", "sel", { opts: [["", "— ફરિયાદી પરથી આપોઆપ —"], ...NB_REG_AGENCIES] }),
     ...status,
-    nbF("finalNo", "A/B/C final (summary) no.", "A/B/C ફાઇનલ (સમરી) નંબર", "text", { when: (e) => ["fa", "fb", "fc"].includes(e.closeType) }),
+    nbF("finalNo", "A/B/C final (summary) no.", "A/B/C ફાઇનલ / એબેટેડ નંબર", "text", { when: (e) => ["fa", "fb", "fc", "ab"].includes(e.closeType) }),
+    nbF("finalRef", "Court / order reference", "જા.નં. / સમરી નં. / હુકમ નં.", "text", { wide: true, when: (e) => ["fa", "fb", "fc", "ab", "hc"].includes(e.closeType) }),
     ...court,
     { sec: "book", en: "Annual crime book", gu: "વાર્ષિક ગુના પત્રક" },
     nbF("bookHead", "Head in the annual book", "વાર્ષિક પત્રકનો હેડ", "bookhead", { wide: true }),
@@ -16573,6 +16576,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
         {NB_REGS.filter((r) => r.crime).map((r) => <option key={r.k} value={r.k}>{r.gu}</option>)}
       </select>
     );
+    else if (f.type === "accvd") ctl = <NbAccVerdict e={e} onChange={(x) => set("accList", x)} />;
     else if (f.type === "people") ctl = <NbPeopleEditor value={v} kind={f.who} fromText={f.who === "acc" && e.accused ? { text: e.accused, arrest: e.arrestText } : null} onChange={(x) => set(f.k, x)} />;
     else if (f.type === "bookhead") ctl = <NbBookHeadField e={e} setE={setE} />;
     else if (f.type === "ckind") ctl = <select value={v || nbGuessCKind(e)} onChange={(ev) => set(f.k, ev.target.value)} className="gu" style={inp}>{NB_C_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>;
@@ -17442,7 +17446,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
   useEffect(() => {
     let alive = true;
     const load = () => Promise.all([nbCrimeStore.getMeta("regSettings"), nbCrimeStore.getMeta("monthly")]).then(([s, m]) => { if (!alive) return; setSettingsState(s || {}); setMonthlyState(m || {}); });
-    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).then(() => nbFixIpcHeads().catch((e) => console.warn("ipc heads", e))).finally(load);
+    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).then(() => nbFixIpcHeads().catch((e) => console.warn("ipc heads", e))).then(() => nbFillDisposals().catch((e) => console.warn("disposal text", e))).finally(load);
     nbMigrateOldCases().catch((e) => console.warn("migration", e)).finally(loadClean);
     let tidy = null;
     const onChange = () => { load(); clearTimeout(tidy); tidy = setTimeout(() => { nbClearGuessedDisposals().catch(() => {}).then(() => nbApplyProhiRules().catch(() => {})); }, 2500); };
@@ -17496,6 +17500,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("pr")} style={tabBtn(tab === "pr")} className={tab === "pr" ? "nb-tab-on" : ""} data-tab-pr>🍾 {t("Prohibition", "પ્રોહી / દારૂ")}</button>
         <button onClick={() => setTab("io")} style={tabBtn(tab === "io")} className={tab === "io" ? "nb-tab-on" : ""} data-tab-io>👮 {t("Pending by officer", "ત.ક.અ. મુજબ પેન્ડીંગ")}</button>
         <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} className={tab === "fr" ? "nb-tab-on" : ""} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
+        <button onClick={() => setTab("acc")} style={tabBtn(tab === "acc")} className={tab === "acc" ? "nb-tab-on" : ""} data-tab-acc>👤 {t("Accused search", "આરોપી શોધ")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")} className={tab === "set" ? "nb-tab-on" : ""}>⚙️ {t("Settings", "સેટિંગ")}</button>
       </div>
       <div key={tab} className="view-fade-in">
@@ -17506,11 +17511,102 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "pr" && <CrimeProhiHub ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "io" && <CrimeIoPanel ctx={ctx} showList={showList} />}
       {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
+      {tab === "acc" && <CrimeAccusedPanel ctx={ctx} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       </div>
       {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
       {bsv && <CrimeBStatementView title={bsv.title} list={bsv.draft ? [nbNormEntry(bsv.draft)] : ctx.entries.filter((e) => bsv.ids.includes(e.id))} ctx={ctx} onClose={() => setBsv(null)} />}
       {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} onBst={(e) => setBsv({ title: "B સ્ટેટમેન્ટ — " + nbG(e.no || "") + "/" + nbG(String(e.year || "").slice(-2)), ids: [e.id], draft: e })} />}
+    </div>
+  );
+}
+// ---- accused across all years ----
+const NB_PN_DROP = new Set(["શ્રી", "સ/ઓ", "સ/ઓફ", "s/o", "d/o", "w/o", "વા/ઓ", "ડો/ઓ", "સન", "ઓફ", "of", "son", "તે"]);
+function nbPnTok(w) { return nbWNz(w).replace(/(ભાઇ|ભાઈ|ભાય|ભા|બેન|બહેન|કુમાર|સિંહ|સિહ|જી)$/u, "").replace(/[^઀-૿a-z0-9]/gi, ""); }
+function nbPersonOf(raw) {
+  let s = nbWClean(String(raw || "")).replace(/^\s*\(?\s*[0-9૦-૯]{1,2}\s*\)\s*/, "").replace(/\s+/g, " ");
+  const age = (nbWA(s).match(/ઉ\.?\s?વ\.?[\s.:-]*(\d{1,3})/) || [])[1] || "";
+  const R = /(?:^|[\s,])રહે(?:વાસી)?\s*[.:\-]/;
+  const rm = s.match(R);
+  let vilText = "";
+  if (rm) {
+    const words = s.slice(rm.index + rm[0].length).split(/[\s,.]+/).filter(Boolean);
+    vilText = words.find((w) => !/^(તમામ|બન્ને|બંને|બંન્ને|બધા|ગામ|મુ|મુકામ|જુના|નવા|નવી|જુની|શેરી|પ્લોટ)$/.test(w) && !/(ભાઇ|ભાઈ|ના|ની|નો|નું|માં|મા)$/.test(w) && !/^[0-9૦-૯]/.test(w)) || "";
+  }
+  const cut = s.search(/ઉ\.?\s?વ|ઉંમર|(?:^|[\s,])રહે(?:વાસી)?\s*[.:\-]|ધંધો|ધંધા|જાતે|તા\.\s*[0-9૦-૯]|[,(]|\s-\s/);
+  const name = (cut > 0 ? s.slice(0, cut) : s).replace(/[.,\-\s]+$/, "").trim();
+  const words = name.split(/\s+/).filter((w) => w && !NB_PN_DROP.has(w.toLowerCase()));
+  const all = words.map(nbPnTok).filter((w) => w.length > 1);
+  const core = []; for (let k = 0; k < words.length; k++) { if (/^ઉર?્?ફે$|^ઉફે$/.test(words[k])) { k++; continue; } const w = nbPnTok(words[k]); if (w.length > 1) core.push(w); }
+  const vil = nbPnTok(vilText);
+  return { name, age, vil, vilText, toks: all, key: core.length >= 3 ? core.join(" ") : core.join(" ") + "|" + vil };
+}
+function nbAccPeopleOf(e) { return nbMemoRec(nbAccPeopleOf__, e); }
+function nbAccPeopleOf__(e) {
+  let L = nbPeople(e.accList).filter((p) => p.name && String(p.name).trim());
+  if (!L.length && e.accused && !/^\s*-?\s*$/.test(e.accused)) L = nbAccusedWithArrests(e.accused, e.arrestText);
+  return L.map((p, i) => ({ p, i, ...nbPersonOf(p.name) })).filter((x) => x.toks.length && !/અજાણ|ન[મા]ુદનથ|^ઇસમ$/.test(x.toks.join("")));
+}
+function nbAccIndex(entries) {
+  const G = {};
+  entries.forEach((e) => {
+    if (!["A", "B", "C", "M"].includes(e.reg)) return;
+    nbAccPeopleOf(e).forEach((x) => {
+      const g = G[x.key] || (G[x.key] = { key: x.key, toks: [], names: {}, vils: {}, ages: new Set(), rows: [] });
+      g.names[x.name] = (g.names[x.name] || 0) + 1; if (x.age) g.ages.add(x.age); if (x.vilText) g.vils[x.vilText] = 1;
+      x.toks.forEach((w) => { if (!g.toks.includes(w)) g.toks.push(w); }); if (x.vil && !g.toks.includes(x.vil)) g.vilToks = [...(g.vilToks || []), x.vil];
+      if (!g.rows.some((r) => r.e.id === e.id)) g.rows.push({ e, p: x.p, i: x.i });
+    });
+  });
+  return Object.values(G).map((g) => ({ ...g, vil: Object.keys(g.vils).join(", "), name: Object.entries(g.names).sort((a, b) => b[1] - a[1])[0][0], rows: g.rows.sort((a, b) => (a.e.regDate || "").localeCompare(b.e.regDate || "")) }));
+}
+function nbAccStatusText(e, p) {
+  const st = p.st === "no" && e.closeType ? "" : p.st === "yes" ? "અટક" + (p.arrestDate ? " તા." + nbGDate(p.arrestDate) : "") : p.st === "notice" ? "નોટીસ" : p.st === "asked" ? "પૂછપરછ" : p.st === "no" ? "અટક બાકી" : p.st === "dead" ? "મરણ" : "";
+  const close = e.closeType ? nbCloseLabel(e) + (e.csNo ? " નં." + nbG(e.csNo) : "") + (e.finalNo ? " નં." + nbG(e.finalNo) : "") : (e.reg === "A" ? "તપાસ ચાલુ" : "");
+  const court = nbCourtLabel(e);
+  const vd = p.vd === "proved" ? "સજા" + (p.pun ? ": " + p.pun : "") : p.vd === "notproved" ? "નિર્દોષ" : "";
+  return [st, close, court, vd ? "આ આરોપી — " + vd : ""].filter(Boolean).join(" · ");
+}
+function CrimeAccusedPanel({ ctx, onOpen }) {
+  const { t } = useLang();
+  const [q, setQ] = useState("");
+  const idx = useMemo(() => nbAccIndex(ctx.entries), [ctx.entries]);
+  const qt = nbWA(q).trim().split(/\s+/).map(nbPnTok).filter(Boolean);
+  const hit = (g) => qt.every((w) => g.toks.some((x) => x.startsWith(w)) || (g.vilToks || []).some((x) => x.startsWith(w)));
+  const list = (qt.length ? idx.filter(hit) : idx.filter((g) => g.rows.length > 1)).sort((a, b) => b.rows.length - a.rows.length || a.name.localeCompare(b.name)).slice(0, 150);
+  const repeat = idx.filter((g) => g.rows.length > 1).length;
+  return (
+    <div data-acc-panel>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+        <input type="search" value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={t("Accused name or village…", "આરોપીનું નામ કે ગામ લખો…")} className="gu" data-acc-q style={{ width: "100%", fontSize: 15, padding: "9px 10px", boxSizing: "border-box" }} />
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6 }}>
+          {t(`${idx.length} accused in all years · ${repeat} with more than one crime.`, `બધા વર્ષના કુલ ${nbG(idx.length)} આરોપી · ${nbG(repeat)} આરોપી પર એકથી વધુ ગુના.`)} {!qt.length && t("Showing the repeat accused.", "નીચે એકથી વધુ ગુના વાળા આરોપી.")}
+          {" "}{t("Crimes are joined by the full name (name, father, surname); a short name is joined only within the same village.", "ગુના આખા નામ (નામ, પિતા, અટક) થી જોડાય છે; ટૂંકું નામ હોય તો ફક્ત એ જ ગામમાં જોડાય છે.")}
+        </div>
+      </div>
+      {!list.length && <div style={{ fontSize: 13.5, color: "var(--text-secondary)", padding: 8 }}>{t("No accused found.", "કોઈ આરોપી મળ્યો નહીં.")}</div>}
+      <div style={{ display: "grid", gap: 10 }}>
+        {list.map((g) => (
+          <div key={g.key} data-acc-person={g.rows.length} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+              <b style={{ fontSize: 15 }}>{g.name}</b>
+              {g.vil && <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("of", "રહે.")} {g.vil}</span>}
+              {g.ages.size > 0 && <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("age", "ઉ.વ.")} {nbG(Array.from(g.ages).join(", "))}</span>}
+              <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: 13.5 }}>{nbG(g.rows.length)} {t("crimes", "ગુના")}</span>
+            </div>
+            <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
+              {g.rows.map(({ e, p }) => (
+                <button type="button" key={e.id} onClick={() => onOpen(e)} data-acc-crime={e.id} style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: "1px solid var(--border-soft)", padding: "6px 0 2px", font: "inherit", color: "inherit", cursor: "pointer" }}>
+                  <div style={{ fontSize: 13.5 }}><b>{nbReg(e.reg).gu} {nbG(e.no || "")}/{nbG(e.year || "")}</b>{e.regDate ? " · " + nbGDate(e.regDate) : ""} · {nbEntryTitle(e)}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{String(e.sections || "").slice(0, 110)}</div>
+                  {nbPersonOf(p.name).name !== g.name && <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Written as", "આ ગુનામાં નામ")}: {String(p.name).slice(0, 120)}</div>}
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbAccStatusText(e, p)}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -17897,7 +17993,135 @@ function nbDocBlocks(buf) {
   if (para.trim()) out.push({ p: clean(para).trim() });
   return out;
 }
+// "unknown person" wording anywhere in a one-person accused box (no address, no second accused)
+function nbWUnknownAcc(t) { t = String(t || ""); return /અજાણ|ન[મા]ુદ\s*નથી/.test(t) && !/રહે|\(\s*[૨2]\s*\)|^\s*[૨2]\s*[).]/m.test(t); }
 const NB_W_STATUS = ["statusText", "investigation", "pendingReason", "io", "arrestText", "disposal"];
+// Charge-sheet / final / court / judgment details read from the "નિકાલ" text exactly as written (dates only when written there).
+const NB_DISP_KEYS = ["closeType", "closeDate", "csNo", "csKind", "finalNo", "finalRef", "courtType", "courtNo", "courtNoDate", "verdict", "courtDate", "sentence", "jailTerm", "fineAmt"];
+function nbDispDate(s) {
+  const a = nbWA(s);
+  const m = a.match(/(\d{1,2})\s*[/.-]\s*0*(\d{1,2})\s*[/.-]\s*(\d{4}|\d{2})(?!\d)/) || a.match(/(\d{1,2})\s*\/\s*(\d{2})(\d{2})(?![\d/])/);
+  if (!m) return "";
+  const d = +m[1], mo = +m[2], y = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  if (!(mo >= 1 && mo <= 12 && d >= 1 && y > 1990 && y < 2100) || d > new Date(y, mo, 0).getDate()) return "";
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+const NB_DISP_RULES = [
+  ["hc", /હા[ઇઈ]\s*-?\s*કોર્ટ|high\s*court/gi],
+  ["vart", /વ(?:ર્ત|તૅ|ત)[ણન]?[ુૂ]?[ણન]?[ુૂ]?ક\s*અહેવાલ|વર્તણ[ુૂ]ક/g],
+  ["cs", /ચા\s*\.?\s*નં?(?![઀-૿])|ચાર્જ\s*શી?ટ|charge\s*-?\s*sheet|c\s*\.?\s*s\s*\.?\s*no/gi],
+  ["ab", /(?:વ(?:ર્ગ|ગૅ|ગ)\s*[-.]?\s*)?એબેટે?ડ|abated?/gi],
+  ["fa", /વ(?:ર્ગ|ગૅ|ગ)\s*[-.]?\s*અ(?![઀-૿])|(?:^|[^a-z])a\s*\.?\s*f(?![a-z])|(?:^|[\s,(])એ\s*\.\s*એફ|(?:^|[\s,(])અ\s*[-.]?\s*ફા|(?:^|\s)(?:a|એ)\s*[-.]?\s*(?:ફાઇનલ|ફાઈનલ|સમરી|summary|final)/gi],
+  ["fb", /વ(?:ર્ગ|ગૅ|ગ)\s*[-.]?\s*બ(?![઀-૿])|(?:^|[^a-z])b\s*\.?\s*f(?![a-z])|(?:^|[\s,(])બી\s*\.\s*એફ|(?:^|[\s,(])બ\s*[-.]?\s*ફા|(?:^|\s)(?:b|બી)\s*[-.]?\s*(?:ફાઇનલ|ફાઈનલ|સમરી|summary|final)/gi],
+  ["fc", /વ(?:ર્ગ|ગૅ|ગ)\s*[-.]?\s*ક(?![઀-૿])|(?:^|[^a-z])c\s*\.?\s*f(?![a-z])|(?:^|[\s,(])સી\s*\.\s*એફ|(?:^|[\s,(])ક\s*[-.]?\s*ફા|(?:^|\s)(?:c|સી)\s*[-.]?\s*(?:ફાઇનલ|ફાઈનલ|સમરી|summary|final)/gi],
+  ["jcc", /બાળ\s*(?:ફો\s*\.?\s*કે|ફોજદારી|કોર્ટ|કેસ)|j\s*\.?\s*j\s*\.?\s*b/gi],
+  ["cc", /ફો\s*\.?\s*કે\s*\.?\s*(?:નં|ન|સ)?|ફોજદારી\s*કેસ|c\s*\.?\s*c\s*\.?\s*no/gi],
+  ["sc", /સે\s*\.?\s*કે|સેશન્?સ\s*કેસ|s\s*\.?\s*c\s*\.?\s*no/gi],
+  ["sp", /સ્પે\s*\.?\s*કે|સ્પેશ[િી]યલ\s*(?:કેસ|કોર્ટ)/g],
+  ["atro", /એટ્રો\s*\.?\s*(?:કેસ\s*)?નં?(?![઀-૿])/g],
+  ["pocso", /પો[ક્ક]+સો\s*\.?\s*(?:કેસ\s*)?નં?(?![઀-૿])/g],
+  ["ja", /જા\s*\.?\s*નં?(?![઀-૿])|જાવક\s*નં?/g],
+  ["sum", /સમરી\s*નં?/g],
+  ["np", /ના\s*\.?\s*સા(?:બિત)?|નિર્દોષ|છોડી\s*મુ|acquit/gi],
+  ["pr", /સાબિત|સજા|કસ[ુૂ]રવા|તકસીરવા|convict/gi],
+  ["n", /નિકાલ\s*(?=તા)/g],
+];
+function nbDispNum(seg, year) {
+  const a = nbWA(seg);
+  const pre = /^[\s.:,\-ં]*(?:(?:ફા(?:ઇ|ઈ)?નલ|ફાઇનલ|ફાઈનલ|final|ફા|સમરી|અહેવાલ|કેસ|નંબર|નં|ન|no|ક્રમાંક)[\s.:,\-]*)*/i;
+  const p = (a.match(pre) || [""])[0].length, r = a.slice(p);
+  let m = r.match(/^(\d{1,5})\s*[/-]\s*(\d{4}|\d{2})(?!\s*[/.-]\s*\d)(?!\d)/);
+  if (m) return { no: `${m[1]}/${m[2]}`, end: p + m[0].length };
+  m = r.match(/^(\d{1,4})(\d{2})(?!\d)/);
+  const yy = Number(String(year || "").slice(-2));
+  if (m && m[1].length >= 2 && yy && +m[2] >= yy && +m[2] <= yy + 4) return { no: `${m[1]}/${m[2]}`, end: p + m[0].length };
+  return { no: "", end: 0 };
+}
+function nbParseDisposal(text, e) {
+  const raw = nbWClean(text || ""), a = nbWA(raw);
+  const out = {}, warn = [], accVd = {};
+  if (!raw || raw.length < 2) return { fields: out, warn, accVd };
+  let hits = [];
+  NB_DISP_RULES.forEach(([k, re]) => { re.lastIndex = 0; let m; while ((m = re.exec(a))) { if (!m[0].length) { re.lastIndex++; continue; } const lead = (m[0].match(/^[^઀-૿a-z]*/i) || [""])[0].length; hits.push({ k, i: m.index + lead, end: m.index + m[0].length }); } });
+  hits.sort((x, y) => x.i - y.i || (y.end - y.i) - (x.end - x.i));
+  const keep = []; hits.forEach((h) => { const last = keep[keep.length - 1]; if (last && h.i < last.end) return; if (h.k === "pr" && /ના\s*\.?\s*$/.test(a.slice(Math.max(0, h.i - 4), h.i))) return; keep.push(h); });
+  hits = keep;
+  if (!hits.length) return { fields: out, warn, accVd };
+  if (hits.some((h) => h.k === "hc") && !/રદ|quash/i.test(a)) hits = hits.filter((h) => h.k !== "hc");
+  const year = e && e.year, refs = [];
+  const acts = String((e && e.sections) || "") + " " + ((e && e.acts) || []).join(" ");
+  let close = null, court = null, vd = null;
+  hits.forEach((h, n) => {
+    const seg = raw.slice(h.end, n + 1 < hits.length ? hits[n + 1].i : raw.length);
+    const num = ["np", "pr", "hc", "n"].includes(h.k) ? { no: "", end: 0 } : nbDispNum(seg, year);
+    const date = nbDispDate(seg.slice(num.end));
+    if (["cs", "vart", "fa", "fb", "fc", "ab", "hc", "n"].includes(h.k)) close = { ...h, no: num.no, date };
+    else if (["cc", "jcc", "sc", "sp", "atro", "pocso"].includes(h.k)) court = { ...h, no: num.no, date };
+    else if (h.k === "ja" || h.k === "sum") refs.push((h.k === "ja" ? "જા.નં. " : "સમરી નં. ") + nbG(num.no || "") + (date ? " તા." + nbGDate(date) : ""));
+    else if (h.k === "np" || h.k === "pr") { if (!vd) vd = { ...h, date }; else { if (h.k === "pr") vd.k = "pr"; if (!vd.date) vd.date = date; } }
+  });
+  if (close) {
+    if (close.k === "cs" || close.k === "vart") { out.closeType = "cs"; if (close.no) out.csNo = close.no; if (close.k === "vart") out.csKind = "juv"; }
+    else if (close.k === "hc") { out.closeType = "hc"; out.finalRef = raw.replace(/\s+/g, " ").trim(); const d = nbWDates(raw.slice(close.i)); if (d.length) close.date = d[0][0]; }
+    else { out.closeType = close.k; if (close.no) out.finalNo = close.no; }
+    if (close.date) out.closeDate = close.date;
+  }
+  if (refs.length && out.closeType !== "hc") out.finalRef = refs.join(", ");
+  if (court) {
+    let ct = court.k;
+    if (ct === "sp") ct = /પો[ક્ક]+સો|pocso/i.test(acts) ? "pocso" : /એટ્રો|atro/i.test(acts) ? "atro" : /ndps|એન\.?\s?ડી\.?\s?પી/i.test(acts) ? "ndps" : "sp";
+    out.courtType = ct; if (court.no) out.courtNo = court.no; if (court.date) out.courtNoDate = court.date;
+    if (!out.closeType) out.closeType = "cs";
+  }
+  if (vd) {
+    out.verdict = vd.k === "pr" ? "proved" : "notproved"; if (vd.date) out.courtDate = vd.date;
+    if (!out.closeType) out.closeType = "cs";
+    if (out.verdict === "proved") {
+      const vs = Math.max(0, (hits.find((h) => ["cc", "jcc", "sc", "sp", "atro", "pocso"].includes(h.k)) || { i: 0 }).i), tail = a.slice(vs);
+      const jm = tail.match(/\d+\s*(?:વર્ષ|વરસ|માસ|મહિના|મહીના|દિવસ)[^,.;]{0,30}?(?:કેદ|સજા)|આજીવન\s*કેદ|ફાંસી|મૃત્યુ\s*દંડ/);
+      const fm = tail.match(/દંડ\D{0,14}?([\d,]{2,})/) || tail.match(/(?:રૂ\.?|₹)\s*([\d,]{2,})\s*(?:\/-)?\s*(?:નો\s*)?દંડ/);
+      if (jm) out.jailTerm = raw.slice(vs + jm.index, vs + jm.index + jm[0].length).trim();
+      if (fm) out.fineAmt = String(Number(fm[1].replace(/,/g, "")) || "");
+      if (jm || fm) out.sentence = jm && fm ? "jailfine" : jm ? "jail" : "fine";
+    }
+    const re = /આરોપી\s*નં\.?\s*((?:\d{1,2}\s*(?:,|તથા|અને|થી|-)?\s*)+)(?:ને|નાઓને)?([^]*?)(?=આરોપી\s*નં|$)/g; let m;
+    while ((m = re.exec(a))) {
+      const body = m[2], kind = /નિર્દોષ|ના\s*\.?\s*સા|છોડી/.test(body) ? "notproved" : /સજા|સાબિત|કેદ|દંડ|કસ[ુૂ]રવા/.test(body) ? "proved" : "";
+      if (!kind) continue;
+      const pun = kind === "proved" ? raw.slice(m.index + m[0].length - body.length, m.index + m[0].length).replace(/^[\s,.]+|[\s,.]+$/g, "").replace(/\s*(?:ની\s*)?સજા\s*(?:થયેલ|કરેલ|ફટકારેલ)?\s*(?:છે)?\.?$/, "").slice(0, 160) : "";
+      nbArNums(m[1]).forEach((k) => { accVd[k] = { vd: kind, pun }; });
+    }
+    if (!Object.keys(accVd).length && /(?:તમામ|બધા|બન્ને|બંને|બંન્ને)\s*આરોપી/.test(a)) accVd.all = { vd: out.verdict, pun: out.verdict === "proved" ? out.jailTerm || "" : "" };
+  }
+  if (out.closeType === "cs" && e && e.reg === "A") out.detected = true;
+  const rd = (e && e.regDate) || "";
+  [["closeDate", "નિકાલ / ચાર્જશીટ"], ["courtNoDate", "કોર્ટ કેસ નંબર"], ["courtDate", "ચુકાદા"]].forEach(([k, l]) => { if (out[k] && rd && out[k] < rd) warn.push(l + " તારીખ " + nbGDate(out[k]) + " ગુના તારીખ " + nbGDate(rd) + " પહેલાંની છે"); });
+  if (out.closeDate && out.courtNoDate && out.courtNoDate < out.closeDate) warn.push("કોર્ટ કેસ નંબર તારીખ ચાર્જશીટ પહેલાંની છે");
+  return { fields: out, warn, accVd };
+}
+function nbApplyDisposal(e, onlyEmpty) {
+  if (!e || !e.disposal || !["A", "B", "C", "M"].includes(e.reg)) return e;
+  const r = nbParseDisposal(e.disposal, e);
+  Object.entries(r.fields).forEach(([k, v]) => { if (k === "detected") { if (!onlyEmpty || e.detected == null || e.detected === false) e.detected = v; return; } if (!onlyEmpty || e[k] == null || e[k] === "") e[k] = v; });
+  if (Object.keys(r.accVd).length) {
+    let L = nbPeople(e.accList); if (!L.length && e.accused) L = nbAccusedWithArrests(e.accused, e.arrestText);
+    e.accList = L.map((p, i) => { const v = r.accVd[i + 1] || r.accVd.all; if (!v || onlyEmpty && p.vd) return p; const n = { ...p, vd: v.vd }; if (v.pun && (!onlyEmpty || !p.pun)) n.pun = v.pun; return n; });
+  }
+  if (r.warn.length) e._dispWarn = r.warn; else delete e._dispWarn;
+  return e;
+}
+async function nbFillDisposals() {
+  if (await nbCrimeStore.getMeta("dispParse1")) return 0;
+  const all = await nbEntryStore.all(); const fix = [];
+  all.forEach((e) => {
+    if (!e.disposal) return;
+    const n = nbApplyDisposal({ ...e }, true); delete n._dispWarn;
+    if (NB_DISP_KEYS.some((k) => n[k] !== e[k]) || n.detected !== e.detected || JSON.stringify(n.accList) !== JSON.stringify(e.accList)) fix.push({ ...n, updatedAt: Date.now() });
+  });
+  if (fix.length) await nbEntryStore.putMany(fix);
+  await nbCrimeStore.setMeta("dispParse1", Date.now());
+  return fix.length;
+}
 const NB_W_UNDET = /અનડ[ીિ]ટ[ેે]ક્?ટ|અન\s*ડ[ીિ]ટ|undetect/i;
 function nbWDetectFix(e) {
   if (e.reg !== "A") return e;
@@ -18152,7 +18376,7 @@ function nbWDateTime(s) {
 function nbWFir(s) {
   const a = nbWA(s), z = a.replace(/[\s‍]/g, "");
   let m = z.match(/1119\d{4}(\d\d)(\d{2,5})(?!\d)/) || z.match(/\d{8}(\d\d)(\d{4})(?!\d)/);
-  if (m) { let n = +m[2]; if (n > 2000) n = +m[2].slice(0, -1); return [String(n), "20" + m[1]]; }
+  if (m) { let n = +m[2]; if (n > 2000) n = m[2].length === 5 && m[2][0] === m[2][1] ? +m[2].slice(1) : +m[2].slice(0, -1); return [String(n), "20" + m[1]]; }
   m = a.match(/નં[.\s:-]*0*(\d{1,4})\s*\/\s*(\d{2,4})/);
   if (m) return [String(+m[1]), m[2].length === 2 ? "20" + m[2] : m[2]];
   return [null, null];
@@ -18264,7 +18488,7 @@ function nbMergeAccList(a, b) {
   for (let i = 0; i < n; i++) {
     const x = A[i] || {}, y = B[i] || {};
     const r = { ...x };
-    ["name", "age", "mon", "g", "note"].forEach((k) => { if ((r[k] === "" || r[k] == null) && y[k] !== "" && y[k] != null) r[k] = y[k]; });
+    ["name", "age", "mon", "g", "note", "vd", "pun"].forEach((k) => { if ((r[k] === "" || r[k] == null) && y[k] !== "" && y[k] != null) r[k] = y[k]; });
     const act = (p) => p.st && p.st !== "no";
     if (act(y) || !act(x) && y.st) { r.st = y.st; if (y.arrestDate) r.arrestDate = y.arrestDate; else delete r.arrestDate; }
     out.push(r);
@@ -18422,16 +18646,18 @@ function nbParseUtaraBlocks(blocks) {
           occText: nbWClean(c[3]), place: nbWClean(c[5]), complainant: nbWClean(c[6]), accused: nbWClean(c[7]), arrestText: nbWClean(c[8]),
           facts: nbWClean(c[9]), io: nbWClean(c[10]), disposal: c.length > 11 ? nbWClean(c[11]) : "", createdAt: now, updatedAt: now };
         if (xs) ["statusText", "investigation", "loss", "motive"].forEach((k) => { if (xs[k] && xs[k] !== "-") e[k] = xs[k]; });
+        if (e.disposal) nbApplyDisposal(e, false);
         if (!rd && monthBy !== "mahe") e._noDate = 1;
         if (reg === "B" || reg === "C") e.detected = true;
         if (reg === "B" && nbIsDD185(secs)) e.partBHead = "mv185";
         if (reg === "A") {
           const acc = e.accused.trim();
-          e.detected = !!acc && !(/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(acc) && !acc.includes("\n")) && acc !== "-" && !/નામ\s*ન[મા]ુદ\s*નથી|^\s*ન[મા]ુદ\s*નથી/.test(acc);
+          e.detected = !!acc && !(/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(acc) && !acc.includes("\n")) && acc !== "-" && !/નામ\s*ન[મા]ુદ\s*નથી|^\s*ન[મા]ુદ\s*નથી/.test(acc) && !nbWUnknownAcc(acc);
           if (e.detected && e.arrestText && !/તપાસ/.test(e.arrestText)) { const d = nbWDates(e.arrestText)[0]; if (d) e.arrestDate = d[0]; }
-          if (e.accused && !/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(e.accused) || /\(\s*[૨2]\s*\)/.test(e.accused)) { const L = nbAccusedWithArrests(e.accused, e.arrestText); if (L.length) e.accList = L; }
+          if (e.accused && !/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(e.accused) && !nbWUnknownAcc(e.accused) || /\(\s*[૨2]\s*\)/.test(e.accused)) { const L = nbAccusedWithArrests(e.accused, e.arrestText); if (L.length) e.accList = L; }
           nbWAutoFill(e);
         }
+        if (e.disposal) nbApplyDisposal(e, true);
         if (!e.regDate) { if (!e._noDate) return; e.regDate = (month || year + "-01") + "-01"; }
         put(e);
       });
@@ -18693,7 +18919,8 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
         Object.keys(e).forEach((f) => {
           if (f === "accList") o.accList = nbMergeAccList(o.accList, e.accList);
           else if (f === "_srcYM" || f === "_pendYM") { if ((e[f] || "") > (o[f] || "")) o[f] = e[f]; }
-          else if (NB_W_STATUS.includes(f) && e[f] && (f === "io" ? strictly || !o.io : newer)) o[f] = e[f];
+          else if ((NB_W_STATUS.includes(f) || NB_DISP_KEYS.includes(f)) && e[f] && (f === "io" ? strictly || !o.io : newer)) o[f] = e[f];
+          else if (f === "_dispWarn") { if (newer) o._dispWarn = e._dispWarn; }
           else if (f === "regDate" && o._noDate && !e._noDate) { o.regDate = e.regDate; delete o._noDate; }
           else if ((o[f] === "" || o[f] == null) && e[f] !== "" && e[f] != null) o[f] = e[f];
         });
@@ -18704,9 +18931,11 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
       if (skipped.length && L.length) window.alert(t("No crime rows were found in these files (they were left out):\n", "આ ફાઇલોમાં ગુનાની લાઇન મળી નહીં (છોડી દીધી):\n") + skipped.join("\n"));
       if (!L.length) { if (!bad.length) window.alert(t("No crime rows were found. The file needs a table whose heading has ગુ.ર.નં. and columns like ફરીયાદી, આરોપી, ગુ.બ.તા., ગુ.જા.તા., ત.ક.અધિ. — or choose the ઉતારા / B-statement / pending list / FIR copy.", "ગુનાની કોઈ લાઇન મળી નહીં. ફાઇલમાં એવું ટેબલ જોઇએ જેના મથાળે ગુ.ર.નં. અને ફરીયાદી, આરોપી, ગુ.બ.તા., ગુ.જા.તા., ત.ક.અધિ. જેવા ખાના હોય — અથવા ઉતારો / બી સ્ટેટમેન્ટ / પેન્ડીંગ લિસ્ટ / FIR કોપી પસંદ કરો.")); return; }
       L.forEach(nbWDetectFix);
+      const dispWarn = L.filter((e) => e._dispWarn).map((e) => ({ reg: e.reg, no: e.no, year: e.year, text: e._dispWarn.join("; ") }));
+      L.forEach((e) => { delete e._dispWarn; });
       const p = await nbImportPlan({ entries: L, monthly: {} }, entries || []);
       const mineByKey = {}; (entries || []).forEach((e) => { mineByKey[nbEntryKey(e)] = e; });
-      p.mineByKey = mineByKey;
+      p.mineByKey = mineByKey; p.dispWarn = dispWarn;
       p.conflicts.forEach((c) => {
         const fy = c.file._srcYM || "", my = c.mine._srcYM || "";
         if (fy && fy >= my) { c.canUpdate = true; c.choice = "update"; }
@@ -18726,7 +18955,7 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
         keys.forEach((k) => {
           const m = mineByKey[k], f = incoming[k], e = m || f; const cov = latest[e.reg]; if (!cov) return;
           const rd = (m && m.regDate) || (f && f.regDate) || ""; if (!rd || nbYM(rd) > cov.ym) return;
-          if (m && (m.closeDate || m.closeType || m._goneYM)) return;
+          if (m && (m.closeDate || m.closeType || m._goneYM) || f && f.closeType) return;
           if (cov.keys.has(k)) return;
           const src = [m && m._srcYM, f && f._srcYM].filter(Boolean).sort().pop() || "";
           if (src > cov.ym) return;
@@ -19559,6 +19788,31 @@ function nbCrimeBookModel(ctx, R) {
   return B;
 }
 
+function NbAccVerdict({ e, onChange }) {
+  const { t } = useLang();
+  let L = nbPeople(e.accList).filter((p) => p.name && String(p.name).trim());
+  const fromText = !L.length && e.accused ? nbAccusedWithArrests(e.accused, e.arrestText) : null;
+  if (!L.length && !fromText) return <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Add the accused names first.", "પહેલાં આરોપીના નામ ઉમેરો.")}</div>;
+  if (!L.length) L = fromText;
+  const upd = (i, k, v) => onChange(L.map((p, j) => (j === i ? { ...p, [k]: v } : p)));
+  return (
+    <div data-accvd style={{ display: "grid", gap: 6 }}>
+      {L.map((p, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", fontSize: 13, border: "1px solid var(--border-soft)", borderRadius: 8, padding: "6px 8px" }}>
+          <b className="mono" style={{ width: 22 }}>{nbG(i + 1)}.</b>
+          <span style={{ flex: "1 1 200px", minWidth: 0 }}>{nbPersonOf(p.name).name || p.name}</span>
+          <select value={p.vd || ""} data-accvd-sel={i} onChange={(ev) => upd(i, "vd", ev.target.value)} className="gu" style={{ fontSize: 13.5, padding: "6px 4px" }}>
+            <option value="">{e.verdict === "notproved" ? t("— as the case (acquitted) —", "— કેસ મુજબ (નિર્દોષ) —") : t("— not written —", "— લખ્યું નથી —")}</option>
+            <option value="proved">{t("Convicted", "સજા થઈ")}</option>
+            <option value="notproved">{t("Acquitted", "નિર્દોષ છૂટ્યા")}</option>
+          </select>
+          {p.vd === "proved" && <input type="text" value={p.pun || ""} onChange={(ev) => upd(i, "pun", ev.target.value.slice(0, 160))} placeholder={t("Sentence, e.g. 3 years + ₹5,000 fine", "સજા, દા.ત. ૩ વર્ષ કેદ + ₹૫,૦૦૦ દંડ")} className="gu" style={{ flex: "1 1 220px", fontSize: 13.5, padding: "6px 8px" }} />}
+        </div>
+      ))}
+      {fromText && <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{t("Names taken from the accused box — choosing a judgment saves them in the accused list too.", "નામ આરોપીના ખાનામાંથી લીધા છે — ચુકાદો પસંદ કરતાં આરોપીની યાદીમાં પણ સચવાશે.")}</div>}
+    </div>
+  );
+}
 function NbPeopleEditor({ value, onChange, kind, fromText }) {
   const { t } = useLang();
   const L = Array.isArray(value) ? value : [];
@@ -20138,7 +20392,7 @@ async function nbImportApply(plan) {
     c.diff.forEach((k) => {
       if (k === "accList" && (c.choice === "fill" || c.choice === "update")) n[k] = nbMergeAccList(c.mine[k], c.file[k]);
       else if (c.choice === "file" || nbImpEmpty(c.mine[k])) n[k] = c.file[k];
-      else if (c.choice === "update" && (k === "detected" || (NB_W_STATUS.includes(k) && (k !== "io" || strictly)))) n[k] = c.file[k];
+      else if (c.choice === "update" && (k === "detected" || NB_DISP_KEYS.includes(k) || (NB_W_STATUS.includes(k) && (k !== "io" || strictly)))) n[k] = c.file[k];
     });
     ["_srcYM", "_pendYM"].forEach((k) => { if (c.file[k] && c.file[k] > (n[k] || "")) n[k] = c.file[k]; });
     if (c.file._clearGone) delete n._goneYM;
@@ -20199,6 +20453,12 @@ function CrimeImportReview({ plan, onCancel, onApply }) {
                   <div className="mono" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>{G.slice(0, 120).map((g) => `${nbReg(g.reg).gu} ${nbG(g.no)}/${nbG(String(g.year).slice(-2))}`).join(" · ")}{G.length > 120 ? ` … +${nbG(G.length - 120)}` : ""}</div>
                 </span>
               </label>
+            </div>
+          )}
+          {(plan.dispWarn || []).length > 0 && (
+            <div data-imp-warn={plan.dispWarn.length} style={{ ...box, marginBottom: 10, borderColor: "var(--status-warning-text)" }}>
+              <b style={{ fontSize: 13.5 }}>⚠ {t(`Check the dates of ${plan.dispWarn.length} crime(s) — copied exactly as written in the file`, `${nbG(plan.dispWarn.length)} ગુનાની તારીખ તપાસો — ફાઇલમાં લખ્યા મુજબ જ લીધી છે`)}</b>
+              <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>{plan.dispWarn.slice(0, 60).map((w, i) => <div key={i}>{nbReg(w.reg).gu} {nbG(w.no)}/{nbG(String(w.year).slice(-2))} — {w.text}</div>)}</div>
             </div>
           )}
           {(C.length > 0 || MC.length > 0) && (
