@@ -15694,9 +15694,45 @@ function nbSectionTokens__(sections) {
   }
   return out;
 }
+// Old (IPC) sections are matched to the 44 heads through their BNS equivalents — only for working out the head.
+const NB_IPC_RE = /\bipc\b|i\s*\.\s*p\s*\.\s*c|ઇ\.?\s?પી\.?\s?કો|ઈ\.?\s?પી\.?\s?કો|આઇ\.?\s?પી\.?\s?સી|આઈ\.?\s?પી\.?\s?સી|દંડ\s*સં?હિતા|પીનલ\s*કોડ|penal\s*code/i;
+const NB_BNS_RE = /\bbns\b|b\.\s?n\.\s?s|બી\.?\s?એન\.?\s?એસ|ન્યાય\s*સં?હિતા|ન્યાય\s*સહિતા/i;
+const NB_IPC2BNS = (() => {
+  const m = { 302: "103", 307: "109", 395: "310", 396: "310", 399: "310", 402: "310", 397: "311", 398: "312", 304: "105", 392: "309", 393: "309", 394: "309",
+    453: "331", 454: "331", 455: "331(4)", 456: "331(4)", 457: "331(4)", 458: "331(4)", 379: "303", 380: "305", 381: "306", 382: "307", 419: "319",
+    326: "118(2)", 325: "117", 324: "118(1)", 323: "115(2)", 332: "121", 333: "121", 353: "132", 376: "64", 354: "74", 337: "125(a)", 338: "125(b)", 306: "108",
+    317: "93", 318: "94", 224: "262", 225: "262", 341: "126", 342: "127", 509: "79", 507: "351(4)", 506: "351(2)", 188: "223", 279: "281", 283: "285", 308: "110",
+    504: "352", 186: "221", 294: "296", 201: "238", 34: "3(5)", 114: "54", 147: "191", 148: "191", 149: "191", 448: "333", 452: "333" };
+  const range = (a, b, v) => { for (let i = a; i <= b; i++) if (m[i] == null) m[i] = v; };
+  range(417, 424, "318"); range(406, 409, "316"); range(426, 434, "324"); range(435, 439, "326"); range(363, 371, "137"); range(141, 145, "189");
+  range(447, 452, "329"); range(465, 473, "336"); range(384, 389, "308");
+  return m;
+})();
+function nbIpcHeadTokens(sections) {
+  const raw = nbAsciiDigits(sections).toLowerCase();
+  if (!NB_IPC_RE.test(raw) || NB_BNS_RE.test(raw)) return null;
+  let s = raw.replace(/\d{4,}(\s*\/\s*\d{2,4})?/g, " ");
+  const cut = s.search(/એમ\.?\s?વી|m\.?\s?v\.?\s?act|જી\.?\s?પી|g\.?\s?p\.?\s?a|gp act|પ્રોહી|prohi|એટ્રો|atroc|પોક્સો|પોકસો|pocso|ndps|આર્મ્સ|arms|દહેજ|dowry|i\.?\s?t\.?\s?act|આઇ\.?ટી/);
+  if (cut > 0) s = s.slice(0, cut);
+  s = s.replace(/\(\s*ર\s*\)/g, "(2)").replace(/\(\s*(?:એ|અ|ક|a)\s*\)/g, "(a)").replace(/\(\s*(?:બી|ખ|b)\s*\)/g, "(b)")
+    .replace(/(\d{3})\s*[-–]?\s*(a|અ|એ|ક)(?![઀-૿a-z])/g, "$1(a)").replace(/(\d{3})\s*[-–]?\s*(b|બી|ખ)(?![઀-૿a-z])/g, "$1(b)");
+  const out = new Set(); const add = (t) => { out.add(t); out.add(t.replace(/\(.*$/, "")); };
+  const re = /(\d{1,3})\s*((?:\(\s*[0-9a-z]+\s*\))*)/g; let x;
+  while ((x = re.exec(s))) {
+    const n = +x[1], sub = ((x[2] || "").match(/\(\s*([0-9a-z]+)\s*\)/) || [])[1] || "";
+    if (n === 304 && sub === "a") add("106(1)");
+    else if (n === 326 && (sub === "a" || sub === "b")) add("124");
+    else if (n === 498 && sub === "a") add("85");
+    else if (n === 489 && sub) add("178");
+    else if (n === 120 && sub === "b") add("61(2)");
+    else if (n === 506 && sub === "2") add("351(3)");
+    else if (NB_IPC2BNS[n]) add(NB_IPC2BNS[n]);
+  }
+  return out;
+}
 function nbGuessHead44(sections) { return nbMemoStr(nbGuessHead44__, sections); }
-function nbGuessHead44__(sections) {
-  const tk = nbSectionTokens(sections);
+function nbGuessHead44__(sections) { return nbHead44FromTokens(nbIpcHeadTokens(sections) || nbSectionTokens(sections)); }
+function nbHead44FromTokens(tk) {
   if (!tk.size) return null;
   const has = (x) => tk.has(x);
   for (const n of NB_HEAD_ORDER) {
@@ -17406,7 +17442,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
   useEffect(() => {
     let alive = true;
     const load = () => Promise.all([nbCrimeStore.getMeta("regSettings"), nbCrimeStore.getMeta("monthly")]).then(([s, m]) => { if (!alive) return; setSettingsState(s || {}); setMonthlyState(m || {}); });
-    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).finally(load);
+    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).then(() => nbFixIpcHeads().catch((e) => console.warn("ipc heads", e))).finally(load);
     nbMigrateOldCases().catch((e) => console.warn("migration", e)).finally(loadClean);
     let tidy = null;
     const onChange = () => { load(); clearTimeout(tidy); tidy = setTimeout(() => { nbClearGuessedDisposals().catch(() => {}).then(() => nbApplyProhiRules().catch(() => {})); }, 2500); };
@@ -17870,7 +17906,7 @@ function nbWDetectFix(e) {
   else if (e.detected === false && why && (e._srcYM || "") > nbYM(e.regDate || "")) e.detected = true;
   return e;
 }
-async function nbDocxXml(buf) {
+function nbZipOpen(buf) {
   const u = new Uint8Array(buf), dv = new DataView(buf);
   if (!(u[0] === 0x50 && u[1] === 0x4b)) throw new Error(u[0] === 0xd0 && u[1] === 0xcf ? "old-doc" : "not-docx");
   let eocd = -1;
@@ -17878,21 +17914,185 @@ async function nbDocxXml(buf) {
   if (eocd < 0) throw new Error("not-docx");
   const count = dv.getUint16(eocd + 10, true);
   let p = dv.getUint32(eocd + 16, true);
-  const dec = new TextDecoder("utf-8");
+  const dec = new TextDecoder("utf-8"), dir = {};
   for (let k = 0; k < count; k++) {
     if (dv.getUint32(p, true) !== 0x02014b50) break;
     const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
     const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), loc = dv.getUint32(p + 42, true);
-    const name = dec.decode(u.subarray(p + 46, p + 46 + nlen));
+    dir[dec.decode(u.subarray(p + 46, p + 46 + nlen))] = { method, csize, loc };
     p += 46 + nlen + xlen + clen;
-    if (name !== "word/document.xml") continue;
-    const start = loc + 30 + dv.getUint16(loc + 26, true) + dv.getUint16(loc + 28, true);
-    const data = u.subarray(start, start + csize);
-    if (method === 0) return dec.decode(data);
-    if (method !== 8) throw new Error("not-docx");
+  }
+  const text = async (name) => {
+    const f = dir[name]; if (!f) return null;
+    const start = f.loc + 30 + dv.getUint16(f.loc + 26, true) + dv.getUint16(f.loc + 28, true);
+    const data = u.subarray(start, start + f.csize);
+    if (f.method === 0) return dec.decode(data);
+    if (f.method !== 8) throw new Error("not-docx");
     if (typeof DecompressionStream !== "function") throw new Error("old-browser");
     const st = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
     return await new Response(st).text();
+  };
+  return { has: (name) => !!dir[name], names: Object.keys(dir), text };
+}
+async function nbDocxXml(buf) {
+  const z = nbZipOpen(buf); const x = await z.text("word/document.xml");
+  if (x == null) throw new Error("not-docx");
+  return x;
+}
+// Excel helpers — a sheet becomes a grid of text; merged cells repeat their text like Word's merged cells do.
+const NB_X_DATEFMT = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
+function nbXIsDateCode(code) { const c = String(code || "").replace(/"[^"]*"|\[[^\]]*\]|\\./g, ""); return /[dy]/i.test(c) || /m/i.test(c) && /[hs]/i.test(c) && /d/i.test(c); }
+function nbXDate(n) {
+  if (!(n > 0) || n > 2958465) return String(n);
+  const ms = Math.round((n - 25569) * 864e5), d = new Date(ms), p2 = (x) => String(x).padStart(2, "0");
+  const ds = `${p2(d.getUTCDate())}/${p2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+  const fr = n - Math.floor(n);
+  return n < 1 ? `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}` : fr > 1e-6 ? `${ds} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}` : ds;
+}
+function nbXNum(n) { return Number.isInteger(n) ? String(n) : String(+n.toFixed(6)); }
+function nbXFillMerges(grid, merges) {
+  merges.forEach(([r1, c1, r2, c2]) => {
+    const v = (grid[r1] || [])[c1] || "";
+    for (let r = r1; r <= r2; r++) { grid[r] = grid[r] || []; for (let c = c1; c <= c2; c++) if (r !== r1 || c !== c1) grid[r][c] = v; }
+  });
+  return grid;
+}
+function nbGridBlocks(sheets) {
+  const out = [];
+  sheets.forEach(({ name, grid }) => {
+    if (name) out.push({ p: String(name).trim() });
+    let tab = null;
+    const flush = () => {
+      if (tab && tab.length) {
+        const w = Math.max(...tab.map((r) => r.length));
+        const keep = []; for (let c = 0; c < w; c++) if (tab.some((r) => (r[c] || "").trim())) keep.push(c);
+        out.push({ rows: tab.map((r) => keep.map((c) => r[c] || "")) });
+      }
+      tab = null;
+    };
+    for (let r = 0; r < grid.length; r++) {
+      const vals = Array.from(grid[r] || [], (x) => (x == null ? "" : String(x)));
+      const ne = vals.map((x) => x.trim()).filter(Boolean);
+      if (!ne.length) continue;
+      const one = new Set(ne).size === 1, txt = ne[0];
+      if (one && (!tab || txt.length >= 15 && /[^\d\s૦-૯.,/-]/.test(txt) && (ne.length > 1 || vals.filter((x) => x.trim()).length === 1 && txt.length >= 25))) { flush(); out.push({ p: txt }); continue; }
+      (tab = tab || []).push(vals);
+    }
+    flush();
+  });
+  return out;
+}
+async function nbXlsxBlocks(z) {
+  const P = (x) => new DOMParser().parseFromString(x || "<x/>", "application/xml");
+  const els = (d, n) => Array.from(d.getElementsByTagNameNS("*", n));
+  const kid = (el, n) => Array.from(el.childNodes).filter((k) => k.nodeType === 1 && k.localName === n);
+  const tx = (el) => els(el, "t").filter((t) => !(t.parentNode && t.parentNode.localName === "rPh") && !(t.parentNode && t.parentNode.parentNode && t.parentNode.parentNode.localName === "rPh")).map((t) => t.textContent).join("");
+  const sst = els(P(await z.text("xl/sharedStrings.xml")), "si").map(tx);
+  const sty = P(await z.text("xl/styles.xml"));
+  const custom = {}; els(sty, "numFmt").forEach((f) => { custom[+f.getAttribute("numFmtId")] = f.getAttribute("formatCode"); });
+  const xfs = []; const cx = els(sty, "cellXfs")[0];
+  if (cx) kid(cx, "xf").forEach((x) => { const id = +x.getAttribute("numFmtId") || 0; xfs.push(NB_X_DATEFMT.has(id) || (custom[id] != null && nbXIsDateCode(custom[id]))); });
+  const wb = P(await z.text("xl/workbook.xml")), rels = P(await z.text("xl/_rels/workbook.xml.rels"));
+  const tgt = {}; els(rels, "Relationship").forEach((r) => { tgt[r.getAttribute("Id")] = r.getAttribute("Target"); });
+  const sheets = [];
+  for (const sh of els(wb, "sheet")) {
+    let rid = null; for (const a of Array.from(sh.attributes)) if (a.localName === "id") rid = a.value;
+    let path = tgt[rid] || ""; path = path.startsWith("/") ? path.slice(1) : "xl/" + path.replace(/^\.\//, "");
+    const x = await z.text(path); if (x == null) continue;
+    const d = P(x), grid = [];
+    const colIx = (ref) => { let n = 0; for (const ch of ref.replace(/\d+$/, "")) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+    let rr = -1;
+    els(d, "row").forEach((row) => {
+      rr = row.getAttribute("r") ? +row.getAttribute("r") - 1 : rr + 1;
+      const line = grid[rr] = grid[rr] || []; let cc = -1;
+      kid(row, "c").forEach((c) => {
+        const ref = c.getAttribute("r"); cc = ref ? colIx(ref) : cc + 1;
+        const t = c.getAttribute("t"), v = kid(c, "v")[0], vt = v ? v.textContent : "";
+        let val = "";
+        if (t === "s") val = sst[+vt] || "";
+        else if (t === "inlineStr") { const is = kid(c, "is")[0]; val = is ? tx(is) : ""; }
+        else if (t === "str" || t === "e") val = vt;
+        else if (t === "b") val = vt === "1" ? "TRUE" : "FALSE";
+        else if (vt !== "") { const n = Number(vt); val = isNaN(n) ? vt : xfs[+c.getAttribute("s") || 0] ? nbXDate(n) : nbXNum(n); }
+        line[cc] = val;
+      });
+    });
+    const merges = els(d, "mergeCell").map((m) => { const [a, b] = (m.getAttribute("ref") || "").split(":"); if (!a || !b) return null; return [+a.replace(/^[A-Z]+/, "") - 1, colIx(a), +b.replace(/^[A-Z]+/, "") - 1, colIx(b)]; }).filter(Boolean);
+    sheets.push({ name: sh.getAttribute("name"), grid: nbXFillMerges(grid, merges) });
+  }
+  return nbGridBlocks(sheets);
+}
+function nbXlsBlocks(S) {
+  const W = S.Workbook || S.Book; if (!W) throw new Error("not-xls");
+  const dv = new DataView(W.buffer, W.byteOffset, W.byteLength), N = W.byteLength;
+  const at = {}; const recAt = (o) => ({ t: dv.getUint16(o, true), n: dv.getUint16(o + 2, true), o: o + 4 });
+  const fmts = {}, xfs = [], bound = []; let sst = [];
+  const xstr = (o, cch, wide) => { let s = ""; for (let i = 0; i < cch; i++) s += String.fromCharCode(wide ? dv.getUint16(o + i * 2, true) : W[o + i]); return s; };
+  let o = 0;
+  while (o + 4 <= N) {
+    const r = recAt(o);
+    if (r.t === 0x041e) { const id = dv.getUint16(r.o, true), cch = dv.getUint16(r.o + 2, true), g = W[r.o + 4]; fmts[id] = xstr(r.o + 5, cch, g & 1); }
+    else if (r.t === 0x00e0) xfs.push(dv.getUint16(r.o + 2, true));
+    else if (r.t === 0x0085) { const cch = W[r.o + 6], g = W[r.o + 7]; bound.push({ pos: dv.getUint32(r.o, true), type: W[r.o + 5], name: xstr(r.o + 8, cch, g & 1) }); }
+    else if (r.t === 0x00fc) {
+      const segs = [[r.o, r.n]]; let q = r.o + r.n;
+      while (q + 4 <= N && dv.getUint16(q, true) === 0x003c) { const n = dv.getUint16(q + 2, true); segs.push([q + 4, n]); q += 4 + n; }
+      let si = 0, p = segs[0][0] + 8; const end = () => segs[si][0] + segs[si][1];
+      const adv = () => { if (p >= end() && si + 1 < segs.length) { si++; p = segs[si][0]; } };
+      const u8 = () => { adv(); return W[p++]; }, u16 = () => u8() | (u8() << 8), u32 = () => (u16() | (u16() << 16)) >>> 0;
+      const total = dv.getUint32(segs[0][0] + 4, true);
+      for (let k = 0; k < total; k++) {
+        adv(); if (si >= segs.length || p >= end() && si === segs.length - 1) break;
+        const cch = u16(); let g = u8(); const rich = g & 8 ? u16() : 0, ext = g & 4 ? u32() : 0;
+        let s = "", wide = g & 1;
+        for (let i = 0; i < cch; i++) {
+          if (p >= end() && si + 1 < segs.length) { si++; p = segs[si][0]; wide = W[p++] & 1; }
+          s += String.fromCharCode(wide ? W[p++] | (W[p++] << 8) : W[p++]);
+        }
+        for (let i = 0; i < rich * 4 + ext; i++) u8();
+        sst.push(s);
+      }
+    }
+    if (r.t === 0x000a) break;
+    o = r.o + r.n;
+  }
+  const isDate = (ixfe) => { const id = xfs[ixfe]; return id != null && (NB_X_DATEFMT.has(id) || (fmts[id] != null && nbXIsDateCode(fmts[id]))); };
+  const num = (n, ixfe) => (isDate(ixfe) ? nbXDate(n) : nbXNum(n));
+  const rk = (v) => { let n = v & 2 ? v >> 2 : new DataView(new Uint32Array([0, v & 0xfffffffc]).buffer).getFloat64(0, true); return v & 1 ? n / 100 : n; };
+  const sheets = [];
+  bound.filter((b) => b.type === 0).forEach((b) => {
+    const grid = [], merges = []; const put = (rw, col, v) => { (grid[rw] = grid[rw] || [])[col] = v; };
+    let q = b.pos, pend = null;
+    while (q + 4 <= N) {
+      const r = recAt(q); const d = r.o;
+      if (r.t === 0x00fd) put(dv.getUint16(d, true), dv.getUint16(d + 2, true), sst[dv.getUint32(d + 6, true)] || "");
+      else if (r.t === 0x0204) { const cch = dv.getUint16(d + 6, true), g = W[d + 8]; put(dv.getUint16(d, true), dv.getUint16(d + 2, true), xstr(d + 9, cch, g & 1)); }
+      else if (r.t === 0x0203) put(dv.getUint16(d, true), dv.getUint16(d + 2, true), num(dv.getFloat64(d + 6, true), dv.getUint16(d + 4, true)));
+      else if (r.t === 0x027e) put(dv.getUint16(d, true), dv.getUint16(d + 2, true), num(rk(dv.getUint32(d + 6, true)), dv.getUint16(d + 4, true)));
+      else if (r.t === 0x00bd) { const rw = dv.getUint16(d, true), c1 = dv.getUint16(d + 2, true), c2 = dv.getUint16(d + r.n - 2, true); for (let c = c1; c <= c2; c++) { const x = d + 4 + (c - c1) * 6; put(rw, c, num(rk(dv.getUint32(x + 2, true)), dv.getUint16(x, true))); } }
+      else if (r.t === 0x0006) { const rw = dv.getUint16(d, true), col = dv.getUint16(d + 2, true); if (dv.getUint16(d + 12, true) === 0xffff) { if (W[d + 6] === 0) pend = [rw, col]; } else put(rw, col, num(dv.getFloat64(d + 6, true), dv.getUint16(d + 4, true))); }
+      else if (r.t === 0x0207 && pend) { const cch = dv.getUint16(d, true), g = W[d + 2]; put(pend[0], pend[1], xstr(d + 3, cch, g & 1)); pend = null; }
+      else if (r.t === 0x00e5) { const n = dv.getUint16(d, true); for (let i = 0; i < n; i++) { const x = d + 2 + i * 8; merges.push([dv.getUint16(x, true), dv.getUint16(x + 4, true), dv.getUint16(x + 2, true), dv.getUint16(x + 6, true)]); } }
+      else if (r.t === 0x000a) break;
+      q = r.o + r.n;
+    }
+    sheets.push({ name: b.name, grid: nbXFillMerges(grid, merges) });
+  });
+  return nbGridBlocks(sheets);
+}
+async function nbAnyBlocks(buf) {
+  const u = new Uint8Array(buf);
+  if (u[0] === 0x50 && u[1] === 0x4b) {
+    const z = nbZipOpen(buf);
+    if (z.has("word/document.xml")) return nbDocxBlocks(await z.text("word/document.xml"));
+    if (z.has("xl/workbook.xml")) return await nbXlsxBlocks(z);
+    throw new Error("not-docx");
+  }
+  if (u[0] === 0xd0 && u[1] === 0xcf) {
+    const S = nbCfbStreams(u);
+    if (S.WordDocument) return nbDocBlocks(buf);
+    if (S.Workbook || S.Book) return nbXlsBlocks(S);
+    throw new Error("not-docx");
   }
   throw new Error("not-docx");
 }
@@ -17958,6 +18158,25 @@ function nbWFir(s) {
   return [null, null];
 }
 function nbWNoYear(s) { const m = nbWA(s).match(/(\d{1,4})\s*[/-]\s*(\d{2,4})/); return m ? [String(+m[1]), m[2].length === 2 ? "20" + m[2] : m[2]] : [null, null]; }
+const NB_W_MOTIVE = { 3: "ધાડ પાડી આર્થિક લાભ મેળવવા", 4: "ધાડ પાડી આર્થિક લાભ મેળવવા", 5: "લુંટ કરી આર્થિક લાભ મેળવવા", 6: "ઘરફોડ ચોરી કરી આર્થિક લાભ મેળવવા", 7: "ઘરફોડ ચોરી કરી આર્થિક લાભ મેળવવા", 8: "ચોરી કરી આર્થિક લાભ મેળવવા", 9: "છેતરપીંડી કરી આર્થિક લાભ મેળવવા", 10: "વિશ્વાસઘાત કરી આર્થિક લાભ મેળવવા", 32: "બળજબરીથી પૈસા પડાવવા" };
+// Crimes under old IPC sections got a wrong head earlier (IPC numbers were read as BNS numbers). Fix the ones still on that automatic guess.
+async function nbFixIpcHeads() {
+  if (await nbCrimeStore.getMeta("ipcHeadFix1")) return 0;
+  const all = await nbEntryStore.all(); const fix = [];
+  all.forEach((e) => {
+    if (e.reg !== "A" || !e.head44 || e._headAuto === false || !nbIpcHeadTokens(e.sections || "")) return;
+    const old = nbHead44FromTokens(nbSectionTokens(e.sections || "")) || 43, now = nbGuessHead44(e.sections) || 43;
+    if (Number(e.head44) !== Number(old) || old === now) return;
+    const n = { ...e, head44: now, updatedAt: Date.now() };
+    if (n._rhAuto !== false) delete n.reviewHead;
+    if (n.motive && n.motive === NB_W_MOTIVE[old]) { if (NB_W_MOTIVE[now]) n.motive = NB_W_MOTIVE[now]; else delete n.motive; }
+    if (n._bookAuto !== false && n.bookHead) n.bookHead = nbGuessBookHead(n);
+    fix.push(n);
+  });
+  if (fix.length) await nbEntryStore.putMany(fix);
+  await nbCrimeStore.setMeta("ipcHeadFix1", Date.now());
+  return fix.length;
+}
 function nbWAutoFill(e) {
   const f = nbWA(e.facts || "");
   const amts = [...f.matchAll(/(?:કિ\.?\s?ર[ૂુ]\.?|કિંમત\s*ર[ૂુ]\.?|ર[ૂુ]પ[િી]યા|ર[ૂુ]\.)[\s:-]*([\d,]{3,})/g)].map((m) => Number(m[1].replace(/,/g, ""))).filter((n) => n > 0);
@@ -17968,7 +18187,7 @@ function nbWAutoFill(e) {
     if (!e.stolenValue) e.stolenValue = String(tot);
     if (!e.loss) e.loss = `કિ.રૂ. ${nbG(nbMoney(tot))}/-`;
   }
-  const mo = { 3: "ધાડ પાડી આર્થિક લાભ મેળવવા", 4: "ધાડ પાડી આર્થિક લાભ મેળવવા", 5: "લુંટ કરી આર્થિક લાભ મેળવવા", 6: "ઘરફોડ ચોરી કરી આર્થિક લાભ મેળવવા", 7: "ઘરફોડ ચોરી કરી આર્થિક લાભ મેળવવા", 8: "ચોરી કરી આર્થિક લાભ મેળવવા", 9: "છેતરપીંડી કરી આર્થિક લાભ મેળવવા", 10: "વિશ્વાસઘાત કરી આર્થિક લાભ મેળવવા", 32: "બળજબરીથી પૈસા પડાવવા" }[head];
+  const mo = NB_W_MOTIVE[head];
   if (mo && !e.motive) e.motive = mo;
   return e;
 }
@@ -18052,9 +18271,45 @@ function nbMergeAccList(a, b) {
   }
   return out;
 }
+const NB_W_COLS = [
+  ["no", /ગુરનં|ગુરન|ગુનાનંબર|ગુનાનં|ગુનોનં|એફઆઇઆર|એફઆઈઆર|FIR/i],
+  ["disposal", /નિકાલ/, /પેન્/],
+  ["status", /પેન્|હાલનીસ્થિતિ|હાલનીપરિસ્થિતિ|સ્થિતિ/],
+  ["inv", /કરેલતપાસ|તપાસનીવિગત/],
+  ["io", /તકઅ|તપાસકરનાર|તપાસઅધિ|તપાસનીશ|તપાસનાઅધિ|તપાસકર્તા/],
+  ["accused", /આરોપી.*નામ|^આરોપી$|આરોપીઓ/],
+  ["arrest", /અટક|ધરપકડ/],
+  ["accused", /આરોપી/],
+  ["complainant", /ફર[ીિ]યાદ/],
+  ["reg", /જાતા|જાહેરતા|જાહેરથયા|જાહેરથયેલ|દાખલતા|દાખલથયા|દાખલકર્યા|નોંધતા|રજીસ્ટરતા/],
+  ["place", /સ્થળ|જગ્યા/, /તા/],
+  ["occ", /બતા|બન્યા|બનવા|બનાવતા|બનાવની|બનાવનીતા/],
+  ["facts", /ટ[ુૂ]ં?કવિગત|ટ[ુૂ]ંકીવિગત|હકીકત|^વિગત/],
+  ["sec", /કલમ/],
+  ["loss", /મુદ્દામાલ|નુકશાન|નુકસાન|ગયેલમાલ/],
+  ["motive", /હેતુ/],
+];
+const nbWNz = (x) => x.replace(/ી/g, "િ").replace(/ૂ/g, "ુ").replace(/[ંઁ]/g, "");
+let _nbWColsN = null;
+function nbWColMap(R) {
+  const norm = (h) => nbWNz(nbWA(h).replace(/[\s.,:;()\-–/\u200c\u200d\u00ad]/g, ""));
+  const C = _nbWColsN = _nbWColsN || NB_W_COLS.map(([k, re, not]) => [k, new RegExp(nbWNz(re.source), re.flags), not && new RegExp(nbWNz(not.source), not.flags)]);
+  const map1 = (cells) => {
+    const m = {};
+    cells.forEach((h, i) => { const n = norm(h); if (!n) return; for (const [k, re, not] of C) { if (m[k] == null && re.test(n) && !(not && not.test(n))) { m[k] = i; break; } } });
+    const n = ["occ", "reg", "complainant", "accused", "io", "facts", "disposal", "arrest"].filter((k) => m[k] != null).length;
+    return m.no != null && n >= 3 ? m : null;
+  };
+  for (let i = 0; i < Math.min(3, R.length - 1); i++) {
+    const m = map1(R[i]); if (m) return { at: i, m };
+    if (R[i + 1]) { const m2 = map1(R[i].map((x, k) => x + " " + (R[i + 1][k] || ""))); if (m2) return { at: i + 1, m: m2 }; }
+  }
+  return null;
+}
 function nbParseUtaraBlocks(blocks) {
-  let month = "";
-  blocks.forEach((b) => { if (!month && b.p) { const m = nbWA(b.p).match(/માહે[\s:.-]*(\d{1,2})\s*\/\s*(\d{2,4})/); if (m) month = (m[2].length === 2 ? "20" + m[2] : m[2]) + "-" + String(+m[1]).padStart(2, "0"); } });
+  let month = "", monthBy = "";
+  blocks.forEach((b) => { if (!month && b.p) { const m = nbWA(b.p).match(/માહે[\s:.-]*(\d{1,2})\s*\/\s*(\d{2,4})/); if (m) { month = (m[2].length === 2 ? "20" + m[2] : m[2]) + "-" + String(+m[1]).padStart(2, "0"); monthBy = "mahe"; } } });
+  if (!month) blocks.forEach((b) => { if (b.p && /થી/.test(b.p) && b.p.length < 200) { const D = nbWDates(b.p); if (D.length >= 2 && D[1][0] >= D[0][0] && (!month || nbYM(D[1][0]) > month)) { month = nbYM(D[1][0]); monthBy = "range"; } } });
   const out = {}; let cur = null;
   const put = (e) => { const k = nbEntryKey(e); out[k] = out[k] ? { ...e, ...Object.fromEntries(Object.entries(out[k]).filter(([, v]) => v !== "" && v != null)) } : e; };
   const hdr = (row, keys) => { const m = {}; row.forEach((h, i) => { h = nbWA(h); keys.forEach(([k, pats]) => { if (m[k] == null && pats.some((p) => h.includes(p))) m[k] = i; }); }); return m; };
@@ -18092,7 +18347,8 @@ function nbParseUtaraBlocks(blocks) {
         else cur = "P:A";
         return;
       }
-      if (/ભાગ/.test(x) && /પત્રક/.test(x)) { if (/ભાગ\s*[–-]?\s*એ|ભાગ-A/.test(x)) cur = "A"; else if (/બી/.test(x)) cur = "B"; else if (/સી/.test(x)) cur = "C"; }
+      if (x.length < 40 && /^\s*(ભાગ|પાર્ટ|part)\s*[-–]?\s*(એ|બી|સી|A|B|C)\b/i.test(x)) { const L = nbWA(x).match(/(એ|બી|સી|A|B|C)\b/i)[1].toUpperCase(); cur = { "એ": "A", "બી": "B", "સી": "C" }[L] || L; }
+      else if (/ભાગ/.test(x) && /પત્રક/.test(x)) { if (/ભાગ\s*[–-]?\s*એ|ભાગ-A/.test(x)) cur = "A"; else if (/બી/.test(x)) cur = "B"; else if (/સી/.test(x)) cur = "C"; }
       else if (/અ\.?\s?મોત/.test(x) && x.length < 120) cur = "AD";
       else if (/જાણવા\s*જોગ/.test(x) && x.length < 120) cur = "JJ";
       else if (/^ગુમ|ગુમ\s/.test(x) && x.length < 120) cur = "GUM";
@@ -18126,34 +18382,47 @@ function nbParseUtaraBlocks(blocks) {
     }
     let kind = cur;
     const h0 = nbWA(R[0].join(" "));
+    const cm = nbWColMap(R);
     if (/અ\.?\s?મોત\s*નં/.test(h0)) kind = "AD";
     else if (/ગુમ\s*નં|ગુમ\s*થનાર/.test(h0)) kind = "GUM";
     else if (/જા\.?\s?જોગ\s*ન/.test(h0)) kind = "JJ";
-    else if (/ગુ\.?\s?ર\.?\s?નં/.test(h0) && /ફરીયાદી|ફરિયાદી/.test(h0) && !["A", "B", "C"].includes(kind)) kind = "A";
+    else if ((/ગુ\.?\s?ર\.?\s?નં/.test(h0) && /ફરીયાદી|ફરિયાદી/.test(h0) || cm) && !["A", "B", "C"].includes(kind)) kind = "A";
     if (!kind) return;
     if (["A", "B", "C"].includes(kind)) {
-      R.slice(1).forEach((c0) => {
-        let c = c0;
-        if (c.length === 10 && nbWFir(c[1])[0]) c = [c[0], "", c[1], c[2], c[3], "", c[4], c[5], c[6], c[7], c[8], c[9]];
+      const g = (c, k) => (cm && cm.m[k] != null ? c[cm.m[k]] || "" : "");
+      const rowsIn = cm ? R.slice(cm.at + 1) : R.slice(1);
+      let clamp = monthBy === "mahe";
+      if (clamp) { const D = rowsIn.map((c) => nbWDates(cm ? g(c, "reg") || g(c, "occ") : (c[4] || c[3] || ""))[0]).filter(Boolean); if (D.length && D.filter((d) => nbYM(d[0]) === month).length < D.length * 0.6) clamp = false; }
+      rowsIn.forEach((c0) => {
+        let c = c0, xs = null;
+        if (cm) { c = [g(c0, "serial"), "", g(c0, "no"), g(c0, "occ"), g(c0, "reg"), g(c0, "place"), g(c0, "complainant"), g(c0, "accused"), g(c0, "arrest"), g(c0, "facts"), g(c0, "io"), g(c0, "disposal")]; xs = { sec: nbWClean(g(c0, "sec")), statusText: nbWClean(g(c0, "status")), investigation: nbWClean(g(c0, "inv")), loss: nbWClean(g(c0, "loss")), motive: nbWClean(g(c0, "motive")) }; }
+        else if (c.length === 10 && nbWFir(c[1])[0]) c = [c[0], "", c[1], c[2], c[3], "", c[4], c[5], c[6], c[7], c[8], c[9]];
         if (c.length < 11) return;
-        const [no, year] = nbWFir(c[2]); if (!no) return;
+        let [no, year] = nbWFir(c[2]); if (!no && cm) [no, year] = nbWNoYear(c[2]); if (!no || !/^(19|20)\d\d$/.test(year || "")) return;
         const t2 = nbWA(c[2]); let reg = kind;
         if (/બી\s*[-.]?\s*પાર્ટ|પાર્ટ\s*[-.]?\s*બી|ભાગ\s*-?\s*બી|B\s*–?\s*પાર્ટ/.test(t2)) reg = "B";
         else if (/સી\s*[-.]?\s*પાર્ટ|પાર્ટ\s*[-.]?\s*સી|ભાગ\s*-?\s*સી/.test(t2)) reg = "C";
         else if (/એ\s*[-.]?\s*પાર્ટ|પાર્ટ\s*[-.]?\s*એ|ભાગ\s*-?\s*એ|A\s*–?\s*પાર્ટ|ભાગ-A/.test(t2)) reg = "A";
+        else if (/પ્રોહી\s*ગુ|થર્ડ\s*ગુ|(^|\s)III\s*[-.]?\s*ગુ/.test(t2)) reg = "C";
+        else if (/(^|\s)સે\.\s*ગુ|સેકન્ડ\s*ગુ|(^|\s)II\s*[-.]?\s*ગુ/.test(t2)) reg = "B";
+        else if (/(^|\s)ફ\.\s*ગુ|ફર્સ્ટ\s*ગુ|(^|\s)I\s*[-.]?\s*ગુ/.test(t2)) reg = "A";
         else if (reg === "B" && /ભારતીય\s*ન્યાય|BNS|બી\.?\s?એન\.?\s?એસ/.test(t2) && !/223/.test(t2)) reg = "A";
         if (reg === "A" && /પ્રોહી/.test(t2) && !/ભારતીય\s*ન્યાય|BNS|બી\.?\s?એન\.?\s?એસ/.test(t2)) reg = "C";
         if (!/લેન્ડ\s*ગ્રેબ|land\s*grab/i.test(t2)) { const pr = nbProhiReg(t2); if (pr) reg = pr; }
         let [rd, rt] = nbWDateTime(c[4]);
         if (!rd) [rd, rt] = nbWDateTime(c[3]);
-        if (rd && month && nbYM(rd) !== month) { const last = new Date(+month.slice(0, 4), +month.slice(5, 7), 0).getDate(); rd = month + "-" + String(Math.min(+rd.slice(8, 10), last)).padStart(2, "0"); }
+        if (rd && clamp && nbYM(rd) !== month) { const last = new Date(+month.slice(0, 4), +month.slice(5, 7), 0).getDate(); rd = month + "-" + String(Math.min(+rd.slice(8, 10), last)).padStart(2, "0"); }
         let secs = nbWClean(c[2]);
         const sa = nbWA(secs);
-        const m = sa.match(/\d{8}[\d\s]{4,}(?:[./]?\s*\/\s*(?:20)?\d\d)?/) || sa.match(/\/\s*(?:20)?2\d(?!\d)/);
+        let m = sa.match(/\d{8}[\d\s]{4,}(?:[./]?\s*\/\s*(?:20)?\d\d)?/) || sa.match(/\/\s*(?:20)?2\d(?!\d)/);
+        if (!m) { const m2 = sa.match(/\/\s*(?:19|20)?\d\d(?!\d)/); if (m2 && m2.index < 60) m = m2; }
         if (m) secs = secs.slice(m.index + m[0].length).replace(/^[\s,.-]+/, "").trim() || secs;
-        const e = { id: `w${reg}${no}_${year}`, reg, no, year, regDate: rd || (month ? month + "-01" : ""), regTime: rt, sections: secs,
+        if (xs && xs.sec) secs = xs.sec;
+        const e = { id: `w${reg}${no}_${year}`, reg, no, year, regDate: rd || (monthBy === "mahe" ? month + "-01" : ""), regTime: rt, sections: secs,
           occText: nbWClean(c[3]), place: nbWClean(c[5]), complainant: nbWClean(c[6]), accused: nbWClean(c[7]), arrestText: nbWClean(c[8]),
           facts: nbWClean(c[9]), io: nbWClean(c[10]), disposal: c.length > 11 ? nbWClean(c[11]) : "", createdAt: now, updatedAt: now };
+        if (xs) ["statusText", "investigation", "loss", "motive"].forEach((k) => { if (xs[k] && xs[k] !== "-") e[k] = xs[k]; });
+        if (!rd && monthBy !== "mahe") e._noDate = 1;
         if (reg === "B" || reg === "C") e.detected = true;
         if (reg === "B" && nbIsDD185(secs)) e.partBHead = "mv185";
         if (reg === "A") {
@@ -18163,7 +18432,7 @@ function nbParseUtaraBlocks(blocks) {
           if (e.accused && !/^\s*(અજાણ્યો|અજાણ્યા|અજાણ)/.test(e.accused) || /\(\s*[૨2]\s*\)/.test(e.accused)) { const L = nbAccusedWithArrests(e.accused, e.arrestText); if (L.length) e.accList = L; }
           nbWAutoFill(e);
         }
-        if (!e.regDate) return;
+        if (!e.regDate) { if (!e._noDate) return; e.regDate = (month || year + "-01") + "-01"; }
         put(e);
       });
     } else if (kind === "AD") {
@@ -18177,7 +18446,7 @@ function nbParseUtaraBlocks(blocks) {
         const am = nbWA(dec).match(/ઉ\.?\s?વ[.\s-]*(\d+)/);
         const adSec = nbWClean(c[1].slice(nbWA(c[1]).indexOf(m0[0]) + m0[0].length)).replace(/^[\s,.-]+/, "");
         const ad13 = c.length <= 13;
-        put({ id: `wAD${+m[1]}_${y}`, reg: "AD", no: String(+m[1]), year: y, regDate: rd || (month ? month + "-01" : ""), regTime: rt, sections: adSec || ((rd || month || "") < "2024-07" ? "CRPC ક.૧૭૪" : "BNSS ક.૧૯૪"),
+        put({ id: `wAD${+m[1]}_${y}`, reg: "AD", no: String(+m[1]), year: y, regDate: rd || (monthBy === "mahe" ? month + "-01" : ""), regTime: rt, sections: adSec || ((rd || month || "") < "2024-07" ? "CRPC ક.૧૭૪" : "BNSS ક.૧૯૪"),
           kind: /ગળાફાસો|ઝેરી દવા|આપઘાત|પી જતા|પી ગયેલ/.test(facts) ? "sui" : "acc", occText: nbWClean(c[2]), informant: nbWClean(c[4]), deceased: dec,
           dGender: /બેન|વા\/ઓ|ડો\/ઓ|સ્ત્રી/.test(dec) ? "F" : "M", ...(am ? { dAge: am[1] } : {}), facts, writer: ad13 ? "" : nbWClean(c[12] || ""), io: nbWClean(ad13 ? (c[12] || "") : (c[13] || "")), createdAt: now, updatedAt: now });
       });
@@ -18190,7 +18459,7 @@ function nbParseUtaraBlocks(blocks) {
         const wcell = c[hm.when != null ? hm.when : 1] || "";
         const wds = nbWDates(wcell);
         const [rd, rt] = mm ? nbWDateTime(allt.slice(mm.index + mm[0].length)) : wds.length >= 2 && /બ\.?\s?જા\.?\s?તા/.test(nbWA(R[0].join(" "))) ? nbWDateTime(nbWA(wcell).slice(wds[0][1])) : nbWDateTime(wcell);
-        const e = { id: `w${kind}${no}_${y}`, reg: kind, no, year: y, regDate: rd || (month ? month + "-01" : ""), regTime: rt, occText: hm.when != null ? nbWClean(c[hm.when]) : "", createdAt: now, updatedAt: now };
+        const e = { id: `w${kind}${no}_${y}`, reg: kind, no, year: y, regDate: rd || (monthBy === "mahe" ? month + "-01" : ""), regTime: rt, occText: hm.when != null ? nbWClean(c[hm.when]) : "", createdAt: now, updatedAt: now };
         ["writer", "informant", "missing", "facts", "io", "victim", "jjType"].forEach((k) => { if (hm[k] != null && hm[k] < c.length) e[k] = nbWClean(c[hm[k]]); });
         if (kind === "GUM") { const mg = e.missing || ""; e.mGender = /બેન|ડો\/ઓ|વા\/ઓ/.test(mg) ? "F" : "M"; const am = nbWA(mg).match(/ઉ\.?\s?વ[.\s-]*(\d+)/); if (am) e.mAge = am[1]; }
         if (e.regDate) put(e);
@@ -18198,7 +18467,7 @@ function nbParseUtaraBlocks(blocks) {
     }
   });
   let entries = Object.values(out).map((e) => nbNormEntry(e));
-  if (!month) { const c = {}; entries.forEach((e) => { const k = nbYM(e.regDate); c[k] = (c[k] || 0) + 1; }); month = Object.keys(c).sort((a, b) => c[b] - c[a])[0] || ""; }
+  if (!month) { const c = {}; entries.forEach((e) => { if (e._noDate) return; const k = nbYM(e.regDate); c[k] = (c[k] || 0) + 1; }); const ks = Object.keys(c).filter(Boolean).sort(); const top = ks.slice().sort((a, b) => c[b] - c[a])[0] || ""; month = top && c[top] >= entries.length * 0.6 ? top : ks[ks.length - 1] || ""; }
   entries = entries.map((e) => (e._srcYM ? e : { ...e, _srcYM: month }));
   return { entries, month, pending: pendRegs.size ? { ym: pendYM || month, regs: Array.from(pendRegs), keys: Array.from(pendKeys) } : null };
 }
@@ -18401,15 +18670,17 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
     if (!files.length) return;
     setBusy(true); setProg("");
     try {
-      const L = []; let month = ""; const bad = []; const parsed = [];
+      const L = []; let month = ""; const bad = []; const parsed = []; const skipped = [];
       for (let k = 0; k < files.length; k++) {
         const file = files[k];
         if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") {
           const r = await readFir(file, k, files.length);
           if (r.ok) L.push(r.entry); else bad.push(file.name + (r.missing.length ? " — " + r.missing.join(", ") : ""));
         } else {
-          const buf = await file.arrayBuffer(); const u8 = new Uint8Array(buf);
-          const res = nbParseUtaraBlocks(u8[0] === 0xd0 && u8[1] === 0xcf ? nbDocBlocks(buf) : nbDocxBlocks(await nbDocxXml(buf)));
+          let res = null;
+          try { res = nbParseUtaraBlocks(await nbAnyBlocks(await file.arrayBuffer())); }
+          catch (er) { if (String(er && er.message) === "old-browser" || files.length === 1) throw er; console.warn(file.name, er); }
+          if (!res || !res.entries.length) { skipped.push(file.name); continue; }
           parsed.push(res); month = month || res.month;
         }
       }
@@ -18430,7 +18701,8 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
       const have = new Set((entries || []).map(nbEntryKey));
       for (let i = L.length - 1; i >= 0; i--) { const e = L[i]; if (e._noDate) { delete e.regDate; if (!have.has(nbEntryKey(e))) L.splice(i, 1); } delete e._bst; delete e._noDate; }
       if (bad.length) window.alert(t("Could not read the FIR number / date from:\n", "આ FIR માંથી ગુ.ર.નં. / તારીખ વંચાઇ નહીં:\n") + bad.join("\n"));
-      if (!L.length) { if (!bad.length) window.alert(t("No crime rows were found in this Word file. Please choose the monthly ઉતારા (register extract) file.", "આ Word ફાઇલમાં ગુનાની કોઈ લાઇન મળી નહીં. માસિક ઉતારા વાળી ફાઇલ પસંદ કરો.")); return; }
+      if (skipped.length && L.length) window.alert(t("No crime rows were found in these files (they were left out):\n", "આ ફાઇલોમાં ગુનાની લાઇન મળી નહીં (છોડી દીધી):\n") + skipped.join("\n"));
+      if (!L.length) { if (!bad.length) window.alert(t("No crime rows were found. The file needs a table whose heading has ગુ.ર.નં. and columns like ફરીયાદી, આરોપી, ગુ.બ.તા., ગુ.જા.તા., ત.ક.અધિ. — or choose the ઉતારા / B-statement / pending list / FIR copy.", "ગુનાની કોઈ લાઇન મળી નહીં. ફાઇલમાં એવું ટેબલ જોઇએ જેના મથાળે ગુ.ર.નં. અને ફરીયાદી, આરોપી, ગુ.બ.તા., ગુ.જા.તા., ત.ક.અધિ. જેવા ખાના હોય — અથવા ઉતારો / બી સ્ટેટમેન્ટ / પેન્ડીંગ લિસ્ટ / FIR કોપી પસંદ કરો.")); return; }
       L.forEach(nbWDetectFix);
       const p = await nbImportPlan({ entries: L, monthly: {} }, entries || []);
       const mineByKey = {}; (entries || []).forEach((e) => { mineByKey[nbEntryKey(e)] = e; });
@@ -18469,7 +18741,7 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
       window.alert(m === "old-doc" ? t("This is an old .doc file. Open it in Word and use Save As → Word Document (.docx), then choose it again.", "આ જૂની .doc ફાઇલ છે. Word માં ખોલી Save As → Word Document (.docx) કરી ફરી પસંદ કરો.")
         : m === "old-browser" ? t("This browser can't read Word files. Please update Chrome / Safari.", "આ બ્રાઉઝર Word ફાઇલ વાંચી શકતું નથી. Chrome / Safari અપડેટ કરો.")
         : /Could not load|fetch|network|Failed/i.test(m) ? t("The FIR reader needs internet the first time. Please connect and try again.", "FIR વાંચવા માટે પહેલી વાર ઇન્ટરનેટ જોઇએ. ઇન્ટરનેટ ચાલુ કરી ફરી પ્રયાસ કરો.")
-        : t("Couldn't read this file. Please choose the ઉતારા (.docx) or the FIR copy (.pdf).", "આ ફાઇલ વાંચી શકાઇ નહીં. ઉતારા (.docx) કે FIR કોપી (.pdf) પસંદ કરો.") + " (" + m + ")");
+        : t("Couldn't read this file. Choose a Word (.docx / .doc) or Excel (.xlsx / .xls) file, or the FIR copy (.pdf).", "આ ફાઇલ વાંચી શકાઇ નહીં. Word (.docx / .doc) કે Excel (.xlsx / .xls) ફાઇલ, કે FIR કોપી (.pdf) પસંદ કરો.") + " (" + m + ")");
     } finally { setBusy(false); setProg(""); }
   };
   const apply = async () => {
@@ -18487,11 +18759,11 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
   const btn = { background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 2 };
   return (
     <div data-word-import style={compact ? {} : { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
-      <input ref={ref} type="file" multiple accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} onChange={(ev) => { pick(ev.target.files); ev.target.value = ""; }} data-word-input />
+      <input ref={ref} type="file" multiple accept=".docx,.doc,.xlsx,.xls,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: "none" }} onChange={(ev) => { pick(ev.target.files); ev.target.value = ""; }} data-word-input />
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 220px" }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}><WordIcon /><PdfIcon />{t("Add ઉતારા, B-statement, pending list or FIR copy", "ઉતારો, બી સ્ટેટમેન્ટ, પેન્ડીંગ લિસ્ટ કે FIR કોપી ઉમેરો")}</div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Choose the Word files (.docx or .doc) of one or more months — ઉતારા, B-statement, pending list — or FIR copies (.pdf). Crimes are added without duplicates; newer months update the older crimes automatically. Disposal dates are never filled in.", "એક કે વધુ મહિનાની Word ફાઇલો (.docx કે .doc) — ઉતારો, બી સ્ટેટમેન્ટ, પેન્ડીંગ લિસ્ટ — કે FIR કોપી (.pdf) પસંદ કરો. ગુના બેવડાયા વગર ઉમેરાશે; પછીના મહિનાની વિગતથી જૂના ગુના આપમેળે સુધરશે. નિકાલ તારીખ ક્યારેય જાતે ભરાતી નથી.")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Any year: Word (.docx / .doc) or Excel (.xlsx / .xls) files — ઉતારા, B-statement, pending list or any crime list with ગુ.ર.નં., ફરીયાદી, આરોપી, ગુ.જા.તા. … columns — or FIR copies (.pdf). Crimes are added without duplicates; newer files update the older crimes automatically. Disposal dates are never filled in.", "કોઈ પણ વર્ષની Word (.docx / .doc) કે Excel (.xlsx / .xls) ફાઇલ — ઉતારો, બી સ્ટેટમેન્ટ, પેન્ડીંગ લિસ્ટ કે ગુ.ર.નં., ફરીયાદી, આરોપી, ગુ.જા.તા. … ખાના વાળું કોઈ પણ પત્રક — કે FIR કોપી (.pdf) પસંદ કરો. ગુના બેવડાયા વગર ઉમેરાશે; પછીની વિગતથી જૂના ગુના આપમેળે સુધરશે. નિકાલ તારીખ ક્યારેય જાતે ભરાતી નથી.")}</div>
         </div>
         <button type="button" onClick={() => ref.current && ref.current.click()} disabled={busy} style={btn}>{busy ? "…" : t("Choose file", "ફાઇલ પસંદ કરો")}</button>
       </div>
