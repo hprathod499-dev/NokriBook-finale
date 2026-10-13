@@ -9053,9 +9053,11 @@ function DeleteAccountModal({ staffCount, onConfirm, onCancel }) {
 function NightToggle({ value, onChange }) {
   const { t } = useLang();
   return (
-    <div style={{ display: "flex", gap: 6, margin: "8px 0 12px" }} role="group" aria-label={t("Day or night duty", "દિવસ કે રાત્રિ ડ્યુટી")}>
-      <button type="button" onClick={() => onChange(false)} style={catTabBtn(!value)} className="gu">☀️ {t("Day", "દિવસ")}</button>
-      <button type="button" onClick={() => onChange(true)} style={catTabBtn(!!value)} className="gu">🌙 {t("Night", "રાત્રિ")}</button>
+    <div style={{ margin: "8px 0 12px" }}>
+      <select value={value ? "night" : "day"} onChange={(ev) => onChange(ev.target.value === "night")} aria-label={t("Day or night duty", "દિવસ કે રાત્રિ ડ્યુટી")} className="gu" data-night-select style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: "10px 12px", borderRadius: 10 }}>
+        <option value="day">☀️ {t("Day", "દિવસ")}</option>
+        <option value="night">🌙 {t("Night", "રાત્રિ")}</option>
+      </select>
     </div>
   );
 }
