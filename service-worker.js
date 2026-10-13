@@ -25,6 +25,9 @@
 //  - Precaching adds files one at a time, so one missing file can no longer
 //    stop index.html itself from being cached.
 const CACHE_NAME = "nokri-book-shell-v6";
+// On a very slow connection, wait at most this long for the page before opening the copy kept on the device
+// (the fresh copy still downloads in the background and is used next time).
+const SLOW_NET_MS = 6000;
 // Fixed-version libraries the page loads from CDNs (React, Firebase, pako,
 // jsPDF, fonts, ...). Kept on the device so the app — and the offline
 // Crime Review — still opens with no internet once it has been opened once.
@@ -100,7 +103,7 @@ self.addEventListener("fetch", (event) => {
 
   // Opening / reloading / deep-linking to any page.
   if (req.mode === "navigate" || url.pathname.endsWith("/index.html") || url.pathname === "/") {
-    event.respondWith(
+    const fresh =
       // cache: "no-store" skips the browser's own 10-minute HTTP cache of
       // the page, so a new deploy shows up on the very next open.
       fetch(req.url, { cache: "no-store", credentials: "same-origin" })
@@ -109,13 +112,14 @@ self.addEventListener("fetch", (event) => {
           // Keep ONE fresh copy of the shell, no matter which URL was opened.
           if (isShellResponse(res)) {
             const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) =>
+            const put = caches.open(CACHE_NAME).then((cache) =>
               // Re-wrap as a 200 so it is always a valid shell for any URL later.
               cache.put(SHELL_URL, new Response(copy.body, {
                 status: 200,
                 headers: { "Content-Type": "text/html; charset=utf-8" },
               }))
             ).catch(() => {});
+            try { event.waitUntil(put); } catch (e) {}
           }
           // Return the network response as-is (a 404-status shell still
           // renders the app; the in-page router takes over).
@@ -124,7 +128,15 @@ self.addEventListener("fetch", (event) => {
         .catch(() =>
           // Offline: serve the shell for ANY path (/app/staff/123 included).
           caches.match(SHELL_URL).then((cached) => cached || caches.match("/"))
-        )
+        );
+    event.waitUntil(fresh.catch(() => {}));
+    event.respondWith(
+      caches.match(SHELL_URL).then((cached) => {
+        if (!cached) return fresh;
+        let timer;
+        const slow = new Promise((res) => { timer = setTimeout(() => res(cached), SLOW_NET_MS); });
+        return Promise.race([fresh.then((r) => { clearTimeout(timer); return r; }), slow]);
+      })
     );
     return;
   }
