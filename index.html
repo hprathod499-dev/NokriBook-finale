@@ -2500,22 +2500,150 @@ function PeriodFilterSelect({ period, setPeriod }) {
     </div>
   );
 }
-function NbDateInput({ value, onChange, style, className, placeholder, defaultValue, ...rest }) {
+// Typed date → "yyyy-mm-dd". Digits only: 8 = ddmmyyyy, 6 = ddmmyy, 4 = dmyy (1126 → 01/01/2026), 5 / 7 = whichever split is a real date,
+// 1–2 = that day of this month. With / . - : d/m/yy, d/m/yyyy, d/m (this year). Returns "" for empty, null when it is not a real date.
+function nbParseTypedDate(text, typedSep) {
+  const s = nbAsciiDigits(String(text || "")).trim();
+  if (!s) return "";
+  const now = new Date(), cy = now.getFullYear();
+  const yy = (y) => (y.length === 2 ? (+y > (cy % 100) + 20 ? 1900 : 2000) + +y : +y);
+  const ok = (d, m, y) => { d = +d; m = +m; y = +y; if (!(y >= 1900 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= new Date(y, m, 0).getDate())) return null; return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`; };
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return ok(m[3], m[2], m[1]);
+  if (typedSep || /[^\d]/.test(s)) {
+    const p = s.split(/[^\d]+/).filter(Boolean);
+    if (p.length === 3 && (p[2].length === 2 || p[2].length === 4)) return ok(p[0], p[1], yy(p[2]));
+    if (p.length === 2) return ok(p[0], p[1], cy);
+    if (p.length === 1) return nbParseTypedDate(p[0], false);
+    return null;
+  }
+  const d = s;
+  const tryAll = (L) => { for (const [a, b, c] of L) { const r = ok(d.slice(0, a), d.slice(a, a + b), yy(d.slice(a + b, a + b + c))); if (r) return r; } return null; };
+  if (d.length === 8) return tryAll([[2, 2, 4]]);
+  if (d.length === 7) return tryAll([[1, 2, 4], [2, 1, 4]]);
+  if (d.length === 6) return tryAll([[2, 2, 2], [1, 1, 4]]);
+  if (d.length === 5) return tryAll([[1, 2, 2], [2, 1, 2]]);
+  if (d.length === 4) return tryAll([[1, 1, 2]]);
+  if (d.length <= 2) return ok(d, now.getMonth() + 1, cy);
+  return null;
+}
+const NB_MON_GU = ["જાન્યુઆરી", "ફેબ્રુઆરી", "માર્ચ", "એપ્રિલ", "મે", "જૂન", "જુલાઈ", "ઓગસ્ટ", "સપ્ટેમ્બર", "ઓક્ટોબર", "નવેમ્બર", "ડિસેમ્બર"];
+const NB_MON_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function NbCalendarPop({ value, min, max, anchor, onPick, onClose, canClear }) {
+  const { t, lang } = useLang();
+  const today = todayStr();
+  const base = value || (max && today > max ? max : min && today < min ? min : today);
+  const [ym, setYm] = useState([+base.slice(0, 4), +base.slice(5, 7) - 1]);
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  useEffect(() => {
+    const place = () => {
+      const r = anchor && anchor.getBoundingClientRect(); if (!r) return;
+      const W = Math.min(300, window.innerWidth - 16), H = 340;
+      let left = Math.min(Math.max(8, r.right - W), window.innerWidth - W - 8);
+      let top = r.bottom + 4; if (top + H > window.innerHeight - 8 && r.top - H - 4 > 8) top = r.top - H - 4;
+      setPos({ left, top: Math.max(8, Math.min(top, window.innerHeight - H - 8)), width: W });
+    };
+    place();
+    const down = (e) => { if (ref.current && !ref.current.contains(e.target) && !(anchor && anchor.contains(e.target))) onClose(); };
+    const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    window.addEventListener("resize", place); window.addEventListener("scroll", place, true);
+    document.addEventListener("mousedown", down); document.addEventListener("touchstart", down, { passive: true }); document.addEventListener("keydown", key, true);
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); document.removeEventListener("mousedown", down); document.removeEventListener("touchstart", down); document.removeEventListener("keydown", key, true); };
+  }, []);
+  const [y, mo] = ym;
+  const gu = lang === "gu";
+  const months = gu ? NB_MON_GU : NB_MON_EN;
+  const wk = gu ? ["સોમ", "મંગળ", "બુધ", "ગુરુ", "શુક્ર", "શનિ", "રવિ"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const first = (new Date(y, mo, 1).getDay() + 6) % 7, days = new Date(y, mo + 1, 0).getDate();
+  const iso = (d) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const off = (d) => (min && d < min) || (max && d > max);
+  const minY = min ? +min.slice(0, 4) : 1990, maxY = max ? +max.slice(0, 4) : new Date().getFullYear() + 5;
+  const years = []; for (let k = Math.max(maxY, y); k >= Math.min(minY, y); k--) years.push(k);
+  const go = (d) => { let m2 = mo + d, y2 = y; if (m2 < 0) { m2 = 11; y2--; } if (m2 > 11) { m2 = 0; y2++; } setYm([y2, m2]); };
+  const cells = []; for (let k = 0; k < first; k++) cells.push(null); for (let d = 1; d <= days; d++) cells.push(d);
+  const nav = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 34, height: 34, fontSize: 14, fontWeight: 700, color: "var(--text-primary)", cursor: "pointer", flexShrink: 0 };
+  const sel = { fontSize: 14, fontWeight: 700, padding: "6px 4px", borderRadius: 8, minWidth: 0 };
+  if (!pos) return null;
+  return ReactDOM.createPortal(
+    <div ref={ref} role="dialog" aria-label={t("Choose a date", "તારીખ પસંદ કરો")} data-cal-pop className="gu" style={{ position: "fixed", left: pos.left, top: pos.top, width: pos.width, zIndex: 400, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "0 12px 36px rgba(0,0,0,0.22)", padding: 10, boxSizing: "border-box" }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+        <button type="button" onClick={() => go(-1)} aria-label={t("Previous month", "પાછલો મહિનો")} data-cal-prev style={nav}>◀</button>
+        <select value={mo} onChange={(e) => setYm([y, +e.target.value])} aria-label={t("Month", "મહિનો")} data-cal-month className="gu" style={{ ...sel, flex: 1.4 }}>{months.map((m, k) => <option key={k} value={k}>{m}</option>)}</select>
+        <select value={y} onChange={(e) => setYm([+e.target.value, mo])} aria-label={t("Year", "વર્ષ")} data-cal-year className="mono" style={{ ...sel, flex: 1 }}>{years.map((k) => <option key={k} value={k}>{k}</option>)}</select>
+        <button type="button" onClick={() => go(1)} aria-label={t("Next month", "આગલો મહિનો")} data-cal-next style={nav}>▶</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, textAlign: "center" }}>
+        {wk.map((w, k) => <div key={w} style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 0", color: k === 6 ? "var(--status-error-text, #c0392b)" : "var(--text-secondary)" }}>{w}</div>)}
+        {cells.map((d, k) => {
+          if (!d) return <div key={"b" + k} />;
+          const v = iso(d), on = v === value, isT = v === today, dis = off(v);
+          return <button type="button" key={v} disabled={dis} onClick={() => onPick(v)} data-cal-day={v} className="mono"
+            style={{ height: 34, borderRadius: 8, fontSize: 14, cursor: dis ? "default" : "pointer", border: isT && !on ? "1.5px solid var(--btn-dark-bg)" : "1px solid transparent", background: on ? "var(--btn-dark-bg)" : "transparent", color: on ? "#fff" : dis ? "var(--text-tertiary)" : k % 7 === 6 ? "var(--status-error-text, #c0392b)" : "var(--text-primary)", fontWeight: on || isT ? 700 : 500, opacity: dis ? 0.45 : 1 }}>{d}</button>;
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8, justifyContent: "space-between" }}>
+        <button type="button" disabled={off(today)} onClick={() => onPick(today)} data-cal-today style={{ ...nav, width: "auto", padding: "0 12px", fontSize: 13 }}>{t("Today", "આજે")}</button>
+        {canClear && value ? <button type="button" onClick={() => onPick("")} data-cal-clear style={{ ...nav, width: "auto", padding: "0 12px", fontSize: 13, fontWeight: 600 }}>{t("Clear", "ખાલી કરો")}</button> : <span />}
+        <button type="button" onClick={onClose} style={{ ...nav, width: "auto", padding: "0 12px", fontSize: 13, fontWeight: 600 }}>{t("Close", "બંધ")}</button>
+      </div>
+    </div>,
+    document.body
+  );
+}
+// Date box: type the date (01102026, 1126, 1/10/26 …) or pick it from the calendar. Value stays "yyyy-mm-dd".
+function NbDateInput({ value, onChange, style, className, placeholder, defaultValue, min, max, onClick, ...rest }) {
+  const { t } = useLang();
   const controlled = value !== undefined;
   const [inner, setInner] = useState(defaultValue || "");
-  const cur = controlled ? value : inner;
+  const cur = String((controlled ? value : inner) || "").slice(0, 10);
+  const [txt, setTxt] = useState(null);
+  const [bad, setBad] = useState(false);
+  const [open, setOpen] = useState(false);
+  const sepRef = useRef(false), boxRef = useRef(null), inRef = useRef(null);
   const st = style || {};
   const wrap = { position: "relative", display: st.width === "100%" ? "block" : "inline-block", verticalAlign: "middle" };
   ["width", "flex", "minWidth", "maxWidth", "margin", "marginTop", "marginLeft", "marginRight", "marginBottom", "gridColumn"].forEach((k) => { if (st[k] != null) wrap[k] = st[k]; });
-  const shown = cur ? formatDMY(String(cur).slice(0, 10)) : "";
-  const valueProps = controlled ? { value: value || "" } : { defaultValue: defaultValue || "" };
+  const fire = (v) => {
+    if (!controlled) setInner(v);
+    if (onChange && v !== cur) onChange({ target: { value: v, name: rest.name }, currentTarget: { value: v } });
+  };
+  const commit = (raw) => {
+    const text = raw == null ? txt : raw;
+    if (text == null) return cur;
+    const v = nbParseTypedDate(sepRef.current ? text : text.replace(/\//g, ""), sepRef.current);
+    if (v === null || (v && ((min && v < min) || (max && v > max)))) { setBad(true); setTimeout(() => setBad(false), 1600); setTxt(null); sepRef.current = false; return cur; }
+    if (v === "" && rest.required) { setTxt(null); return cur; }
+    fire(v); setTxt(null); sepRef.current = false; return v;
+  };
+  const ev2 = (e, v) => ({ type: e && e.type, key: e && e.key, preventDefault: () => e && e.preventDefault && e.preventDefault(), stopPropagation: () => e && e.stopPropagation && e.stopPropagation(), target: { value: v, name: rest.name }, currentTarget: { value: v } });
+  const onType = (ev) => {
+    const raw = nbAsciiDigits(ev.target.value).replace(/[^\d/.\- ]/g, "");
+    const prev = txt == null ? (cur ? formatDMY(cur) : "") : txt;
+    if (!raw) { sepRef.current = false; setTxt(""); return; }
+    if (raw.length > prev.length && /[.\- ]$/.test(raw)) sepRef.current = true;
+    if (raw.length > prev.length && /\/$/.test(raw) && !/^\d{2}\/$|^\d{2}\/\d{2}\/$/.test(raw)) sepRef.current = true;
+    if (sepRef.current) { setTxt(raw.slice(0, 10)); return; }
+    const d = raw.replace(/\D/g, "").slice(0, 8), grow = raw.length > prev.length;
+    const out = d.slice(0, 2) + (d.length > 2 || (grow && d.length === 2) ? "/" : "") + d.slice(2, 4) + (d.length > 4 || (grow && d.length === 4) ? "/" : "") + d.slice(4);
+    setTxt(out);
+    if (d.length === 8) commit(out);
+  };
+  const shown = txt != null ? txt : cur ? formatDMY(cur) : "";
+  const dis = !!rest.disabled;
   return (
-    <span style={wrap}>
-      <input type="text" readOnly tabIndex={-1} aria-hidden="true" value={shown} placeholder={placeholder || "dd/mm/yyyy"} className={className} style={{ ...st, width: st.width ? "100%" : st.width, margin: 0, flex: undefined, gridColumn: undefined, pointerEvents: "none", minWidth: st.minWidth || 118, paddingRight: 30 }} />
-      <span aria-hidden="true" style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", fontSize: 13, opacity: 0.55 }}>📅</span>
-      <input type="date" {...valueProps} onChange={(e) => { if (!controlled) setInner(e.target.value); if (onChange) onChange(e); }} {...rest}
-        onClick={(e) => { try { if (e.currentTarget.showPicker) e.currentTarget.showPicker(); } catch (er) {} if (rest.onClick) rest.onClick(e); }}
-        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: rest.disabled ? "default" : "pointer", margin: 0, padding: 0, border: "none", boxSizing: "border-box" }} />
+    <span ref={boxRef} style={wrap}>
+      <input ref={inRef} type="text" inputMode="numeric" autoComplete="off" value={shown} placeholder={placeholder || "dd/mm/yyyy"} className={className} data-date-input
+        {...rest} onChange={onType} onBlur={(e) => { const v = commit(); if (rest.onBlur && !open) rest.onBlur(ev2(e, v)); }}
+        onKeyDown={(e) => { let v = cur; if (e.key === "Enter") { e.preventDefault(); v = commit(); } else if (e.key === "Escape" && txt != null) { e.stopPropagation(); setTxt(null); sepRef.current = false; } if (rest.onKeyDown) rest.onKeyDown(ev2(e, v)); }}
+        onFocus={(e) => { if (e.target.select) e.target.select(); if (rest.onFocus) rest.onFocus(e); }}
+        title={rest.title || t("Type the date, e.g. 01102026 or 1/10/26, or tap 📅", "તારીખ લખો, દા.ત. 01102026 કે 1/10/26, અથવા 📅 દબાવો")}
+        style={{ ...st, width: st.width ? "100%" : st.width, margin: 0, flex: undefined, gridColumn: undefined, boxSizing: "border-box", paddingRight: 34, ...(bad ? { borderColor: "var(--status-error-text, #c0392b)", boxShadow: "0 0 0 2px rgba(192,57,43,0.2)" } : {}) }} />
+      <button type="button" tabIndex={-1} disabled={dis} aria-label={t("Open calendar", "કેલેન્ડર ખોલો")} data-cal-btn
+        onMouseDown={(e) => e.preventDefault()} onClick={(e) => { setOpen((o) => !o); if (onClick) onClick(e); }}
+        style={{ position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)", width: 30, height: 30, border: "none", background: "transparent", padding: 0, fontSize: 14, cursor: dis ? "default" : "pointer", opacity: dis ? 0.4 : 0.8, color: "inherit" }}>📅</button>
+      {bad && <span role="alert" className="gu" style={{ position: "absolute", left: 0, top: "100%", marginTop: 2, fontSize: 11.5, color: "var(--status-error-text, #c0392b)", whiteSpace: "nowrap", zIndex: 2 }}>{t("Not a valid date", "આ તારીખ સાચી નથી")}</span>}
+      {open && <NbCalendarPop value={cur} min={min} max={max} anchor={boxRef.current} canClear={!rest.required} onClose={() => setOpen(false)} onPick={(v) => { setOpen(false); setTxt(null); sepRef.current = false; fire(v); if (rest.onBlur) rest.onBlur(ev2(null, v)); }} />}
     </span>
   );
 }
@@ -20509,7 +20637,7 @@ function nbEnPh(w) {
 const NB_EN_SUFFIX = [["bhai", "ભાઇ"], ["bhay", "ભાઇ"], ["ben", "બેન"], ["behen", "બેન"], ["kumar", "કુમાર"], ["sinhji", "સિંહજી"], ["sinh", "સિંહ"], ["singh", "સિંહ"]];
 const NB_GU_SUFFIX = /(ભાઇ|ભાઈ|બેન|કુમાર|સિંહજી|સિંહ)$/;
 // common Gujarati words used in names (public, generic list); the register's own names are added at run time
-const NB_EN_GU_BASE = "patel પટેલ|parmar પરમાર|makwana મકવાણા|chauhan ચૌહાણ|solanki સોલંકી|vala વાળા|vaghela વાઘેલા|rathod રાઠોડ|chavda ચાવડા|gohil ગોહિલ|jadeja જાડેજા|zala ઝાલા|dabhi ડાભી|baraiya બારૈયા|bariya બારીયા|mer મેર|koli કોળી|desai દેસાઇ|shah શાહ|joshi જોષી|bhatt ભટ્ટ|trivedi ત્રિવેદી|dave દવે|mehta મહેતા|sodha સોઢા|khuman ખુમાણ|khachar ખાચર|dhola ધોળા|sarvaiya સરવૈયા|gadhiya ગઢીયા|ram રામ|sipai સીપાઇ|sayad સૈયદ|mir મીર|pathan પઠાણ|shekh શેખ|sheikh શેખ|manjariya માંજરીયા|vadher વાઢેર|bhatti ભટ્ટી|thakor ઠાકોર|bharvad ભરવાડ|rabari રબારી|ahir આહીર|kathi કાઠી|chudasma ચુડાસમા|gohel ગોહેલ|sindhav સિંધવ|vaja વાજા|jethva જેઠવા|dodiya ડોડીયા|chaudhari ચૌધરી|prajapati પ્રજાપતિ|panchal પંચાલ|mistri મિસ્ત્રી|soni સોની|kotadiya કોટડીયા|savaliya સાવલીયા|vasani વસાણી|bhayani ભાયાણી|ramesh રમેશ|mahesh મહેશ|suresh સુરેશ|dinesh દિનેશ|rajesh રાજેશ|mukesh મુકેશ|jayesh જયેશ|hitesh હિતેષ|paresh પરેશ|naresh નરેશ|kamlesh કમલેશ|kishor કિશોર|sanjay સંજય|vijay વિજય|ajay અજય|ashok અશોક|bharat ભરત|jagdish જગદીશ|pravin પ્રવિણ|nitin નિતિન|anil અનિલ|sunil સુનિલ|kalu કાળુ|bhupat ભુપત|nanji નાનજી|manji માનજી|valji વાલજી|ravji રવજી|jivan જીવણ|bhikha ભીખા|nathu નાથુ|natha નાથા|lalji લાલજી|vallabh વલ્લભ|manubhai મનુભાઇ|manu મનુ|maganbhai મગનભાઇ|magan મગન|hasmukh હસમુખ|jaysukh જયસુખ|dilip દિલીપ|pankaj પંકજ|rakesh રાકેશ|vipul વિપુલ|kaushik કૌશિક|rahul રાહુલ|vishal વિશાલ|kiran કિરણ|arjun અર્જુન|ganesh ગણેશ|gopal ગોપાલ|govind ગોવિંદ|haresh હરેશ|harsh હર્ષ|karan કરણ|kanji કાનજી|keshu કેશુ|khodu ખોડુ|lakha લાખા|mansukh મનસુખ|mohan મોહન|nagji નાગજી|nilesh નિલેશ|piyush પિયુષ|pratap પ્રતાપ|raju રાજુ|ranchhod રણછોડ|ravi રવિ|sagar સાગર|shailesh શૈલેષ|shantilal શાંતિલાલ|vinod વિનોદ|yogesh યોગેશ|chandu ચંદુ|amit અમિત|ankit અંકિત|bhavesh ભાવેશ|chirag ચિરાગ|deepak દિપક|dipak દિપક|hardik હાર્દિક|jignesh જીગ્નેશ|ketan કેતન|mayur મયુર|mehul મેહુલ|nikunj નિકુંજ|pradip પ્રદિપ|sandip સંદીપ|sanjiv સંજીવ|tushar તુષાર|umesh ઉમેશ|vikram વિક્રમ|yash યશ|ali અલી|aslam અસલમ|iqbal ઇકબાલ|ibrahim ઇબ્રાહીમ|yusuf યુસુફ|salim સલીમ|rafik રફીક|hanif હનીફ|soyab સોયબ|abdul અબ્દુલ|gulab ગુલાબ|ramanik રમણીક|ramnik રમણીક|bachu બચુ|batuk બટુક|jagu જગુ|joru જોરૂ|bhanu ભાનુ|haku હકુ|jesing જેસીંગ|vasant વસંત|kanu કનુ|dhiru ધીરૂ|dhirubhai ધીરૂભાઇ|parsotam પરસોતમ|parshottam પરસોતમ|jitendra જીતેન્દ્ર|rameshbhai રમેશભાઇ|kishorbhai કિશોરભાઇ";
+const NB_EN_GU_BASE = "patel પટેલ|parmar પરમાર|makwana મકવાણા|chauhan ચૌહાણ|solanki સોલંકી|vala વાળા|vaghela વાઘેલા|rathod રાઠોડ|chavda ચાવડા|gohil ગોહિલ|jadeja જાડેજા|zala ઝાલા|dabhi ડાભી|baraiya બારૈયા|bariya બારીયા|mer મેર|koli કોળી|desai દેસાઇ|shah શાહ|joshi જોષી|bhatt ભટ્ટ|trivedi ત્રિવેદી|dave દવે|mehta મહેતા|sodha સોઢા|khuman ખુમાણ|khachar ખાચર|dhola ધોળા|sarvaiya સરવૈયા|gadhiya ગઢીયા|ram રામ|sipai સીપાઇ|sayad સૈયદ|mir મીર|pathan પઠાણ|shekh શેખ|sheikh શેખ|manjariya માંજરીયા|vadher વાઢેર|bhatti ભટ્ટી|thakor ઠાકોર|bharvad ભરવાડ|rabari રબારી|ahir આહીર|kathi કાઠી|chudasma ચુડાસમા|gohel ગોહેલ|sindhav સિંધવ|vaja વાજા|jethva જેઠવા|dodiya ડોડીયા|chaudhari ચૌધરી|prajapati પ્રજાપતિ|panchal પંચાલ|mistri મિસ્ત્રી|soni સોની|kotadiya કોટડીયા|savaliya સાવલીયા|vasani વસાણી|bhayani ભાયાણી|ramesh રમેશ|mahesh મહેશ|suresh સુરેશ|dinesh દિનેશ|rajesh રાજેશ|mukesh મુકેશ|jayesh જયેશ|hitesh હિતેષ|paresh પરેશ|naresh નરેશ|kamlesh કમલેશ|kishor કિશોર|sanjay સંજય|vijay વિજય|ajay અજય|ashok અશોક|bharat ભરત|jagdish જગદીશ|pravin પ્રવિણ|nitin નિતિન|anil અનિલ|sunil સુનિલ|kalu કાળુ|bhupat ભુપત|nanji નાનજી|manji માનજી|valji વાલજી|ravji રવજી|jivan જીવણ|bhikha ભીખા|nathu નાથુ|natha નાથા|lalji લાલજી|vallabh વલ્લભ|manubhai મનુભાઇ|manu મનુ|maganbhai મગનભાઇ|magan મગન|hasmukh હસમુખ|jaysukh જયસુખ|dilip દિલીપ|pankaj પંકજ|rakesh રાકેશ|vipul વિપુલ|kaushik કૌશિક|rahul રાહુલ|vishal વિશાલ|kiran કિરણ|arjun અર્જુન|ganesh ગણેશ|gopal ગોપાલ|govind ગોવિંદ|haresh હરેશ|harsh હર્ષ|karan કરણ|kanji કાનજી|keshu કેશુ|khodu ખોડુ|lakha લાખા|mansukh મનસુખ|mohan મોહન|nagji નાગજી|nilesh નિલેશ|piyush પિયુષ|pratap પ્રતાપ|raju રાજુ|ranchhod રણછોડ|ravi રવિ|sagar સાગર|shailesh શૈલેષ|shantilal શાંતિલાલ|vinod વિનોદ|yogesh યોગેશ|chandu ચંદુ|amit અમિત|ankit અંકિત|bhavesh ભાવેશ|chirag ચિરાગ|deepak દિપક|dipak દિપક|hardik હાર્દિક|jignesh જીગ્નેશ|ketan કેતન|mayur મયુર|mehul મેહુલ|nikunj નિકુંજ|pradip પ્રદિપ|sandip સંદીપ|sanjiv સંજીવ|tushar તુષાર|umesh ઉમેશ|vikram વિક્રમ|yash યશ|ali અલી|aslam અસલમ|iqbal ઇકબાલ|ibrahim ઇબ્રાહીમ|yusuf યુસુફ|salim સલીમ|rafik રફીક|hanif હનીફ|soyab સોયબ|abdul અબ્દુલ|gulab ગુલાબ|ramanik રમણીક|ramnik રમણીક|bachu બચુ|batuk બટુક|jagu જગુ|joru જોરૂ|bhanu ભાનુ|haku હકુ|jesing જેસીંગ|vasant વસંત|kanu કનુ|dhiru ધીરૂ|dhirubhai ધીરૂભાઇ|parsotam પરસોતમ|parshottam પરસોતમ|jitendra જીતેન્દ્ર|rameshbhai રમેશભાઇ|kishorbhai કિશોરભાઇ|kirti કીર્તિ|kirit કિરીટ|sisanada સીસણાદા|sisnada સીસણાદા";
 const NB_EN_GU_TABLE = (() => { const m = {}; NB_EN_GU_BASE.split("|").forEach((p) => { const [e, g] = p.split(" "); m[e] = g; }); return m; })();
 let _nbEnGuDictKey = null, _nbEnGuDict = null;
 // skeleton → Gujarati spellings found in this station's own register (names of accused / complainants / informants)
