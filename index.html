@@ -15834,16 +15834,17 @@ function nbPendingAt(e, asOf) {
   if (e.closeDate) return e.closeDate > asOf;
   return !e.closeType;
 }
-const NB_COURT_TYPES = [["sc", "સેશન્સ કેસ નં."], ["cc", "ફોજદારી કેસ નં. (CC)"], ["atro", "સ્પેશિયલ એટ્રો. કેસ નં."], ["pocso", "સ્પેશિયલ પોક્સો કેસ નં."], ["ndps", "સ્પેશિયલ NDPS કેસ નં."], ["jcc", "બાળ ફોજદારી કેસ નં. (JJB)"], ["sp", "સ્પેશિયલ કેસ નં."]];
-const NB_VERDICTS = [["proved", "સાબિત (સજા)"], ["notproved", "ના સાબિત (નિર્દોષ છુટકારો)"]];
+const NB_COURT_TYPES = [["sc", "સેશન્સ કેસ નં."], ["cc", "ફોજદારી કેસ નં. (CC)"], ["atro", "સ્પેશિયલ એટ્રો. કેસ નં."], ["pocso", "સ્પેશિયલ પોક્સો કેસ નં."], ["ndps", "સ્પેશિયલ NDPS કેસ નં."], ["jcc", "બાળ ફોજદારી કેસ નં. (JJB)"], ["sp", "સ્પેશિયલ કેસ નં."], ["smry", "સમરી કેસ નં."]];
+const NB_VERDICTS = [["proved", "સાબિત (સજા)"], ["guilty", "ગુનો કબૂલ કરતાં સજા (પ્લીડ ગિલ્ટી)"], ["notproved", "ના સાબિત (નિર્દોષ છુટકારો)"], ["abated", "એબેટેડ — આરોપીનું અવસાન"], ["sdisposed", "કેસ નિકાલ ગણાયો (સ્ટેન્ડ્સ ડિસ્પોઝ્ડ ઓફ)"], ["disposed", "કેસ નિકાલ (ડિસ્પોઝ્ડ ઓફ)"], ["discharged", "આરોપી ડિસ્ચાર્જ"], ["quashed", "હાઇકોર્ટ દ્વારા રદ"], ["lokadalat", "લોક અદાલતમાં નિકાલ"], ["compounded", "સમાધાન (કમ્પાઉન્ડ)"], ["withdrawn", "કેસ પરત ખેંચાયો"], ["judged", "ચુકાદો (પ્રકાર લખેલ નથી)"], ["committed", "સેશન્સ કોર્ટને કમીટ"], ["transfer", "બીજી કોર્ટમાં ટ્રાન્સફર"]];
+const NB_VD_SHORT = { proved: "સાબિત", guilty: "ગુનો કબૂલ — સજા", notproved: "ના સાબિત", abated: "એબેટેડ", sdisposed: "નિકાલ ગણાયો", disposed: "કેસ નિકાલ", discharged: "ડિસ્ચાર્જ", quashed: "હાઇકોર્ટ દ્વારા રદ", lokadalat: "લોક અદાલત", compounded: "સમાધાન", withdrawn: "પરત ખેંચાયો", judged: "ચુકાદો", committed: "સેશન્સમાં કમીટ", transfer: "ટ્રાન્સફર" };
 const NB_SENTENCES = [["jailfine", "કેદની સજા + રોકડ દંડ"], ["fine", "માત્ર રોકડ દંડ"], ["jail", "માત્ર કેદની સજા"]];
 function nbCourtLabel(e) {
   if (!e.courtType && !e.courtNo) return "";
   const t = (NB_COURT_TYPES.find((x) => x[0] === e.courtType) || [, "કોર્ટ કેસ નં."])[1];
   let s = t + " " + nbG(e.courtNo || "-");
   if (e.verdict) {
-    s += " — " + (e.verdict === "proved" ? "સાબિત" : "ના સાબિત") + (e.courtDate ? " તા." + nbGDate(e.courtDate) : "");
-    if (e.verdict === "proved") s += [e.sentence !== "fine" && e.jailTerm ? " કેદ: " + nbG(e.jailTerm) : "", e.sentence !== "jail" && Number(e.fineAmt) ? " દંડ ₹" + nbG(nbMoney(e.fineAmt)) : ""].join("");
+    s += " — " + (NB_VD_SHORT[e.verdict] || e.verdict) + (e.courtDate ? " તા." + nbGDate(e.courtDate) : "");
+    if (e.verdict === "proved" || e.verdict === "guilty") s += [e.sentence !== "fine" && e.jailTerm ? " કેદ: " + nbG(e.jailTerm) : "", e.sentence !== "jail" && Number(e.fineAmt) ? " દંડ ₹" + nbG(nbMoney(e.fineAmt)) : ""].join("");
   }
   return s;
 }
@@ -16395,7 +16396,7 @@ function nbRegFields(reg) {
     nbF("closeDate", "Date", "તારીખ", "date", { when: (e) => e.closeType !== "cs" }),
   ];
   const isCs = (e) => e.closeType === "cs";
-  const proved = (e) => isCs(e) && e.verdict === "proved";
+  const proved = (e) => isCs(e) && (e.verdict === "proved" || e.verdict === "guilty");
   const court = [
     nbF("csKind", "Charge-sheet type", "ચાર્જશીટનો પ્રકાર", "sel", { opts: [["", "ચાર્જશીટ"], ["juv", "વર્તણૂક અહેવાલ (કિશોર આરોપી)"]], when: isCs }),
     nbF("_csPair", "", "", "stack", { when: isCs, items: [nbF("csNo", "Charge-sheet no.", "ચાર્જશીટ / અહેવાલ નંબર", "text"), nbF("closeDate", "Charge-sheet date", "ચાર્જશીટ કર્યા તારીખ", "date")] }),
@@ -17878,7 +17879,7 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
   return (
     <div>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
-      <CrimeWordImport entries={ctx.entries} showToast={showToast} showBst={showBst} />
+      <CrimeWordImport entries={ctx.entries} profile={ctx.profile} showToast={showToast} showBst={showBst} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <b>{t("Month", "માસ")}:</b>
         <button type="button" onClick={() => setYm(nbYMShift(ym, -1))} aria-label="◀" data-ym-prev style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>◀</button>
@@ -18932,11 +18933,12 @@ function nbFirToEntry(pages, fileName) {
   nbWAutoFill(e);
   return { entry: nbNormEntry(e), ok: !!(no && year && regDate), missing: [!no && "ગુ.ર.નં.", !regDate && "તારીખ", !secs && "કલમ", !complainant && "ફરિયાદી", !facts && "હકીકત"].filter(Boolean) };
 }
-function CrimeWordImport({ entries, showToast, showBst, compact }) {
+function CrimeWordImport({ entries, profile, showToast, showBst, compact }) {
   const { t } = useLang();
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState(null);
+  const [court, setCourt] = useState(null);
   const [info, setInfo] = useState(null);
   const [prog, setProg] = useState("");
   const readFir = async (file, k, n) => {
@@ -18951,15 +18953,18 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
     if (!files.length) return;
     setBusy(true); setProg("");
     try {
-      const L = []; let month = ""; const bad = []; const parsed = []; const skipped = [];
+      const L = []; let month = ""; const bad = []; const parsed = []; const skipped = []; const courtRecs = [];
       for (let k = 0; k < files.length; k++) {
         const file = files[k];
         if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") {
+          let cr = null;
+          try { cr = await nbCourtFromPdf(await file.arrayBuffer(), (pg, of) => setProg(t(`Reading the court list, page ${pg} of ${of}…`, `કોર્ટ યાદી વંચાય છે — પાનું ${nbG(pg)} / ${nbG(of)}…`))); } catch (er) { console.warn("court list", er); }
+          if (cr) { courtRecs.push(...cr); continue; }
           const r = await readFir(file, k, files.length);
           if (r.ok) L.push(r.entry); else bad.push(file.name + (r.missing.length ? " — " + r.missing.join(", ") : ""));
         } else {
           let res = null;
-          try { res = nbParseUtaraBlocks(await nbAnyBlocks(await file.arrayBuffer())); }
+          try { const blk = await nbAnyBlocks(await file.arrayBuffer()); const cr = nbCourtFromBlocks(blk); if (cr.length) { courtRecs.push(...cr); continue; } res = nbParseUtaraBlocks(blk); }
           catch (er) { if (String(er && er.message) === "old-browser" || files.length === 1) throw er; console.warn(file.name, er); }
           if (!res || !res.entries.length) { skipped.push(file.name); continue; }
           parsed.push(res); month = month || res.month;
@@ -18984,6 +18989,7 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
       const have = new Set((entries || []).map(nbEntryKey));
       for (let i = L.length - 1; i >= 0; i--) { const e = L[i]; if (e._noDate) { delete e.regDate; if (!have.has(nbEntryKey(e))) L.splice(i, 1); } delete e._bst; delete e._noDate; }
       if (bad.length) window.alert(t("Could not read the FIR number / date from:\n", "આ FIR માંથી ગુ.ર.નં. / તારીખ વંચાઇ નહીં:\n") + bad.join("\n"));
+      if (courtRecs.length) { setCourt(nbCourtPlan(courtRecs, entries || [], profile || {})); if (!L.length) return; }
       if (skipped.length && L.length) window.alert(t("No crime rows were found in these files (they were left out):\n", "આ ફાઇલોમાં ગુનાની લાઇન મળી નહીં (છોડી દીધી):\n") + skipped.join("\n"));
       if (!L.length) { if (!bad.length) window.alert(t("No crime rows were found. The file needs a table whose heading has ગુ.ર.નં. and columns like ફરીયાદી, આરોપી, ગુ.બ.તા., ગુ.જા.તા., ત.ક.અધિ. — or choose the ઉતારા / B-statement / pending list / FIR copy.", "ગુનાની કોઈ લાઇન મળી નહીં. ફાઇલમાં એવું ટેબલ જોઇએ જેના મથાળે ગુ.ર.નં. અને ફરીયાદી, આરોપી, ગુ.બ.તા., ગુ.જા.તા., ત.ક.અધિ. જેવા ખાના હોય — અથવા ઉતારો / બી સ્ટેટમેન્ટ / પેન્ડીંગ લિસ્ટ / FIR કોપી પસંદ કરો.")); return; }
       L.forEach(nbWDetectFix);
@@ -19048,12 +19054,13 @@ function CrimeWordImport({ entries, showToast, showBst, compact }) {
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 220px" }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}><WordIcon /><PdfIcon />{t("Add ઉતારા, B-statement, pending list or FIR copy", "ઉતારો, બી સ્ટેટમેન્ટ, પેન્ડીંગ લિસ્ટ કે FIR કોપી ઉમેરો")}</div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Any year: Word (.docx / .doc) or Excel (.xlsx / .xls) files — ઉતારા, B-statement, pending list or any crime list with ગુ.ર.નં., ફરીયાદી, આરોપી, ગુ.જા.તા. … columns — or FIR copies (.pdf). Crimes are added without duplicates; newer files update the older crimes automatically. Disposal dates are never filled in.", "કોઈ પણ વર્ષની Word (.docx / .doc) કે Excel (.xlsx / .xls) ફાઇલ — ઉતારો, બી સ્ટેટમેન્ટ, પેન્ડીંગ લિસ્ટ કે ગુ.ર.નં., ફરીયાદી, આરોપી, ગુ.જા.તા. … ખાના વાળું કોઈ પણ પત્રક — કે FIR કોપી (.pdf) પસંદ કરો. ગુના બેવડાયા વગર ઉમેરાશે; પછીની વિગતથી જૂના ગુના આપમેળે સુધરશે. નિકાલ તારીખ ક્યારેય જાતે ભરાતી નથી.")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Any year: Word (.docx / .doc) or Excel (.xlsx / .xls) files — ઉતારા, B-statement, pending list or any crime list with ગુ.ર.નં., ફરીયાદી, આરોપી, ગુ.જા.તા. … columns — FIR copies (.pdf) or the eCourts disposed-case list (PDF / Excel). Crimes are added without duplicates; newer files update the older crimes automatically. Disposal dates are never filled in.", "કોઈ પણ વર્ષની Word (.docx / .doc) કે Excel (.xlsx / .xls) ફાઇલ — ઉતારો, બી સ્ટેટમેન્ટ, પેન્ડીંગ લિસ્ટ કે ગુ.ર.નં., ફરીયાદી, આરોપી, ગુ.જા.તા. … ખાના વાળું કોઈ પણ પત્રક — FIR કોપી (.pdf) કે eCourts ની નિકાલ થયેલ કેસની યાદી (PDF / Excel) પસંદ કરો. ગુના બેવડાયા વગર ઉમેરાશે; પછીની વિગતથી જૂના ગુના આપમેળે સુધરશે. નિકાલ તારીખ ક્યારેય જાતે ભરાતી નથી.")}</div>
         </div>
         <button type="button" onClick={() => ref.current && ref.current.click()} disabled={busy} style={btn}>{busy ? "…" : t("Choose file", "ફાઇલ પસંદ કરો")}</button>
       </div>
       {busy && prog && <div className="gu" data-fir-progress style={{ marginTop: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>⏳ {prog}</div>}
       {plan && <CrimeImportReview plan={plan} onCancel={() => setPlan(null)} onApply={apply} />}
+      {court && !plan && <CourtImportReview plan={court} profile={profile} onCancel={() => setCourt(null)} onApply={async () => { const n = await nbCourtApply(court); setCourt(null); showToast(t(`Court details updated in ${n} crimes`, `${nbG(n)} ગુનામાં કોર્ટની વિગત સુધારી`)); }} />}
     </div>
   );
 }
@@ -20466,6 +20473,403 @@ async function nbImportApply(plan) {
   plan.months.conflicts.forEach((c) => { if (c.choice === "file") M[c.ym] = c.file; else if (c.choice === "fill") M[c.ym] = nbDeepFill(c.mine, c.file); });
   if (plan.months.add.length || plan.months.conflicts.some((c) => c.choice !== "mine")) await nbCrimeStore.setMeta("monthly", M);
   return put.length;
+}
+// ---- eCourts disposed-case list (PDF / Excel) → court details on the crimes, all in Gujarati ----
+const NB_GU_KEY = { "ક": "k", "ખ": "k", "ગ": "g", "ઘ": "g", "ચ": "c", "છ": "c", "જ": "j", "ઝ": "j", "ટ": "t", "ઠ": "t", "ત": "t", "થ": "t", "ડ": "d", "ઢ": "d", "દ": "d", "ધ": "d", "ણ": "n", "ન": "n", "પ": "p", "ફ": "f", "બ": "b", "ભ": "b", "મ": "m", "ય": "y", "ર": "r", "લ": "l", "ળ": "l", "વ": "v", "શ": "s", "ષ": "s", "સ": "s", "હ": "h", "ં": "n", "ઁ": "n" };
+const NB_GU_IVOW = { "અ": "a", "આ": "a", "ઇ": "i", "ઈ": "i", "ઉ": "u", "ઊ": "u", "એ": "e", "ઐ": "e", "ઓ": "o", "ઔ": "o", "ઋ": "r" };
+const NB_GU_MATRA = { "ા": "a", "િ": "i", "ી": "i", "ુ": "u", "ૂ": "u", "ે": "e", "ૈ": "e", "ો": "o", "ૌ": "o" };
+// consonant skeleton of a Gujarati word (first vowel kept), its vowel signs (v) and vowels incl. the spoken "a" between consonants (f)
+function nbGuPh(w) {
+  let k = "", v = "", f = "", prevC = false;
+  const ch = Array.from(String(w || ""));
+  ch.forEach((c, i) => {
+    if (NB_GU_KEY[c]) {
+      const x = NB_GU_KEY[c];
+      if (prevC && c !== "ં" && c !== "ઁ" && i > 0 && ch[i - 1] !== "્" && ch[i - 1] !== "ં") f += "a";
+      if (!(prevC && k.slice(-1) === x && ch[i - 1] === "્")) k += x;
+      prevC = c !== "ં" && c !== "ઁ";
+      if (c === "ં" || c === "ઁ") prevC = false;
+    } else if (NB_GU_IVOW[c]) { if (i === 0) k += NB_GU_IVOW[c]; v += NB_GU_IVOW[c]; f += NB_GU_IVOW[c]; prevC = false; }
+    else if (NB_GU_MATRA[c]) { v += NB_GU_MATRA[c]; f += NB_GU_MATRA[c]; prevC = false; }
+    else if (c === "્") prevC = false;
+  });
+  return { k, v, f };
+}
+function nbEnPh(w) {
+  let s = String(w || "").toLowerCase().replace(/[^a-z]/g, "");
+  s = s.replace(/chh/g, "C").replace(/ch/g, "C").replace(/sh/g, "S").replace(/kh/g, "K").replace(/gh/g, "G").replace(/jh/g, "J").replace(/th/g, "T").replace(/dh/g, "D").replace(/ph/g, "F").replace(/bh/g, "B")
+    .replace(/ck/g, "k").replace(/c/g, "k").replace(/w/g, "v").replace(/z/g, "j").replace(/q/g, "k").replace(/x/g, "ks").replace(/([bcdfgjklmnprstvyz])\1/gi, "$1")
+    .replace(/C/g, "c").replace(/S/g, "s").replace(/K/g, "k").replace(/G/g, "g").replace(/J/g, "j").replace(/T/g, "t").replace(/D/g, "d").replace(/F/g, "f").replace(/B/g, "b");
+  const vg = (x) => (x === "ai" || x === "ei" || x === "ay" ? "e" : x === "au" || x === "ou" ? "o" : x === "ee" || x === "ii" ? "i" : x === "oo" ? "u" : x === "aa" ? "a" : x[0]);
+  const f = (s.match(/[aeiou]+/g) || []).map(vg).join("");
+  let k = /^[aeiou]/.test(s) ? s[0] : "";
+  for (const c of s.replace(/[aeiou]+/g, (m, o) => (o === 0 ? "" : "|"))) { if (c === "|") continue; k += c; }
+  return { k, v: f.replace(/a/g, ""), f };
+}
+const NB_EN_SUFFIX = [["bhai", "ભાઇ"], ["bhay", "ભાઇ"], ["ben", "બેન"], ["behen", "બેન"], ["kumar", "કુમાર"], ["sinhji", "સિંહજી"], ["sinh", "સિંહ"], ["singh", "સિંહ"]];
+const NB_GU_SUFFIX = /(ભાઇ|ભાઈ|બેન|કુમાર|સિંહજી|સિંહ)$/;
+// common Gujarati words used in names (public, generic list); the register's own names are added at run time
+const NB_EN_GU_BASE = "patel પટેલ|parmar પરમાર|makwana મકવાણા|chauhan ચૌહાણ|solanki સોલંકી|vala વાળા|vaghela વાઘેલા|rathod રાઠોડ|chavda ચાવડા|gohil ગોહિલ|jadeja જાડેજા|zala ઝાલા|dabhi ડાભી|baraiya બારૈયા|bariya બારીયા|mer મેર|koli કોળી|desai દેસાઇ|shah શાહ|joshi જોષી|bhatt ભટ્ટ|trivedi ત્રિવેદી|dave દવે|mehta મહેતા|sodha સોઢા|khuman ખુમાણ|khachar ખાચર|dhola ધોળા|sarvaiya સરવૈયા|gadhiya ગઢીયા|ram રામ|sipai સીપાઇ|sayad સૈયદ|mir મીર|pathan પઠાણ|shekh શેખ|sheikh શેખ|manjariya માંજરીયા|vadher વાઢેર|bhatti ભટ્ટી|thakor ઠાકોર|bharvad ભરવાડ|rabari રબારી|ahir આહીર|kathi કાઠી|chudasma ચુડાસમા|gohel ગોહેલ|sindhav સિંધવ|vaja વાજા|jethva જેઠવા|dodiya ડોડીયા|chaudhari ચૌધરી|prajapati પ્રજાપતિ|panchal પંચાલ|mistri મિસ્ત્રી|soni સોની|kotadiya કોટડીયા|savaliya સાવલીયા|vasani વસાણી|bhayani ભાયાણી|ramesh રમેશ|mahesh મહેશ|suresh સુરેશ|dinesh દિનેશ|rajesh રાજેશ|mukesh મુકેશ|jayesh જયેશ|hitesh હિતેષ|paresh પરેશ|naresh નરેશ|kamlesh કમલેશ|kishor કિશોર|sanjay સંજય|vijay વિજય|ajay અજય|ashok અશોક|bharat ભરત|jagdish જગદીશ|pravin પ્રવિણ|nitin નિતિન|anil અનિલ|sunil સુનિલ|kalu કાળુ|bhupat ભુપત|nanji નાનજી|manji માનજી|valji વાલજી|ravji રવજી|jivan જીવણ|bhikha ભીખા|nathu નાથુ|natha નાથા|lalji લાલજી|vallabh વલ્લભ|manubhai મનુભાઇ|manu મનુ|maganbhai મગનભાઇ|magan મગન|hasmukh હસમુખ|jaysukh જયસુખ|dilip દિલીપ|pankaj પંકજ|rakesh રાકેશ|vipul વિપુલ|kaushik કૌશિક|rahul રાહુલ|vishal વિશાલ|kiran કિરણ|arjun અર્જુન|ganesh ગણેશ|gopal ગોપાલ|govind ગોવિંદ|haresh હરેશ|harsh હર્ષ|karan કરણ|kanji કાનજી|keshu કેશુ|khodu ખોડુ|lakha લાખા|mansukh મનસુખ|mohan મોહન|nagji નાગજી|nilesh નિલેશ|piyush પિયુષ|pratap પ્રતાપ|raju રાજુ|ranchhod રણછોડ|ravi રવિ|sagar સાગર|shailesh શૈલેષ|shantilal શાંતિલાલ|vinod વિનોદ|yogesh યોગેશ|chandu ચંદુ|amit અમિત|ankit અંકિત|bhavesh ભાવેશ|chirag ચિરાગ|deepak દિપક|dipak દિપક|hardik હાર્દિક|jignesh જીગ્નેશ|ketan કેતન|mayur મયુર|mehul મેહુલ|nikunj નિકુંજ|pradip પ્રદિપ|sandip સંદીપ|sanjiv સંજીવ|tushar તુષાર|umesh ઉમેશ|vikram વિક્રમ|yash યશ|ali અલી|aslam અસલમ|iqbal ઇકબાલ|ibrahim ઇબ્રાહીમ|yusuf યુસુફ|salim સલીમ|rafik રફીક|hanif હનીફ|soyab સોયબ|abdul અબ્દુલ|gulab ગુલાબ|ramanik રમણીક|ramnik રમણીક|bachu બચુ|batuk બટુક|jagu જગુ|joru જોરૂ|bhanu ભાનુ|haku હકુ|jesing જેસીંગ|vasant વસંત|kanu કનુ|dhiru ધીરૂ|dhirubhai ધીરૂભાઇ|parsotam પરસોતમ|parshottam પરસોતમ|jitendra જીતેન્દ્ર|rameshbhai રમેશભાઇ|kishorbhai કિશોરભાઇ";
+const NB_EN_GU_TABLE = (() => { const m = {}; NB_EN_GU_BASE.split("|").forEach((p) => { const [e, g] = p.split(" "); m[e] = g; }); return m; })();
+let _nbEnGuDictKey = null, _nbEnGuDict = null;
+// skeleton → Gujarati spellings found in this station's own register (names of accused / complainants / informants)
+function nbEnGuDict(entries) {
+  if (_nbEnGuDict && _nbEnGuDictKey === entries) return _nbEnGuDict;
+  const d = {};
+  (entries || []).forEach((e) => {
+    const txt = [e.accused, e.complainant, e.informant, e.deceased, e.missing, ...(nbPeople(e.accList).map((p) => p.name))].filter(Boolean).join(" ");
+    (txt.match(/[\u0A80-\u0AFF]+/g) || []).forEach((w) => {
+      const base = w.replace(NB_GU_SUFFIX, ""); if (base.length < 2) return;
+      const ph = nbGuPh(base); if (ph.k.length < 2) return;
+      const L = d[ph.k] || (d[ph.k] = {}); const o = L[base] || (L[base] = { n: 0, v: ph.v.replace(/a/g, ""), f: ph.f }); o.n++;
+    });
+  });
+  _nbEnGuDict = d; _nbEnGuDictKey = entries; return d;
+}
+const NB_EN_CONS = [["ksh", "ક્ષ"], ["chh", "છ"], ["ch", "ચ"], ["kh", "ખ"], ["gh", "ઘ"], ["jh", "ઝ"], ["th", "થ"], ["dh", "ધ"], ["ph", "ફ"], ["bh", "ભ"], ["sh", "શ"], ["gn", "જ્ઞ"], ["k", "ક"], ["g", "ગ"], ["c", "ક"], ["j", "જ"], ["t", "ત"], ["d", "દ"], ["n", "ન"], ["p", "પ"], ["f", "ફ"], ["b", "બ"], ["m", "મ"], ["y", "ય"], ["r", "ર"], ["l", "લ"], ["v", "વ"], ["w", "વ"], ["s", "સ"], ["h", "હ"], ["z", "ઝ"], ["q", "ક"], ["x", "ક્સ"]];
+const NB_EN_VOW = [["aa", "આ", "ા"], ["ai", "ઐ", "ૈ"], ["au", "ઔ", "ૌ"], ["ee", "ઈ", "ી"], ["ii", "ઈ", "ી"], ["oo", "ઊ", "ૂ"], ["a", "અ", ""], ["i", "ઇ", "િ"], ["u", "ઉ", "ુ"], ["e", "એ", "ે"], ["o", "ઓ", "ો"]];
+const NB_EN_CLUSTER = /^(pr|tr|kr|br|gr|dr|shr|sr|st|sv|sw|dhr|bhr|pl|kl|gl|fl|bl|nd|nt|nk|ng|mb|mp|ty|dy|ky|vy|shv|ksh|jn|sn|hm|ll|tt|dd|kk|pp|bb|mm|nn|ss|nkh|ndr|ntr)$/;
+function nbEn2GuRule(word) {
+  const s = String(word || "").toLowerCase().replace(/[^a-z]/g, "");
+  let out = "", i = 0, prevCons = null;
+  const take = (L) => { for (const x of L) if (s.startsWith(x[0], i)) return x; return null; };
+  while (i < s.length) {
+    const v = take(NB_EN_VOW);
+    if (v) {
+      const end = i + v[0].length >= s.length;
+      if (prevCons != null) out += end && v[0] === "a" && s.length > 3 ? "ા" : end && v[0] === "i" ? "ી" : v[2];
+      else out += v[1];
+      i += v[0].length; prevCons = null; continue;
+    }
+    const c = take(NB_EN_CONS);
+    if (!c) { i++; continue; }
+    if (prevCons != null) {
+      const pair = prevCons + c[0];
+      if ((prevCons === "n" || prevCons === "m") && !/^[nmyrlvh]/.test(c[0])) out = out.slice(0, -1) + "ં";
+      else if (out.length === 1 || prevCons === c[0] || NB_EN_CLUSTER.test(pair)) out += "્";
+    }
+    out += c[1]; prevCons = c[0]; i += c[0].length;
+  }
+  return out;
+}
+function nbEn2GuWord(w, dict) {
+  const lw = String(w || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (!lw) return "";
+  if (NB_EN_GU_TABLE[lw]) return NB_EN_GU_TABLE[lw];
+  for (const [suf, gu] of NB_EN_SUFFIX) if (lw.length > suf.length + 1 && lw.endsWith(suf)) return nbEn2GuWord(lw.slice(0, -suf.length), dict) + gu;
+  const { k, v, f } = nbEnPh(lw);
+  const L = dict && dict[k];
+  if (L) {
+    const cands = Object.entries(L).filter(([, o]) => o.v === v && nbLev(o.f, f) <= 1).sort((a, b) => nbLev(a[1].f, f) - nbLev(b[1].f, f) || b[1].n - a[1].n);
+    if (cands.length) return cands[0][0];
+  }
+  return nbEn2GuRule(lw);
+}
+function nbEn2GuName(name, dict) {
+  return String(name || "").replace(/@/g, " @ ").replace(/\b([wWsSdD])\s*\/\s*[oO]\b/g, (m, x) => ({ w: "વા/ઓ", s: "સ/ઓ", d: "ડો/ઓ" })[x.toLowerCase()]).replace(/\s+/g, " ").trim().split(" ").map((w) => (w === "@" ? "ઉર્ફે" : /^[a-z]+$/i.test(w) ? nbEn2GuWord(w, dict) : w)).join(" ");
+}
+function nbNameMatchScore(en, gu) {
+  const E = String(en || "").toLowerCase().replace(/@/g, " ").split(/\s+/).map((w) => w.replace(/[^a-z]/g, "")).filter((w) => w.length > 1)
+    .map((w) => { for (const [s] of NB_EN_SUFFIX) if (w.length > s.length + 1 && w.endsWith(s)) return w.slice(0, -s.length); return w; }).map((w) => nbEnPh(w).k);
+  const G = (String(gu || "").split(/રહે|ઉ\.?\s?વ|,|\(/)[0].match(/[઀-૿]+/g) || []).map((w) => w.replace(NB_GU_SUFFIX, "")).filter((w) => w.length > 1).map((w) => nbGuPh(w).k);
+  if (!E.length || !G.length) return 0;
+  const near = (a, b) => a === b || (a.length >= 3 && b.length >= 3 && nbLev(a, b) <= 1);
+  const hit = E.filter((x) => G.some((y) => near(x, y))).length;
+  return hit / Math.max(2, Math.min(E.length, G.length));
+}
+function nbLev(a, b) {
+  const m = a.length, n = b.length; if (Math.abs(m - n) > 2) return 9;
+  let p = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) { const q = [i]; for (let j = 1; j <= n; j++) q[j] = Math.min(p[j] + 1, q[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); p = q; }
+  return p[n];
+}
+const NB_ACT_GU = [
+  [/GUJARAT\s*\(BOMBAY\)\s*PROHIBITION\s*ACT|BOMBAY\s*PROHIBITION\s*ACT|PROHIBITION\s*ACT,?\s*1949/i, "ગુજરાત પ્રોહીબીશન એક્ટ"],
+  [/DOWRY\s*PROHIBITION\s*ACT/i, "દહેજ પ્રતિબંધ અધિનિયમ"],
+  [/GUJARAT\s*\(BOMBAY\)\s*POLICE\s*ACT|BOMBAY\s*POLICE\s*ACT/i, "જી.પી.એક્ટ"],
+  [/INDIAN\s*PENAL\s*CODE/i, "ઇ.પી.કો."],
+  [/(?:THE\s*)?BHARATIYA\s*NYAYA\s*SANHITA/i, "ભારતીય ન્યાય સંહિતા"],
+  [/(?:THE\s*)?BHARATIYA\s*NAGARIK\s*SURAKSHA\s*SANHITA/i, "ભારતીય નાગરિક સુરક્ષા સંહિતા"],
+  [/(?:THE\s*)?BHARATIYA\s*SAKSHYA\s*ADHINIYAM/i, "ભારતીય સાક્ષ્ય અધિનિયમ"],
+  [/MOTOR\s*VEHICLES?\s*ACT/i, "મોટર વ્હીકલ એક્ટ"],
+  [/CODE\s*OF\s*CRIMINAL\s*PROCEDURE/i, "ફોજદારી કાર્યરીતિ સંહિતા (CrPC)"],
+  [/PUBLIC\s*GAMBLING\s*ACT|GAMBLING\s*ACT/i, "જુગાર ધારો"],
+  [/ARMS\s*ACT/i, "આર્મ્સ એક્ટ"],
+  [/NARCOTIC\s*DRUGS|N\.?D\.?P\.?S/i, "એન.ડી.પી.એસ. એક્ટ"],
+  [/PROTECTION\s*OF\s*CHILDREN\s*FROM\s*SEXUAL|POCSO/i, "પોક્સો એક્ટ"],
+  [/ATROCITIES|SCHEDULED\s*CASTES/i, "એટ્રોસીટી એક્ટ"],
+  [/INFORMATION\s*TECHNOLOGY\s*ACT/i, "આઇ.ટી. એક્ટ"],
+  [/INDIAN\s*FOREST\s*ACT/i, "ભારતીય વન અધિનિયમ"],
+  [/WILD\s*LIFE/i, "વન્યજીવ સંરક્ષણ અધિનિયમ"],
+  [/CINEMATOGRAPH\s*ACT/i, "સિનેમેટોગ્રાફ એક્ટ"],
+  [/COPYRIGHT\s*ACT/i, "કોપીરાઇટ એક્ટ"],
+  [/PASSPORTS?\s*ACT/i, "પાસપોર્ટ એક્ટ"],
+  [/NEGOTIABLE\s*INSTRUMENTS?\s*ACT/i, "નેગોશીએબલ ઇન્સ્ટ્રુમેન્ટ્સ એક્ટ"],
+  [/GENERAL\s*CLAUSES\s*ACT/i, "જનરલ ક્લોઝીસ એક્ટ"],
+  [/DISASTER\s*MANAGEMENT\s*ACT/i, "ડિઝાસ્ટર મેનેજમેન્ટ એક્ટ"],
+  [/EPIDEMIC\s*DISEASES\s*ACT/i, "એપેડેમિક ડિસીઝ એક્ટ"],
+  [/ESSENTIAL\s*COMMODITIES\s*ACT/i, "આવશ્યક ચીજવસ્તુ અધિનિયમ"],
+  [/CRUELTY\s*TO\s*ANIMALS/i, "પશુ ક્રૂરતા નિવારણ અધિનિયમ"],
+  [/MONEY\s*LENDERS/i, "ગુજરાત નાણા ધીરધાર અધિનિયમ"],
+  [/ELECTRICITY\s*ACT/i, "વીજળી અધિનિયમ"],
+  [/JUVENILE\s*JUSTICE/i, "જુવેનાઇલ જસ્ટીસ એક્ટ"],
+  [/MINES\s*AND\s*MINERALS|MINERAL/i, "ખાણ અને ખનિજ અધિનિયમ"],
+  [/LAND\s*GRABBING/i, "લેન્ડ ગ્રેબીંગ અધિનિયમ"],
+];
+const NB_SEC_LETTER = { A: "એ", B: "બી", C: "સી", D: "ડી", E: "ઇ", F: "એફ", G: "જી", H: "એચ", I: "આઇ", J: "જે", K: "કે", L: "એલ", M: "એમ", N: "એન", O: "ઓ", P: "પી", R: "આર", S: "એસ", T: "ટી", U: "યુ", V: "વી", X: "એક્સ", Y: "વાય", Z: "ઝેડ" };
+function nbSecGu(tok) {
+  const t = String(tok || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!t) return "";
+  const m = t.match(/^0*(\d+)(.*)$/);
+  if (!m) return t;
+  let rest = m[2], parts = "";
+  const re = /\(([0-9A-Z]+)\)|([A-Z]+)/g; let x;
+  while ((x = re.exec(rest))) { const p = x[1] || x[2]; parts += "(" + (/^\d+$/.test(p) ? nbG(String(+p)) : p.split("").map((c) => NB_SEC_LETTER[c] || c).join("")) + ")"; }
+  return nbG(String(+m[1])) + parts;
+}
+function nbActsGu(text, dict) {
+  let s = String(text || "").replace(/\s+/g, " ");
+  const hits = [];
+  NB_ACT_GU.forEach(([re, gu]) => { const r = new RegExp(re.source, "gi"); let m; while ((m = r.exec(s))) hits.push({ i: m.index, end: m.index + m[0].length, gu }); });
+  const gen = /([A-Z][A-Z ().&'/-]*?(?:ACT|CODE|SANHITA|ADHINIYAM))(?:,\s*\d{4})?\s*--/gi; let g;
+  while ((g = gen.exec(s))) { const i = g.index + g[0].length - g[0].replace(/^[^A-Z]*/i, "").length; if (!hits.some((h) => i < h.end && g.index + g[1].length > h.i)) hits.push({ i, end: i + g[1].length, gu: g[1].split(/\s+/).map((w) => (/^ACT$/i.test(w) ? "એક્ટ" : nbEn2GuWord(w, dict))).join(" ") }); }
+  hits.sort((a, b) => a.i - b.i);
+  const keep = []; hits.forEach((h) => { const l = keep[keep.length - 1]; if (l && h.i < l.end) { if (h.end - h.i > l.end - l.i) keep[keep.length - 1] = h; return; } keep.push(h); });
+  return keep.map((h, n) => {
+    let seg = s.slice(h.end, n + 1 < keep.length ? keep[n + 1].i : s.length).replace(/^[\s,]*\d{4}\s*/, "").replace(/^\s*-+\s*/, "").replace(/\s+(?=\()/g, "").replace(/\)\s+(?=[A-Za-z]\b)/g, ")");
+    const secs = seg.split(/[,\s]+/).map((x) => x.replace(/[^0-9A-Za-z()]/g, "")).filter((x) => /^\d/.test(x)).map(nbSecGu);
+    return h.gu + (secs.length ? " ક." + secs.join(", ") : "");
+  }).join(" તથા ");
+}
+const NB_COURT_NATURE = [
+  [/PLEAD\s*GUILTY/i, "guilty", "ગુનો કબૂલ કરતાં સજા (પ્લીડ ગિલ્ટી)"],
+  [/CONVICT/i, "proved", "સાબિત — સજા (કન્વીક્શન)"],
+  [/ACQUIT/i, "notproved", "ના સાબિત — નિર્દોષ છુટકારો"],
+  [/ABATE/i, "abated", "એબેટેડ — આરોપીનું અવસાન"],
+  [/STANDS\s*DISPOSED/i, "sdisposed", "કેસ નિકાલ ગણાયો (સ્ટેન્ડ્સ ડિસ્પોઝ્ડ ઓફ)"],
+  [/DECREE\s*DISCHARGED|DISCHARGE/i, "discharged", "આરોપી ડિસ્ચાર્જ"],
+  [/COMMIT/i, "committed", "સેશન્સ કોર્ટને કમીટ"],
+  [/QUASH/i, "quashed", "હાઇકોર્ટ દ્વારા રદ (ક્વોશ)"],
+  [/LOK\s*ADALAT/i, "lokadalat", "લોક અદાલતમાં નિકાલ"],
+  [/COMPOUND|COMPROMISE/i, "compounded", "સમાધાન (કમ્પાઉન્ડ)"],
+  [/WITHDRAW/i, "withdrawn", "કેસ પરત ખેંચાયો"],
+  [/TRANSFER/i, "transfer", "બીજી કોર્ટમાં ટ્રાન્સફર"],
+  [/DISPOSED/i, "disposed", "કેસ નિકાલ (ડિસ્પોઝ્ડ ઓફ)"],
+  [/JUDG(?:E)?MENT/i, "judged", "ચુકાદો (પ્રકાર લખેલ નથી)"],
+  [/ALLOWED|REJECTED|GRANTED/i, "", ""],
+];
+function nbCourtDate(s) { const m = String(s || "").match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : ""; }
+// one eCourts row ({case, party, reg, dec, nat, act, ps, fir, kind}) → a normalised record
+function nbCourtRec(c) {
+  const cs = String(c.case || "").replace(/\s+/g, " ").trim().toUpperCase();
+  const cm = cs.match(/^([A-Z][A-Z .()-]*?)\s*\/?\s*(\d+)\s*\/\s*(\d{4})$/) || cs.replace(/\s/g, "").match(/^([A-Z.()-]+?)\/?(\d+)\/(\d{4})$/);
+  const pre = cm ? cm[1].replace(/[\s.]/g, "") : cs.replace(/[\d/\s]+$/, "").replace(/[\s.]/g, "");
+  const kindTxt = String(c.kind || "");
+  const bail = /^CRMA|^CRMISC|^MCA|^CRRA|^BA$|^CREN|^CRREV|^RCC?$/.test(pre) || /bail|misc/i.test(kindTxt);
+  const courtType = /^SC$|^SESS|^SCASE|^SC\(/.test(pre) ? "sc" : /POCSO/.test(pre) ? "pocso" : /ATRO/.test(pre) ? "atro" : /NDPS/.test(pre) ? "ndps" : /^SPL|^SPECIAL|^SP\b/.test(pre) ? "sp" : /^SMRY|^SUMMARY|^STC/.test(pre) ? "smry" : /^CC$|^CRCASE|^CRC/.test(pre) ? "cc" : pre ? "cc" : "";
+  const nat = String(c.nat || "").replace(/\s+/g, " ").trim();
+  let nm = NB_COURT_NATURE.find(([re]) => re.test(nat));
+  if (/^SMRY|^SUMMARY/.test(pre)) nm = /REJECT/i.test(nat) ? [null, "smryno", "સમરી (ફાઇનલ રિપોર્ટ) નામંજૂર"] : /ALLOW|ACCEPT|GRANT/i.test(nat) ? [null, "smryok", "સમરી (ફાઇનલ રિપોર્ટ) મંજૂર"] : nm;
+  const firT = String(c.fir || "").replace(/\s/g, "");
+  let firNo = "", firYear = "";
+  let fm = firT.match(/^(\d{8,})\/(\d{4})$/);
+  if (fm) { const [no] = nbWFir(fm[1] + "/" + fm[2]); firNo = no || String(+fm[1].slice(-4)); firYear = fm[2]; }
+  else if ((fm = firT.match(/(\d{1,5})\/(\d{4})/))) { firNo = String(+fm[1]); firYear = fm[2]; }
+  const party = String(c.party || "").replace(/\s+/g, " ").trim();
+  const pm = party.split(/\s+Vs\.?\s+/i);
+  const govFirst = /government|state of gujarat|sarkar/i.test(pm[0] || "");
+  const respondent = (govFirst ? pm[1] : pm[0]) || "";
+  const actSt = String(c.act || "").replace(/\s+/g, " ").trim();
+  return {
+    caseText: cs, prefix: pre, caseNo: cm ? String(+cm[2]) : "", caseYear: cm ? cm[3] : "", courtType: bail ? "" : courtType, bail,
+    regDate: nbCourtDate(c.reg), decDate: nbCourtDate(c.dec), nature: nat, vd: nm ? nm[1] : "", natureGu: nm ? nm[2] : nat,
+    act: actSt, firText: firT, firNo, firYear, kind: kindTxt.trim(), respondent: respondent.trim(), petitioner: (pm[0] || "").trim(), ps: String(c.ps || "").replace(/\s+/g, " ").trim(), judge: String(c.des || "").replace(/\s+/g, " ").trim(),
+  };
+}
+let _nbPdfJsP = null;
+function nbPdfJs() {
+  if (window.pdfjsLib) { window.pdfjsLib.GlobalWorkerOptions.workerSrc = NB_FIR_LIB.pdfWorker; return Promise.resolve(window.pdfjsLib); }
+  if (_nbPdfJsP) return _nbPdfJsP;
+  _nbPdfJsP = new Promise((res, rej) => { const s = document.createElement("script"); s.src = NB_FIR_LIB.pdf; s.crossOrigin = "anonymous"; s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = NB_FIR_LIB.pdfWorker; res(window.pdfjsLib); }; s.onerror = () => { _nbPdfJsP = null; rej(new Error("Could not load " + NB_FIR_LIB.pdf)); }; document.head.appendChild(s); });
+  return _nbPdfJsP;
+}
+// Reads an eCourts "disposed cases" PDF (text PDF). Returns null when the PDF is not such a list.
+async function nbCourtFromPdf(buf, onStep) {
+  const lib = await nbPdfJs();
+  const pdf = await lib.getDocument({ data: new Uint8Array(buf.slice ? buf.slice(0) : buf) }).promise;
+  const rows = [];
+  for (let pn = 1; pn <= pdf.numPages; pn++) {
+    if (onStep) onStep(pn, pdf.numPages);
+    const page = await pdf.getPage(pn);
+    const tc = await page.getTextContent();
+    const items = tc.items.filter((it) => it.str && it.str.trim()).map((it) => ({ s: it.str, x: it.transform[4], y: it.transform[5] }));
+    const find = (re) => items.find((it) => re.test(it.s.trim()));
+    const H = { case: find(/^Case(\s+No\.?)?$/i), pet: find(/^Petitioner/i), reg: find(/^Registration$/i), dec: find(/^Decision$/i), dis: find(/^Disposal$/i), act: find(/^Act(\s+Section)?$/i), stn: find(/^Station$/i) || find(/^Police$/i), fir: find(/^FIR(\s+No\.?)?$/i), des: find(/^Designation$/i) };
+    if (pn === 1 && !(H.case && H.dec && H.fir)) return null;
+    if (!(H.case && H.dec && H.fir)) continue;
+    const natX = items.filter((it) => /^Nature/i.test(it.s.trim()) && it.x > H.fir.x).map((it) => it.x)[0];
+    const B = [["sr", -1e9], ["case", (H.case.x + (find(/^Sr\.?$/i) || { x: H.case.x - 37 }).x) / 2], ["party", H.pet ? H.pet.x - 5 : H.case.x + 60], ["reg", H.reg.x - 9], ["dec", H.dec.x - 12], ["nat", (H.dis || H.dec).x - 17], ["act", (H.dis || H.dec).x + 59], ["ps", (H.stn ? H.stn.x : H.fir.x - 90) - 15], ["fir", H.fir.x - 43], ["kind", (natX || H.fir.x + 95) - 18], ["des", H.des ? H.des.x - 8 : 1e9]];
+    const headY = H.case.y;
+    const colOf = (x) => { let k = "sr"; B.forEach(([n, a]) => { if (x >= a) k = n; }); return k; };
+    let cur = null;
+    items.filter((it) => it.y < headY - 20).sort((a, b) => b.y - a.y || a.x - b.x).forEach((it) => {
+      const col = colOf(it.x);
+      if (col === "sr" && /^\d+$/.test(it.s.trim())) { cur = { case: [], party: [], reg: [], dec: [], nat: [], act: [], ps: [], fir: [], kind: [], des: [] }; rows.push(cur); return; }
+      if (cur && cur[col]) cur[col].push(it.s.trim());
+    });
+  }
+  return rows.map((r) => nbCourtRec(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v.join(" ")]))));
+}
+// eCourts list saved as Excel / Word: a table whose heading has Case No., Date of Decision and FIR No.
+function nbCourtFromBlocks(blocks) {
+  const out = [];
+  blocks.forEach((b) => {
+    if (!b.rows || b.rows.length < 2) return;
+    let hi = -1, map = null;
+    for (let i = 0; i < Math.min(4, b.rows.length) && !map; i++) {
+      const m = {};
+      b.rows[i].forEach((h, k) => {
+        const t = String(h || "").toLowerCase().replace(/\s+/g, " ");
+        if (m.case == null && /case\s*(no|number|type)/.test(t)) m.case = k;
+        else if (m.party == null && /petitioner|respondent|parties|party/.test(t)) m.party = k;
+        else if (m.reg == null && /registration|filing/.test(t)) m.reg = k;
+        else if (m.dec == null && /decision|disposal\s*date|judg(e)?ment\s*date/.test(t)) m.dec = k;
+        else if (m.nat == null && /nature\s*of\s*disposal|disposal\s*nature|disposal$/.test(t)) m.nat = k;
+        else if (m.act == null && /act|section/.test(t)) m.act = k;
+        else if (m.ps == null && /police/.test(t)) m.ps = k;
+        else if (m.fir == null && /fir/.test(t)) m.fir = k;
+        else if (m.kind == null && /^nature$/.test(t.trim())) m.kind = k;
+        else if (m.des == null && /designation|court/.test(t)) m.des = k;
+      });
+      if (m.case != null && m.dec != null && m.fir != null) { map = m; hi = i; }
+    }
+    if (!map) return;
+    b.rows.slice(hi + 1).forEach((r) => {
+      const g = (k) => (map[k] != null ? String(r[map[k]] || "") : "");
+      if (!g("case").trim()) return;
+      out.push(nbCourtRec({ case: g("case"), party: g("party"), reg: g("reg"), dec: g("dec"), nat: g("nat"), act: g("act"), ps: g("ps"), fir: g("fir"), kind: g("kind"), des: g("des") }));
+    });
+  });
+  return out;
+}
+const NB_COURT_KEYS = ["closeType", "courtType", "courtNo", "courtNoDate", "verdict", "courtDate", "courtNature", "courtJudge", "finalRef"];
+// Matches the court rows with the crimes (FIR no./year) and works out what changes on each crime.
+function nbCourtPlan(recs, entries, profile) {
+  const dict = nbEnGuDict(entries);
+  const byKey = {}; (entries || []).forEach((e) => { if (["A", "B", "C", "M"].includes(e.reg)) byKey[nbEntryKey(e)] = e; });
+  const psOf = (r) => {
+    const ps = (profile && profile.stationName) || "";
+    const first = (r.ps.match(/[A-Za-z]+/) || [""])[0];
+    if (ps && first && nbEnPh(first).k === nbGuPh((ps.match(/[઀-૿]+/) || [""])[0]).k) return ps + (profile.district ? ", જી. " + profile.district : "");
+    const m = r.ps.match(/^(.*?)\s*POLICE\s*STATION\s*-?\s*(.*?)\s*(?:DISTRICT)?$/i);
+    return m ? nbEn2GuName(m[1].toLowerCase(), dict) + " પોલીસ સ્ટેશન" + (m[2] ? ", જી. " + nbEn2GuName(m[2].toLowerCase(), dict) : "") : nbEn2GuName(r.ps.toLowerCase(), dict);
+  };
+  const plan = { rows: [], upd: [], same: 0, notFound: [], skipped: [], check: [] };
+  const seen = {};
+  recs.forEach((r) => {
+    if (r.bail || !r.courtType || !r.firNo || !r.firYear || !r.vd && !r.decDate) { plan.skipped.push(r); return; }
+    const key = `CR|${r.firNo}|${r.firYear}`;
+    const e = byKey[key];
+    const row = { r, e, nameGu: "", nameSrc: "", psGu: psOf(r), actGu: nbActsGu(r.act, dict), key };
+    let best = null;
+    if (e) {
+      const L = nbPeople(e.accList).filter((p) => p.name && String(p.name).trim());
+      const cand = L.length ? L.map((p, i) => ({ i, name: p.name })) : (e.accused ? nbAccusedWithArrests(e.accused, e.arrestText) : []).map((p, i) => ({ i, name: p.name }));
+      cand.forEach((c) => { const sc = nbNameMatchScore(r.respondent.replace(/@.*?(?=\s\S+\s\S+$)/, " "), c.name); const sc2 = nbNameMatchScore(r.respondent, c.name); const s = Math.max(sc, sc2); if (!best || s > best.s) best = { ...c, s }; });
+      if (best && best.s >= 0.66) { row.nameGu = nbPersonOf(best.name).name || best.name; row.nameSrc = "reg"; row.accIdx = best.i; }
+    }
+    if (!row.nameGu) { row.nameGu = /^(nan|na|-)?$/i.test(r.respondent.trim()) ? "-" : /^unknown/i.test(r.respondent.trim()) ? "અજાણ્યા ઇસમ" : nbEn2GuName(r.respondent, dict); row.nameSrc = "auto"; }
+    plan.rows.push(row);
+    if (!e) { plan.notFound.push(row); return; }
+    const partOk = !/prohibition/i.test(r.kind) || e.reg !== "A" || /પ્રોહી|prohib/i.test(e.sections || "");
+    if (!partOk || (best && best.s < 0.66 && nbPeople(e.accList).length)) { row.why = !partOk ? "ભાગ મળતો નથી (કોર્ટમાં પ્રોહીબીશન, રજીસ્ટરમાં ભાગ-એ)" : "આરોપીનું નામ રજીસ્ટર સાથે મળતું નથી"; plan.check.push(row); }
+    if (!partOk) return;
+    const prev = seen[key];
+    if (prev && (prev.r.decDate || "") > (r.decDate || "")) return;
+    seen[key] = row;
+    const n = { ...e };
+    if (r.courtType === "smry") {
+      n.finalRef = "કોર્ટમાં સમરી કેસ નં. " + nbG(r.caseNo + "/" + r.caseYear) + (r.regDate ? " તા." + nbGDate(r.regDate) : "") + " — " + r.natureGu + (r.decDate ? " તા." + nbGDate(r.decDate) : "");
+      n.courtNature = r.natureGu; n.courtSrc = "ecourts";
+      if (!["fa", "fb", "fc", "ab"].includes(n.closeType)) { row.why = "કોર્ટમાં સમરી (ફાઇનલ) " + (r.vd === "smryok" ? "મંજૂર" : "") + " — ગુનામાં A / B / C ફાઇનલનો પ્રકાર ભરો"; plan.check.push(row); }
+    }
+    if (!n.closeType && r.courtType !== "smry") n.closeType = "cs";
+    if (n.closeType === "cs" && r.courtType !== "smry") {
+      n.courtType = r.courtType; n.courtNo = r.caseNo + "/" + r.caseYear; if (r.regDate) n.courtNoDate = r.regDate;
+      if (r.vd) n.verdict = r.vd; if (r.decDate && r.vd && r.vd !== "committed" && r.vd !== "transfer") n.courtDate = r.decDate;
+      n.courtNature = r.natureGu; if (r.judge) n.courtJudge = r.judge; n.courtSrc = "ecourts";
+      if (row.accIdx != null && ["guilty", "proved", "notproved"].includes(r.vd)) {
+        let L = nbPeople(n.accList); if (!L.length && n.accused) L = nbAccusedWithArrests(n.accused, n.arrestText);
+        n.accList = L.map((p, i) => (i === row.accIdx ? { ...p, vd: r.vd === "notproved" ? "notproved" : "proved", ...(r.vd === "guilty" && !p.pun ? { pun: "ગુનો કબૂલ કરતાં સજા" } : {}) } : p));
+      }
+    }
+    row.diff = NB_COURT_KEYS.filter((k) => JSON.stringify(n[k] ?? "") !== JSON.stringify(e[k] ?? "")).concat(JSON.stringify(n.accList || []) !== JSON.stringify(e.accList || []) ? ["accList"] : []);
+    if (row.diff.length) { row.n = n; plan.upd.push(row); } else plan.same++;
+  });
+  return plan;
+}
+async function nbCourtApply(plan) {
+  const now = Date.now(); const put = {};
+  plan.upd.forEach((row) => { put[row.n.id] = { ...row.n, updatedAt: now }; });
+  const L = Object.values(put);
+  if (L.length) await nbEntryStore.putMany(L);
+  return L.length;
+}
+const NB_COURT_HEAD = ["ક્રમ", "આરોપીનું નામ", "પો.સ્ટે.નું નામ", "ગુ.ર.નં.", "કાયદાની કલમ", "કોર્ટ કેસ નં. / તારીખ", "ચુકાદા / સજાની તારીખ", "ચુકાદા / સજાની વિગત"];
+function nbCourtReportRows(plan) {
+  return plan.rows.slice().sort((a, b) => (a.r.decDate || "").localeCompare(b.r.decDate || "")).map((row, i) => {
+    const r = row.r, ct = (NB_COURT_TYPES.find((x) => x[0] === r.courtType) || [, "કેસ નં."])[1];
+    const fir = row.e ? nbG(row.e.no) + "/" + nbG(row.e.year) + " (" + nbReg(row.e.reg).gu + ")" : nbG(r.firNo) + "/" + nbG(r.firYear);
+    return [nbG(i + 1), row.nameGu, row.psGu, fir, row.actGu, ct + " " + nbG(r.caseNo + "/" + r.caseYear) + (r.regDate ? " તા." + nbGDate(r.regDate) : ""), r.decDate ? nbGDate(r.decDate) : "", r.natureGu];
+  });
+}
+function nbCourtCsv(plan, name) {
+  const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+  const txt = "﻿" + [NB_COURT_HEAD, ...nbCourtReportRows(plan)].map((r) => r.map(esc).join(",")).join("\r\n");
+  nbSaveBlob(new Blob([txt], { type: "text/csv;charset=utf-8" }), name);
+}
+function CourtImportReview({ plan, profile, onCancel, onApply }) {
+  const { t } = useLang();
+  useEscToClose(onCancel);
+  const [busy, setBusy] = useState(false);
+  const box = { border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", background: "var(--bg-surface)" };
+  const crN = (row) => (row.e ? nbReg(row.e.reg).gu + " " : "") + nbG(row.r.firNo) + "/" + nbG(row.r.firYear);
+  const word = () => nbTableDocx({ title: "કોર્ટ ચુકાદા પત્રક", subtitle: plan.rows.length + " કેસ", head: NB_COURT_HEAD, rows: nbCourtReportRows(plan), stationName: (profile && profile.stationName) || "", district: profile && profile.district ? "જી. " + profile.district : "", filename: "court-judgments.docx" });
+  return (
+    <div role="dialog" aria-modal="true" className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 140, padding: "12px 10px", overflowY: "auto" }}>
+      <div className="modal-card gu" data-court-review style={{ background: "var(--bg-page)", borderRadius: 12, width: 760, maxWidth: "100%", padding: "16px 18px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div className="disp" style={{ fontSize: 17, fontWeight: 700, marginBottom: 10 }}>⚖️ {t("Court judgments from the eCourts list", "eCourts યાદીમાંથી કોર્ટ ચુકાદા")}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8, marginBottom: 12 }}>
+          <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Crimes that will be updated", "ગુનામાં વિગત સુધારાશે")}</div><b data-court-upd={plan.upd.length} style={{ fontSize: 20 }}>{nbG(plan.upd.length)}</b></div>
+          <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Already up to date", "પહેલેથી સરખી વિગત")}</div><b style={{ fontSize: 20 }}>{nbG(plan.same)}</b></div>
+          <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Crime not in the register", "ગુનો રજીસ્ટરમાં નથી")}</div><b data-court-nf={plan.notFound.length} style={{ fontSize: 20 }}>{nbG(plan.notFound.length)}</b></div>
+          <div style={box}><div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Bail / other applications (left out)", "જામીન / અન્ય અરજી (છોડી)")}</div><b style={{ fontSize: 20 }}>{nbG(plan.skipped.length)}</b></div>
+        </div>
+        {plan.check.length > 0 && (
+          <div data-court-check={plan.check.length} style={{ ...box, borderColor: "var(--status-warning-text)", marginBottom: 10 }}>
+            <b style={{ fontSize: 13.5 }}>⚠ {t("Check these", "આ તપાસો")} ({nbG(plan.check.length)})</b>
+            <div style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.6 }}>{plan.check.slice(0, 40).map((row, i) => <div key={i}>{crN(row)} — {row.why} ({row.r.respondent})</div>)}</div>
+          </div>
+        )}
+        {plan.upd.length > 0 && (
+          <div style={{ ...box, marginBottom: 10, maxHeight: 260, overflowY: "auto" }}>
+            {plan.upd.slice(0, 200).map((row, i) => (
+              <div key={i} style={{ fontSize: 12.5, padding: "4px 0", borderBottom: "1px solid var(--border-soft)" }}>
+                <b>{crN(row)}</b> · {row.nameGu} · {(NB_COURT_TYPES.find((x) => x[0] === row.r.courtType) || [, ""])[1]} {nbG(row.r.caseNo + "/" + row.r.caseYear)} · {row.r.natureGu}{row.r.decDate ? " તા." + nbGDate(row.r.decDate) : ""}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Names come from the register when the accused matches; otherwise they are written in Gujarati from the English name — please check those. Court dates are taken exactly as in the list.", "આરોપી રજીસ્ટર સાથે મળે ત્યાં નામ રજીસ્ટરમાંથી લીધું છે; બાકીના નામ અંગ્રેજી પરથી ગુજરાતીમાં લખ્યા છે — તે એક વાર જોઈ લેજો. કોર્ટની તારીખો યાદીમાં લખ્યા મુજબ જ લીધી છે.")}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button type="button" onClick={word} data-court-word style={{ borderRadius: 8, padding: "8px 12px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", fontWeight: 700 }}>📄 {t("Gujarati table (Word)", "ગુજરાતી પત્રક (Word)")}</button>
+          <button type="button" onClick={() => nbCourtCsv(plan, "court-judgments.csv")} data-court-csv style={{ borderRadius: 8, padding: "8px 12px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", fontWeight: 700 }}>📊 {t("Gujarati table (Excel)", "ગુજરાતી પત્રક (Excel)")}</button>
+          <button type="button" onClick={onCancel} style={{ borderRadius: 8, padding: "8px 12px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)" }}>{t("Cancel", "રદ કરો")}</button>
+          <button type="button" disabled={busy || !plan.upd.length} data-court-apply onClick={async () => { setBusy(true); try { await onApply(); } finally { setBusy(false); } }} style={{ borderRadius: 8, padding: "8px 14px", border: "none", background: "var(--btn-dark-bg)", color: "#fff", fontWeight: 700, opacity: plan.upd.length ? 1 : 0.5 }}>{busy ? "…" : t(`Update ${plan.upd.length} crimes`, `${nbG(plan.upd.length)} ગુનામાં સુધારો`)}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 function CrimeImportReview({ plan, onCancel, onApply }) {
   const { t } = useLang();
