@@ -236,11 +236,114 @@ service cloud.firestore {
 
 
     // ============================================================
+    // SHARE LINK CODE (4 digits, changes by itself every 48 hours)
+    //   shareKeys/{token}   = { owner, key, at }  secret key, owner only
+    //   shareTries/{token}  = { uid, gh, p, fails, last }  one guess at a time,
+    //                         waits grow: 3 s, then 1 min, then 1 hour
+    //   shareGrants/{uid_token} = { uid, token, code, at }  "this device may view"
+    // The code = first 4 digits of sha256(key + '|' + period), period = 48 h.
+    // ============================================================
+    function sharePeriod() {
+      return math.floor(request.time.toMillis() / 172800000.0);
+    }
+    function shareDigits(key, per) {
+      return hashing.sha256(key + '|' + string(per)).toHexString().lower().replace('[a-f]', '');
+    }
+    function shareCodeOk(token, c) {
+      let key = get(/databases/$(database)/documents/shareKeys/$(token)).data.key;
+      let per = sharePeriod();
+      return c is string && c.matches('[0-9]{4}')
+        && (shareDigits(key, per).matches(c + '.*')
+            // the old code still works for 1 hour after it changes
+            || (request.time.toMillis() - per * 172800000 < 3600000
+                && shareDigits(key, per - 1).matches(c + '.*')));
+    }
+
+    match /shareKeys/{token} {
+      // a key that isn't made yet reads as "missing" (the owner's app then makes it)
+      allow get: if signedIn() && (resource == null || resource.data.owner == request.auth.uid);
+      allow list: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['owner', 'key', 'at'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.key is string
+        && request.resource.data.key.size() >= 32
+        && accountOf(request.auth.uid).get('shareToken', null) == token
+        && (resource == null || resource.data.owner == request.auth.uid);
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    match /shareTries/{token} {
+      function triesOwner() {
+        return get(/databases/$(database)/documents/shareKeys/$(token)).data.owner;
+      }
+      function waitOk(prev) {
+        return request.time > prev.last + duration.value(
+          prev.fails < 5 ? 3 : (prev.fails < 20 ? 60 : 3600), 's');
+      }
+      function guessOk() {
+        let d = request.resource.data;
+        return signedIn()
+          && exists(/databases/$(database)/documents/shareKeys/$(token))
+          && d.keys().hasOnly(['last', 'uid', 'gh', 'p', 'fails'])
+          && d.uid == request.auth.uid
+          && d.last == request.time
+          && d.gh is string && d.gh.size() == 64
+          && d.p == sharePeriod()
+          && (resource == null
+                ? d.fails == 1
+                : (d.p != resource.data.p
+                     ? d.fails == 1
+                     : (d.fails == resource.data.fails + 1 && waitOk(resource.data))));
+      }
+      // after the right code: counter back to 0 in the same write that creates the grant
+      function resetOk() {
+        let d = request.resource.data;
+        let g = /databases/$(database)/documents/shareGrants/$(resource.data.uid + '_' + token);
+        return signedIn() && resource != null
+          && resource.data.uid == request.auth.uid
+          && d.fails == 0
+          && d.diff(resource.data).affectedKeys().hasOnly(['fails'])
+          && existsAfter(g) && !exists(g);
+      }
+      allow get: if signedIn() && triesOwner() == request.auth.uid;
+      allow list: if false;
+      allow create: if guessOk();
+      allow update: if guessOk() || resetOk();
+      allow delete: if signedIn() && triesOwner() == request.auth.uid;
+    }
+
+    match /shareGrants/{gid} {
+      allow get: if signedIn() && resource.data.uid == request.auth.uid;
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'token', 'code', 'at'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.token is string
+        && gid == request.auth.uid + '_' + request.resource.data.token
+        && request.resource.data.at == request.time
+        && shareGrantCodeOk(request.resource.data.token, request.resource.data.code);
+      allow update, delete: if false;
+
+      function shareGrantCodeOk(token, c) {
+        let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
+        return tr.uid == request.auth.uid
+          && tr.gh == hashing.sha256(c + '|' + request.auth.uid).toHexString().lower()
+          && request.time < tr.last + duration.value(120, 's')
+          && shareCodeOk(token, c);
+      }
+    }
+
+    // ============================================================
     // PUBLIC SHARE LINK  —  sharedRosters/{token}
     // token = random 32 chars, new one every time Share is turned on
     // ============================================================
     match /sharedRosters/{token} {
-      allow get: if true;          // anyone holding the exact link
+      // Only people who entered the 4-digit share code on this device (shareGrants),
+      // or the station's own owner / editors. A link that no longer exists just shows "not available".
+      allow get: if resource == null
+        || (signedIn() && (exists(/databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token))
+                           || canEditStation(resource.data.owner)));
       allow list: if false;        // nobody can enumerate links
 
       function shareWriteOk() {

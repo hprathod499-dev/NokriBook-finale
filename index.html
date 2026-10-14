@@ -645,6 +645,35 @@ try { localStorage.removeItem("nb_auto_backup"); } catch (e) {}
   });
 })();
 const LEGACY_DOC_REF = db.collection("duty-roster").doc("data");
+// ---- Share-link code: 4 digits, changes by itself every 48 hours. Worked out from a secret key that only the station
+// owner can read (shareKeys/{token}); Firebase checks the code itself, and wrong tries are slowed down more and more.
+const NB_SHARE_PERIOD_MS = 48 * 60 * 60 * 1000;
+function nbSharePeriod(ms) { return Math.floor((ms || Date.now()) / NB_SHARE_PERIOD_MS); }
+async function nbSha256Hex(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function nbShareCodeFor(key, period) { return (await nbSha256Hex(key + "|" + period)).replace(/[a-f]/g, "").slice(0, 4); }
+async function nbEnsureShareKey(ownerUid, token) {
+  if (!ownerUid || !token) return null;
+  const ref = db.collection("shareKeys").doc(token);
+  const snap = await ref.get();
+  if (snap.exists && snap.data().key) return snap.data().key;
+  const key = nbNewShareToken() + nbNewShareToken();
+  await ref.set({ owner: ownerUid, key, at: Date.now() });
+  return key;
+}
+function nbFv() { return firebase.firestore.FieldValue; }
+// Share-link viewers who aren't signed in to Nokri Book get their own separate (anonymous) Firebase session,
+// so it never mixes with a station login on the same phone.
+let NB_VIEW_FB = null;
+function nbViewFb() {
+  if (!NB_VIEW_FB) {
+    const app = (firebase.apps || []).find((a) => a.name === "nbview") || firebase.initializeApp(window.FIREBASE_CONFIG, "nbview");
+    NB_VIEW_FB = { auth: app.auth(), db: app.firestore() };
+  }
+  return NB_VIEW_FB;
+}
 function nbNewShareToken() {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = new Uint8Array(32);
@@ -4835,6 +4864,7 @@ function DutyRoster() {
     const token = NB_SHARE_ON && next.shareEnabled && next.shareToken ? next.shareToken : null;
     if (lastShareTokenRef.current && lastShareTokenRef.current !== token) {
       db.collection("sharedRosters").doc(lastShareTokenRef.current).delete().catch(() => {});
+      if (!memberRef.current) { db.collection("shareKeys").doc(lastShareTokenRef.current).delete().catch(() => {}); db.collection("shareTries").doc(lastShareTokenRef.current).delete().catch(() => {}); }
       pubSigRef.current = null;
     }
     lastShareTokenRef.current = token;
@@ -5301,7 +5331,7 @@ useEffect(() => {
     if (publicRosterDocRef) cleanup.push(publicRosterDocRef.delete().catch(() => {}));
     const districtId = (data && data.district || "").trim();
     if (districtId) cleanup.push(db.doc(`districts/${districtId}/stations/${accountUid}`).delete().catch(() => {}));
-    if (data && data.shareToken) cleanup.push(db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {}));
+    if (data && data.shareToken) cleanup.push(db.collection("sharedRosters").doc(data.shareToken).delete().catch(() => {})); if (data && data.shareToken) { cleanup.push(db.collection("shareKeys").doc(data.shareToken).delete().catch(() => {})); cleanup.push(db.collection("shareTries").doc(data.shareToken).delete().catch(() => {})); }
     cleanup.push(nbReleaseStationNames(accountUid));
     cleanup.push(db.collection("stationMembers").where("owner", "==", accountUid).get().then((qs) => Promise.all(qs.docs.map((d) => d.ref.delete().catch(() => {})))).catch(() => {}));
     cleanup.push(db.collection("joinRequests").where("owner", "==", accountUid).get().then((qs) => Promise.all(qs.docs.map((d) => d.ref.delete().catch(() => {})))).catch(() => {}));
@@ -5371,6 +5401,13 @@ useEffect(() => {
       writeToFirestore({ ...dataRef.current, shareEnabled: false, shareToken: null });
     }
   }, [data && data.shareEnabled, data && data.shareToken, accountUid]);
+  useEffect(() => {
+    if (!NB_SHARE_ON || !data || !accountUid || myRole !== "owner" || !data.shareEnabled || !data.shareToken) return;
+    const tok = data.shareToken;
+    if (nbLsGet("nb_sk_" + tok) === "1") return;
+    const tm = setTimeout(() => { nbEnsureShareKey(accountUid, tok).then(() => nbLsSet("nb_sk_" + tok, "1")).catch((e) => console.warn("share key", e && e.code)); }, 2500);
+    return () => clearTimeout(tm);
+  }, [data && data.shareEnabled, data && data.shareToken, accountUid, myRole]);
 
   const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
   const DRIVE_FOLDER_NAME = "Nokri Book Backups";
@@ -7080,7 +7117,7 @@ const clearCategoryHistory = (catId) => {
               style={{ display: "none" }}
               onChange={(e) => { importBackup(e.target.files[0]); e.target.value = ""; }}
             />
-            {NB_SHARE_ON && isStationOwner && <button onClick={() => setShowSharePanel((v) => !v)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} aria-label={langCtxValue.t("Share", "શેર")} style={{
+            {NB_SHARE_ON && isStationOwner && <button data-share-btn onClick={() => setShowSharePanel((v) => !v)} title={langCtxValue.t("Share a read-only view of the roster", "રોસ્ટરનું ફક્ત-જોવા માટેનું દૃશ્ય શેર કરો")} aria-label={langCtxValue.t("Share", "શેર")} style={{
               ...undoRedoBtn(true),
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               background: data.shareEnabled ? "var(--status-success-bg)" : "var(--bg-surface)",
@@ -7207,6 +7244,8 @@ const clearCategoryHistory = (catId) => {
         <SharePanel
           enabled={!!data.shareEnabled}
           getShareUrl={ensureShareUrl}
+          shareToken={data.shareToken}
+          ownerUid={accountUid}
           stationName={data.stationName}
           onStop={null}
           onClose={() => setShowSharePanel(false)}
@@ -13032,14 +13071,48 @@ function ReminderPanel({ reminders, onAcknowledge, onClose, onOpenEvents, notifP
   );
 }
 
-function SharePanel({ enabled, getShareUrl, stationName, onStop, onClose, showToast }) {
-  const { t } = useLang();
+function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, stationName, onStop, onClose, showToast }) {
+  const { t, lang } = useLang();
   useEscToClose(onClose);
+  const [pos, setPos] = useState(null);
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [code, setCode] = useState(null);
+  const [tries, setTries] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    let first = true;
+    const place = () => {
+      const b = document.querySelector("[data-share-btn]");
+      const r = b && b.getBoundingClientRect();
+      const W = Math.min(280, window.innerWidth - 24);
+      if (!r || r.bottom < 0 || r.top > window.innerHeight) { if (first) setPos({ top: 58, left: window.innerWidth - W - 18, width: W }); else onClose(); return; }
+      setPos({ top: r.bottom + 6, left: Math.max(12, Math.min(r.right - W, window.innerWidth - W - 12)), width: W });
+    };
+    place(); first = false;
+    window.addEventListener("resize", place); window.addEventListener("scroll", place, true);
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
+  }, []);
+  useEffect(() => {
+    if (!codeOpen || !shareToken) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const key = await nbEnsureShareKey(ownerUid, shareToken);
+        const c = await nbShareCodeFor(key, nbSharePeriod());
+        if (alive) { setCode(c); setNow(Date.now()); }
+      } catch (e) { console.warn("share code", e); if (alive) setCode(""); }
+      try { const ts = await db.collection("shareTries").doc(shareToken).get(); if (alive) setTries(ts.exists && ts.data().p === nbSharePeriod() ? ts.data().fails || 0 : 0); } catch (e) { if (alive) setTries(null); }
+    };
+    load();
+    const iv = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [codeOpen, shareToken, ownerUid]);
+  const nextChange = (nbSharePeriod(now) + 1) * NB_SHARE_PERIOD_MS;
   const shareWhatsApp = () => {
     const url = getShareUrl();
     const msg = t(
-      `${stationName ? stationName + " — " : ""}Nokri Book duty roster (view only):\n${url}`,
-      `${stationName ? stationName + " — " : ""}નોકરી બુક ડ્યુટી રોસ્ટર (ફક્ત જોવા માટે):\n${url}`
+      `${stationName ? stationName + " — " : ""}Nokri Book duty roster (view only):\n${url}\nAsk the station for the 4-digit share code to open it.`,
+      `${stationName ? stationName + " — " : ""}નોકરી બુક ડ્યુટી રોસ્ટર (ફક્ત જોવા માટે):\n${url}\nખોલવા માટે સ્ટેશન પાસેથી ૪ આંકડાનો શેર કોડ મેળવો.`
     );
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank", "noopener");
     onClose();
@@ -13058,13 +13131,14 @@ function SharePanel({ enabled, getShareUrl, stationName, onStop, onClose, showTo
     background: "transparent", border: "none", borderRadius: 8, cursor: "pointer",
     fontSize: 14, fontWeight: 600, color: "var(--text-primary)", textAlign: "left",
   };
+  if (!pos) return null;
   return (
     <React.Fragment>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 999 }} />
-      <div role="menu" aria-label={t("Share", "શેર")} className="modal-card" style={{
-        position: "fixed", top: 58, right: 18, width: 240, maxWidth: "calc(100vw - 36px)",
+      <div role="menu" aria-label={t("Share", "શેર")} data-share-menu className="modal-card" style={{
+        position: "fixed", top: pos.top, left: pos.left, width: pos.width, maxHeight: `calc(100vh - ${Math.round(pos.top) + 12}px)`, overflowY: "auto",
         background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12,
-        boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000, padding: 6,
+        boxShadow: "0 12px 30px rgba(0,0,0,0.18)", zIndex: 1000, padding: 6, boxSizing: "border-box",
       }}>
         <button role="menuitem" onClick={shareWhatsApp} style={optionBtn} className="gu">
           <WaIcon size={22} />
@@ -13074,6 +13148,25 @@ function SharePanel({ enabled, getShareUrl, stationName, onStop, onClose, showTo
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
           {t("Copy link", "લિંક કોપી કરો")}
         </button>
+        {shareToken && (
+          <button role="menuitem" onClick={() => setCodeOpen((v) => !v)} data-share-code-btn style={optionBtn} className="gu">
+            <span style={{ fontSize: 19, width: 22, textAlign: "center" }} aria-hidden="true">🔐</span>
+            {t("Share link code", "શેર લિંક કોડ")}
+          </button>
+        )}
+        {codeOpen && (
+          <div data-share-code-box className="gu" style={{ margin: "2px 6px 6px", padding: "10px 12px", borderRadius: 10, background: "var(--bg-page)", border: "1px solid var(--border-soft)", textAlign: "center" }}>
+            {code == null ? <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>…</div>
+              : code === "" ? <div style={{ fontSize: 12.5, color: "var(--status-error-text)" }}>{t("Couldn't get the code — check the internet and try again.", "કોડ મળ્યો નહીં — ઇન્ટરનેટ તપાસી ફરી પ્રયાસ કરો.")}</div>
+              : <React.Fragment>
+                  <div className="mono" data-share-code style={{ fontSize: 34, fontWeight: 700, letterSpacing: 8, margin: "2px 0 4px" }}>{code}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Changes by itself on", "આપોઆપ બદલાશે")} {formatDMY(new Date(nextChange - new Date(nextChange).getTimezoneOffset() * 60000).toISOString().slice(0, 10))} {new Date(nextChange).toTimeString().slice(0, 5)}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.45 }}>{t("Give this code only to people who should see the roster. A phone asks for it once; after that it opens without the code.", "આ કોડ ફક્ત રોસ્ટર જોવાના હોય તેમને જ આપો. ફોનમાં એક જ વાર પૂછાશે; પછી કોડ વગર ખુલશે.")}</div>
+                  {tries != null && tries > 0 && <div style={{ fontSize: 11.5, color: tries >= 5 ? "var(--status-error-text)" : "var(--text-secondary)", marginTop: 6 }}>{t(`Recent tries with a wrong code: ${tries}`, `તાજેતરમાં ખોટા કોડના પ્રયાસ: ${tries}`)}</div>}
+                  <button type="button" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(code).then(() => showToast(t("Code copied", "કોડ કોપી થયો"))).catch(() => {}); }} style={{ marginTop: 8, fontSize: 12.5, borderRadius: 8, padding: "5px 12px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 600 }}>{t("Copy code", "કોડ કોપી કરો")}</button>
+                </React.Fragment>}
+          </div>
+        )}
         {enabled && onStop && (
           <button onClick={onStop} style={{ display: "block", width: "100%", marginTop: 2, padding: "8px 14px 6px", background: "transparent", border: "none", borderTop: "1px solid var(--border-soft)", fontSize: 11.5, color: "var(--status-error-text)", textAlign: "left", cursor: "pointer" }} className="gu">
             {t("Stop sharing (old link stops working)", "શેરિંગ બંધ કરો (જૂની લિંક બંધ થશે)")}
@@ -13081,6 +13174,63 @@ function SharePanel({ enabled, getShareUrl, stationName, onStop, onClose, showTo
         )}
       </div>
     </React.Fragment>
+  );
+}
+
+// Asks a viewer of a share link for the 4-digit code once per device.
+function ShareCodeGate({ token, fb, onUnlocked }) {
+  const { t, lang, setLang } = useLang();
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const submit = async () => {
+    const c = nbAsciiDigits(code).replace(/\D/g, "");
+    if (c.length !== 4) { setMsg(["err", t("Enter the 4-digit code.", "૪ આંકડાનો કોડ લખો.")]); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const vAuth = (fb && fb.auth) || auth, vDb = (fb && fb.db) || db;
+      let u = vAuth.currentUser;
+      if (!u) u = (await vAuth.signInAnonymously()).user;
+      const uid = u.uid, gh = await nbSha256Hex(c + "|" + uid), p = nbSharePeriod();
+      const ref = vDb.collection("shareTries").doc(token), FV = nbFv();
+      const base = { last: FV.serverTimestamp(), uid, gh, p };
+      let counted = false;
+      try { await ref.update({ ...base, fails: FV.increment(1) }); counted = true; } catch (e1) {
+        try { await ref.set({ ...base, fails: 1 }); counted = true; } catch (e2) { counted = false; }
+      }
+      if (!counted) { setMsg(["wait", t("Too many tries. Please wait a while and try again (the wait gets longer with each wrong code).", "ઘણા પ્રયાસ થયા. થોડી વાર રાહ જોઈ ફરી પ્રયાસ કરો (દરેક ખોટા કોડ પછી રાહ વધતી જાય છે).")]); setBusy(false); return; }
+      const batch = vDb.batch();
+      batch.set(vDb.collection("shareGrants").doc(uid + "_" + token), { uid, token, code: c, at: FV.serverTimestamp() });
+      batch.update(ref, { fails: 0 });
+      try { await batch.commit(); } catch (e3) { setMsg(["err", t("Wrong code. Check the code with the station and try again.", "કોડ ખોટો છે. સ્ટેશન પાસેથી કોડ ફરી જોઈ પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
+      onUnlocked();
+    } catch (e) {
+      console.warn("share code", e);
+      setMsg(["err", /operation-not-allowed|admin-restricted/.test((e && e.code) || "") ? t("Viewing by code isn't switched on yet. Please tell the station.", "કોડથી જોવાનું હજુ ચાલુ થયું નથી. સ્ટેશનને જણાવો.") : t("No internet connection? Please try again.", "ઇન્ટરનેટ ચાલુ છે? ફરી પ્રયાસ કરો.")]);
+    }
+    setBusy(false);
+  };
+  const tog = (on) => ({ border: "1px solid var(--border)", borderRadius: 8, padding: "5px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)" });
+  return (
+    <div data-share-gate style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, boxSizing: "border-box", background: "var(--bg-page)" }}>
+      <div className="gu" style={{ width: 380, maxWidth: "100%", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "18px 18px 16px", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 6 }} role="group" aria-label="Language / ભાષા">
+          <button type="button" onClick={() => setLang("en")} style={tog(lang !== "gu")} data-gate-en>EN</button>
+          <button type="button" onClick={() => setLang("gu")} style={tog(lang === "gu")} data-gate-gu>ગુ</button>
+        </div>
+        <div style={{ fontSize: 30, textAlign: "center" }} aria-hidden="true">🔐</div>
+        <div className="disp" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", margin: "4px 0 6px" }}>{t("Enter the share code", "શેર કોડ લખો")}</div>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55, marginBottom: 12 }}>
+          {t("This duty roster is protected. Ask the police station's main account holder for the 4-digit code. In the Nokri Book app they tap the Share button → “Share link code”. The code changes every 48 hours; on this phone you need it only once.",
+            "આ ડ્યુટી રોસ્ટર સુરક્ષિત છે. પોલીસ સ્ટેશનના મુખ્ય એકાઉન્ટ ધારક પાસેથી ૪ આંકડાનો કોડ મેળવો. નોકરી બુક એપમાં તેઓ શેર બટન → “શેર લિંક કોડ” દબાવે ત્યાં કોડ દેખાશે. કોડ દર ૪૮ કલાકે બદલાય છે; આ ફોનમાં ફક્ત એક જ વાર લખવો પડશે.")}
+        </div>
+        <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={code} data-gate-input
+          onChange={(e) => setCode(nbAsciiDigits(e.target.value).replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          placeholder="••••" className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 30, letterSpacing: 14, textAlign: "center", padding: "10px 8px", borderRadius: 10 }} />
+        {msg && <div role="alert" data-gate-msg={msg[0]} style={{ marginTop: 8, fontSize: 12.5, color: msg[0] === "err" ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{msg[1]}</div>}
+        <button type="button" onClick={submit} disabled={busy} data-gate-submit style={{ marginTop: 12, width: "100%", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "…" : t("Open the roster", "રોસ્ટર ખોલો")}</button>
+      </div>
+    </div>
   );
 }
 
@@ -14292,24 +14442,41 @@ function PublicRosterView({ uid }) {
     }
   }, [theme]);
 
+  const [locked, setLocked] = useState(false);
+  const viewFbRef = useRef(null);
+  const [unlockN, setUnlockN] = useState(0);
   useEffect(() => {
-    const unsub = db.collection("sharedRosters").doc(uid).onSnapshot(
-      (snap) => {
-        if (snap.exists && snap.data().v === 2) {
-          setData(normalizeData(nbUnpackPublic(snap.data())));
-        } else {
-          setData(null);
-        }
-      },
-      () => setData(null)
-    );
-    return () => unsub();
-  }, [uid]);
+    let unsub = null, dead = false, vdb = db;
+    const start = () => {
+      if (dead) return;
+      unsub = vdb.collection("sharedRosters").doc(uid).onSnapshot(
+        (snap) => {
+          setLocked(false);
+          if (snap.exists && snap.data().v === 2) setData(normalizeData(nbUnpackPublic(snap.data())));
+          else setData(null);
+        },
+        (e) => { if (e && e.code === "permission-denied") { setLocked(true); setData(undefined); } else setData(null); }
+      );
+    };
+    const off = auth.onAuthStateChanged((mu) => {
+      off();
+      if (dead) return;
+      if (mu && !mu.isAnonymous) { viewFbRef.current = { auth, db }; vdb = db; start(); return; }
+      const fb = nbViewFb(); viewFbRef.current = fb; vdb = fb.db;
+      const off2 = fb.auth.onAuthStateChanged((u) => {
+        off2();
+        if (u) start();
+        else fb.auth.signInAnonymously().then(start).catch(() => { if (!dead) { setLocked(true); setData(undefined); } });
+      });
+    });
+    return () => { dead = true; if (unsub) unsub(); };
+  }, [uid, unlockN]);
 
   return (
     <LangContext.Provider value={langCtxValue}>
       <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-        {data === undefined && (
+        {locked && <ShareCodeGate token={uid} fb={viewFbRef.current} onUnlocked={() => { setLocked(false); setData(undefined); setUnlockN((n) => n + 1); }} />}
+        {!locked && data === undefined && (
           <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
         )}
 
