@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <script>
+  try { var nbUA = navigator.userAgent || ""; if (/iPad|iPhone|iPod/.test(nbUA) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) document.documentElement.classList.add("nb-ios"); } catch (e) {}
+</script>
+<script>
   try {
     var nbRedirectMatch = window.location.search.match(/[?&]nbRedirect=([^&]*)/);
     if (nbRedirectMatch) {
@@ -101,19 +104,20 @@
   @media (max-width: 860px) {
     .app-shell:not(.force-desktop) .sidebar {
       position: fixed !important; top: 0 !important; left: 0 !important;
-      height: 100vh !important; height: 100dvh !important; max-height: none !important; width: 260px !important;
-      padding-top: env(safe-area-inset-top) !important; padding-bottom: env(safe-area-inset-bottom) !important; box-sizing: border-box;
+      height: 100vh !important; max-height: none !important; width: 260px !important;
       z-index: 400 !important; transform: translateX(-100%);
       transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
       overflow-y: auto !important;
     }
     .app-shell:not(.force-desktop) .sidebar.mobile-sidebar-open { transform: translateX(0); }
+    html.nb-ios .main-panel { padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important; max-width: 100% !important; }
+    html.nb-ios .app-shell:not(.force-desktop) .main-panel > .mobile-menu-btn { float: left; margin: 0 8px 8px 0 !important; position: relative; z-index: 1; }
+    html.nb-ios .app-shell:not(.force-desktop) .main-panel > .top-toolbar { min-height: 36px; }
+    html.nb-ios .app-shell:not(.force-desktop) .sidebar { height: 100dvh !important; padding-top: env(safe-area-inset-top) !important; padding-bottom: env(safe-area-inset-bottom) !important; box-sizing: border-box; }
     .mobile-sidebar-backdrop { position: fixed; inset: 0; background: #00000066; z-index: 399; animation: modalFadeIn 0.2s ease-out; }
     .app-shell:not(.force-desktop) .mobile-menu-btn { display: inline-flex !important; }
     .app-shell { flex-direction: row !important; }
-    .main-panel { padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important; max-width: 100% !important; }
-    .app-shell:not(.force-desktop) .main-panel > .mobile-menu-btn { float: left; margin: 0 8px 8px 0 !important; position: relative; z-index: 1; }
-    .app-shell:not(.force-desktop) .main-panel > .top-toolbar { min-height: 36px; }
+    .main-panel { padding: 16px 12px !important; max-width: 100% !important; }
     table { font-size: 12px !important; }
     .top-toolbar { flex-wrap: wrap !important; justify-content: flex-start !important; }
 
@@ -127,8 +131,7 @@
   @supports (-webkit-touch-callout: none) {
     input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea { font-size: 16px !important; }
   }
-  /* notch / home-bar safe areas (iPhone held sideways, installed app) */
-  .main-panel { padding-left: max(var(--nb-pad-x, 36px), env(safe-area-inset-left)); padding-right: max(var(--nb-pad-x, 36px), env(safe-area-inset-right)); padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+
   .main-panel { min-width: 0; }
   * { scrollbar-width: none; -ms-overflow-style: none; }
   *::-webkit-scrollbar { display: none; width: 0; height: 0; }
@@ -850,6 +853,7 @@ function nbHash(str) {
   for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619); h2 = Math.imul(h2 + c, 2246822519) ^ (h2 >>> 13); }
   return (h1 >>> 0).toString(36) + "." + (h2 >>> 0).toString(36) + "." + str.length;
 }
+const NB_IS_IOS = typeof document !== "undefined" && document.documentElement.classList.contains("nb-ios");
 function nbLsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function nbLsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function nbLsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
@@ -6994,7 +6998,7 @@ const clearCategoryHistory = (catId) => {
                 setUndoRedoMenuPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 170 - 8)) });
               }}
               title={langCtxValue.t("Undo / Redo", "પૂર્વવત્ / ફરીથી કરો")} style={undoRedoBtn(true)} className="gu"
-            ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 4 }}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>{langCtxValue.t("Undo", "પૂર્વવત્")}</button>
+            >{NB_IS_IOS ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 4 }}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg> : "↶↷ "}{langCtxValue.t("Undo", "પૂર્વવત્")}</button>
             {!viaCode && <button
               onClick={(e) => {
                 if (dataMenuPos) { setDataMenuPos(null); return; }
@@ -7007,7 +7011,7 @@ const clearCategoryHistory = (catId) => {
                 borderColor: driveConnected && !driveNeedsReconnect ? "var(--status-success-border)" : "var(--border)",
                 color: driveConnected && !driveNeedsReconnect ? "var(--status-success-text)" : "var(--text-primary)",
               }} className="gu"
-            ><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 4 }}><path d="M7 4v13" /><path d="m3 13 4 4 4-4" /><path d="M17 20V7" /><path d="m21 11-4-4-4 4" /></svg>{langCtxValue.t("Data", "ડેટા")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>}
+            >{NB_IS_IOS ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 4 }}><path d="M7 4v13" /><path d="m3 13 4 4 4-4" /><path d="M17 20V7" /><path d="m21 11-4-4-4 4" /></svg> : "⬇⬆ "}{langCtxValue.t("Data", "ડેટા")}{driveConnected && !driveNeedsReconnect ? " ✓" : ""}</button>}
             {undoRedoMenuPos && (
               <React.Fragment>
                 <div onClick={() => setUndoRedoMenuPos(null)} style={{ position: "fixed", inset: 0, zIndex: 200 }} />
