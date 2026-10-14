@@ -6928,6 +6928,12 @@ const clearCategoryHistory = (catId) => {
           }} style={{ background: "transparent", border: "none", color: "var(--status-error-text)", fontWeight: 700, textDecoration: "underline", cursor: "pointer", padding: 0, fontSize: 13 }}>Back to sign in</button>
         </div>
       )}
+      {returnNotices.length > 1 && (
+        <div data-return-clear style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", padding: "6px 16px 0", fontSize: 12.5, display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <b className="gu">{t(`${returnNotices.length} staff are back on duty`, `${returnNotices.length} કર્મચારી ડ્યુટી પર પાછા આવ્યા`)}</b>
+          <button type="button" onClick={() => setReturnNotices([])} data-return-clear-all style={{ background: "var(--bg-surface)", border: "1px solid var(--status-info-border, var(--border))", borderRadius: 14, padding: "3px 12px", fontSize: 12.5, fontWeight: 700, color: "var(--status-info-text)", cursor: "pointer" }} className="gu">✕ {t("Clear all", "બધું બંધ કરો")}</button>
+        </div>
+      )}
       {returnNotices.map((n, i) => (
         <div key={i} style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center" }}>
           <span className="gu">{n.name}'s {n.type.toLowerCase()} period has ended — back on duty.</span>
