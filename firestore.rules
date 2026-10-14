@@ -161,27 +161,17 @@ service cloud.firestore {
           || isBlockedDoc(request.resource.data);
       }
 
-      // ONE ACCOUNT PER STATION: whenever an account gets a new
-      // station (state|district|name), the same write must register
-      // that station to this account in stationRegistry. The registry
-      // allows only one owner per station, so a second account can
-      // never save the same station. Accounts whose station didn't
-      // change (and "Other" orgs with no district) are unaffected.
+      // ANY NUMBER OF ACCOUNTS PER STATION: every police station stays
+      // in the list for everyone; stationRegistry only remembers the
+      // first account of each station and no longer blocks others.
       function stationClaimOk() {
-        let n = request.resource.data;
-        return !hasStation(n)
-          || (resource != null && hasStation(resource.data)
-              && stationKey(n) == stationKey(resource.data))
-          || getAfter(/databases/$(database)/documents/stationRegistry/$(stationKey(n))).data.uid == uid;
+        return true;
       }
 
       allow read: if isOwner() || isMemberOf(uid);
 
-      // NEW SIGN-UPS PAUSED: no new station accounts can be created.
-      // To reopen, delete `false &&` below (and set NB_SIGNUPS_CLOSED
-      // in index.html to false).
-      allow create: if false
-        && isOwner()
+      // Sign-ups open (test site uses email / password registration).
+      allow create: if isOwner()
         && stationClaimOk()
         && request.resource.data.get('blocked', false) == false
         && (approvalOf(request.resource.data) == null
@@ -212,6 +202,20 @@ service cloud.firestore {
 
       allow delete: if isOwner()
         || (approvalOf(resource.data) == "pending" && isAdminOf(resource.data));
+
+      // HISTORY ARCHIVE  —  accounts/{uid}/archive/{y2026, y2025, ...}
+      // Duty history older than ~3 months, one file per year, kept apart
+      // so each save sends less data. "history" is the older single file.
+      // Same people as the roster itself.
+      match /archive/{docId} {
+        function archDocOk() { return docId == "history" || docId.matches('y[0-9]{4}'); }
+        allow read: if archDocOk() && (isOwner() || isMemberOf(uid));
+        allow create, update: if archDocOk()
+          && (isOwner() || isEditorOf(uid))
+          && !isBlockedDoc(get(/databases/$(database)/documents/accounts/$(uid)).data)
+          && request.resource.data.keys().hasOnly(['v', 'z', 'zv']);
+        allow delete: if archDocOk() && isOwner();
+      }
     }
 
 
@@ -376,7 +380,7 @@ service cloud.firestore {
               || (d.get('stationName', null) == a.get('stationName', null)
                   && (a.get('stationApprovalStatus', null) == "pending"
                       || !hasStation(a)
-                      || get(/databases/$(database)/documents/stationRegistry/$(stationKey(a))).data.uid == stationUid)));
+                      || true)));
       }
 
       allow read: if (signedIn() && request.auth.uid == stationUid)
@@ -495,6 +499,34 @@ service cloud.firestore {
     // Super Admin's "all pending requests" (collectionGroup query).
     match /{path=**}/stations/{stationUid} {
       allow read: if isSuperAdmin();
+    }
+
+    // ---- Security code + one device per account (test site) ----
+    function isAnyDistrictAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/districtAdmins/$(request.auth.uid));
+    }
+    // gate/{code}: today's code. Anyone signed in can check a code they
+    // know (by exact name only — no listing) while it hasn't expired.
+    // Super admin and district admins create or remove codes.
+    match /gate/{code} {
+      allow get: if signedIn() && resource.data.expiresAt > request.time.toMillis();
+      allow list: if false;
+      allow create, delete: if isSuperAdmin() || isAnyDistrictAdmin();
+    }
+    // gateAdmin/current: the readable current code — admins only.
+    match /gateAdmin/{doc} {
+      allow read, write: if isSuperAdmin() || isAnyDistrictAdmin();
+    }
+    // deviceLocks/{uid}: the one device an account may use. The account
+    // claims it once; only an admin can free it for a new device.
+    match /deviceLocks/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isSuperAdmin() || isAnyDistrictAdmin());
+      allow list: if isSuperAdmin() || isAnyDistrictAdmin();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['device', 'at', 'email'])
+        && request.resource.data.device is string;
+      allow update: if false;
+      allow delete: if isSuperAdmin() || isAnyDistrictAdmin();
     }
 
     // Everything else: denied (Firestore default).

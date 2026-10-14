@@ -3506,7 +3506,7 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
     });
   }, [stateDraft, districtDraft]);
   const takenStations = useDistrictTakenStations(districtDraft, user && user.uid);
-  const stationOptions = (groupOptions ? (districtEntry.groups[groupDraft] || []) : flatStationsOf(districtEntry)).filter((s) => !takenStations.has(s));
+  const stationOptions = (groupOptions ? (districtEntry.groups[groupDraft] || []) : flatStationsOf(districtEntry));
   const [requestingStation, setRequestingStation] = useState(false);
   const [requestStationName, setRequestStationName] = useState("નવું સ્ટેશન");
   const requestStationRef = useRef(null);
@@ -3519,7 +3519,7 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
   useEffect(() => { setRequestingStation(false); }, [districtDraft]);
   const requestEnglishLetterCount = (requestStationName.match(/[a-zA-Z]/g) || []).length;
   const requestTooMuchEnglish = requestEnglishLetterCount > 3;
-  const requestStationTaken = takenStations.has(requestStationName.trim());
+  const requestStationTaken = false;
   const canSubmitStationRequest = !!onRequestNewStation && requestStationName.trim().length > 0
     && requestStationName.trim() !== "નવું સ્ટેશન" && !requestTooMuchEnglish && !requestStationTaken;
   const submitStationRequest = () => {
@@ -4945,7 +4945,7 @@ function DutyRoster() {
     const claim = key && digestClaimedKeyRef.current !== key && !memberRef.current
       ? db.collection("stationRegistry").doc(key).get()
           .then((snap) => {
-            if (snap.exists && snap.data().uid === accountUid) return;
+            if (snap.exists) return;
             return db.collection("stationRegistry").doc(key).set({
               uid: accountUid,
               state: typeof next.state === "string" ? next.state : "",
@@ -5068,14 +5068,11 @@ function DutyRoster() {
         const regRef = (k) => db.collection("stationRegistry").doc(k);
         const newReg = newKey && newKey !== oldKey ? await tx.get(regRef(newKey)) : null;
         const oldReg = oldKey && oldKey !== newKey ? await tx.get(regRef(oldKey)) : null;
-        if (newReg && newReg.exists && newReg.data().uid !== accountUid) {
-          const takenErr = new Error("Station already registered by another account");
-          takenErr.__nameTaken = true;
-          throw takenErr;
-        }
+        // Several accounts may use the same police station; the name registry keeps only the first one.
+        const newRegFree = !(newReg && newReg.exists && newReg.data().uid !== accountUid);
         tx.set(docRef, nbPackAccount(nbStripPersonal(split.live)));
         archEdits.forEach(({ r, rk, snap }) => tx.set(r, nbArchPack(nbArchRemove(snap.exists ? nbArchUnpack(snap.data()) : {}, rk))));
-        if (newReg) {
+        if (newReg && newRegFree) {
           tx.set(regRef(newKey), {
             uid: accountUid,
             state: typeof clean.state === "string" ? clean.state : "",
@@ -5359,7 +5356,7 @@ useEffect(() => {
     const key = nbStationKey(fields);
     if (!key) return Promise.resolve(true);
     return db.collection("stationRegistry").doc(key).get()
-      .then((snap) => !snap.exists || snap.data().uid === accountUid)
+      .then(() => true)
       .catch(() => true);
   };
   const nameTakenToast = () => showToast(t(
@@ -13254,12 +13251,12 @@ function OrgSetupGateModal({ initialStationName, onSubmit, onJoin }) {
   const takenStations = useDistrictTakenStations(selDistrict, auth.currentUser ? auth.currentUser.uid : null);
   const englishLetterCount = (manualStationName.match(/[a-zA-Z]/g) || []).length;
   const manualStationTooMuchEnglish = englishLetterCount > 3;
-  const manualStationTaken = takenStations.has(manualStationName.trim());
+  const manualStationTaken = false;
   const canSubmitManualStation = manualStationName.trim().length > 0 && manualStationName.trim() !== "પોલીસ સ્ટેશન" && !manualStationTooMuchEnglish && !manualStationTaken;
   const districtOptions = Object.keys(POLICE_LOCATIONS_GU[selState] || {});
   const districtEntry = POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict];
   const groupOptions = districtEntry && districtEntry.groups ? Object.keys(districtEntry.groups) : null;
-  const stationOptions = (groupOptions ? (districtEntry.groups[selGroup] || []) : flatStationsOf(districtEntry)).filter((s) => !takenStations.has(s));
+  const stationOptions = (groupOptions ? (districtEntry.groups[selGroup] || []) : flatStationsOf(districtEntry));
   useEffect(() => { setSelDistrict((d) => (districtOptions.includes(d) ? d : "")); }, [selState]);
   useEffect(() => {
     const opts = (POLICE_LOCATIONS_GU[selState] && POLICE_LOCATIONS_GU[selState][selDistrict] && POLICE_LOCATIONS_GU[selState][selDistrict].groups)
