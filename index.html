@@ -669,7 +669,12 @@ function nbFv() { return firebase.firestore.FieldValue; }
 let NB_VIEW_FB = null;
 function nbViewFb() {
   if (!NB_VIEW_FB) {
-    const app = (firebase.apps || []).find((a) => a.name === "nbview") || firebase.initializeApp(window.FIREBASE_CONFIG, "nbview");
+    let app = (firebase.apps || []).find((a) => a.name === "nbview");
+    if (!app) {
+      app = firebase.initializeApp(window.FIREBASE_CONFIG, "nbview");
+      // this separate session needs its own App Check too, or Firebase turns every request down
+      try { (app.appCheck ? app.appCheck() : firebase.appCheck(app)).activate("6LdkZn4tAAAAAC3uwWyQCKEKpGCUvy3T73bys-l2", true); } catch (e) { console.warn("view appcheck", e); }
+    }
     NB_VIEW_FB = { auth: app.auth(), db: app.firestore() };
   }
   return NB_VIEW_FB;
@@ -13183,10 +13188,11 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [dbg, setDbg] = useState("");
   const submit = async () => {
     const c = nbAsciiDigits(code).replace(/\D/g, "");
     if (c.length !== 4) { setMsg(["err", t("Enter the 4-digit code.", "૪ આંકડાનો કોડ લખો.")]); return; }
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setDbg("");
     try {
       const vAuth = (fb && fb.auth) || auth, vDb = (fb && fb.db) || db;
       let u = vAuth.currentUser;
@@ -13194,18 +13200,18 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
       const uid = u.uid, gh = await nbSha256Hex(c + "|" + uid), p = nbSharePeriod();
       const ref = vDb.collection("shareTries").doc(token), FV = nbFv();
       const base = { last: FV.serverTimestamp(), uid, gh, p };
-      let counted = false;
+      let counted = false, errCode = "";
       try { await ref.update({ ...base, fails: FV.increment(1) }); counted = true; } catch (e1) {
-        try { await ref.set({ ...base, fails: 1 }); counted = true; } catch (e2) { counted = false; }
+        try { await ref.set({ ...base, fails: 1 }); counted = true; } catch (e2) { counted = false; errCode = "1:" + ((e2 && e2.code) || "x"); }
       }
-      if (!counted) { setMsg(["wait", t("Too many tries. Please wait a while and try again (the wait gets longer with each wrong code).", "ઘણા પ્રયાસ થયા. થોડી વાર રાહ જોઈ ફરી પ્રયાસ કરો (દરેક ખોટા કોડ પછી રાહ વધતી જાય છે).")]); setBusy(false); return; }
+      if (!counted) { setDbg(errCode); setMsg(["wait", t("Too many tries. Please wait a while and try again (the wait gets longer with each wrong code).", "ઘણા પ્રયાસ થયા. થોડી વાર રાહ જોઈ ફરી પ્રયાસ કરો (દરેક ખોટા કોડ પછી રાહ વધતી જાય છે).")]); setBusy(false); return; }
       const batch = vDb.batch();
       batch.set(vDb.collection("shareGrants").doc(uid + "_" + token), { uid, token, code: c, at: FV.serverTimestamp() });
       batch.update(ref, { fails: 0 });
-      try { await batch.commit(); } catch (e3) { setMsg(["err", t("Wrong code. Check the code with the station and try again.", "કોડ ખોટો છે. સ્ટેશન પાસેથી કોડ ફરી જોઈ પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
+      try { await batch.commit(); } catch (e3) { errCode = "2:" + ((e3 && e3.code) || "x"); setDbg(errCode); setMsg(["err", t("Wrong code. Check the code with the station and try again.", "કોડ ખોટો છે. સ્ટેશન પાસેથી કોડ ફરી જોઈ પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
       onUnlocked();
     } catch (e) {
-      console.warn("share code", e);
+      console.warn("share code", e); errCode = "0:" + ((e && e.code) || (e && e.message) || "x"); setDbg(errCode);
       setMsg(["err", /operation-not-allowed|admin-restricted/.test((e && e.code) || "") ? t("Viewing by code isn't switched on yet. Please tell the station.", "કોડથી જોવાનું હજુ ચાલુ થયું નથી. સ્ટેશનને જણાવો.") : t("No internet connection? Please try again.", "ઇન્ટરનેટ ચાલુ છે? ફરી પ્રયાસ કરો.")]);
     }
     setBusy(false);
@@ -13228,6 +13234,7 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
           onChange={(e) => setCode(nbAsciiDigits(e.target.value).replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
           placeholder="••••" className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 30, letterSpacing: 14, textAlign: "center", padding: "10px 8px", borderRadius: 10 }} />
         {msg && <div role="alert" data-gate-msg={msg[0]} style={{ marginTop: 8, fontSize: 12.5, color: msg[0] === "err" ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{msg[1]}</div>}
+        {msg && dbg && <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-secondary)", opacity: 0.7 }} className="mono">{dbg}</div>}
         <button type="button" onClick={submit} disabled={busy} data-gate-submit style={{ marginTop: 12, width: "100%", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "…" : t("Open the roster", "રોસ્ટર ખોલો")}</button>
       </div>
     </div>

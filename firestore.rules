@@ -244,7 +244,7 @@ service cloud.firestore {
     // The code = first 4 digits of sha256(key + '|' + period), period = 48 h.
     // ============================================================
     function sharePeriod() {
-      return math.floor(request.time.toMillis() / 172800000.0);
+      return int(math.floor(request.time.toMillis() / 172800000.0));
     }
     function shareDigits(key, per) {
       return hashing.sha256(key + '|' + string(per)).toHexString().lower().replace('[a-f]', '');
