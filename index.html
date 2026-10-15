@@ -14465,16 +14465,14 @@ function PublicRosterView({ uid }) {
         (e) => { if (e && e.code === "permission-denied") { setLocked(true); setData(undefined); } else setData(null); }
       );
     };
-    const off = auth.onAuthStateChanged((mu) => {
-      off();
+    // The link always opens through its own separate session, even on a phone that is signed in to the
+    // station, so every device has to enter the share code once.
+    const fb = nbViewFb(); viewFbRef.current = fb; vdb = fb.db;
+    const off2 = fb.auth.onAuthStateChanged((u) => {
+      off2();
       if (dead) return;
-      if (mu && !mu.isAnonymous) { viewFbRef.current = { auth, db }; vdb = db; start(); return; }
-      const fb = nbViewFb(); viewFbRef.current = fb; vdb = fb.db;
-      const off2 = fb.auth.onAuthStateChanged((u) => {
-        off2();
-        if (u) start();
-        else fb.auth.signInAnonymously().then(start).catch(() => { if (!dead) { setLocked(true); setData(undefined); } });
-      });
+      if (u) start();
+      else fb.auth.signInAnonymously().then(start).catch(() => { if (!dead) { setLocked(true); setData(undefined); } });
     });
     return () => { dead = true; if (unsub) unsub(); };
   }, [uid, unlockN]);
