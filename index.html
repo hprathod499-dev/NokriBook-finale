@@ -11490,58 +11490,147 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   );
 }
 
-async function downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, stationName, district) {
+// Everything recorded about one person for the chosen period: details, duties, leave, outstation, skipped turns, events.
+function nbPersonDetailRows(data, staffRec, number, from, to) {
+  const today = todayStr();
+  const clip = (a, b) => { const x = a > from ? a : from, y = (b || today) < to ? (b || today) : to; return y >= x ? daysBetween(x, y) + 1 : 0; };
+  const periods = [...(staffRec.unavailableHistory || [])];
+  if (staffRec.unavailable && !periods.some((p) => p.from === staffRec.unavailable.from && p.typeId === staffRec.unavailable.typeId && p.kind === staffRec.unavailable.kind)) periods.push(staffRec.unavailable);
+  const seen = new Set();
+  const away = periods.filter((p) => {
+    if (!p || !p.from) return false;
+    const k = unavailKind(p) + "|" + p.typeId + "|" + p.from + "|" + (p.to || "");
+    if (seen.has(k)) return false; seen.add(k);
+    return p.from <= to && (!p.to || p.to >= from);
+  }).sort((a, b) => a.from.localeCompare(b.from)).map((p) => {
+    const kind = unavailKind(p);
+    const viaCat = p.viaCat && (data.categories || []).find((c) => c.id === p.viaCat);
+    return { kind: kind === "Leave" ? "Leave" : kind === "Outstation" ? "Outstation" : (kind || "Away"), label: unavailLabel(data, p) || kind || "", from: p.from, to: p.to || null,
+      days: p.to ? daysBetween(p.from, p.to) + 1 : null, inPeriod: clip(p.from, p.to), note: [viaCat ? viaCat.label : "", p.note || ""].filter(Boolean).join(" — ") };
+  });
+  const skips = (data.skipLog || []).filter((e) => String(e.number) === String(number) && e.date >= from && e.date <= to)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((e) => ({ date: e.date, cat: e.catLabel || (((data.categories || []).find((c) => c.id === e.catId)) || {}).label || "", note: [e.note, e.byName ? "by " + e.byName : ""].filter(Boolean).join(" — ") }));
+  const events = (data.events || []).filter((ev) => String(ev.number || "") === String(number) && ev.start && ev.start <= to && (ev.end || ev.start) >= from)
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .map((ev) => ({ from: ev.start, to: ev.end || ev.start, type: eventTypeLabel(ev.type, "en"), note: ev.title || ev.note || "" }));
+  const y1 = Math.max(Number(from.slice(0, 4)) || 0, 2000), y2 = Math.min(Number(to.slice(0, 4)) || 0, Number(today.slice(0, 4)));
+  const leaveYears = [];
+  for (let y = y2; y >= y1 && leaveYears.length < 5; y--) {
+    const used = nbLeaveUsed(staffRec, y);
+    const items = (data.leaveTypes || []).filter((lt) => used[lt.id] || nbIsCasualLeave(lt)).map((lt) => {
+      const n = used[lt.id] || 0;
+      return { label: lt.label, n, cl: nbIsCasualLeave(lt) };
+    });
+    if (items.some((it) => it.n) || y === y2) leaveYears.push({ year: y, items });
+  }
+  const now = unavailableOnDate(staffRec, today);
+  return { away, skips, events, leaveYears, now };
+}
+
+async function downloadPersonHistoryPdf(data, staffRec, number, filteredGroups, period) {
   await nbEnsureJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
+  const stationName = data.stationName, district = data.district;
 
   const base64 = await loadGujaratiFont();
   doc.addFileToVFS("NotoSansGujarati-Regular.ttf", base64);
   doc.addFont("NotoSansGujarati-Regular.ttf", "NotoSansGujarati", "normal");
   await ensureGujaratiCanvasFont();
 
-  let headerY = drawPdfHeader(doc, "Nokri Book — Duty History", stationName, district) - 8;
+  const [from, to] = periodRangeOf(period);
+  const info = nbPersonDetailRows(data, staffRec, number, from, to);
+  const desig = staffRec.designation && (data.designations || []).find((d) => d.id === staffRec.designation);
+  const pageH = doc.internal.pageSize.getHeight();
   const LINE_H = 5;
+
+  let headerY = drawPdfHeader(doc, "Nokri Book — Person Report", stationName, district) - 8;
   headerY += LINE_H;
   drawLeftAlignedTextImage(doc, staffRec.name, 14, headerY, 11);
   headerY += LINE_H;
-  doc.setFontSize(11);
-  doc.text(`#${number}`, 14, headerY);
-  headerY += LINE_H + 6;
-  const y = nbPdfIntro(doc, headerY, periodLabelEn(period));
+  doc.setFontSize(10);
+  doc.text([`#${number}`, desig ? desig.label : "", staffRec.phone ? "Phone " + staffRec.phone : ""].filter(Boolean).join("   ·   "), 14, headerY);
+  headerY += LINE_H + 4;
+  const extras = [];
+  if (info.now) extras.push(`Today: ${info.now.kind === "Outstation" || unavailKind(info.now) === "Outstation" ? "on outstation" : "on leave"} — ${unavailLabel(data, info.now)} (${formatDMY(info.now.from)}${info.now.to ? " – " + formatDMY(info.now.to) : ", no end date"})`);
+  if (staffRec.skip) extras.push("Kept out of duty turns (skip is on).");
+  let y = nbPdfIntro(doc, headerY, periodLabelEn(period), extras.filter((l) => !needsImageRender(l)));
+  extras.filter((l) => needsImageRender(l)).forEach((l) => { drawLeftAlignedTextImage(doc, l, 14, y - 2, 8.5); y += 5; });
 
+  // a table whose Gujarati cells are drawn as pictures (jsPDF can't shape Gujarati text)
+  const table = (title, head, body, widths, opts) => {
+    if (y > pageH - 40) { doc.addPage(); y = 18; }
+    doc.setFontSize(11); doc.setFont(undefined, "bold"); doc.text(title, 14, y); doc.setFont(undefined, "normal");
+    y += 3;
+    if (!body.length) { doc.setFontSize(9); doc.text((opts && opts.empty) || "None.", 14, y + 4); y += 12; return; }
+    const colStyles = {};
+    Object.keys(widths).forEach((k) => { colStyles[k] = { cellWidth: widths[k] }; });
+    doc.autoTable({
+      rowPageBreak: "avoid", startY: y, head: [head], body,
+      styles: { fontSize: FONT_PT, valign: "top" },
+      headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
+      columnStyles: colStyles, foot: opts && opts.foot ? [opts.foot] : undefined,
+      didParseCell: (h) => {
+        if (h.section !== "body" || !needsImageRender(h.cell.raw)) return;
+        const w = widths[h.column.index];
+        h.cell.text = w ? new Array(renderWrappedTextToImage(h.cell.raw, FONT_PT, w - 2).lineCount).fill(" ") : [];
+      },
+      didDrawCell: (h) => {
+        if (h.section !== "body") return;
+        const raw = h.cell.raw;
+        if (raw == null || raw === "" || !needsImageRender(raw)) return;
+        const w = widths[h.column.index];
+        if (w) drawWrappedTextImageInCell(doc, h.cell, renderWrappedTextToImage(raw, FONT_PT, w - 2), FONT_PT);
+        else drawTextImageInCell(doc, h.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
+      },
+    });
+    y = doc.lastAutoTable.finalY + 9;
+  };
+  const range = (a, b) => (b && b !== a ? `${formatDMY(a)} - ${formatDMY(b)}` : formatDMY(a));
+  // days counted once even when two entries overlap
+  const uniqDays = (kind) => { const set = new Set(); info.away.filter((a) => a.kind === kind).forEach((a) => { const x = a.from > from ? a.from : from, e = a.to || todayStr(), z = e < to ? e : to; for (const d = new Date(x + "T00:00:00"); x <= z && d <= new Date(z + "T00:00:00"); d.setDate(d.getDate() + 1)) set.add(d.toDateString()); }); return set.size; };
+
+  // 1. summary of duties in this period
+  const byCat = {};
+  filteredGroups.forEach((g) => { const c = byCat[g.catLabel] || (byCat[g.catLabel] = { n: 0, d: 0 }); c.n += 1; c.d += g.days; });
+  const catRows = Object.entries(byCat).sort((a, b) => b[1].n - a[1].n).map(([k, v]) => [k, v.n, v.d]);
+  const leaveDays = uniqDays("Leave");
+  const outDays = uniqDays("Outstation");
+  table("Summary", ["Item", "Count", "Days"], [
+    ...catRows,
+    ["Leave (all types)", info.away.filter((a) => a.kind === "Leave").length, leaveDays],
+    ["Outstation", info.away.filter((a) => a.kind === "Outstation").length, outDays],
+    ["Turns skipped", info.skips.length, ""],
+  ], { 0: 110 }, { foot: ["Duties in total", filteredGroups.length, filteredGroups.reduce((n, g) => n + g.days, 0)] });
+
+  // 2. duties
   const sortedGroups = [...filteredGroups].sort((a, b) => a.from.localeCompare(b.from));
-  doc.autoTable({
-    rowPageBreak: "avoid",
-    startY: y,
-    head: [["Date", "Work type", "Days", "Note"]],
-    body: sortedGroups.map((g) => [
-      g.days > 1 ? `${formatDMY(g.from)} – ${formatDMY(g.to)}` : formatDMY(g.to),
-      g.catLabel, g.days, [g.note, g.extraNote].filter(Boolean).join(" — "),
-    ]),
-    styles: { fontSize: FONT_PT, valign: "top" },
-    headStyles: { fillColor: NB_PDF_HEAD_FILL, textColor: [0, 0, 0], fontStyle: "bold" }, margin: { left: 14, right: 14, bottom: 16 },
-    columnStyles: { 1: { minCellWidth: 30 }, 3: { cellWidth: 75 } },
-    didParseCell: (hookData) => {
-      if (hookData.section !== "body") return;
-      if (hookData.column.index === 1 && needsImageRender(hookData.cell.raw)) hookData.cell.text = [];
-      if (hookData.column.index === 3 && needsImageRender(hookData.cell.raw)) {
-        const colWidthMm = 75 - 2;
-        hookData.cell.text = new Array(renderWrappedTextToImage(hookData.cell.raw, FONT_PT, colWidthMm).lineCount).fill(" ");
-      }
-    },
-    didDrawCell: (hookData) => {
-      if (hookData.section !== "body") return;
-      const raw = hookData.cell.raw;
-      if (raw == null || raw === "" || !needsImageRender(raw)) return;
-      if (hookData.column.index === 1) drawTextImageInCell(doc, hookData.cell, renderTextToImage(raw, FONT_PT), FONT_PT);
-      if (hookData.column.index === 3) drawWrappedTextImageInCell(doc, hookData.cell, renderWrappedTextToImage(raw, FONT_PT, 75 - 2), FONT_PT);
-    },
+  table("Duties", ["Date", "Work type", "Days", "Note"],
+    sortedGroups.map((g) => [range(g.from, g.days > 1 ? g.to : g.from), g.catLabel, g.days, [g.note, g.extraNote].filter(Boolean).join(" — ")]),
+    { 1: 42, 3: 75 }, { empty: "No duties in this period." });
+
+  // 3. leave & outstation
+  table("Leave and outstation", ["Kind", "Type", "Dates", "Days", "Days in period", "Note"],
+    info.away.map((a) => [a.kind, a.label, a.to ? range(a.from, a.to) : formatDMY(a.from) + " - (no end date)", a.days == null ? "—" : a.days, a.inPeriod, a.note]),
+    { 1: 36, 5: 40 }, { empty: "No leave or outstation in this period." });
+
+  // 4. leave used per year
+  info.leaveYears.forEach((ly) => {
+    table(`Leave used in ${ly.year}`, ["Leave type", "Days"],
+      ly.items.map((it) => [it.label, it.cl ? `${it.n} / ${NB_CL_DAYS}${it.n > NB_CL_DAYS ? "  (over the limit)" : ""}` : it.n]),
+      { 0: 110 }, { empty: "No leave." });
   });
 
-  const slug = String(staffRec.name).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9\u0A80-\u0AFF-]/g, "");
-  return { doc, filename: `nokri-book-${slug || number}-history-${todayStr()}.pdf` };
+  // 5. skipped turns
+  table("Turns skipped", ["Date", "Work type", "Note"], info.skips.map((sk) => [formatDMY(sk.date), sk.cat, sk.note]), { 1: 50, 2: 90 }, { empty: "No turns skipped in this period." });
+
+  // 6. events (only when there are any)
+  if (info.events.length) table("Events", ["Dates", "Type", "Note"], info.events.map((ev) => [range(ev.from, ev.to), ev.type, ev.note]), { 2: 100 });
+
+  const slug = String(staffRec.name).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9઀-૿-]/g, "");
+  return { doc, filename: `nokri-book-${slug || number}-report-${todayStr()}.pdf` };
 }
 function PersonHistoryModal({ data, number, onClose }) {
   const { t } = useLang();
@@ -11588,7 +11677,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   const handleDownloadPdf = async () => {
     setPdfBusy(true);
     try {
-      const pdf = await downloadPersonHistoryPdf(staffRec, number, filteredGroups, period, data.stationName, data.district);
+      const pdf = await downloadPersonHistoryPdf(data, staffRec, number, filteredGroups, period);
       setPdfReady(pdf);
     } catch (e) {
       window.alert(t("Could not load Gujarati font — check your internet connection and try again.", "ગુજરાતી ફોન્ટ લોડ થઈ શક્યો નહીં — તમારું ઇન્ટરનેટ કનેક્શન તપાસો અને ફરી પ્રયાસ કરો."));
