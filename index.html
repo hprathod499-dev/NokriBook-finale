@@ -12149,8 +12149,6 @@ function CalAwayMenu({ data, a, date, onClose, editAwayPeriod, deleteUnavailable
             )}
             <button data-away-change onClick={() => setMode("edit")} style={item}><span style={ico}>✏️</span><span>{t("Change dates or type", "તારીખ કે પ્રકાર બદલો")}<span style={sub}>{t("Start date, end date, leave ↔ outstation", "શરૂઆત, અંતિમ તારીખ, રજા ↔ બહારગામ")}</span></span></button>
             <button data-away-add onClick={() => { onClose(); onAddMore(a.number); }} style={item}><span style={ico}>➕</span><span>{t("Add another leave / outstation", "બીજી રજા / બહારગામ ઉમેરો")}<span style={sub}>{t("For this person, from any date", "આ વ્યક્તિ માટે, કોઈ પણ તારીખથી")}</span></span></button>
-            <button data-away-history onClick={() => { onClose(); onHistory(a.number); }} style={item}><span style={ico}>📋</span><span>{t("Full history and PDF", "સંપૂર્ણ ઇતિહાસ અને PDF")}</span></button>
-            {st.phone && <a href={"tel:" + st.phone} style={{ ...item, textDecoration: "none" }}><span style={ico}>📞</span><span>{t("Call", "ફોન કરો")} <span className="mono" style={{ fontWeight: 500 }}>{st.phone}</span></span></a>}
             <button data-away-delete onClick={del} style={{ ...item, color: "var(--status-error-text)" }}><span style={ico}>🗑</span><span>{t("Delete this record", "આ રેકોર્ડ ડિલીટ કરો")}<span style={sub}>{t("If it was entered by mistake", "ભૂલથી નોંધાયો હોય તો")}</span></span></button>
           </React.Fragment>
         ) : (
