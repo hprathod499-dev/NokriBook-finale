@@ -6577,6 +6577,43 @@ const clearCategoryHistory = (catId) => {
       : "";
     showToast(t(`Updated ${prevRec.name}'s dates${conflictText}`, `${prevRec.name} ની તારીખો અપડેટ થઈ${conflictText}`));
   };
+  const editAwayPeriod = (number, oldP, newP) => {
+    const prevRec = dataRef.current.staff[number];
+    if (!prevRec || !newP || !newP.from) return;
+    if (newP.to && newP.to < newP.from) { showToast(t("Pick a valid date range", "માન્ય તારીખ શ્રેણી પસંદ કરો")); return; }
+    const same = (p) => p && unavailKind(p) === oldP.kind && (p.typeId || null) === (oldP.typeId || null) && p.from === oldP.from && (p.to || null) === (oldP.to || null);
+    let found = false, viaCat = null;
+    let hist = (prevRec.unavailableHistory || []).map((p) => {
+      if (found || !same(p)) return p;
+      found = true; viaCat = p.viaCat || null;
+      return { ...p, kind: newP.kind, typeId: newP.typeId, from: newP.from, to: newP.to || null };
+    });
+    if (!found) {
+      const base = same(prevRec.unavailable) ? prevRec.unavailable : {};
+      viaCat = base.viaCat || null;
+      hist = [...hist, { ...base, kind: newP.kind, typeId: newP.typeId, from: newP.from, to: newP.to || null }];
+    }
+    // duties on days the record newly covers are taken off (never the bandobast duty that made the outstation)
+    const inOld = (d) => d >= oldP.from && (!oldP.to || d <= oldP.to);
+    const inNew = (d) => d >= newP.from && (!newP.to || d <= newP.to);
+    let removedCount = 0;
+    const mem = {};
+    Object.keys(dataRef.current.membership || {}).forEach((catId) => {
+      mem[catId] = (dataRef.current.membership[catId] || []).map((m) => {
+        if (m.number !== number || catId === viaCat) return m;
+        const h = m.history || [];
+        const kept = h.filter((e) => { const d = historyDate(e); const c = inNew(d) && !inOld(d); if (c) removedCount += 1; return !c; });
+        if (kept.length === h.length) return m;
+        const last = kept.length ? kept.reduce((mx, e) => (historyDate(e) > mx ? historyDate(e) : mx), historyDate(kept[0])) : null;
+        return { ...m, history: kept, lastDuty: last };
+      });
+    });
+    persist({ ...dataRef.current, staff: { ...dataRef.current.staff, [number]: { ...prevRec, unavailable: currentUnavailablePeriod(hist), unavailableHistory: hist } }, membership: mem });
+    const lbl = unavailLabel(dataRef.current, newP) || newP.kind;
+    const rng = newP.to ? (newP.to !== newP.from ? formatDMY(newP.from) + " – " + formatDMY(newP.to) : formatDMY(newP.from)) : formatDMY(newP.from) + t(" (no end date)", " (અંતિમ તારીખ નથી)");
+    const conflictText = removedCount > 0 ? t(` (${removedCount} duty ${removedCount === 1 ? "entry" : "entries"} on those days removed)`, ` (તે દિવસોની ${removedCount} ડ્યુટી નોંધ દૂર કરી)`) : "";
+    showToast(t(`${prevRec.name}: ${lbl} ${rng}${conflictText}`, `${prevRec.name}: ${lbl} ${rng}${conflictText}`));
+  };
   const deleteUnavailableHistoryEntry = (number, from, to) => {
     const prevRec = dataRef.current.staff[number];
     if (!prevRec) return;
@@ -7188,7 +7225,7 @@ const clearCategoryHistory = (catId) => {
               exportBackup={exportBackup}
             />
           )}
-          {vm === "calendar" && <CalendarView swapDuty={swapDuty} initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} />}
+          {vm === "calendar" && <CalendarView swapDuty={swapDuty} initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} editAwayPeriod={canEdit ? editAwayPeriod : null} setUnavailable={canEdit ? setUnavailable : null} />}
           {vm === "report" && <ReportView data={data} initialSort={view.sort} focus={view.focus} />}
           {vm === "events" && (
             <EventsView
@@ -12056,7 +12093,181 @@ function SwapDutyModal({ data, date, from, onClose, onSwap }) {
   );
 }
 
-function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty }) {
+// Tap a person who is on leave / outstation in the duty calendar: end it, change it, add more — no trip to Manage staff.
+function CalAwayMenu({ data, a, date, onClose, editAwayPeriod, deleteUnavailableHistoryEntry, onAddMore, onHistory }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const st = (data.staff || {})[a.number] || {};
+  const [mode, setMode] = useState("menu");
+  const [kind, setKind] = useState(a.type);
+  const [typeId, setTypeId] = useState(a.typeId || "");
+  const [from, setFrom] = useState(a.from);
+  const [to, setTo] = useState(a.to || "");
+  const [err, setErr] = useState("");
+  const today = todayStr();
+  const isToday = date === today;
+  const old = { kind: a.type, typeId: a.typeId, from: a.from, to: a.to };
+  const word = a.type === "Leave" ? t("leave", "રજા") : t("outstation", "બહારગામ");
+  const list = (kind === "Leave" ? data.leaveTypes : data.outstationTypes) || [];
+  const typeObj = list.find((x) => x.id === typeId);
+  const indefinite = !!(typeObj && typeObj.indefinite);
+  const D = formatDMY(date), prev = addDaysStr(date, -1), next = addDaysStr(date, 1);
+  const rangeTxt = a.to ? (a.to !== a.from ? `${formatDMY(a.from)} – ${formatDMY(a.to)}` : formatDMY(a.from)) : `${formatDMY(a.from)} – ${t("no end date", "અંતિમ તારીખ નથી")}`;
+  const endLast = () => { editAwayPeriod(a.number, old, { ...old, to: date }); onClose(); };
+  const endBack = () => { editAwayPeriod(a.number, old, { ...old, to: prev }); onClose(); };
+  const del = () => {
+    if (!window.confirm(t(`Delete this ${word} record for ${a.name} (${rangeTxt})? It moves to the Recycle bin, so it can still be restored.`, `${a.name} નો આ ${word} રેકોર્ડ (${rangeTxt}) ડિલીટ કરવો છે? તે રિસાયકલ બિનમાં જશે, પછી પાછો લાવી શકાય.`))) return;
+    deleteUnavailableHistoryEntry(a.number, a.from, a.to); onClose();
+  };
+  const save = () => {
+    if (!typeId) { setErr(t("Pick the type.", "પ્રકાર પસંદ કરો.")); return; }
+    if (!from) { setErr(t("Pick the start date.", "શરૂઆતની તારીખ પસંદ કરો.")); return; }
+    if (!indefinite && (!to || to < from)) { setErr(t("Pick an end date on or after the start date.", "શરૂઆત પછીની (અથવા એ જ) અંતિમ તારીખ પસંદ કરો.")); return; }
+    editAwayPeriod(a.number, old, { kind, typeId, from, to: indefinite ? null : to }); onClose();
+  };
+  const item = { display: "flex", alignItems: "flex-start", gap: 12, width: "100%", padding: "11px 12px", background: "transparent", border: "none", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 600, color: "var(--text-primary)", textAlign: "left" };
+  const sub = { display: "block", fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)", marginTop: 2 };
+  const ico = { width: 22, textAlign: "center", fontSize: 17, flexShrink: 0 };
+  const inp = { width: "100%", boxSizing: "border-box", fontSize: 14, padding: "8px 10px", borderRadius: 8 };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={a.name} className="modal-backdrop" data-cal-away-menu style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 380, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", padding: "14px 12px 10px", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "0 4px 10px", borderBottom: "1px solid var(--border-soft)", marginBottom: 6 }}>
+          <div>
+            <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{a.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>#{a.number}</span></div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 3 }}>{a.label} · {rangeTxt}</div>
+          </div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16, cursor: "pointer" }}>✕</button>
+        </div>
+        {mode === "menu" ? (
+          <React.Fragment>
+            {(!a.to || a.to > date) && (
+              <button data-away-end-last onClick={endLast} style={item}><span style={ico}>🏁</span><span>{isToday ? t(`End ${word} today`, `${word} આજે પૂરી કરો`) : t(`End ${word} on ${D}`, `${word} ${D} ના રોજ પૂરી કરો`)}<span style={sub}>{isToday ? t("Today is the last day — on duty from tomorrow.", "આજે છેલ્લો દિવસ — કાલથી ડ્યુટી પર.") : t(`${D} is the last day — on duty from ${formatDMY(next)}.`, `${D} છેલ્લો દિવસ — ${formatDMY(next)} થી ડ્યુટી પર.`)}</span></span></button>
+            )}
+            {date > a.from && (
+              <button data-away-end-back onClick={endBack} style={item}><span style={ico}>✅</span><span>{isToday ? t("Back on duty from today", "આજથી ડ્યુટી પર પાછા") : t(`Back on duty from ${D}`, `${D} થી ડ્યુટી પર પાછા`)}<span style={sub}>{t(`The ${word} ends on ${formatDMY(prev)}.`, `${word} ${formatDMY(prev)} ના રોજ પૂરી થાય.`)}</span></span></button>
+            )}
+            <button data-away-change onClick={() => setMode("edit")} style={item}><span style={ico}>✏️</span><span>{t("Change dates or type", "તારીખ કે પ્રકાર બદલો")}<span style={sub}>{t("Start date, end date, leave ↔ outstation", "શરૂઆત, અંતિમ તારીખ, રજા ↔ બહારગામ")}</span></span></button>
+            <button data-away-add onClick={() => { onClose(); onAddMore(a.number); }} style={item}><span style={ico}>➕</span><span>{t("Add another leave / outstation", "બીજી રજા / બહારગામ ઉમેરો")}<span style={sub}>{t("For this person, from any date", "આ વ્યક્તિ માટે, કોઈ પણ તારીખથી")}</span></span></button>
+            <button data-away-history onClick={() => { onClose(); onHistory(a.number); }} style={item}><span style={ico}>📋</span><span>{t("Full history and PDF", "સંપૂર્ણ ઇતિહાસ અને PDF")}</span></button>
+            {st.phone && <a href={"tel:" + st.phone} style={{ ...item, textDecoration: "none" }}><span style={ico}>📞</span><span>{t("Call", "ફોન કરો")} <span className="mono" style={{ fontWeight: 500 }}>{st.phone}</span></span></a>}
+            <button data-away-delete onClick={del} style={{ ...item, color: "var(--status-error-text)" }}><span style={ico}>🗑</span><span>{t("Delete this record", "આ રેકોર્ડ ડિલીટ કરો")}<span style={sub}>{t("If it was entered by mistake", "ભૂલથી નોંધાયો હોય તો")}</span></span></button>
+          </React.Fragment>
+        ) : (
+          <div style={{ padding: "4px 6px 6px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {["Leave", "Outstation"].map((k) => (
+                <button key={k} type="button" onClick={() => { if (k !== kind) { setKind(k); setTypeId(""); } }} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, fontSize: 13.5, fontWeight: 700, cursor: "pointer", border: "1px solid var(--border)", background: kind === k ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: kind === k ? "#fff" : "var(--text-primary)" }}>{k === "Leave" ? t("Leave", "રજા") : t("Outstation", "બહારગામ")}</button>
+              ))}
+            </div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Type", "પ્રકાર")}
+              <select value={typeId} onChange={(e) => setTypeId(e.target.value)} data-away-type style={{ ...inp, marginTop: 4 }}>
+                <option value="">{t("— pick —", "— પસંદ કરો —")}</option>
+                {list.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+              </select>
+            </label>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From", "થી")}
+              <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inp, marginTop: 4 }} data-away-from />
+            </label>
+            {indefinite ? <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("This type has no end date.", "આ પ્રકારમાં અંતિમ તારીખ નથી.")}</div> : (
+              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("To", "સુધી")}
+                <NbDateInput value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inp, marginTop: 4 }} data-away-to />
+              </label>
+            )}
+            {err && <div role="alert" style={{ fontSize: 12.5, color: "var(--status-error-text)" }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+              <button type="button" onClick={() => { setMode("menu"); setErr(""); }} style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{t("Back", "પાછા")}</button>
+              <button type="button" onClick={save} data-away-save style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: "var(--btn-dark-bg)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>{t("Save", "સાચવો")}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Record leave / outstation for anyone straight from the duty calendar.
+function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [q, setQ] = useState("");
+  const [number, setNumber] = useState(presetNumber || "");
+  const [kind, setKind] = useState("Leave");
+  const [typeId, setTypeId] = useState("");
+  const [from, setFrom] = useState(date);
+  const [to, setTo] = useState(date);
+  const [err, setErr] = useState("");
+  const list = (kind === "Leave" ? data.leaveTypes : data.outstationTypes) || [];
+  const typeObj = list.find((x) => x.id === typeId);
+  const indefinite = !!(typeObj && typeObj.indefinite);
+  const st = number ? (data.staff || {})[number] : null;
+  const matches = useMemo(() => {
+    const qq = nbAsciiDigits(q).trim().toLowerCase();
+    if (!qq) return [];
+    return Object.values(data.staff || {}).filter((s) => String(s.number).startsWith(qq) || String(s.name || "").toLowerCase().includes(qq)).slice(0, 8);
+  }, [q, data.staff]);
+  const save = () => {
+    if (!number || !st) { setErr(t("Pick the person.", "વ્યક્તિ પસંદ કરો.")); return; }
+    if (!typeId) { setErr(t("Pick the type.", "પ્રકાર પસંદ કરો.")); return; }
+    if (!from) { setErr(t("Pick the start date.", "શરૂઆતની તારીખ પસંદ કરો.")); return; }
+    if (!indefinite && (!to || to < from)) { setErr(t("Pick an end date on or after the start date.", "શરૂઆત પછીની (અથવા એ જ) અંતિમ તારીખ પસંદ કરો.")); return; }
+    setUnavailable(number, kind, typeId, from, indefinite ? null : to); onClose();
+  };
+  const inp = { width: "100%", boxSizing: "border-box", fontSize: 14, padding: "8px 10px", borderRadius: 8 };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Add leave / outstation", "રજા / બહારગામ ઉમેરો")} className="modal-backdrop" data-cal-add-away style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 380, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", padding: 16, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{t("Add leave / outstation", "રજા / બહારગામ ઉમેરો")}</div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16, cursor: "pointer" }}>✕</button>
+        </div>
+        {st ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 9, background: "var(--bg-surface-2)" }}>
+            <span style={{ fontWeight: 700 }}>{st.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>#{st.number}</span></span>
+            {!presetNumber && <button type="button" onClick={() => { setNumber(""); setQ(""); }} style={{ background: "transparent", border: "none", color: "inherit", fontSize: 12.5, cursor: "pointer", padding: 0 }}>{t("Change", "બદલો")}</button>}
+          </div>
+        ) : (
+          <div>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Buckle no. or name", "બકલ નંબર અથવા નામ")} data-add-away-search autoFocus style={inp} />
+            {matches.length > 0 && (
+              <div style={{ marginTop: 4, border: "1px solid var(--border-soft)", borderRadius: 9, overflow: "hidden" }}>
+                {matches.map((s) => (
+                  <button key={s.number} type="button" onClick={() => setNumber(s.number)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", borderTop: "1px solid var(--border-soft)", background: "var(--bg-surface)", color: "var(--text-primary)", fontSize: 13.5, cursor: "pointer" }}>{s.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{s.number}</span></button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 6 }}>
+          {["Leave", "Outstation"].map((k) => (
+            <button key={k} type="button" onClick={() => { if (k !== kind) { setKind(k); setTypeId(""); } }} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, fontSize: 13.5, fontWeight: 700, cursor: "pointer", border: "1px solid var(--border)", background: kind === k ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: kind === k ? "#fff" : "var(--text-primary)" }}>{k === "Leave" ? t("Leave", "રજા") : t("Outstation", "બહારગામ")}</button>
+          ))}
+        </div>
+        <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Type", "પ્રકાર")}
+          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} data-add-away-type style={{ ...inp, marginTop: 4 }}>
+            <option value="">{t("— pick —", "— પસંદ કરો —")}</option>
+            {list.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From", "થી")}
+          <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inp, marginTop: 4 }} />
+        </label>
+        {indefinite ? <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("This type has no end date.", "આ પ્રકારમાં અંતિમ તારીખ નથી.")}</div> : (
+          <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("To", "સુધી")}
+            <NbDateInput value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inp, marginTop: 4 }} />
+          </label>
+        )}
+        {err && <div role="alert" style={{ fontSize: 12.5, color: "var(--status-error-text)" }}>{err}</div>}
+        <button type="button" onClick={save} data-add-away-save style={{ padding: "11px", borderRadius: 9, border: "none", background: "var(--btn-dark-bg)", color: "#fff", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>{t("Save", "સાચવો")}</button>
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty, editAwayPeriod, setUnavailable }) {
+  const [awayMenu, setAwayMenu] = useState(null);
+  const [addAway, setAddAway] = useState(null);
+  const [histNum, setHistNum] = useState(null);
   const canDelete = !!(deleteHistoryEntries && deleteUnavailableHistoryEntry);
   const [swapFor, setSwapFor] = useState(null);
   const { t, lang } = useLang();
@@ -12185,7 +12396,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
       if (!u) return;
       const kind = unavailKind(u);
       if (kind === "Outstation" || kind === "Leave") {
-        map[s.number] = { number: s.number, name: s.name, type: kind, label: unavailLabel(data, u) || kind, from: u.from, to: u.to || null, source: "unavailable" };
+        map[s.number] = { number: s.number, name: s.name, type: kind, typeId: u.typeId || null, viaCat: u.viaCat || null, label: unavailLabel(data, u) || kind, from: u.from, to: u.to || null, source: "unavailable" };
       }
     });
     return Object.values(map);
@@ -12563,7 +12774,11 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                   const remaining = a.to ? daysBetween(selectedDate, a.to) : null;
                   return (
                     <div key={a.number || a.name} className="gu" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 0" }}>
-                      <span>{a.name}{a.number ? <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}> #{a.number}</span> : null}</span>
+                      {editAwayPeriod && a.source === "unavailable" && !deleteMode ? (
+                        <button type="button" data-away-name={a.number} onClick={() => setAwayMenu(a)} title={t("End, change or add leave / outstation", "રજા / બહારગામ પૂરી કરો, બદલો કે ઉમેરો")} style={{ background: "transparent", border: "none", padding: 0, margin: 0, color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer" }}>{a.name}{a.number ? <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}> #{a.number}</span> : null}</button>
+                      ) : (
+                        <span>{a.name}{a.number ? <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}> #{a.number}</span> : null}</span>
+                      )}
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {remaining !== null && (
                           <span style={{ fontSize: 10.5, fontWeight: 700, background: "var(--bg-surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 10, padding: "2px 8px" }} className="gu">
@@ -12588,6 +12803,15 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                 })}
               </div>
             )}
+
+            {setUnavailable && (
+              <div style={{ marginTop: 10 }}>
+                <button type="button" data-cal-add-away-btn onClick={() => setAddAway({ number: "" })} className="gu" style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "6px 12px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer" }}>＋ {t("Leave / outstation on this day", "આ દિવસે રજા / બહારગામ")}</button>
+              </div>
+            )}
+            {awayMenu && <CalAwayMenu data={data} a={awayMenu} date={selectedDate} onClose={() => setAwayMenu(null)} editAwayPeriod={editAwayPeriod} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} onAddMore={(n) => setAddAway({ number: n })} onHistory={(n) => setHistNum(n)} />}
+            {addAway && <CalAddAway data={data} date={selectedDate} presetNumber={addAway.number} onClose={() => setAddAway(null)} setUnavailable={setUnavailable} />}
+            {histNum && data.staff[histNum] && <PersonHistoryModal data={data} number={histNum} onClose={() => setHistNum(null)} />}
 
             {selDuties.length > 0 && (
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border-soft)", fontSize: 12, color: "var(--text-secondary)" }} className="gu">
