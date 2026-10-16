@@ -170,8 +170,10 @@ service cloud.firestore {
 
       allow read: if isOwner() || isMemberOf(uid);
 
-      // Sign-ups open (test site uses email / password registration).
-      allow create: if isOwner()
+      // SIGN-UPS CLOSED: no new station accounts can be made. Everyone who already
+      // has an account keeps signing in as before (station users / login codes are
+      // members of an existing station, not new accounts).
+      allow create: if false && isOwner()
         && stationClaimOk()
         && request.resource.data.get('blocked', false) == false
         && (approvalOf(request.resource.data) == null

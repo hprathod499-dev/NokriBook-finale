@@ -4436,12 +4436,12 @@ function SignInScreen() {
             </button>
           </form>
 
-          <div style={{ textAlign: "center", marginTop: 12, fontSize: 12.5, color: "var(--text-secondary)" }} className="gu">
+          {(!NB_SIGNUPS_CLOSED || authAction === "signup") && <div style={{ textAlign: "center", marginTop: 12, fontSize: 12.5, color: "var(--text-secondary)" }} className="gu">
             {authAction === "signup" ? t("Already have an account? ", "પહેલેથી ખાતું છે? ") : t("Don't have an account? ", "ખાતું નથી? ")}
             <button type="button" onClick={() => { setAuthAction(authAction === "signup" ? "signin" : "signup"); resetFeedback(); }} style={{ background: "none", border: "none", padding: 0, color: "var(--accent-strong)", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }} className="gu">
               {authAction === "signup" ? t("Sign In", "સાઇન ઇન") : t("Sign Up", "સાઇન અપ")}
             </button>
-          </div>
+          </div>}
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-around", gap: 6, padding: "0 4px", textAlign: "center" }}>
