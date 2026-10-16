@@ -1775,7 +1775,8 @@ function slugify(label) {
 }
 function historyDate(entry) { return typeof entry === "string" ? entry : entry.date; }
 function historyTs(entry) { return typeof entry === "string" ? 0 : (entry.ts || 0); }
-function historyNote(entry) { return typeof entry === "string" ? "" : (entry.note || ""); }
+// older swaps wrote "⇄ name" into the note — it is never shown
+function historyNote(entry) { return typeof entry === "string" ? "" : String(entry.note || "").replace(/(^|\s*·\s*)⇄ [^·]*/g, "").trim(); }
 function historyExtraNote(entry) { return typeof entry === "string" ? "" : (entry.extraNote || ""); }
 function isOnDutyOn(m, date) {
   if (!date) return false;
@@ -6355,7 +6356,7 @@ const clearCategoryHistory = (catId) => {
       if (!taken.length) return null;
       if (list.some((m) => m.number === toNum && isOnDutyOn(m, date))) return "dup";
       const src = typeof taken[0] === "string" ? { date } : taken[0];
-      const entry = { ...src, date, ts: now, batch: uid(), swappedWith: fromNum, note: ((src.note ? src.note + " · " : "") + "⇄ " + otherName).slice(0, 500) };
+      const entry = { ...src, date, ts: now, batch: uid(), swappedWith: fromNum, note: src.note || null };
       let next = list.map((m) => m.number === fromNum ? (() => { const h = (m.history || []).filter((e) => historyDate(e) !== date); return { ...m, history: h, lastDuty: lastOf(h) }; })() : m);
       if (next.some((m) => m.number === toNum)) next = next.map((m) => m.number === toNum ? (() => { const h = [...(m.history || []), entry]; return { ...m, skip: false, history: h, lastDuty: lastOf(h) }; })() : m);
       else next = [...next, { number: toNum, lastDuty: date, history: [entry], skip: false }];
@@ -6370,7 +6371,7 @@ const clearCategoryHistory = (catId) => {
       if (back) membership = back;
     }
     persist({ ...cur, membership });
-    showToast(backCatId ? t(`Swapped: ${A.name} ⇄ ${B.name} (${formatDMY(date)})`, `અદલાબદલી: ${A.name} ⇄ ${B.name} (${formatDMY(date)})`) : t(`${A.name}'s duty given to ${B.name} (${formatDMY(date)})`, `${A.name} ની ડ્યુટી ${B.name} ને આપી (${formatDMY(date)})`));
+    showToast(t(`Duty updated (${formatDMY(date)})`, `ડ્યુટી બદલાઈ (${formatDMY(date)})`));
     return true;
   };
 
@@ -13659,6 +13660,35 @@ function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, stationName, o
 function ShareCodeGate({ token, fb, onUnlocked }) {
   const { t, lang, setLang } = useLang();
   const [step, setStep] = useState("num");
+  // counted like a code try (so numbers can't be guessed quickly), then Firebase checks it is on this station's staff list
+  const checkNum = async () => {
+    const bn = nbShareNum(num);
+    if (!bn) { setMsg(["err", t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.")]); return; }
+    setBusy(true); setMsg(null); setDbg("");
+    try {
+      const vAuth = (fb && fb.auth) || auth, vDb = (fb && fb.db) || db;
+      let u = vAuth.currentUser;
+      if (!u) u = (await vAuth.signInAnonymously()).user;
+      const uid = u.uid, FV = nbFv(), ref = vDb.collection("shareTries").doc(token);
+      const base = { last: FV.serverTimestamp(), uid, gh: await nbSha256Hex("N|" + bn + "|" + uid), p: nbSharePeriod() };
+      let counted = false;
+      try { await ref.update({ ...base, fails: FV.increment(1) }); counted = true; } catch (e1) {
+        try { await ref.set({ ...base, fails: 1 }); counted = true; } catch (e2) { setDbg("1:" + ((e2 && e2.code) || "x")); }
+      }
+      if (!counted) { setMsg(["wait", t("Too many tries. Please wait a while and try again.", "ઘણા પ્રયાસ થયા. થોડી વાર રાહ જોઈ ફરી પ્રયાસ કરો.")]); setBusy(false); return; }
+      try {
+        await vDb.collection("shareNumChecks").doc(uid + "_" + token).set({ uid, token, num: bn, at: FV.serverTimestamp() });
+      } catch (e3) {
+        setDbg("2:" + ((e3 && e3.code) || "x"));
+        setMsg(["err", t("This number is not on this police station's staff list.", "આ નંબર આ પોલીસ સ્ટેશનની સ્ટાફ યાદીમાં નથી.")]); setBusy(false); return;
+      }
+      setStep("code"); setCode("");
+    } catch (e) {
+      setDbg("0:" + ((e && e.code) || (e && e.message) || "x"));
+      setMsg(["err", t("No internet connection? Please try again.", "ઇન્ટરનેટ ચાલુ છે? ફરી પ્રયાસ કરો.")]);
+    }
+    setBusy(false);
+  };
   const [num, setNum] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -13704,14 +13734,14 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
         <div style={{ fontSize: 30, textAlign: "center" }} aria-hidden="true">🔐</div>
         {step === "num" ? (
           <React.Fragment>
-            <div className="disp" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", margin: "4px 0 6px" }}>{t("Enter your buckle number or mobile number", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો")}</div>
+            <div className="disp" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", margin: "4px 0 6px" }}>{t("Confirm your number", "તમારો નંબર ખાતરી કરો")}</div>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55, marginBottom: 12 }}>
               {t("This duty roster is only for the staff of this police station. First confirm who you are: enter your own buckle number — officers without one can enter their mobile number. It is only checked, never shown or kept on view.", "આ ડ્યુટી રોસ્ટર ફક્ત આ પોલીસ સ્ટેશનના સ્ટાફ માટે છે. પહેલા ખાતરી કરો: તમારો પોતાનો બકલ નંબર લખો — જે અધિકારીઓ પાસે બકલ નંબર નથી તેઓ મોબાઈલ નંબર લખી શકે. આ ફક્ત તપાસ માટે છે, ક્યાંય દેખાતું નથી.")}
             </div>
             <input type="text" inputMode="numeric" autoComplete="off" maxLength={14} value={num} data-gate-num autoFocus
               onChange={(e) => setNum(nbAsciiDigits(e.target.value).replace(/[^0-9A-Za-z]/g, "").slice(0, 14))}
-              onKeyDown={(e) => { if (e.key === "Enter" && nbShareNum(num)) { setMsg(null); setStep("code"); } }}
-              placeholder={t("Buckle no. / mobile", "બકલ નં. / મોબાઈલ")} className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 24, letterSpacing: 4, textAlign: "center", padding: "10px 8px", borderRadius: 10 }} />
+              onKeyDown={(e) => { if (e.key === "Enter") checkNum(); }}
+              placeholder={t("Buckle no. / mobile", "બકલ નં. / મોબાઈલ")} className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 17, letterSpacing: 1, textAlign: "center", padding: "9px 8px", borderRadius: 10 }} />
           </React.Fragment>
         ) : (
           <React.Fragment>
@@ -13728,7 +13758,7 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
         )}
         {msg && <div role="alert" data-gate-msg={msg[0]} style={{ marginTop: 8, fontSize: 12.5, color: msg[0] === "err" ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{msg[1]}</div>}
         {msg && dbg && <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-secondary)", opacity: 0.7 }} className="mono">{dbg}</div>}
-        <button type="button" onClick={() => { if (step === "num") { if (!nbShareNum(num)) { setMsg(["err", t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.")]); return; } setMsg(null); setStep("code"); } else submit(); }} disabled={busy} data-gate-submit style={{ marginTop: 12, width: "100%", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "…" : step === "num" ? t("Next →", "આગળ →") : t("Open the roster", "રોસ્ટર ખોલો")}</button>
+        <button type="button" onClick={() => { if (step === "num") checkNum(); else submit(); }} disabled={busy} data-gate-submit style={{ marginTop: 12, width: "100%", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "…" : step === "num" ? t("Next →", "આગળ →") : t("Open the roster", "રોસ્ટર ખોલો")}</button>
       </div>
     </div>
   );

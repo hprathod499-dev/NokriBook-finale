@@ -281,7 +281,7 @@ service cloud.firestore {
       }
       function waitOk(prev) {
         return request.time > prev.last + duration.value(
-          prev.fails < 5 ? 3 : (prev.fails < 20 ? 60 : 3600), 's');
+          prev.fails < 4 ? 1 : (prev.fails < 10 ? 5 : (prev.fails < 20 ? 60 : 3600)), 's');
       }
       function guessOk() {
         let d = request.resource.data;
@@ -313,6 +313,28 @@ service cloud.firestore {
       allow create: if guessOk();
       allow update: if guessOk() || resetOk();
       allow delete: if signedIn() && triesOwner() == request.auth.uid;
+    }
+
+    // Step 1 of the share link: the viewer's buckle / mobile number must be on the
+    // station's staff list. Each check is counted in shareTries like a code try.
+    match /shareNumChecks/{cid} {
+      allow read: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'token', 'num', 'at'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.token is string
+        && cid == request.auth.uid + '_' + request.resource.data.token
+        && request.resource.data.at == request.time
+        && request.resource.data.num is string && request.resource.data.num.matches('[0-9A-Z]{1,12}')
+        && shareNumOk(request.resource.data.token, request.resource.data.num);
+      allow delete: if false;
+      function shareNumOk(token, num) {
+        let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
+        return tr.uid == request.auth.uid
+          && tr.gh == hashing.sha256('N|' + num + '|' + request.auth.uid).toHexString().lower()
+          && request.time < tr.last + duration.value(120, 's')
+          && num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {});
+      }
     }
 
     match /shareGrants/{gid} {
