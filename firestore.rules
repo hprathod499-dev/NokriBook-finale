@@ -240,7 +240,8 @@ service cloud.firestore {
     //   shareKeys/{token}   = { owner, key, at }  secret key, owner only
     //   shareTries/{token}  = { uid, gh, p, fails, last }  one guess at a time,
     //                         waits grow: 3 s, then 1 min, then 1 hour
-    //   shareGrants/{uid_token} = { uid, token, code, at }  "this device may view"
+    //   shareGrants/{uid_token} = { uid, token, code, num, at }  "this device may view"
+    //   (num = the viewer's buckle number; it must be on the station's staff list, shareKeys.nums)
     // The code = first 4 digits of sha256(key + '|' + period), period = 48 h.
     // ============================================================
     function sharePeriod() {
@@ -264,7 +265,8 @@ service cloud.firestore {
       allow get: if signedIn() && (resource == null || resource.data.owner == request.auth.uid);
       allow list: if false;
       allow create, update: if signedIn()
-        && request.resource.data.keys().hasOnly(['owner', 'key', 'at'])
+        && request.resource.data.keys().hasOnly(['owner', 'key', 'at', 'nums'])
+        && (!('nums' in request.resource.data) || (request.resource.data.nums is map && request.resource.data.nums.size() <= 3000))
         && request.resource.data.owner == request.auth.uid
         && request.resource.data.key is string
         && request.resource.data.key.size() >= 32
@@ -317,18 +319,21 @@ service cloud.firestore {
       allow get: if signedIn() && resource.data.uid == request.auth.uid;
       allow list: if false;
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['uid', 'token', 'code', 'at'])
+        && request.resource.data.keys().hasOnly(['uid', 'token', 'code', 'num', 'at'])
+        && request.resource.data.num is string && request.resource.data.num.matches('[0-9A-Z]{1,12}')
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.token is string
         && gid == request.auth.uid + '_' + request.resource.data.token
         && request.resource.data.at == request.time
-        && shareGrantCodeOk(request.resource.data.token, request.resource.data.code);
+        && shareGrantCodeOk(request.resource.data.token, request.resource.data.code, request.resource.data.num);
       allow update, delete: if false;
 
-      function shareGrantCodeOk(token, c) {
+      function shareGrantCodeOk(token, c, num) {
         let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
-        return tr.uid == request.auth.uid
-          && tr.gh == hashing.sha256(c + '|' + request.auth.uid).toHexString().lower()
+        let staffNums = get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {});
+        return num in staffNums
+          && tr.uid == request.auth.uid
+          && tr.gh == hashing.sha256(c + '|' + num + '|' + request.auth.uid).toHexString().lower()
           && request.time < tr.last + duration.value(120, 's')
           && shareCodeOk(token, c);
       }
@@ -341,9 +346,15 @@ service cloud.firestore {
     match /sharedRosters/{token} {
       // Only people who entered the 4-digit share code on this device (shareGrants),
       // or the station's own owner / editors. A link that no longer exists just shows "not available".
+      // only a phone that entered a buckle number still on the staff list + the right code
+      // (shareGrants), or the station's own owner / editors
       allow get: if resource == null
-        || (signedIn() && (exists(/databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token))
-                           || canEditStation(resource.data.owner)));
+        || (signedIn() && (shareViewerOk(token) || canEditStation(resource.data.owner)));
+      function shareViewerOk(token) {
+        let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token);
+        return exists(g)
+          && get(g).data.get('num', '') in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {});
+      }
       allow list: if false;        // nobody can enumerate links
 
       function shareWriteOk() {

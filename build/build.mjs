@@ -93,7 +93,19 @@ if (!min.code) fail("minifier produced no output");
 // never let "</script" inside a string end the <script> tag early
 const js = min.code.replace(/<\/(script)/gi, "<\\/$1");
 
-html = html.slice(0, start) + '<script type="module">' + js + html.slice(end);
+// The app code goes in its own file named after its content (app-<hash>.js). The page itself
+// stays small, the phone keeps the code and its compiled form, and only re-downloads it when it changes.
+const appHash = crypto.createHash("sha256").update(min.code).digest("hex").slice(0, 12);
+const appFile = "app-" + appHash + ".js";
+fs.writeFileSync(path.join(ASSETS, appFile), min.code);
+html = html.slice(0, start) + '<script type="module" src="/assets/' + appFile + '"></script>' + html.slice(end);
+// start fetching it right away, alongside the libraries
+html = html.replace("</head>", '<link rel="modulepreload" href="/assets/' + appFile + '">\n'
+  + '<link rel="preconnect" href="https://www.gstatic.com" crossorigin>\n'
+  + '<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>\n</head>');
+// library scripts no longer hold up drawing the start-up screen (they still run in order, before the app)
+html = html.replace(/<script (src="https:\/\/(?:cdn\.jsdelivr\.net|www\.gstatic\.com|unpkg\.com)\/[^"]+"[^>]*)><\/script>/g, (m, a) => (/\bdefer\b|\basync\b|@babel\/standalone/.test(a) ? m : "<script defer " + a + "></script>"));
+console.log("app code   -> assets/" + appFile + " " + kb(Buffer.byteLength(min.code)));
 
 // the in-browser translator is no longer needed
 const BABEL_TAG_RE = /<script src="https:\/\/unpkg\.com\/@babel\/standalone[^"]*"[^>]*><\/script>\r?\n?/;
