@@ -2744,7 +2744,7 @@ function NbDateInput({ value, onChange, style, className, placeholder, defaultVa
   const [txt, setTxt] = useState(null);
   const [bad, setBad] = useState(false);
   const [open, setOpen] = useState(false);
-  const sepRef = useRef(false), boxRef = useRef(null), inRef = useRef(null);
+  const sepRef = useRef(false), boxRef = useRef(null), inRef = useRef(null), freshRef = useRef(false);
   const st = style || {};
   const wrap = { position: "relative", display: st.width === "100%" ? "block" : "inline-block", verticalAlign: "middle" };
   ["width", "flex", "minWidth", "maxWidth", "margin", "marginTop", "marginLeft", "marginRight", "marginBottom", "gridColumn"].forEach((k) => { if (st[k] != null) wrap[k] = st[k]; });
@@ -2762,8 +2762,14 @@ function NbDateInput({ value, onChange, style, className, placeholder, defaultVa
   };
   const ev2 = (e, v) => ({ type: e && e.type, key: e && e.key, preventDefault: () => e && e.preventDefault && e.preventDefault(), stopPropagation: () => e && e.stopPropagation && e.stopPropagation(), target: { value: v, name: rest.name }, currentTarget: { value: v } });
   const onType = (ev) => {
-    const raw = nbAsciiDigits(ev.target.value).replace(/[^\d/.\- ]/g, "");
+    let raw = nbAsciiDigits(ev.target.value).replace(/[^\d/.\- ]/g, "");
     const prev = txt == null ? (cur ? formatDMY(cur) : "") : txt;
+    // the date isn't highlighted on tap any more: the first key typed into a filled box starts a new date
+    if (freshRef.current && txt == null && prev && raw.length > prev.length) {
+      let i = 0; while (i < prev.length && raw[i] === prev[i]) i++;
+      raw = raw.slice(i, i + raw.length - prev.length);
+    }
+    freshRef.current = false;
     if (!raw) { sepRef.current = false; setTxt(""); return; }
     if (raw.length > prev.length && /[.\- ]$/.test(raw)) sepRef.current = true;
     if (raw.length > prev.length && /\/$/.test(raw) && !/^\d{2}\/$|^\d{2}\/\d{2}\/$/.test(raw)) sepRef.current = true;
@@ -2780,7 +2786,7 @@ function NbDateInput({ value, onChange, style, className, placeholder, defaultVa
       <input ref={inRef} type="text" inputMode="numeric" autoComplete="off" value={shown} placeholder={placeholder || "dd/mm/yyyy"} className={className} data-date-input
         {...rest} onChange={onType} onBlur={(e) => { const v = commit(); if (rest.onBlur && !open) rest.onBlur(ev2(e, v)); }}
         onKeyDown={(e) => { let v = cur; if (e.key === "Enter") { e.preventDefault(); v = commit(); } else if (e.key === "Escape" && txt != null) { e.stopPropagation(); setTxt(null); sepRef.current = false; } if (rest.onKeyDown) rest.onKeyDown(ev2(e, v)); }}
-        onFocus={(e) => { if (e.target.select) e.target.select(); if (rest.onFocus) rest.onFocus(e); }}
+        onFocus={(e) => { freshRef.current = true; if (rest.onFocus) rest.onFocus(e); }}
         onClick={(e) => { if (!dis && !rest.readOnly) setOpen(true); if (onClick) onClick(e); }}
         title={rest.title || t("Type the date, e.g. 01102026 or 1/10/26, or tap 📅", "તારીખ લખો, દા.ત. 01102026 કે 1/10/26, અથવા 📅 દબાવો")}
         style={{ ...st, width: st.width ? "100%" : st.width, margin: 0, flex: undefined, gridColumn: undefined, boxSizing: "border-box", paddingRight: 34, ...(bad ? { borderColor: "var(--status-error-text, #c0392b)", boxShadow: "0 0 0 2px rgba(192,57,43,0.2)" } : {}) }} />
