@@ -4822,6 +4822,11 @@ function DutyRoster() {
   const pendingWritesRef = useRef(0);
   const saveQueuedRef = useRef(0);
   const saveTimerRef = useRef(null);
+  // Only one save runs at a time. Changes made while a save is on its way are sent right after it,
+  // so two saves never race each other for the same record.
+  const saveInFlightRef = useRef(false);
+  const saveFailsRef = useRef(0);
+  const [saveErrCode, setSaveErrCode] = useState("");
   const runSaveRef = useRef(null);
   const retryTimerRef = useRef(null);
 
@@ -5056,14 +5061,21 @@ function DutyRoster() {
     pendingWritesRef.current += 1;
     setSaveStatus("saving");
     saveQueuedRef.current += 1;
-    if (saveTimerRef.current) return;
+    if (saveTimerRef.current || saveInFlightRef.current) return;
     saveTimerRef.current = setTimeout(() => runSaveRef.current && runSaveRef.current(), 1200);
   };
   const runSave = () => {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    if (saveInFlightRef.current) return;
     const nSave = saveQueuedRef.current;
     saveQueuedRef.current = 0;
     if (!nSave || !docRef) return;
+    saveInFlightRef.current = true;
+    // the save is over (saved, or given up): send whatever was changed meanwhile
+    const done = () => {
+      saveInFlightRef.current = false;
+      if (saveQueuedRef.current > 0 && !saveTimerRef.current) saveTimerRef.current = setTimeout(() => runSaveRef.current && runSaveRef.current(), 250);
+    };
     const attempt = (delayMs) => {
       let expectedRev = 0, clean = null, mineAtTx = null, merged = false;
       db.runTransaction(async (tx) => {
@@ -5128,15 +5140,19 @@ function DutyRoster() {
             setData(latest);
           }
           pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
-          if (pendingWritesRef.current === 0) setSaveStatus("idle");
+          // the copy just saved already holds every change made meanwhile: nothing more to send
+          if (dataRef.current === mineAtTx || dataRef.current === written) { pendingWritesRef.current = 0; saveQueuedRef.current = 0; }
+          saveFailsRef.current = 0; setSaveErrCode("");
+          if (pendingWritesRef.current === 0) setSaveStatus("idle"); else setSaveStatus("saving");
           syncPublicRoster(dataRef.current);
           syncDistrictDigest(dataRef.current);
+          done();
         })
         .catch((e) => {
           if (e && e.__nameTaken) {
             pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
             if (pendingWritesRef.current === 0) setSaveStatus("idle");
-            nameTakenToast();
+            nameTakenToast(); done();
             docRef.get().then((snap) => {
               if (!snap.exists) return;
               const fresh = nbFromServer(nbUnpackAccount(snap.data()));
@@ -5156,6 +5172,7 @@ function DutyRoster() {
             baseDataRef.current = normalized;
             pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
             if (pendingWritesRef.current === 0) setSaveStatus("idle");
+            done();
             showToast(t(
               "Someone else saved a change here at the same moment — your last action wasn't applied, and the screen now shows their update instead. Please try again.",
               "કોઈ બીજાએ તે જ ક્ષણે અહીં ફેરફાર સાચવ્યો — તમારી છેલ્લી ક્રિયા લાગુ થઈ નથી, અને સ્ક્રીન હવે તેમનું અપડેટ બતાવે છે. કૃપા કરી ફરી પ્રયાસ કરો."
@@ -5166,7 +5183,7 @@ function DutyRoster() {
             console.error("Save rejected by Security Rules:", e);
             pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
             if (pendingWritesRef.current === 0) setSaveStatus("idle");
-            showToast(t("This change isn't allowed and was not saved.", "આ ફેરફારની મંજૂરી નથી, તેથી સેવ થયો નથી."), "error");
+            showToast(t("This change isn't allowed and was not saved.", "આ ફેરફારની મંજૂરી નથી, તેથી સેવ થયો નથી."), "error"); done();
             docRef.get().then((snap) => {
               if (!snap.exists) return;
               const fresh = nbFromServer(nbUnpackAccount(snap.data()));
@@ -5182,8 +5199,10 @@ function DutyRoster() {
             return;
           }
           console.error("Save failed, will retry:", e);
-          setSaveStatus("error");
-          retryTimerRef.current = setTimeout(() => attempt(15000), delayMs);
+          // a single slow / dropped request is retried quietly; the red bar only shows if it keeps failing
+          saveFailsRef.current += 1;
+          if (saveFailsRef.current >= 2) { setSaveStatus("error"); setSaveErrCode(String((e && (e.code || e.name)) || "error").slice(0, 40)); }
+          retryTimerRef.current = setTimeout(() => attempt(saveFailsRef.current >= 2 ? 15000 : 4000), saveFailsRef.current >= 2 ? delayMs : 1000);
         });
     };
     attempt(2000);
@@ -7063,7 +7082,7 @@ const clearCategoryHistory = (catId) => {
                   border: "1px solid " + (saveStatus === "saving" ? "var(--status-info-border)" : "var(--status-error-border)"),
                 }}
               >
-                {saveStatus === "saving" ? "☁️ " + langCtxValue.t("Saving…", "સાચવાઈ રહ્યું છે…") : "⚠️ " + langCtxValue.t("Not saved — retrying…", "સચવાયું નથી — ફરી પ્રયાસ...")}
+                {saveStatus === "saving" ? "☁️ " + langCtxValue.t("Saving…", "સાચવાઈ રહ્યું છે…") : "⚠️ " + langCtxValue.t("Not saved — retrying…", "સચવાયું નથી — ફરી પ્રયાસ...") + (saveErrCode ? " (" + saveErrCode + ")" : "")}
               </span>
             )}
             {!viaCode && <button onClick={() => setShowCommandPalette(true)} title={langCtxValue.t("Search everything (Ctrl+K)", "બધું શોધો (Ctrl+K)")} style={undoRedoBtn(true)} className="gu">{langCtxValue.t("Search", "શોધો")}</button>}
@@ -14783,7 +14802,9 @@ function PublicRosterView({ uid }) {
       off2();
       if (dead) return;
       if (u) start();
-      else fb.auth.signInAnonymously().then(start).catch(() => { if (!dead) { setLocked(true); setData(undefined); } });
+      // no session yet: look without signing in (a dead link shows "not available", a live one asks for the code).
+      // An anonymous session is made only when someone actually enters a code.
+      else start();
     });
     return () => { dead = true; if (unsub) unsub(); };
   }, [uid, unlockN]);
