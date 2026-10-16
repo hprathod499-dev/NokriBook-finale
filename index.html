@@ -94,6 +94,10 @@
     box-sizing: border-box;
   }
   input:focus, textarea:focus, select:focus { outline: 2px solid var(--focus-ring); border-color: var(--accent-strong); }
+  /* date boxes never look "selected" when tapped */
+  input[data-date-input] { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; cursor: pointer; }
+  input[data-date-input]:focus { outline: none !important; box-shadow: none !important; border-color: var(--border) !important; }
+  input[data-date-input]::selection { background: transparent; }
   select { font-family: inherit; }
   a, .clickable, [role="button"] { transition: color 0.15s ease, background-color 0.15s ease; }
   table { transition: opacity 0.15s ease; }
@@ -2736,6 +2740,8 @@ if (typeof document !== "undefined" && !window.__nbPickerTap) {
     try { el.showPicker(); } catch (x) {}
   }, true);
 }
+// Phones and tablets: date boxes open the calendar on a tap (no keyboard popping up, nothing highlighted).
+const NB_TOUCH = typeof window !== "undefined" && !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
 function NbDateInput({ value, onChange, style, className, placeholder, defaultValue, min, max, onClick, ...rest }) {
   const { t } = useLang();
   const controlled = value !== undefined;
@@ -2784,7 +2790,7 @@ function NbDateInput({ value, onChange, style, className, placeholder, defaultVa
   return (
     <span ref={boxRef} style={wrap}>
       <input ref={inRef} type="text" inputMode="numeric" autoComplete="off" value={shown} placeholder={placeholder || "dd/mm/yyyy"} className={className} data-date-input
-        {...rest} onChange={onType} onBlur={(e) => { const v = commit(); if (rest.onBlur && !open) rest.onBlur(ev2(e, v)); }}
+        {...rest} readOnly={NB_TOUCH || !!rest.readOnly} onChange={onType} onBlur={(e) => { const v = commit(); if (rest.onBlur && !open) rest.onBlur(ev2(e, v)); }}
         onKeyDown={(e) => { let v = cur; if (e.key === "Enter") { e.preventDefault(); v = commit(); } else if (e.key === "Escape" && txt != null) { e.stopPropagation(); setTxt(null); sepRef.current = false; } if (rest.onKeyDown) rest.onKeyDown(ev2(e, v)); }}
         onFocus={(e) => { freshRef.current = true; if (rest.onFocus) rest.onFocus(e); }}
         onClick={(e) => { if (!dis && !rest.readOnly) setOpen(true); if (onClick) onClick(e); }}
