@@ -228,6 +228,14 @@
   }
   [data-theme="dark"] table { color: var(--text-primary); }
   [data-theme="dark"] option { background: var(--bg-surface); color: var(--text-primary); }
+  /* one tidy dropdown arrow for every select, light and dark (the browser's own arrow sat in odd places) */
+  select:not([multiple]):not([size]):not([data-night-select]) {
+    -webkit-appearance: none !important; -moz-appearance: none !important; appearance: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important; background-position: right 10px center !important; background-size: 13px 13px !important;
+    padding-right: 30px !important; cursor: pointer;
+  }
+  select:not([multiple]):not([size]):disabled { cursor: default; opacity: 0.7; }
   [data-theme="dark"] ::placeholder { color: var(--text-tertiary); opacity: 1; }
   .signin-field-input::placeholder { color: #8B958E; opacity: 1; }
   [data-theme="dark"] .signin-field-input::placeholder { color: #8B958E; opacity: 1; }
@@ -1732,7 +1740,7 @@ function nbFirestoreBytes(v) {
   if (typeof v === "object") { let n = 0; for (const k in v) n += new TextEncoder().encode(k).length + 1 + nbFirestoreBytes(v[k]); return n; }
   return 1;
 }
-const NB_FORMAT_KEEP_MONTHS = 2;
+const NB_FORMAT_KEEP_MONTHS = 3;
 const NB_FORMAT_KEEP_MONTHS_LIMIT = 6;
 function nbKeepMonthsFor(mode) { return mode === "keep6" ? NB_FORMAT_KEEP_MONTHS_LIMIT : NB_FORMAT_KEEP_MONTHS; }
 function monthAgoStr(months) {
@@ -2038,7 +2046,8 @@ function FormatChoiceModal({ onChoose, onClose }) {
         <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, textAlign: "center" }}>{t("Format all data", "બધો ડેટા ફોર્મેટ કરો")}</div>
         <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 16, textAlign: "center" }}>{t("Choose what to clear", "શું સાફ કરવું તે પસંદ કરો")}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button onClick={() => onChoose("keep")} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗓️ {t("Delete all data — keep last 2 months", "બધો ડેટા ડિલીટ કરો — છેલ્લા 2 મહિના રાખો")}</button>
+          <button onClick={() => onChoose("keep6")} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗓️ {t("Delete all data — keep last 6 months", "બધો ડેટા ડિલીટ કરો — છેલ્લા 6 મહિના રાખો")}</button>
+          <button onClick={() => onChoose("keep")} className="gu" style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗓️ {t("Delete all data — keep last 3 months", "બધો ડેટા ડિલીટ કરો — છેલ્લા 3 મહિના રાખો")}</button>
           <button onClick={() => onChoose("all")} className="gu" style={{ background: "var(--btn-danger-solid)", color: "#fff", border: "none", borderRadius: 8, padding: "11px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>🗑️ {t("Delete all data", "બધો ડેટા ડિલીટ કરો")}</button>
         </div>
       </div>
@@ -6020,7 +6029,7 @@ useEffect(() => {
         "",
         `Staff names, designations, and work types were kept, along with the last ${keepMonths} months of duty history, last-duty dates, Leave/Outstation records, Skip history, and recycle bin. Everything older than that was erased.`,
       ];
-      toastMsg = t(`Duty data older than ${keepMonths} months cleared — staff, designations, work types, and the last ${keepMonths} months are kept.`, `${keepMonths} મહિનાથી જૂનો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લો 1 મહિનો સચવાયા.`);
+      toastMsg = t(`Duty data older than ${keepMonths} months cleared — staff, designations, work types, and the last ${keepMonths} months are kept.`, `${keepMonths} મહિનાથી જૂનો ડ્યુટી ડેટા સાફ થયો — સ્ટાફ, હોદ્દાઓ, કામના પ્રકારો અને છેલ્લા ${keepMonths} મહિના સચવાયા.`);
     }
     if (user && user.email) {
       const messageText = bodyLines.join("\n");
@@ -7373,7 +7382,7 @@ const clearCategoryHistory = (catId) => {
             </button>
             {didKeep6Format && (
               <button onClick={() => formatAllData("keep")} className="gu" style={{ width: "100%", marginTop: 8, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                {t("Still full — format and keep last 2 months", "હજુ ભરેલું છે — ફોર્મેટ કરો અને છેલ્લા 2 મહિના રાખો")}
+                {t("Still full — format and keep last 3 months", "હજુ ભરેલું છે — ફોર્મેટ કરો અને છેલ્લા 3 મહિના રાખો")}
               </button>
             )}
             <button onClick={() => exportBackup()} className="gu" style={{ width: "100%", marginTop: 8, background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, cursor: "pointer" }}>
@@ -11212,7 +11221,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
                     )}
                   </td>
                   <td style={td}>
-                    <span style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{label}</span>
+                    <span style={{ display: "inline-block", fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg, lineHeight: 1.35 }} className="gu">{label}</span>
                     {s.unavailable && (
                       <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }} className="gu">
                         {s.unavailable.from > todayStr()
