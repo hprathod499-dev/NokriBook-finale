@@ -3542,7 +3542,7 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
   const takenStations = useDistrictTakenStations(districtDraft, user && user.uid);
   const stationOptions = (groupOptions ? (districtEntry.groups[groupDraft] || []) : flatStationsOf(districtEntry));
   const [requestingStation, setRequestingStation] = useState(false);
-  const [requestStationName, setRequestStationName] = useState("નવું સ્ટેશન");
+  const [requestStationName, setRequestStationName] = useState("પોલીસ સ્ટેશન");
   const requestStationRef = useRef(null);
   useEffect(() => {
     if (requestingStation && requestStationRef.current) {
@@ -3555,13 +3555,13 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
   const requestTooMuchEnglish = requestEnglishLetterCount > 3;
   const requestStationTaken = false;
   const canSubmitStationRequest = !!onRequestNewStation && requestStationName.trim().length > 0
-    && requestStationName.trim() !== "નવું સ્ટેશન" && !requestTooMuchEnglish && !requestStationTaken;
+    && requestStationName.trim() !== "પોલીસ સ્ટેશન" && !requestTooMuchEnglish && !requestStationTaken;
   const submitStationRequest = () => {
     if (!canSubmitStationRequest) return;
     onRequestNewStation(requestStationName.trim());
     setStationDraft(requestStationName.trim());
     setRequestingStation(false);
-    setRequestStationName("નવું સ્ટેશન");
+    setRequestStationName("પોલીસ સ્ટેશન");
   };
   const saveState = () => {
     const next = stateDraft.trim();
@@ -3654,11 +3654,12 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                       </select>
                     </React.Fragment>
                   )}
+                  {(districtDraft || !onSaveDistrict) ? (<React.Fragment>
                   <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
                   {onRequestNewStation && districtDraft && (
                     <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
                       <button
-                        onClick={() => setRequestingStation((v) => !v)} className="gu"
+                        onClick={() => setRequestingStation((v) => { if (!v) setRequestStationName("પોલીસ સ્ટેશન"); return !v; })} className="gu"
                         style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20, border: "1px solid var(--accent-strong)", background: requestingStation ? "var(--accent-strong)" : "transparent", color: requestingStation ? "var(--accent-text)" : "var(--accent-strong)", cursor: "pointer" }}
                       >{requestingStation ? t("← List", "← યાદી") : t("+ Request new station", "+ નવું સ્ટેશન વિનંતી કરો")}</button>
                     </div>
@@ -3703,6 +3704,9 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                       placeholder={t("e.g. ધારી પોલીસ સ્ટેશન", "દા.ત. ધારી પોલીસ સ્ટેશન")}
                       className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }}
                     />
+                  )}
+                  </React.Fragment>) : (
+                    <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 10 }}>{t("Pick the district first — then the station name appears.", "પહેલા જિલ્લો પસંદ કરો — પછી સ્ટેશનનું નામ દેખાશે.")}</div>
                   )}
                   {onSaveDistrict && (
                     <div className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6, lineHeight: 1.4 }}>
@@ -3790,15 +3794,6 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
               {dataOpen && (
                 <div style={{ display: "flex", flexDirection: "column", marginTop: 8, marginLeft: -8, marginRight: -8 }}>
                   <button onClick={() => setShowImportStaff(true)} className="gu" style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}>📥 {t("Import Staff", "સ્ટાફ આયાત કરો")}</button>
-                  {typeof storagePct === "number" && (
-                    <div className="gu" style={{ padding: "8px 14px 10px", borderBottom: "1px solid var(--border-soft)" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}>
-                        <span>{t("Storage used", "વપરાયેલ સ્ટોરેજ")}</span>
-                        <span style={{ fontWeight: 700, color: storagePct >= 90 ? "var(--status-error-text)" : "var(--text-primary)" }}>{storagePct}%</span>
-                      </div>
-                      <NbStorageBar pct={storagePct} />
-                    </div>
-                  )}
                   {formatAllData && (
                     <button
                       onClick={() => setShowFormatChoice(true)}
@@ -3816,8 +3811,17 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                   {onRecoverLocalBackup && (
                     <button onClick={() => { onClose(); onRecoverLocalBackup(); }} className="gu"
                       title={t("Restore from an automatic local snapshot saved on this device, independent of the server", "સર્વરથી સ્વતંત્ર, આ ડિવાઇસ પર સચવાયેલા આપમેળે સ્થાનિક સ્નેપશોટમાંથી પુનઃસ્થાપિત કરો")}
-                      style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "none" }}
+                      style={{ ...rowBtn, color: "var(--text-primary)", borderBottom: "1px solid var(--border-soft)" }}
                     >🛟 {t("Recover local data", "સ્થાનિક ડેટા પુનઃપ્રાપ્ત કરો")}</button>
+                  )}
+                  {typeof storagePct === "number" && (
+                    <div className="gu" style={{ padding: "10px 14px 10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}>
+                        <span>{t("Storage used", "વપરાયેલ સ્ટોરેજ")}</span>
+                        <span style={{ fontWeight: 700, color: storagePct >= 90 ? "var(--status-error-text)" : "var(--text-primary)" }}>{storagePct}%</span>
+                      </div>
+                      <NbStorageBar pct={storagePct} />
+                    </div>
                   )}
                 </div>
               )}
@@ -7497,13 +7501,13 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
         >{mobileOpen ? "✕" : "◂"}</button>
       </div>
 
-      <div style={{ padding: "8px 0", borderBottom: "1px solid #1B2733" }}>
+      {(sectionOk("assignDuty") || sectionOk("home") || sectionOk("calendar")) && <div style={{ padding: "8px 0", borderBottom: "1px solid #1B2733" }}>
         {sectionOk("assignDuty") && <button data-tour="nb-tour-nav-assign" onClick={() => setView({ mode: "assignDuty" })} data-nb-path={nbViewToPath({ mode: "assignDuty" })} style={navBtn(view.mode === "assignDuty")} className="gu">📝 {t("Assign duty", "ડ્યુટી સોંપો")}</button>}
         {sectionOk("home") && <button onClick={() => setView({ mode: "home" })} data-nb-path={nbViewToPath({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>}
         {sectionOk("calendar") && <button onClick={() => setView({ mode: "calendar" })} data-nb-path={nbViewToPath({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>}
-      </div>
+      </div>}
 
-      <div data-tour="nb-tour-nav-worktypes" style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
+      {sectionOk("category") && <div data-tour="nb-tour-nav-worktypes" style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
         {sectionOk("category") && (data.categories || []).map((c, i) => {
           const count = (data.membership[c.id] || []).length;
           const active = view.mode === "category" && c.id === view.catId;
@@ -7557,9 +7561,9 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
         {sectionOk("category") && <button onClick={() => setEditing((v) => !v)} style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#6B7A85", padding: "6px 16px", fontSize: 11.5 }} className="gu">
           {editing ? t("Done editing", "સંપાદન પૂર્ણ") : t("Edit work types", "કામના પ્રકારો સંપાદિત કરો")}
         </button>}
-      </div>
+      </div>}
 
-      <div style={{ borderTop: "1px solid #1B2733", padding: "8px 0" }}>
+      <div style={sectionOk("category") ? { borderTop: "1px solid #1B2733", padding: "8px 0" } : { padding: "8px 0", flex: 1, overflowY: "auto" }}>
         {sectionOk("staff") && <button data-tour="nb-tour-nav-staff" onClick={() => setView({ mode: "staff" })} data-nb-path={nbViewToPath({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</button>}
         {sectionOk("skipHistory") && <button data-tour="nb-tour-nav-skiphistory" onClick={() => setView({ mode: "skipHistory" })} data-nb-path={nbViewToPath({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>}
         {sectionOk("events") && <button onClick={() => setView({ mode: "events" })} data-nb-path={nbViewToPath({ mode: "events" })} style={{ ...navBtn(view.mode === "events"), display: "flex", justifyContent: "space-between", alignItems: "center" }} className="gu">
