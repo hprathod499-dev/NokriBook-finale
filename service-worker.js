@@ -24,7 +24,7 @@ function isCdnAsset(url) {
   return url.hostname === "www.gstatic.com" && url.pathname.indexOf("/firebasejs/") === 0;
 }
 const SHELL_URL = "/index.html";
-const APP_SHELL = ["/manifest.json", "/favicon-16.png", "/favicon-32.png", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/profile-icon.png", "/welcome-banner.png"];
+const APP_SHELL = ["/manifest.json", "/favicon-16-v3.png", "/favicon-32-v3.png", "/icon-192-v3.png", "/icon-512-v3.png", "/apple-touch-icon-v3.png", "/profile-icon.png", "/welcome-banner.png"];
 const appScriptsIn = (html) => (String(html).match(/\/assets\/app-[0-9a-f]+\.js/g) || []);
 
 self.addEventListener("install", (event) => {

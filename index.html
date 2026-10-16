@@ -25,10 +25,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, viewport-fit=cover" />
 <title>Nokri Book</title>
 <link rel="manifest" href="/manifest.json" />
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
-<link rel="icon" href="/icon-192.png" />
-<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32-v3.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16-v3.png" />
+<link rel="icon" href="/icon-192-v3.png" />
+<link rel="apple-touch-icon" href="/apple-touch-icon-v3.png" />
 <meta name="theme-color" content="#0E1620" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -675,7 +675,15 @@ async function nbEnsureShareKey(ownerUid, token) {
 }
 function nbFv() { return firebase.firestore.FieldValue; }
 // buckle number as typed by a viewer / as stored: digits and letters only, upper case
-function nbShareNum(n) { return nbAsciiDigits(String(n == null ? "" : n)).toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 12); }
+function nbShareNum(n) {
+  const x = nbAsciiDigits(String(n == null ? "" : n)).toUpperCase().replace(/[^0-9A-Z]/g, "");
+  return /^[0-9]{10,}$/.test(x) ? x.slice(-10) : x.slice(0, 12); // a mobile number counts by its last 10 digits
+}
+// Officers (PI, PSI, …) often have no buckle number. They are kept under an id starting with "~",
+// which is never shown as a buckle number.
+function nbHasBuckle(n) { return !!n && String(n).charAt(0) !== "~"; }
+function nbBuckleTag(n) { return nbHasBuckle(n) ? "#" + n : ""; }
+function nbBuckleShow(n) { return nbHasBuckle(n) ? n : "—"; }
 // Share-link viewers who aren't signed in to Nokri Book get their own separate (anonymous) Firebase session,
 // so it never mixes with a station login on the same phone.
 let NB_VIEW_FB = null;
@@ -1983,6 +1991,7 @@ function nbPatchAutoTable() {
     const userParse = opts.didParseCell;
     return { ...opts, __nbReserve: true, didParseCell: (h) => {
       if (userParse) userParse(h);
+      if (h.section === "body" && typeof h.cell.raw === "string" && /^~[0-9A-Z]+$/i.test(h.cell.raw)) h.cell.text = ["—"];
       try {
         if (h.section !== "body" || !Array.isArray(h.cell.text) || h.cell.text.length !== 0 || !needsImageRender(h.cell.raw)) return;
         const pt = (h.cell.styles && h.cell.styles.fontSize) || NB_PDF_FONT_PT;
@@ -3945,6 +3954,7 @@ function ImportStaffModal({ onClose, exportBackup }) {
   const promptEn = `I'm sending my Nokri Book app's .json backup file, plus a PDF/Word file listing police station staff (buckle number, mobile number, name, designation) — called the "મહેકમ પત્ર". Please read the staff file and add each person as a new entry inside the "staff" object of the .json file — keyed by buckle number as a string — using this exact shape, and leave every other part of the .json file exactly as it already is:
 "<buckleNumber>": { "number": "<buckleNumber>", "name": "<name>", "phone": "<10-digit mobile number, or null if missing>", "designation": "<designation id, or null>", "unavailable": null }
 Buckle number and mobile number must be plain English digits (0-9) only. Name must stay in Gujarati script.
+Officers or anyone else with NO buckle number in the file (for example PI, PSI) must still be added — don't skip them. Give each such person the key "~" + their designation in capital English letters + a running number (for example "~PSI1", "~PSI2", "~PI1"), use that same value for "number", and never invent a buckle number for them.
 Be strict about "designation" — this is the part I most need double-checked:
 1. First list every distinct "label" already present in the .json file's "designations" array, so you have the exact allowed set.
 2. For each staff member, match their designation from the PDF/Word file against that exact set of labels — same abbreviation, case-insensitive, ignoring only extra spaces. Do not treat similar-looking or partially-matching labels as a match.
@@ -3957,6 +3967,7 @@ Give me back the complete, updated .json file to download.`;
   const promptGu = `હું Nokri Book એપની .json બેકઅપ ફાઈલ, અને પોલીસ સ્ટેશન સ્ટાફની વિગતો (બકલ નંબર, મોબાઈલ નંબર, નામ, હોદ્દો) વાળી "મહેકમ પત્ર" (PDF/Word ફાઈલ) મોકલું છું. કૃપા કરી મહેકમ પત્ર વાંચીને દરેક વ્યક્તિને .json ફાઈલના "staff" ઓબ્જેક્ટમાં નવી entry તરીકે ઉમેરો — બકલ નંબરને string key તરીકે વાપરીને — બરાબર આ જ ફોર્મેટમાં, અને .json ફાઈલનો બાકીનો ભાગ જેમનો તેમ જ રહેવા દો:
 "<બકલ નંબર>": { "number": "<બકલ નંબર>", "name": "<નામ>", "phone": "<10 અંકનો મોબાઈલ નંબર, અથવા ન હોય તો null>", "designation": "<designation id, અથવા null>", "unavailable": null }
 બકલ નંબર અને મોબાઈલ નંબર ફક્ત English અંકો (0-9) માં જ હોવા જોઈએ. નામ ગુજરાતી લિપિમાં જ રહેવું જોઈએ.
+જે અધિકારીઓ કે અન્ય કોઈનો ફાઈલમાં બકલ નંબર નથી (જેમ કે PI, PSI) તેમને પણ ઉમેરવા જ — છોડશો નહીં. આવી દરેક વ્યક્તિને key "~" + English કેપિટલ અક્ષરોમાં હોદ્દો + ક્રમ નંબર આપો (જેમ કે "~PSI1", "~PSI2", "~PI1"), "number" માં પણ એ જ લખો, અને ક્યારેય બકલ નંબર ધારી ન લો.
 "designation" બાબતે કડક રહેજો — આ ભાગ મારે સૌથી વધુ ડબલ-ચેક કરાવવો છે:
 1. પહેલા .json ફાઈલની "designations" array માં જેટલા distinct "label" પહેલેથી છે એ બધા લિસ્ટ કરો, જેથી તમારી પાસે ચોક્કસ allowed list હોય.
 2. દરેક સ્ટાફ મેમ્બર માટે, મહેકમ પત્રમાંનો હોદ્દો એ જ ચોક્કસ label list સાથે મેચ કરો — સરખું abbreviation, case સિવાય, ફક્ત વધારાની spaces ignore કરો. મળતું આવતું પણ પૂરેપૂરું ન મેચ થતું label match તરીકે ન ગણો.
@@ -5512,7 +5523,7 @@ useEffect(() => {
   useEffect(() => {
     if (!NB_SHARE_ON || !data || !accountUid || myRole !== "owner" || !data.shareEnabled || !data.shareToken) return;
     const tok = data.shareToken;
-    const nums = Object.keys(data.staff || {}).map((n) => nbShareNum(n)).filter(Boolean).sort();
+    const nums = Array.from(new Set(Object.values(data.staff || {}).flatMap((st) => [nbHasBuckle(st.number) ? nbShareNum(st.number) : "", st.phone ? nbShareNum(st.phone) : ""]).filter(Boolean))).sort();
     const sig = nbHash(nums.join(","));
     if (nbLsGet("nb_sk_" + tok) === sig) return;
     const tm = setTimeout(() => {
@@ -8044,7 +8055,7 @@ function BuckleOrNameInput({ data, value, onChange, placeholder, className, styl
               style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "8px 12px", cursor: "pointer", fontSize: 13 }}
             >
               <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{s.name}</span>
-              <span className="mono" style={{ color: "var(--text-tertiary)", marginLeft: 6, fontSize: 11 }}>#{s.number}</span>
+              <span className="mono" style={{ color: "var(--text-tertiary)", marginLeft: 6, fontSize: 11 }}>{nbBuckleTag(s.number)}</span>
             </button>
           ))}
         </div>
@@ -8355,7 +8366,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
             <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ fontSize: 12.5 }} className="gu">
                 <span style={{ fontWeight: 600 }}>{entry.name}</span>
-                <span style={{ color: "var(--text-tertiary)" }}> #{entry.number} · {entry.kind === "Outstation" ? "🧳" : "🌴"} {entry.typeLabel} · {formatDMY(entry.from)}{entry.to && entry.to !== entry.from ? ` – ${formatDMY(entry.to)}` : ""}{!entry.to ? ` ${t("onward", "થી આગળ")}` : ""}</span>
+                <span style={{ color: "var(--text-tertiary)" }}> {nbBuckleTag(entry.number)} · {entry.kind === "Outstation" ? "🧳" : "🌴"} {entry.typeLabel} · {formatDMY(entry.from)}{entry.to && entry.to !== entry.from ? ` – ${formatDMY(entry.to)}` : ""}{!entry.to ? ` ${t("onward", "થી આગળ")}` : ""}</span>
               </div>
               <button onClick={() => removeFromQueue(idx)} title={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} aria-label={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} style={{ ...iconBtn, flexShrink: 0 }}>✕</button>
             </div>
@@ -8662,7 +8673,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
                           {p.status !== "Present" && (
                             <span className="gu" style={{ fontSize: 10.5, fontWeight: 600, color: "var(--status-warning-text)", background: "var(--status-warning-bg)", border: "1px solid var(--status-warning-border)", borderRadius: 10, padding: "2px 6px" }}>{p.statusLabel}</span>
                           )}
-                          <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{p.number}</span>
+                          <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(p.number)}</span>
                         </label>
                       );
                     })}
@@ -8685,7 +8696,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "10px 0 16px" }}>
             {people.map((p) => (
               <span key={p.number} className="gu" style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 20, padding: "4px 6px 4px 12px", fontSize: 12.5 }}>
-                {p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{p.number}</span>
+                {p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{nbBuckleTag(p.number)}</span>
                 <button onClick={() => removePerson(p.number)} title={t("Remove", "કાઢી નાખો")} aria-label={t("Remove {name}", "{name} ને કાઢી નાખો").replace("{name}", p.name)} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 12, cursor: "pointer", padding: "2px 4px" }}>✕</button>
               </span>
             ))}
@@ -8722,7 +8733,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
               return (
                 <div key={p.number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "var(--bg-surface-2)", borderRadius: 8 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div className="gu" style={{ fontSize: 13 }}>{p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{p.number}</span></div>
+                    <div className="gu" style={{ fontSize: 13 }}>{p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{nbBuckleTag(p.number)}</span></div>
                     <div className="mono" style={{ fontSize: 10.5, color: hasNumber ? "var(--status-success-text)" : "var(--status-warning-text)" }}>
                       {hasNumber ? displayPhone(staffRec.phone) : t("No number on file — you'll need to pick them manually", "કોઈ નંબર નથી — તમારે તેમને જાતે પસંદ કરવા પડશે")}
                     </div>
@@ -9034,7 +9045,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                         })}
                       />
                       <span style={{ flex: 1, minWidth: 0 }}>{s.name}</span>
-                      <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{s.number}</span>
+                      <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(s.number)}</span>
                     </label>
                   ))}
                 </div>
@@ -9118,7 +9129,7 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                     onClick={() => setAssignTarget({ number: p.number, name: p.name })}
                     title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")}
                   >{p.name}</td>
-                  <td style={td} className="mono">{p.number}</td>
+                  <td style={td} className="mono">{nbBuckleShow(p.number)}</td>
                   <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                   <td style={td}>
                     {editingDate === p.number ? (
@@ -9513,7 +9524,7 @@ function CategoryFairnessTable({ roster, catLabel, onSelectPerson, period }) {
                 title={onSelectPerson ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
               >
                 <td style={{ ...td, minWidth: 140 }} className="gu">{r.name}</td>
-                <td style={td} className="mono">{r.number}</td>
+                <td style={td} className="mono">{nbBuckleShow(r.number)}</td>
                 <td style={{ ...td, textAlign: "center" }} className="mono">{r.count}</td>
                 <td style={{ ...td, textAlign: "center", color: r.night ? "var(--text-primary)" : "var(--text-tertiary)" }} className="mono">{r.night}</td>
                 <td style={td}>
@@ -9553,7 +9564,7 @@ function EditHistoryNoteModal({ row, isMiscCategory, onSave, onClose }) {
       <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 420, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{t("Edit note", "નોંધ સંપાદિત કરો")}</div>
         <div className="gu mono" style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 14 }}>
-          {row.name} · #{row.number} · {row.days > 1 ? `${formatDMY(row.from)} – ${formatDMY(row.to)}` : formatDMY(row.to)}
+          {row.name} · {nbBuckleTag(row.number)} · {row.days > 1 ? `${formatDMY(row.from)} – ${formatDMY(row.to)}` : formatDMY(row.to)}
         </div>
 
         <div style={{ marginBottom: 14 }}>
@@ -9745,7 +9756,7 @@ function CategoryHistoryTable({ rows, catLabel, stationName, district, onClearHi
                     {r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to)}
                     {r.days > 1 && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 10, padding: "1px 6px" }}>{t(`${r.days} days`, `${r.days} દિવસ`)}</span>}
                   </td>
-                  <td style={td} className="mono">{r.number}</td>
+                  <td style={td} className="mono">{nbBuckleShow(r.number)}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
                   <td style={{ ...td, maxWidth: 260, color: "var(--text-secondary)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -9896,7 +9907,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
             <tbody>
               {rows.map((r) => (
                 <tr key={r.s.number}>
-                  <td style={{ ...td, textAlign: "left" }}>{r.s.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{r.s.number}</span></td>
+                  <td style={{ ...td, textAlign: "left" }}>{r.s.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{nbBuckleTag(r.s.number)}</span></td>
                   {r.cells.map((c) => (
                     <td key={c.id} style={{ ...td, color: c.over ? "var(--status-error-text)" : c.used ? "var(--text-primary)" : "var(--text-tertiary)", fontWeight: c.over ? 700 : 400 }}>
                       {c.used}{c.allow != null ? " / " + c.allow : ""}{c.allow != null && !c.over ? <span style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}> ({c.allow - c.used} {t("left", "બાકી")})</span> : null}
@@ -9916,7 +9927,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
         return (
           <div className="modal-backdrop" onClick={(e) => { e.stopPropagation(); setEditPerson(null); }} style={{ position: "fixed", inset: 0, background: "#00000044", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130, padding: 16 }}>
             <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 380, maxWidth: "100%", padding: 20 }}>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>{st.name} <span className="mono" style={{ color: "var(--text-tertiary)" }}>#{st.number}</span></div>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>{st.name} <span className="mono" style={{ color: "var(--text-tertiary)" }}>{nbBuckleTag(st.number)}</span></div>
               <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Days allowed per year for this person only. Empty = same as everyone.", "ફક્ત આ વ્યક્તિ માટે વર્ષમાં મળવાપાત્ર દિવસો. ખાલી = બધા જેટલા.")}</div>
               {types.map((lt) => {
                 const own = st.leaveAllowance && typeof st.leaveAllowance[lt.id] === "number" ? st.leaveAllowance[lt.id] : "";
@@ -10473,7 +10484,7 @@ function NrPeopleList({ data, list, onChange, date, othersUsed, label, tone, can
             const on = inList.has(st.number);
             return (
               <button key={st.number} disabled={on} onClick={() => { add(st.number); setQ(""); }} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "7px 4px", fontSize: 13, color: on ? "var(--text-tertiary)" : "var(--text-primary)", cursor: on ? "default" : "pointer" }}>
-                <span style={{ color: "var(--status-warning-text)", fontSize: 11 }}>{nbNrDesgLabel(data, st.number)}</span> {st.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{st.number}</span>
+                <span style={{ color: "var(--status-warning-text)", fontSize: 11 }}>{nbNrDesgLabel(data, st.number)}</span> {st.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{nbBuckleTag(st.number)}</span>
                 {away && <span style={{ color: "var(--status-error-text)", fontSize: 11.5 }}> · {unavailLabel(data, away)}</span>}
                 {othersUsed && othersUsed.has(st.number) && !on && <span style={{ color: "var(--status-warning-text)", fontSize: 11.5 }}> · {t("already on another post", "બીજી ફરજ પર છે")}</span>}
                 {on && " ✓"}
@@ -10758,7 +10769,7 @@ function BandobastRemainingModal({ data, draft, point, onAdd, onClose }) {
                 <label key={s.number} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 20px", fontSize: 12.5, cursor: "pointer", borderBottom: "1px solid var(--border-soft)", background: away ? "var(--status-warning-bg)" : "transparent" }}>
                   <input type="checkbox" checked={sel.has(s.number)} onChange={(e) => toggle(s.number, e.target.checked)} />
                   <span style={{ minWidth: 48, color: "var(--status-warning-text)", fontSize: 11.5 }}>{desgLabel(s.designation)}</span>
-                  <span className="mono" style={{ minWidth: 42, color: "var(--text-tertiary)", fontSize: 11.5 }}>{s.number}</span>
+                  <span className="mono" style={{ minWidth: 42, color: "var(--text-tertiary)", fontSize: 11.5 }}>{nbBuckleShow(s.number)}</span>
                   <span style={{ flex: 1 }}>{s.name}</span>
                   {away && <span style={{ fontSize: 11, color: "var(--status-error-text)" }}>{unavailLabel(data, away)}</span>}
                 </label>
@@ -10888,7 +10899,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
                 const on = pt.staff.includes(st.number);
                 return (
                   <button key={st.number} disabled={on} onClick={() => { setPoint(pt.id, { staff: [...pt.staff, st.number] }); setQ(""); }} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "7px 4px", fontSize: 13, color: on ? "var(--text-tertiary)" : "var(--text-primary)", cursor: on ? "default" : "pointer" }}>
-                    {st.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>#{st.number}</span>
+                    {st.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{nbBuckleTag(st.number)}</span>
                     {away && <span style={{ color: "var(--status-error-text)", fontSize: 11.5 }}> · {unavailLabel(data, away)}</span>}
                     {(assignedWhere[st.number] || []).length > 0 && !on && <span style={{ color: "var(--status-warning-text)", fontSize: 11.5 }}> · {t("already on another point", "બીજા પોઇન્ટ પર છે")}</span>}
                     {on && " ✓"}
@@ -11313,7 +11324,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
               return (
                 <tr key={s.number} id={"nb-staff-row-" + s.number} style={{ borderTop: "1px solid var(--border-soft)", ...(focusStaffId && String(s.number) === String(focusStaffId) ? { background: "var(--highlight-bg)", outline: "2px solid var(--accent)", outlineOffset: -2 } : null) }}>
-                  <td style={td} className="mono">{s.number}</td>
+                  <td style={td} className="mono">{nbBuckleShow(s.number)}</td>
                   <td style={{ ...td, minWidth: 160 }} className="gu">
                     <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} title={t(`Duty meter: ${heat}`, `ડ્યુટી મીટર: ${heat}`)} />
                     <span
@@ -11884,7 +11895,7 @@ function PersonHistoryModal({ data, number, onClose }) {
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div>
               <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{staffRec.name}</div>
-              <div className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>#{number}</div>
+              <div className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{nbBuckleTag(number)}</div>
             </div>
             <PeriodFilterSelect period={period} setPeriod={setPeriod} />
             <button
@@ -12112,7 +12123,7 @@ function DutyFairnessCompare({ data, staffList, onSelectPerson }) {
                         onClick={onSelectPerson ? () => onSelectPerson(p.number) : undefined}
                         style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, cursor: onSelectPerson ? "pointer" : "default" }}
                         title={onSelectPerson ? t("Tap to see this person's full duty history", "આ વ્યક્તિનો સંપૂર્ણ ડ્યુટી ઇતિહાસ જોવા ટેપ કરો") : undefined}
-                      >{p.name} <span className="mono" style={{ fontWeight: 400, fontSize: 11, color: "var(--text-tertiary)" }}>#{p.number}</span></div>
+                      >{p.name} <span className="mono" style={{ fontWeight: 400, fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(p.number)}</span></div>
                       <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "var(--accent-strong)" }}>{p.periodCount}</div>
                       <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginBottom: 8 }}>{t(`duties in ${periodLabel(t, period)}`, `${periodLabel(t, period)} ડ્યુટીઓ`)} · {pct}% {t("of the busiest in this comparison", "આ સરખામણીમાં સૌથી વ્યસ્તની સાપેક્ષે")}</div>
                       {breakdown.length > 0 ? breakdown.map((b) => (
@@ -12219,14 +12230,14 @@ function SwapDutyModal({ data, date, from, onClose, onSwap }) {
             <div style={{ marginTop: 6 }}>
               {matches.map((p) => (
                 <button key={p.number} onClick={() => setPick(p.number)} className="gu" style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "9px 4px", fontSize: 13.5, color: "var(--text-primary)", cursor: "pointer" }}>
-                  {p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>#{p.number}</span>
+                  {p.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{nbBuckleTag(p.number)}</span>
                 </button>
               ))}
             </div>
           </React.Fragment>
         ) : (
           <React.Fragment>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{picked.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 12 }}>#{picked.number}</span> <button onClick={() => setPick(null)} style={{ ...iconBtnWide, marginLeft: 6 }}>{t("Change", "બદલો")}</button></div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{picked.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 12 }}>{nbBuckleTag(picked.number)}</span> <button onClick={() => setPick(null)} style={{ ...iconBtnWide, marginLeft: 6 }}>{t("Change", "બદલો")}</button></div>
             {away && <div style={{ fontSize: 12.5, color: "var(--status-error-text)", marginTop: 6 }}>⚠ {t(`${picked.name} is marked ${unavailLabel(data, away)} on this day.`, `${picked.name} આ દિવસે ${unavailLabel(data, away)} તરીકે નોંધાયેલ છે.`)}</div>}
             {pickedDuties.length > 0 ? (
               <div style={{ marginTop: 10, fontSize: 13 }}>
@@ -12287,7 +12298,7 @@ function CalAwayMenu({ data, a, date, onClose, editAwayPeriod, deleteUnavailable
       <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 380, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", padding: "14px 12px 10px", boxSizing: "border-box" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "0 4px 10px", borderBottom: "1px solid var(--border-soft)", marginBottom: 6 }}>
           <div>
-            <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{a.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>#{a.number}</span></div>
+            <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>{a.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>{nbBuckleTag(a.number)}</span></div>
             <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 3 }}>{a.label} · {rangeTxt}</div>
           </div>
           <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16, cursor: "pointer" }}>✕</button>
@@ -12374,7 +12385,7 @@ function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
         </div>
         {st ? (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 9, background: "var(--bg-surface-2)" }}>
-            <span style={{ fontWeight: 700 }}>{st.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>#{st.number}</span></span>
+            <span style={{ fontWeight: 700 }}>{st.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>{nbBuckleTag(st.number)}</span></span>
             {!presetNumber && <button type="button" onClick={() => { setNumber(""); setQ(""); }} style={{ background: "transparent", border: "none", color: "inherit", fontSize: 12.5, cursor: "pointer", padding: 0 }}>{t("Change", "બદલો")}</button>}
           </div>
         ) : (
@@ -12383,7 +12394,7 @@ function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
             {matches.length > 0 && (
               <div style={{ marginTop: 4, border: "1px solid var(--border-soft)", borderRadius: 9, overflow: "hidden" }}>
                 {matches.map((s) => (
-                  <button key={s.number} type="button" onClick={() => setNumber(s.number)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", borderTop: "1px solid var(--border-soft)", background: "var(--bg-surface)", color: "var(--text-primary)", fontSize: 13.5, cursor: "pointer" }}>{s.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{s.number}</span></button>
+                  <button key={s.number} type="button" onClick={() => setNumber(s.number)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", borderTop: "1px solid var(--border-soft)", background: "var(--bg-surface)", color: "var(--text-primary)", fontSize: 13.5, cursor: "pointer" }}>{s.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(s.number)}</span></button>
                 ))}
               </div>
             )}
@@ -12854,7 +12865,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                                 style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
                                 title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
                               >{r.name}</span>
-                            ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>#{r.number}</span>{r.night ? <span title={t("Night duty", "રાત્રિ ડ્યુટી")}> 🌙</span> : null}{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
+                            ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(r.number)}</span>{r.night ? <span title={t("Night duty", "રાત્રિ ડ્યુટી")}> 🌙</span> : null}{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
                             {range && (
                               <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
                             )}
@@ -12926,9 +12937,9 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                   return (
                     <div key={a.number || a.name} className="gu" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 0" }}>
                       {editAwayPeriod && a.source === "unavailable" && !deleteMode ? (
-                        <button type="button" data-away-name={a.number} onClick={() => setAwayMenu(a)} title={t("End, change or add leave / outstation", "રજા / બહારગામ પૂરી કરો, બદલો કે ઉમેરો")} style={{ background: "transparent", border: "none", padding: 0, margin: 0, color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer" }}>{a.name}{a.number ? <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}> #{a.number}</span> : null}</button>
+                        <button type="button" data-away-name={a.number} onClick={() => setAwayMenu(a)} title={t("End, change or add leave / outstation", "રજા / બહારગામ પૂરી કરો, બદલો કે ઉમેરો")} style={{ background: "transparent", border: "none", padding: 0, margin: 0, color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer" }}>{a.name}{a.number ? <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}> {nbBuckleTag(a.number)}</span> : null}</button>
                       ) : (
-                        <span>{a.name}{a.number ? <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}> #{a.number}</span> : null}</span>
+                        <span>{a.name}{a.number ? <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}> {nbBuckleTag(a.number)}</span> : null}</span>
                       )}
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         {remaining !== null && (
@@ -12987,7 +12998,7 @@ function DutyNoteModal({ record, onClose }) {
           <div>
             <div className="disp gu" style={{ fontSize: 15, fontWeight: 700 }}>{record.name}</div>
             <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }} className="gu mono">
-              #{record.number} · <span className="gu">{record.catLabel}</span>
+              {nbBuckleTag(record.number)} · <span className="gu">{record.catLabel}</span>
             </div>
           </div>
           <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
@@ -13657,7 +13668,7 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
   const submit = async () => {
     const c = nbAsciiDigits(code).replace(/\D/g, "");
     const bn = nbShareNum(num);
-    if (!bn) { setStep("num"); setMsg(["err", t("Enter your buckle number.", "તમારો બકલ નંબર લખો.")]); return; }
+    if (!bn) { setStep("num"); setMsg(["err", t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.")]); return; }
     if (c.length !== 4) { setMsg(["err", t("Enter the 4-digit code.", "૪ આંકડાનો કોડ લખો.")]); return; }
     setBusy(true); setMsg(null); setDbg("");
     try {
@@ -13675,7 +13686,7 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
       const batch = vDb.batch();
       batch.set(vDb.collection("shareGrants").doc(uid + "_" + token), { uid, token, code: c, num: bn, at: FV.serverTimestamp() });
       batch.update(ref, { fails: 0 });
-      try { await batch.commit(); } catch (e3) { errCode = "2:" + ((e3 && e3.code) || "x"); setDbg(errCode); setMsg(["err", t("Buckle number or code is not right. Check both and try again.", "બકલ નંબર અથવા કોડ સાચો નથી. બંને તપાસી ફરી પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
+      try { await batch.commit(); } catch (e3) { errCode = "2:" + ((e3 && e3.code) || "x"); setDbg(errCode); setMsg(["err", t("Number or code is not right. Check both and try again.", "નંબર અથવા કોડ સાચો નથી. બંને તપાસી ફરી પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
       onUnlocked();
     } catch (e) {
       console.warn("share code", e); errCode = "0:" + ((e && e.code) || (e && e.message) || "x"); setDbg(errCode);
@@ -13694,19 +13705,19 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
         <div style={{ fontSize: 30, textAlign: "center" }} aria-hidden="true">🔐</div>
         {step === "num" ? (
           <React.Fragment>
-            <div className="disp" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", margin: "4px 0 6px" }}>{t("Enter your buckle number", "તમારો બકલ નંબર લખો")}</div>
+            <div className="disp" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", margin: "4px 0 6px" }}>{t("Enter your buckle number or mobile number", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો")}</div>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55, marginBottom: 12 }}>
-              {t("This duty roster is only for the staff of this police station. Enter your own buckle number first.", "આ ડ્યુટી રોસ્ટર ફક્ત આ પોલીસ સ્ટેશનના સ્ટાફ માટે છે. પહેલા તમારો પોતાનો બકલ નંબર લખો.")}
+              {t("This duty roster is only for the staff of this police station. First confirm who you are: enter your own buckle number — officers without one can enter their mobile number. It is only checked, never shown or kept on view.", "આ ડ્યુટી રોસ્ટર ફક્ત આ પોલીસ સ્ટેશનના સ્ટાફ માટે છે. પહેલા ખાતરી કરો: તમારો પોતાનો બકલ નંબર લખો — જે અધિકારીઓ પાસે બકલ નંબર નથી તેઓ મોબાઈલ નંબર લખી શકે. આ ફક્ત તપાસ માટે છે, ક્યાંય દેખાતું નથી.")}
             </div>
-            <input type="text" inputMode="numeric" autoComplete="off" maxLength={12} value={num} data-gate-num autoFocus
-              onChange={(e) => setNum(nbAsciiDigits(e.target.value).replace(/[^0-9A-Za-z]/g, "").slice(0, 12))}
+            <input type="text" inputMode="numeric" autoComplete="off" maxLength={14} value={num} data-gate-num autoFocus
+              onChange={(e) => setNum(nbAsciiDigits(e.target.value).replace(/[^0-9A-Za-z]/g, "").slice(0, 14))}
               onKeyDown={(e) => { if (e.key === "Enter" && nbShareNum(num)) { setMsg(null); setStep("code"); } }}
-              placeholder={t("Buckle number", "બકલ નંબર")} className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 24, letterSpacing: 4, textAlign: "center", padding: "10px 8px", borderRadius: 10 }} />
+              placeholder={t("Buckle no. / mobile", "બકલ નં. / મોબાઈલ")} className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 24, letterSpacing: 4, textAlign: "center", padding: "10px 8px", borderRadius: 10 }} />
           </React.Fragment>
         ) : (
           <React.Fragment>
             <div className="disp" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", margin: "4px 0 6px" }}>{t("Enter the share code", "શેર કોડ લખો")}</div>
-            <div style={{ fontSize: 12.5, textAlign: "center", marginBottom: 8 }}>{t("Buckle number", "બકલ નંબર")}: <span className="mono" style={{ fontWeight: 700 }}>{nbShareNum(num)}</span> · <button type="button" data-gate-change onClick={() => { setStep("num"); setMsg(null); }} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", font: "inherit", cursor: "pointer", fontWeight: 600 }}>{t("change", "બદલો")}</button></div>
+            <div style={{ fontSize: 12.5, textAlign: "center", marginBottom: 8 }}>{t("Confirmed number entered", "નંબર લખાઈ ગયો")} · <button type="button" data-gate-change onClick={() => { setStep("num"); setMsg(null); }} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", font: "inherit", cursor: "pointer", fontWeight: 600 }}>{t("change", "બદલો")}</button></div>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55, marginBottom: 12 }}>
               {t("Ask the police station's main account holder for the 4-digit code. In the Nokri Book app they tap the Share button → “Share link code”. The code changes every 48 hours; on this phone you need it only once.",
                 "પોલીસ સ્ટેશનના મુખ્ય એકાઉન્ટ ધારક પાસેથી ૪ આંકડાનો કોડ મેળવો. નોકરી બુક એપમાં તેઓ શેર બટન → “શેર લિંક કોડ” દબાવે ત્યાં કોડ દેખાશે. કોડ દર ૪૮ કલાકે બદલાય છે; આ ફોનમાં ફક્ત એક જ વાર લખવો પડશે.")}
@@ -13718,7 +13729,7 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
         )}
         {msg && <div role="alert" data-gate-msg={msg[0]} style={{ marginTop: 8, fontSize: 12.5, color: msg[0] === "err" ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{msg[1]}</div>}
         {msg && dbg && <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-secondary)", opacity: 0.7 }} className="mono">{dbg}</div>}
-        <button type="button" onClick={() => { if (step === "num") { if (!nbShareNum(num)) { setMsg(["err", t("Enter your buckle number.", "તમારો બકલ નંબર લખો.")]); return; } setMsg(null); setStep("code"); } else submit(); }} disabled={busy} data-gate-submit style={{ marginTop: 12, width: "100%", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "…" : step === "num" ? t("Next →", "આગળ →") : t("Open the roster", "રોસ્ટર ખોલો")}</button>
+        <button type="button" onClick={() => { if (step === "num") { if (!nbShareNum(num)) { setMsg(["err", t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.")]); return; } setMsg(null); setStep("code"); } else submit(); }} disabled={busy} data-gate-submit style={{ marginTop: 12, width: "100%", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "…" : step === "num" ? t("Next →", "આગળ →") : t("Open the roster", "રોસ્ટર ખોલો")}</button>
       </div>
     </div>
   );
@@ -14710,7 +14721,7 @@ function SkipHistoryView({ data, initialSearch }) {
                       <td style={td} className="mono">{formatDMY(e.date)}</td>
                       <td style={td} className="mono">{timeStr}</td>
                       <td style={{ ...td, minWidth: 140 }} className="gu">{e.name}</td>
-                      <td style={td} className="mono">{e.number}</td>
+                      <td style={td} className="mono">{nbBuckleShow(e.number)}</td>
                       <td style={{ ...td, minWidth: 130 }} className="gu">
                         {e.scope === "category"
                           ? (e.catLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>)
@@ -14792,7 +14803,7 @@ function SkipHistoryView({ data, initialSearch }) {
                     return (
                       <div key={e.id || i} className="gu" style={{ padding: "8px 0", borderTop: i ? "1px solid var(--border-soft)" : "none" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>{e.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 400 }}>#{e.number}</span></span>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{e.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 400 }}>{nbBuckleTag(e.number)}</span></span>
                           <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", flexShrink: 0 }}>{granularity !== "day" ? formatDMY(e.date) + " · " : ""}{timeStr}</span>
                         </div>
                         <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 2 }}>
@@ -15217,7 +15228,7 @@ function PublicCategoryView({ data, catId }) {
                       {r.days > 1 ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.to)}
                       {r.days > 1 && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 10, padding: "1px 6px" }}>{t(`${r.days} days`, `${r.days} દિવસ`)}</span>}
                     </td>
-                    <td style={td} className="mono">{r.number}</td>
+                    <td style={td} className="mono">{nbBuckleShow(r.number)}</td>
                     <td style={{ ...td, minWidth: 160 }} className="gu">{r.name}</td>
                     <td style={{ ...td, maxWidth: 260, color: "var(--text-secondary)" }}>{r.note || "—"}</td>
                   </tr>
@@ -15249,7 +15260,7 @@ function PublicCategoryView({ data, catId }) {
                     <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
                       <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={{ ...td, minWidth: 160 }} className="gu">{p.name}</td>
-                      <td style={td} className="mono">{p.number}</td>
+                      <td style={td} className="mono">{nbBuckleShow(p.number)}</td>
                       <td style={td} className="gu">{desigLabel || <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
                       <td style={td} className="mono">{formatDMY(p.lastDuty)}</td>
                       <td style={td} className="mono">{p.lastDuty ? `${p.waiting}d` : "—"}</td>
@@ -15381,7 +15392,7 @@ function PublicStaffView({ data }) {
                 const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
                 return (
                   <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                    <td style={td} className="mono">{s.number}</td>
+                    <td style={td} className="mono">{nbBuckleShow(s.number)}</td>
                     <td style={{ ...td, minWidth: 160 }} className="gu">
                       <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} />
                       <span
@@ -15516,7 +15527,7 @@ function DistrictStaffView({ data }) {
                 const heat = dutyHeatTier(s.dutiesThisMonth, minDuties, maxDuties);
                 return (
                   <tr key={s.number} style={{ borderTop: "1px solid var(--border-soft)" }}>
-                    <td style={td} className="mono">{s.number}</td>
+                    <td style={td} className="mono">{nbBuckleShow(s.number)}</td>
                     <td style={{ ...td, minWidth: 160 }} className="gu">
                       <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: DUTY_HEAT_COLOR[heat], marginRight: 7 }} />
                       <span
@@ -15603,7 +15614,7 @@ function DistrictOnDutyView({ data }) {
               {rows.map((r, i) => (
                 <tr key={i} style={{ borderTop: "1px solid var(--border-soft)" }}>
                   <td style={td} className="gu">{r.catLabel}</td>
-                  <td style={td} className="mono">{r.number}</td>
+                  <td style={td} className="mono">{nbBuckleShow(r.number)}</td>
                   <td style={td} className="gu">{r.name}</td>
                 </tr>
               ))}
