@@ -9862,6 +9862,54 @@ function nbLeaveOverLimit(data, number, typeId, from, to, alreadyQueued, t) {
   });
   return msgs.length ? msgs.join("\n") : null;
 }
+// Tapping a leave count shows the leaves behind it: dates and days.
+function LeaveDetailModal({ data, number, typeId, year, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const st = (data.staff || {})[number] || {};
+  const lt = (data.leaveTypes || []).find((x) => x.id === typeId) || {};
+  const periods = [...(st.unavailableHistory || [])];
+  if (st.unavailable && !periods.some((p) => p.from === st.unavailable.from && p.typeId === st.unavailable.typeId)) periods.push(st.unavailable);
+  const seen = new Set();
+  const rows = periods.filter((p) => {
+    if (!p || !p.from || unavailKind(p) !== "Leave" || (p.typeId || "_") !== typeId) return false;
+    const k = p.from + "|" + (p.to || ""); if (seen.has(k)) return false; seen.add(k);
+    return nbDaysInYear(p.from, p.to, year).length > 0;
+  }).sort((a, b) => a.from.localeCompare(b.from)).map((p) => ({ from: p.from, to: p.to || null, days: nbDaysInYear(p.from, p.to, year).length }));
+  const total = (nbLeaveUsed(st, year)[typeId]) || 0;
+  const td = { padding: "8px 10px", borderBottom: "1px solid var(--border-soft)", fontSize: 13, textAlign: "left" };
+  return (
+    <div role="dialog" aria-modal="true" aria-label={lt.label || t("Leave", "રજા")} className="modal-backdrop" data-leave-detail onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 140, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 420, maxWidth: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div>
+            <div className="disp" style={{ fontSize: 15.5, fontWeight: 700 }}>{st.name || number} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", fontWeight: 500 }}>{nbBuckleTag(number)}</span></div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 3 }}>{lt.label} · {year} · {t("Total", "કુલ")} <b className="mono">{total}{nbIsCasualLeave(lt) ? "/" + NB_CL_DAYS : ""}</b> {t("days", "દિવસ")}</div>
+          </div>
+          <button onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 16, color: "var(--text-tertiary)", cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ overflowY: "auto" }}>
+          {rows.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("No leave of this type in this year.", "આ વર્ષમાં આ પ્રકારની રજા નથી.")}</div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr style={{ background: "var(--bg-surface-2)" }}><th style={td}>{t("From", "થી")}</th><th style={td}>{t("To", "સુધી")}</th><th style={{ ...td, textAlign: "right" }}>{t("Days", "દિવસ")}</th></tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.from + (r.to || "")}>
+                    <td style={td} className="mono">{formatDMY(r.from)}</td>
+                    <td style={td} className="mono">{r.to ? formatDMY(r.to) : t("no end date", "અંતિમ તારીખ નથી")}</td>
+                    <td style={{ ...td, textAlign: "right" }} className="mono">{r.days}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeaveAllowance }) {
   const { t } = useLang();
   useEscToClose(onClose);
@@ -9869,6 +9917,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
   const [search, setSearch] = useState("");
   const [onlyOver, setOnlyOver] = useState(false);
   const [editPerson, setEditPerson] = useState(null);
+  const [leaveDetail, setLeaveDetail] = useState(null);
   const types = (data.leaveTypes || []).filter((lt) => nbIsCasualLeave(lt) || nbIsPublicHoliday(lt));
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -9927,7 +9976,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
                   <td style={{ ...td, textAlign: "left" }}>{r.s.name} <span className="mono" style={{ color: "var(--text-tertiary)", fontSize: 11 }}>{nbBuckleTag(r.s.number)}</span></td>
                   {r.cells.map((c) => (
                     <td key={c.id} style={{ ...td, color: c.over ? "var(--status-error-text)" : c.used ? "var(--text-primary)" : "var(--text-tertiary)", fontWeight: c.over ? 700 : 400 }}>
-                      {c.used}{c.allow != null ? " / " + c.allow : ""}{c.allow != null && !c.over ? <span style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}> ({c.allow - c.used} {t("left", "બાકી")})</span> : null}
+                      {c.used > 0 ? <button type="button" data-leave-count onClick={() => setLeaveDetail({ number: r.s.number, typeId: c.id })} style={{ background: "transparent", border: "none", padding: 0, margin: 0, font: "inherit", color: "inherit", cursor: "pointer" }}>{c.used}{c.allow != null ? " / " + c.allow : ""}</button> : <React.Fragment>{c.used}{c.allow != null ? " / " + c.allow : ""}</React.Fragment>}{c.allow != null && !c.over ? <span style={{ color: "var(--text-tertiary)", fontSize: 10.5 }}> ({c.allow - c.used} {t("left", "બાકી")})</span> : null}
                     </td>
                   ))}
                 </tr>
@@ -9938,6 +9987,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
         </div>
         <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t(`Days taken in the year · CL shows taken / ${NB_CL_DAYS}`, `વર્ષમાં લીધેલ દિવસ · CL માં લીધેલ / ${NB_CL_DAYS}`)}</div>
       </div>
+      {leaveDetail && <LeaveDetailModal data={data} number={leaveDetail.number} typeId={leaveDetail.typeId} year={year} onClose={() => setLeaveDetail(null)} />}
       {editPerson && (() => {
         const st = data.staff[editPerson];
         if (!st) return null;
@@ -11859,6 +11909,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   const [periodFrom, periodTo] = periodRangeOf(period);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
+  const [leaveDetail, setLeaveDetail] = useState(null);
 
   const { groups, byCategory, totalLast3Months, totalThisMonth } = useMemo(() => {
     const allRows = [];
@@ -11907,6 +11958,7 @@ function PersonHistoryModal({ data, number, onClose }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Full duty history", "સંપૂર્ણ ડ્યુટી ઇતિહાસ")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={onClose}>
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
+      {leaveDetail && <LeaveDetailModal data={data} number={number} typeId={leaveDetail.typeId} year={leaveDetail.year} onClose={() => setLeaveDetail(null)} />}
       <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -11947,9 +11999,9 @@ function PersonHistoryModal({ data, number, onClose }) {
                 <div className="gu" style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 6 }}>🗓️ {t(`Leave in ${yr}`, `${yr} માં રજા`)}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {items.map((it) => (
-                    <span key={it.key} className="gu" style={{ fontSize: 11.5, borderRadius: 20, padding: "3px 10px", border: "1px solid " + (it.over ? "var(--status-error-text)" : "var(--border)"), color: it.over ? "var(--status-error-text)" : "var(--text-primary)", fontWeight: it.cl ? 700 : 500, background: "var(--bg-surface)" }}>
+                    <button type="button" key={it.key} data-leave-chip onClick={() => it.n > 0 && setLeaveDetail({ typeId: it.key, year: yr })} className="gu" style={{ cursor: it.n > 0 ? "pointer" : "default", font: "inherit",   fontSize: 11.5, borderRadius: 20, padding: "3px 10px", border: "1px solid " + (it.over ? "var(--status-error-text)" : "var(--border)"), color: it.over ? "var(--status-error-text)" : "var(--text-primary)", fontWeight: it.cl ? 700 : 500, background: "var(--bg-surface)" }}>
                       {it.label}: <span className="mono">{it.n}{it.cl ? "/" + NB_CL_DAYS : ""}</span> {t("days", "દિવસ")}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>
