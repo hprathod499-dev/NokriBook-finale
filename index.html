@@ -1819,6 +1819,15 @@ function renderTextToImage(text, fontSizePt) {
   const glyphHeight = (metrics.actualBoundingBoxAscent || 0) + (metrics.actualBoundingBoxDescent || 0);
   return { dataUrl: canvas.toDataURL("image/png"), width, height, glyphHeight: glyphHeight || fontPx * 0.7 };
 }
+// width (mm) a one-line Gujarati cell takes when drawn at its normal size by drawTextImageInCell
+let _nbMeasureCtx = null;
+function nbImgTextWidthMm(text, fontSizePt) {
+  if (!_nbMeasureCtx) _nbMeasureCtx = document.createElement("canvas").getContext("2d");
+  const fontPx = Math.round(fontSizePt * 1.22 * 4 * (96 / 72));
+  _nbMeasureCtx.font = `${fontPx}px NotoSansGujaratiCanvas, sans-serif`;
+  const wPx = Math.max(1, Math.ceil(_nbMeasureCtx.measureText(text || " ").width)) + 8;
+  return wPx * (fontSizePt * 0.3528 * 1.8) / Math.round(fontPx * 1.5);
+}
 function drawTextImageInCell(doc, cell, rendered, fontSizePt) {
   if (!rendered) return;
   const maxH = Math.min(cell.height - 1.5, fontSizePt * 0.3528 * 1.8);
@@ -1940,7 +1949,23 @@ function nbPatchAutoTable() {
   const api = window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API;
   if (!api || !api.autoTable || api.autoTable.__nbStyled) return;
   const orig = api.autoTable;
-  const wrapped = function (opts, ...rest) { return orig.call(this, typeof opts === "object" && opts ? nbPdfTableStyle(opts) : opts, ...rest); };
+  // Gujarati cells are drawn as pictures, so the table doesn't know how wide they are. Reserve the room each
+  // one needs, so every name is drawn the same size (before, short names came out big and long ones small).
+  const reserve = (opts) => {
+    if (!opts || typeof opts !== "object" || opts.__nbReserve) return opts;
+    const userParse = opts.didParseCell;
+    return { ...opts, __nbReserve: true, didParseCell: (h) => {
+      if (userParse) userParse(h);
+      try {
+        if (h.section !== "body" || !Array.isArray(h.cell.text) || h.cell.text.length !== 0 || !needsImageRender(h.cell.raw)) return;
+        const pt = (h.cell.styles && h.cell.styles.fontSize) || NB_PDF_FONT_PT;
+        const w = nbImgTextWidthMm(String(h.cell.raw), pt) + 3;
+        const cur = h.cell.styles.minCellWidth || 0;
+        if (w > cur) h.cell.styles.minCellWidth = w;
+      } catch (e) {}
+    } };
+  };
+  const wrapped = function (opts, ...rest) { return orig.call(this, typeof opts === "object" && opts ? nbPdfTableStyle(reserve(opts)) : opts, ...rest); };
   wrapped.__nbStyled = true;
   api.autoTable = wrapped;
   if (api.addImage && !api.addImage.__nbFast) {
@@ -2019,19 +2044,33 @@ function PdfReadyModal({ pdf, onClose }) {
     }
     onClose();
   };
-  const share = nbCanShareFiles();
-  const handleDownload = () => {
-    try { nbDeliverBlob(pdf.doc.output("blob"), pdf.filename, pdf.filename.replace(/\.pdf$/i, "")); }
-    catch (e) { pdf.doc.save(pdf.filename); }
+  // Save = the PDF file goes to this phone / computer. Send = the phone's share sheet (WhatsApp, Gmail, …).
+  const blobOf = () => pdf.doc.output("blob");
+  const handleSave = () => {
+    try { nbSaveBlob(blobOf(), pdf.filename); } catch (e) { pdf.doc.save(pdf.filename); }
     onClose();
   };
+  const handleSend = async () => {
+    try {
+      const file = new File([blobOf()], nbSafeFileName(pdf.filename), { type: "application/pdf" });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: pdf.filename.replace(/\.pdf$/i, "") });
+        onClose(); return;
+      }
+    } catch (e) { if (e && e.name === "AbortError") return; console.warn("Share failed", e); }
+    try { nbSaveBlob(blobOf(), pdf.filename); } catch (e) { pdf.doc.save(pdf.filename); }
+    window.alert(t("This browser can't send files directly, so the PDF was saved instead — attach it in WhatsApp or email from your downloads.", "આ બ્રાઉઝર સીધી ફાઇલ મોકલી શકતું નથી, તેથી PDF સાચવી લીધી છે — WhatsApp કે ઇમેઇલમાં ડાઉનલોડમાંથી જોડો."));
+    onClose();
+  };
+  const btn = { flex: 1, borderRadius: 8, padding: "10px 8px", fontSize: 13.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" };
   return (
     <div role="dialog" aria-modal="true" aria-label={t("PDF ready", "PDF તૈયાર છે")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 340, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 360, maxWidth: "100%", padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div className="disp gu" style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, textAlign: "center" }}>{t("PDF ready", "PDF તૈયાર છે")}</div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={handleView} className="gu" style={{ flex: 1, background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>👁 {t("View", "જુઓ")}</button>
-          <button onClick={handleDownload} className="gu" style={{ flex: 1, background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>{share ? "📤 " + t("Send / Save", "મોકલો / સાચવો") : "⬇ " + t("Download", "ડાઉનલોડ કરો")}</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={handleView} data-pdf-view className="gu" style={{ ...btn, background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)" }}>👁 {t("View", "જુઓ")}</button>
+          <button onClick={handleSave} data-pdf-save className="gu" style={{ ...btn, background: "var(--bg-surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)" }}>⬇ {t("Save", "સાચવો")}</button>
+          <button onClick={handleSend} data-pdf-send className="gu" style={{ ...btn, background: "var(--accent)", color: "var(--accent-text)", border: "none" }}>📤 {t("Send", "મોકલો")}</button>
         </div>
       </div>
     </div>
@@ -2226,7 +2265,15 @@ function downloadStaffDirectoryDocx(staffList, stationName, district) {
   });
   nbDeliverBlob(nbDocxFromBlocks(blocks), `mahekam-patra-${todayStr()}.docx`, "મહેકમ પત્ર");
 }
+// Some browsers drop a file name with Gujarati letters and save it just as "download" — keep names plain.
+function nbSafeFileName(name) {
+  const m = String(name || "file").match(/^(.*?)(\.[A-Za-z0-9]{1,5})?$/);
+  let base = (m[1] || "").replace(/[^\x20-\x7E]/g, "").replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
+  if (!base) base = "nokri-book-" + todayStr();
+  return base + (m[2] || "");
+}
 function nbSaveBlob(blob, filename) {
+  filename = nbSafeFileName(filename);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename;
@@ -11616,9 +11663,10 @@ async function downloadPersonHistoryPdf(data, staffRec, number, filteredGroups, 
   const LINE_H = 5;
 
   let headerY = drawPdfHeader(doc, "Nokri Book — Person Report", stationName, district) - 8;
-  headerY += LINE_H;
-  drawLeftAlignedTextImage(doc, staffRec.name, 14, headerY, 11);
-  headerY += LINE_H;
+  headerY += LINE_H + 3;
+  // the person's name, big enough to read (Gujarati is drawn as a picture)
+  drawLeftAlignedTextImage(doc, staffRec.name, 14, headerY, 16);
+  headerY += LINE_H + 2;
   doc.setFontSize(10);
   doc.text([`#${number}`, desig ? desig.label : "", staffRec.phone ? "Phone " + staffRec.phone : ""].filter(Boolean).join("   ·   "), 14, headerY);
   headerY += LINE_H + 4;
@@ -11681,9 +11729,9 @@ async function downloadPersonHistoryPdf(data, staffRec, number, filteredGroups, 
     { 1: 42, 3: 75 }, { empty: "No duties in this period." });
 
   // 3. leave & outstation
-  table("Leave and outstation", ["Kind", "Type", "Dates", "Days", "Days in period", "Note"],
-    info.away.map((a) => [a.kind, a.label, a.to ? range(a.from, a.to) : formatDMY(a.from) + " - (no end date)", a.days == null ? "—" : a.days, a.inPeriod, a.note]),
-    { 1: 36, 5: 40 }, { empty: "No leave or outstation in this period." });
+  table("Leave and outstation", ["Kind", "Type", "Dates", "Days", "Note"],
+    info.away.map((a) => [a.kind, a.label, a.to ? range(a.from, a.to) : formatDMY(a.from) + " - (no end date)", a.days == null ? "—" : a.days, a.note]),
+    { 1: 40, 4: 55 }, { empty: "No leave or outstation in this period." });
 
   // 4. leave used per year
   info.leaveYears.forEach((ly) => {
@@ -11699,7 +11747,7 @@ async function downloadPersonHistoryPdf(data, staffRec, number, filteredGroups, 
   if (info.events.length) table("Events", ["Dates", "Type", "Note"], info.events.map((ev) => [range(ev.from, ev.to), ev.type, ev.note]), { 2: 100 });
 
   const slug = String(staffRec.name).toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9઀-૿-]/g, "");
-  return { doc, filename: `nokri-book-${slug || number}-report-${todayStr()}.pdf` };
+  return { doc, filename: `nokri-book-${number}-report-${todayStr()}.pdf` };
 }
 function PersonHistoryModal({ data, number, onClose }) {
   const { t } = useLang();
@@ -13054,7 +13102,8 @@ function ReportView({ initialSort, focus, data }) {
         doc.setFontSize(13);
         doc.text(`${title} — ${nbPdfMonthLabel(month)}`, 14, y);
         doc.setFontSize(9);
-        doc.text(`${rows.length} entries · ${total} days in total (total days of each ${kind === "Leave" ? "leave" : "outstation"}; ongoing ones counted up to today)`, 14, y + 6);
+        { const word = kind === "Leave" ? (rows.length === 1 ? "leave" : "leaves") : (rows.length === 1 ? "outstation" : "outstations"), isNew = rows.filter((r) => r.from >= mStart).length, old = rows.length - isNew;
+          doc.text(`${rows.length} ${word} recorded in ${nbPdfMonthLabel(month)}` + (rows.length ? ` (${isNew} new this month` + (old ? `, ${old} continuing from earlier)` : ")") : ""), 14, y + 6); }
         doc.autoTable({
           rowPageBreak: "avoid",
           startY: y + 10,
@@ -13072,7 +13121,7 @@ function ReportView({ initialSort, focus, data }) {
         const byType = {};
         rows.forEach((r) => { if (!byType[r.type]) byType[r.type] = { n: 0, days: 0 }; byType[r.type].n++; byType[r.type].days += r.days; });
         const typeRows = Object.entries(byType).sort((x, z) => z[1].days - x[1].days).map(([k, v]) => [k, v.n, v.days]);
-        if (typeRows.length) {
+        if (false && typeRows.length) { // per-type count table removed (not wanted in the report)
           doc.autoTable({
             rowPageBreak: "avoid",
             startY: y + 6,
