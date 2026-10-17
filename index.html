@@ -18578,19 +18578,32 @@ function nbAccStatusText(e, p) {
   const vd = p.vd === "proved" ? "સજા" + (p.pun ? ": " + p.pun : "") : p.vd === "notproved" ? "નિર્દોષ" : "";
   return [st, close, court, vd ? "આ આરોપી — " + vd : ""].filter(Boolean).join(" · ");
 }
-// ---- જ.ક. (General Conviction) register: the columns of the paper register, filled from the crime entries ----
-const NB_JK_HEAD = ["અ.નં.", "નામનો પહેલો અક્ષર", "આરોપીનું નામ તથા ઉપનામ", "પીતાનું નામ", "જાત", "સરનામું ગામ તાલુકો જીલ્લો", "ગુ.ર.નં./કલમ", "સજાની તારીખ વર્ષ", "IPC ની કઈ કલમ મુજબ સજા થયેલ છે", "સજા કરનાર કોર્ટ", "શિક્ષાની વિગત", "બીજા પો.સ્ટે. માં થયેલ સજા અને જ.ક. રજી. નો નંબર", "જાણીતા ગુનેગારના રજી. નો નંબર", "મરણ તારીખ", "શેરો"];
+// ---- કક્કાવારી + જ.ક. register (one register): every accused, alphabetical. Court result from the crime entry
+// (filled by hand or by the eCourts court-disposal PDF import): convicted -> sentence columns (જ.ક.),
+// acquitted -> "ના.સા. તા." in the case-disposal column (કક્કાવારી). Nothing is guessed: empty when not written.
+const NB_JK_HEAD = ["અ.નં.", "નામનો પહેલો અક્ષર", "આરોપીનું નામ તથા ઉપનામ", "પીતાનું નામ", "જાત", "સરનામું ગામ તાલુકો જીલ્લો", "ગુ.ર.નં./કલમ", "સજાની તારીખ વર્ષ", "IPC ની કઈ કલમ મુજબ સજા થયેલ છે", "સજા કરનાર કોર્ટ", "શિક્ષાની વિગત", "બીજા પો.સ્ટે. માં થયેલ સજા અને જ.ક. રજી. નો નંબર", "જાણીતા ગુનેગારના રજી. નો નંબર", "મરણ તારીખ", "શેરો", "કેસ નિકાલ (સા. / ના.સા.) તારીખ"];
 function nbFirstAkshar(name) {
   const w = String(name || "").trim();
   if (!w) return "";
   try { if (typeof Intl !== "undefined" && Intl.Segmenter) { const it = new Intl.Segmenter("gu", { granularity: "grapheme" }).segment(w)[Symbol.iterator]().next(); if (it.value) return it.value.segment; } } catch (x) {}
   return w.charAt(0);
 }
+// court designation from eCourts (English) in Gujarati
+const NB_JUDGE_GU = [[/\bPRINCIPAL\b/g, "પ્રિન્સિપલ"], [/\bADDL\.?|\bADDITIONAL\b/g, "એડી."], [/\bSR\.?|\bSENIOR\b/g, "સિનિયર"], [/\bJR\.?|\bJUNIOR\b/g, "જુનિયર"], [/\bCIVIL\b/g, "સિવિલ"], [/\bJUDGE\b/g, "જજ"], [/\bA\.?\s?C\.?\s?J\.?\s?M\.?/g, "એડી. ચીફ જ્યુડી. મેજી."], [/\bC\.?\s?J\.?\s?M\.?/g, "ચીફ જ્યુડી. મેજી."], [/\bJ\.?\s?M\.?\s?F\.?\s?C\.?/g, "જ્યુડી. મેજી. ફ.ક."], [/\bCHIEF\b/g, "ચીફ"], [/\bJUDICIAL\b/g, "જ્યુડીશીયલ"], [/\bMAGISTRATE\b/g, "મેજીસ્ટ્રેટ"], [/\bFIRST CLASS\b/g, "ફર્સ્ટ ક્લાસ"], [/\bDISTRICT\b/g, "ડિસ્ટ્રિક્ટ"], [/\bSESSIONS?\b/g, "સેશન્સ"], [/\bSPECIAL\b/g, "સ્પેશિયલ"], [/\bCOURT\b/g, "કોર્ટ"], [/\bJUVENILE JUSTICE BOARD\b/g, "જુવેનાઇલ જસ્ટીસ બોર્ડ"], [/\bAND\b|&/g, "અને"]];
+function nbJudgeGu(j) {
+  let s = String(j || "").toUpperCase().replace(/^\s*\d+\s*-\s*/, "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  NB_JUDGE_GU.forEach(([re, gu]) => { s = s.replace(re, gu); });
+  return s.replace(/\s+/g, " ").trim();
+}
 function nbJkPersonBits(raw) {
   const s = nbWClean(String(raw || "")).replace(/\s+/g, " ");
   const pn = nbPersonOf(raw);
-  const toks = pn.name.split(/\s+/).filter(Boolean);
-  const core = []; for (let k = 0; k < toks.length; k++) { if (/^ઉર?્?ફે$|^ઉફે$/.test(toks[k])) { k++; continue; } core.push(toks[k]); }
+  // a name written as "…ચારોલારહે. બંન્ને જીરા" (no space before રહે.) — keep only the name part
+  const nm = pn.name.replace(/\s*રહે(?:વાસી)?\s*[.:\-].*$/, "").trim() || pn.name;
+  const toks = nm.split(/\s+/).filter(Boolean);
+  // skip "ઉર્ફે x" and relation words like વા/ઓ, w/o, s/o so the father/husband name is picked
+  const core = []; for (let k = 0; k < toks.length; k++) { if (/^ઉર?્?ફે$|^ઉફે$/.test(toks[k])) { k++; continue; } if (/^(?:વા|પુ|પત્ની|ઓ)\/?ઓ?\.?$|^[swdcSWDC]\/o\.?$|^ડો\/ઓ$/.test(toks[k])) continue; core.push(toks[k]); }
   const father = core.length >= 3 ? core[1] : "";
   const caste = ((s.match(/જાતે\s*[.:\-]?\s*([^\s,.]+)/) || [])[1] || "").trim();
   const am = s.match(/(?:^|[\s,])રહે(?:વાસી)?\s*[.:\-]\s*(.+)$/);
@@ -18598,68 +18611,117 @@ function nbJkPersonBits(raw) {
   const stop = addr.search(/ઉ\.?\s?વ|ઉંમર|જાતે|ધંધો|ધંધા|મો\.?\s*નં|મોબાઇલ|મોબાઈલ/);
   if (stop > 0) addr = addr.slice(0, stop);
   addr = addr.replace(/[,.\-\s]+$/, "").trim();
-  return { name: pn.name, first: nbFirstAkshar(core[0] || pn.name), father, caste, addr };
+  if (!addr) { const gm = s.match(/રહે(?:વાસી)?\s*[.:\-]\s*(.+)$/); if (gm) { addr = gm[1]; const st = addr.search(/ઉ\.?\s?વ|ઉંમર|જાતે|ધંધો|ધંધા|મો\.?\s*નં|મોબાઇલ|મોબાઈલ/); if (st > 0) addr = addr.slice(0, st); addr = addr.replace(/[,.\-\s]+$/, "").trim(); } }
+  return { name: nm, first: nbFirstAkshar(core[0] || nm), father, caste, addr };
 }
-// one row per crime of this person; sentence columns only from what is written in the crime (nothing guessed)
-function nbJkRows(g) {
-  return g.rows.map(({ e, p }, i) => {
-    const b = nbJkPersonBits(p.name);
-    const convicted = p.vd === "proved" || (!p.vd && (e.verdict === "proved" || e.verdict === "guilty"));
-    const ct = e.courtType || e.courtNo ? (NB_COURT_TYPES.find((x) => x[0] === e.courtType) || [, "કોર્ટ કેસ નં."])[1] + " " + nbG(e.courtNo || "-") : "";
-    const pun = p.pun || [e.sentence !== "fine" && e.jailTerm ? "કેદ: " + nbG(e.jailTerm) : "", e.sentence !== "jail" && Number(e.fineAmt) ? "દંડ ₹" + nbG(e.fineAmt) : ""].filter(Boolean).join(", ");
-    return {
-      e, convicted,
-      cells: [
-        nbG(i + 1), b.first, b.name, b.father, b.caste, b.addr,
-        nbReg(e.reg).gu + " " + nbG(e.no || "") + "/" + nbG(e.year || "") + (e.sections ? " / " + e.sections : ""),
-        convicted && e.courtDate ? nbGDate(e.courtDate) : "",
-        convicted ? (e.sections || "") : "",
-        convicted ? ct : "",
-        convicted ? pun : "",
-        "", "", "", "",
-      ],
-    };
-  });
+// result of the court case for this one accused: "conv" (સજા), "acq" (ના.સા.), "other" (abated, compounded, …) or "" (not decided / not written)
+function nbJkResult(e, p) {
+  const v = p.vd || e.verdict || "";
+  if (v === "proved" || v === "guilty") return "conv";
+  if (v === "notproved") return "acq";
+  if (e.closeType === "cs" && v && !["committed", "transfer", "judged"].includes(v)) return "other";
+  return "";
 }
-function NbJkTable({ g }) {
-  const { t } = useLang();
-  const [all, setAll] = useState(false);
-  const [copied, setCopied] = useState("");
-  const rowsAll = nbJkRows(g);
-  const conv = rowsAll.filter((r) => r.convicted);
-  const rows = all || !conv.length ? rowsAll : conv;
-  const tsv = (L) => L.map((r) => r.cells.map((c) => String(c || "").replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
-  const copy = (txt, what) => {
-    const done = () => { setCopied(what); setTimeout(() => setCopied(""), 1500); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt));
-    else window.prompt(t("Copy:", "કોપી કરો:"), txt);
+function nbJkRow(e, p, n) {
+  const b = nbJkPersonBits(p.name);
+  const res = nbJkResult(e, p);
+  const ctype = e.courtType || e.courtNo ? (NB_COURT_TYPES.find((x) => x[0] === e.courtType) || [, "કોર્ટ કેસ નં."])[1] + " " + nbG(e.courtNo || "-") : "";
+  const court = [nbJudgeGu(e.courtJudge), ctype].filter(Boolean).join(", ");
+  const pun = p.pun || [e.sentence !== "fine" && e.jailTerm ? "કેદ: " + nbG(e.jailTerm) : "", e.sentence !== "jail" && Number(e.fineAmt) ? "દંડ ₹" + nbG(e.fineAmt) : ""].filter(Boolean).join(", ") || (e.verdict === "guilty" ? "ગુનો કબૂલ કરતાં સજા" : "");
+  const dt = e.courtDate ? " તા. " + nbGDate(e.courtDate) : "";
+  const disp = res === "conv" ? "સાબિત (સજા)" + dt : res === "acq" ? "ના.સા." + dt : res === "other" ? (e.courtNature || NB_VD_SHORT[e.verdict] || e.verdict) + dt : e.closeType ? nbCloseStory(e) : (e.reg === "A" ? "તપાસ ચાલુ" : "");
+  return {
+    e, res, name: b.name,
+    cells: [
+      nbG(n), b.first, b.name, b.father, b.caste, b.addr,
+      nbReg(e.reg).gu + " " + nbG(e.no || "") + "/" + nbG(e.year || "") + (e.sections ? " / " + e.sections : ""),
+      res === "conv" && e.courtDate ? nbGDate(e.courtDate) : "",
+      res === "conv" ? (e.sections || "") : "",
+      res ? court : "",
+      res === "conv" ? pun : "",
+      "", "", "", "",
+      disp,
+    ],
   };
+}
+function nbJkRows(g) { return g.rows.map(({ e, p }, i) => nbJkRow(e, p, i + 1)); }
+function nbJkCopy(L, t, setCopied, what) {
+  const txt = L.map((r) => r.cells.map((c) => String(c || "").replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
+  const done = () => { setCopied(what); setTimeout(() => setCopied(""), 1500); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt));
+  else window.prompt(t("Copy:", "કોપી કરો:"), txt);
+}
+function NbJkGrid({ rows, head, copied, onCopyRow }) {
+  const { t } = useLang();
   const th = { padding: "6px 7px", fontSize: 11, fontWeight: 700, border: "1px solid var(--border)", background: "var(--bg-surface-2)", textAlign: "center", verticalAlign: "bottom", minWidth: 60 };
   const td = { padding: "6px 7px", fontSize: 12.5, border: "1px solid var(--border-soft)", verticalAlign: "top", userSelect: "text" };
   return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "max-content", minWidth: "100%" }}>
+        <thead><tr>{head.map((h, i) => <th key={i} style={th}>{h}<div style={{ fontWeight: 400, color: "var(--text-tertiary)" }}>{nbG(i + 1)}</div></th>)}<th style={th}></th></tr></thead>
+        <tbody>
+          {rows.map((r, k) => (
+            <tr key={r.e.id + "_" + k} data-jk-res={r.res || "none"}>
+              {r.cells.map((c, i) => <td key={i} style={{ ...td, maxWidth: i === 6 || i === 8 || i === 9 ? 220 : i === 5 ? 200 : undefined, whiteSpace: i <= 1 ? "nowrap" : "normal", fontWeight: i === 15 && r.res ? 600 : undefined }}>{c}</td>)}
+              <td style={td}><button type="button" onClick={() => onCopyRow(r)} title={t("Copy this row", "આ લાઇન કોપી કરો")} style={{ fontSize: 11.5, borderRadius: 6, padding: "2px 7px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer", whiteSpace: "nowrap" }}>{copied === r.e.id + "_" + k ? "✓" : "📋"}</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+const nbJkBtn = { fontSize: 12, fontWeight: 600, borderRadius: 7, padding: "4px 10px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer" };
+function NbJkTable({ g }) {
+  const { t } = useLang();
+  const [copied, setCopied] = useState("");
+  const rows = nbJkRows(g);
+  const nConv = rows.filter((r) => r.res === "conv").length, nAcq = rows.filter((r) => r.res === "acq").length;
+  return (
     <div data-jk-table style={{ maxWidth: "100%", minWidth: 0, boxSizing: "border-box", marginTop: 8, border: "1px solid var(--border)", borderRadius: 8, padding: 8, background: "var(--bg-page)" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
-        <b style={{ fontSize: 13 }}>{t("General Conviction (J.K.) register", "જ.ક. રજીસ્ટર (ભાગ ૧ થી ૫)")}</b>
-        <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{!conv.length ? t("No conviction written yet — showing all crimes.", "હજુ કોઈ સજા નોંધાઈ નથી — બધા ગુના બતાવ્યા છે.") : all ? t("All crimes", "બધા ગુના") : t(`Crimes with a conviction: ${conv.length}`, `સજા થયેલ ગુના: ${nbG(conv.length)}`)}</span>
-        {conv.length > 0 && conv.length < rowsAll.length && <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" checked={all} onChange={(ev) => setAll(ev.target.checked)} /> {t("All crimes", "બધા ગુના")}</label>}
-        <button type="button" data-jk-copy onClick={() => copy(tsv(rows), "all")} style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, borderRadius: 7, padding: "4px 10px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer" }}>{copied === "all" ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy table", "આખું કોપી કરો")}</button>
+        <b style={{ fontSize: 13 }}>{t("Alphabetical + J.K. register", "કક્કાવારી + જ.ક. રજીસ્ટર")}</b>
+        <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{t(`Convicted: ${nConv} · Acquitted (N.S.): ${nAcq}`, `સજા: ${nbG(nConv)} · ના.સા.: ${nbG(nAcq)}`)}</span>
+        <button type="button" data-jk-copy onClick={() => nbJkCopy(rows, t, setCopied, "all")} style={{ ...nbJkBtn, marginLeft: "auto" }}>{copied === "all" ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy table", "આખું કોપી કરો")}</button>
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "max-content", minWidth: "100%" }}>
-          <thead>
-            <tr>{NB_JK_HEAD.map((h, i) => <th key={i} style={th}>{h}<div style={{ fontWeight: 400, color: "var(--text-tertiary)" }}>{nbG(i + 1)}</div></th>)}<th style={th}></th></tr>
-          </thead>
-          <tbody>
-            {rows.map((r, k) => (
-              <tr key={r.e.id + "_" + k}>
-                {r.cells.map((c, i) => <td key={i} style={{ ...td, maxWidth: i === 6 || i === 8 ? 220 : i === 5 ? 200 : undefined, whiteSpace: i === 1 || i === 0 ? "nowrap" : "normal" }}>{c}</td>)}
-                <td style={td}><button type="button" onClick={() => copy(tsv([r]), r.e.id)} title={t("Copy this row", "આ લાઇન કોપી કરો")} style={{ fontSize: 11.5, borderRadius: 6, padding: "2px 7px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer", whiteSpace: "nowrap" }}>{copied === r.e.id ? "✓" : "📋"}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <NbJkGrid rows={rows} head={NB_JK_HEAD} copied={copied} onCopyRow={(r) => nbJkCopy([r], t, setCopied, r.e.id + "_" + (rows.indexOf(r)))} />
       <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>{t("Copied as a table: paste straight into Word or Excel. Columns 12–15 and anything not written in the crime are left empty.", "ટેબલ તરીકે કોપી થાય છે: સીધું Word કે Excel માં પેસ્ટ કરો. ખાના ૧૨–૧૫ અને ગુનામાં ન લખેલી વિગત ખાલી રહે છે.")}</div>
+    </div>
+  );
+}
+// The whole register for the station: all accused in alphabetical (કક્કાવારી) order.
+function NbJkRegister({ idx, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [show, setShow] = useState("court");
+  const [copied, setCopied] = useState("");
+  const all = useMemo(() => {
+    const out = [];
+    idx.forEach((g) => g.rows.forEach(({ e, p }) => out.push(nbJkRow(e, p, 0))));
+    out.sort((a, b) => a.name.localeCompare(b.name, "gu") || (a.e.regDate || "").localeCompare(b.e.regDate || ""));
+    return out;
+  }, [idx]);
+  const rows = all.filter((r) => show === "all" ? true : show === "conv" ? r.res === "conv" : show === "acq" ? r.res === "acq" : !!r.res).map((r, i) => ({ ...r, cells: [nbG(i + 1), ...r.cells.slice(1)] }));
+  const cnt = (f) => all.filter(f).length;
+  const opt = (k, label, n) => <button type="button" onClick={() => setShow(k)} data-jk-filter={k} style={{ ...nbJkBtn, background: show === k ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: show === k ? "#fff" : "var(--text-primary)" }}>{label} <span className="mono">{nbG(n)}</span></button>;
+  return (
+    <div role="dialog" aria-modal="true" className="modal-backdrop" data-jk-register onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 120, padding: "16px 10px", overflowY: "auto" }}>
+      <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 1200, maxWidth: "100%", minWidth: 0, boxShadow: "0 20px 60px rgba(0,0,0,0.3)", padding: "14px 14px 16px", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div className="disp" style={{ fontSize: 16, fontWeight: 700, flex: 1 }}>📒 {t("Alphabetical + J.K. register", "કક્કાવારી + જ.ક. રજીસ્ટર")}</div>
+          <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)", cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+          {opt("court", t("Court decided", "કોર્ટ નિકાલ થયેલ"), cnt((r) => !!r.res))}
+          {opt("conv", t("Convicted (J.K.)", "સજા (જ.ક.)"), cnt((r) => r.res === "conv"))}
+          {opt("acq", t("Acquitted (N.S.)", "ના.સા. (નિર્દોષ)"), cnt((r) => r.res === "acq"))}
+          {opt("all", t("All accused", "બધા આરોપી"), all.length)}
+          <button type="button" data-jk-copy-all onClick={() => nbJkCopy(rows, t, setCopied, "all")} disabled={!rows.length} style={{ ...nbJkBtn, marginLeft: "auto" }}>{copied === "all" ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy table", "આખું કોપી કરો")}</button>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginBottom: 8 }}>{t("In alphabetical order. The court result comes from the crime (typed in, or from the court-disposal PDF import). Acquitted: 'N.S.' with the date in the last column.", "કક્કાવારી ક્રમમાં. કોર્ટનું પરિણામ ગુનામાંથી (હાથે લખેલું અથવા કોર્ટ ડિસ્પોઝલ PDF આયાત કરેલું). નિર્દોષ છૂટેલા માટે છેલ્લા ખાનામાં 'ના.સા.' અને તારીખ.")}</div>
+        {rows.length ? <NbJkGrid rows={rows} head={NB_JK_HEAD} copied={copied} onCopyRow={(r) => nbJkCopy([r], t, setCopied, r.e.id + "_" + rows.indexOf(r))} />
+          : <div style={{ padding: 20, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("Nothing here yet. Import the court-disposal PDF (Data → court list) or write the judgment in the crime.", "હજુ કંઈ નથી. કોર્ટ ડિસ્પોઝલ PDF આયાત કરો અથવા ગુનામાં ચુકાદો લખો.")}</div>}
+      </div>
     </div>
   );
 }
@@ -18670,6 +18732,7 @@ function CrimeAccusedPanel({ ctx, onOpen }) {
   const [pick, setPick] = useState("");
   const [open, setOpen] = useState(false);
   const [jkOpen, setJkOpen] = useState({});
+  const [regOpen, setRegOpen] = useState(false);
   const qw = nbWA(q).trim().split(/\s+/).filter(Boolean).map((w) => ({ f: nbWNz(w).replace(/[^\u0A80-\u0AFFa-z0-9]/gi, ""), s: nbPnTok(w) })).filter((w) => w.f || w.s);
   const pre = (L, w) => (L || []).some((x) => (w.f && x.startsWith(w.f)) || (w.s && x.startsWith(w.s)));
   const hit = (g) => qw.every((w) => pre(g.toks, w) || pre(g.full, w) || pre(g.vilToks, w));
@@ -18678,6 +18741,7 @@ function CrimeAccusedPanel({ ctx, onOpen }) {
   const repeat = idx.filter((g) => g.rows.length > 1).length;
   return (
     <div data-acc-panel>
+      {regOpen && <NbJkRegister idx={idx} onClose={() => setRegOpen(false)} />}
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
         <div style={{ position: "relative" }}>
           <input type="search" value={q} onChange={(ev) => { setQ(ev.target.value); setPick(""); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 200)} placeholder={t("Accused name or village — even the first letters…", "આરોપીનું નામ કે ગામ — શરૂઆતના અક્ષર પણ ચાલે…")} className="gu" data-acc-q autoComplete="off" style={{ width: "100%", fontSize: 15, padding: "9px 10px", boxSizing: "border-box" }} />
@@ -18695,6 +18759,7 @@ function CrimeAccusedPanel({ ctx, onOpen }) {
         </div>
         <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6 }}>
           {t(`${idx.length} accused in all years · ${repeat} with more than one crime.`, `બધા વર્ષના કુલ ${nbG(idx.length)} આરોપી · ${nbG(repeat)} આરોપી પર એકથી વધુ ગુના.`)} {!qw.length && !pick && t("Showing the repeat accused.", "નીચે એકથી વધુ ગુના વાળા આરોપી.")}
+          {" "}<button type="button" data-jk-register-btn onClick={() => setRegOpen(true)} style={{ ...nbJkBtn, marginLeft: 4 }}>📒 {t("Alphabetical + J.K. register", "કક્કાવારી + જ.ક. રજીસ્ટર")}</button>
           {" "}{t("Crimes are joined by the full name (name, father, surname); a short name is joined only within the same village.", "ગુના આખા નામ (નામ, પિતા, અટક) થી જોડાય છે; ટૂંકું નામ હોય તો ફક્ત એ જ ગામમાં જોડાય છે.")}
         </div>
       </div>
@@ -18707,7 +18772,7 @@ function CrimeAccusedPanel({ ctx, onOpen }) {
               {g.vil && <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("of", "રહે.")} {g.vil}</span>}
               {g.ages.size > 0 && <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("age", "ઉ.વ.")} {nbG(Array.from(g.ages).join(", "))}</span>}
               <span style={{ marginLeft: "auto", fontWeight: 700, fontSize: 13.5 }}>{nbG(g.rows.length)} {t("crimes", "ગુના")}</span>
-              <button type="button" data-jk-btn onClick={() => setJkOpen((o) => ({ ...o, [g.key]: !o[g.key] }))} style={{ fontSize: 12, fontWeight: 600, borderRadius: 7, padding: "3px 9px", border: "1px solid var(--border)", background: jkOpen[g.key] ? "var(--bg-surface-2)" : "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer" }}>📒 {t("J.K. register", "જ.ક. રજીસ્ટર")}</button>
+              <button type="button" data-jk-btn onClick={() => setJkOpen((o) => ({ ...o, [g.key]: !o[g.key] }))} style={{ fontSize: 12, fontWeight: 600, borderRadius: 7, padding: "3px 9px", border: "1px solid var(--border)", background: jkOpen[g.key] ? "var(--bg-surface-2)" : "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer" }}>📒 {t("Alpha. / J.K.", "કક્કાવારી / જ.ક.")}</button>
             </div>
             {jkOpen[g.key] && <NbJkTable g={g} />}
             <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
