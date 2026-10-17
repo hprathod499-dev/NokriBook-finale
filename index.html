@@ -771,6 +771,24 @@ function nbApplyPersonal(d, key) {
   }
   return { ...d, ...local };
 }
+// Safety net: changes that are not saved to the server yet are also kept on this phone (compressed),
+// so closing the app while offline or while a save is failing never loses them. They are sent on the next open.
+function nbPendingKey(acct, uid) { return "nb_pending_" + acct + "_" + uid; }
+function nbPendingPut(key, obj) {
+  try {
+    if (typeof pako === "undefined") return;
+    const z = nbB64FromBytes(pako.deflate(new TextEncoder().encode(JSON.stringify(obj)), { level: 4 }));
+    localStorage.setItem(key, z);
+  } catch (e) { console.warn("unsaved-changes copy not kept", e && e.name); }
+}
+function nbPendingGet(key) {
+  try {
+    const z = localStorage.getItem(key);
+    if (!z || typeof pako === "undefined") return null;
+    return JSON.parse(new TextDecoder().decode(pako.inflate(nbBytesFromB64(z))));
+  } catch (e) { return null; }
+}
+function nbPendingDrop(key) { try { localStorage.removeItem(key); } catch (e) {} }
 function nbSavePersonal(d, key) {
   if (!d || !key) return;
   const local = {};
@@ -2783,7 +2801,7 @@ function NbDateInput({ value, onChange, style, className, placeholder, defaultVa
     const d = raw.replace(/\D/g, "").slice(0, 8), grow = raw.length > prev.length;
     const out = d.slice(0, 2) + (d.length > 2 || (grow && d.length === 2) ? "/" : "") + d.slice(2, 4) + (d.length > 4 || (grow && d.length === 4) ? "/" : "") + d.slice(4);
     setTxt(out);
-    if (d.length === 8) commit(out);
+    if (d.length === 8) { commit(out); setOpen(false); }
   };
   const shown = txt != null ? txt : cur ? formatDMY(cur) : "";
   const dis = !!rest.disabled;
@@ -4685,7 +4703,7 @@ function DutyRoster() {
 
   const [online, setOnline] = useState(typeof navigator === "undefined" || navigator.onLine);
   useEffect(() => {
-    const goOnline = () => setOnline(true);
+    const goOnline = () => { setOnline(true); setTimeout(() => { if (retryNowRef.current) retryNowRef.current(); }, 800); };
     const goOffline = () => setOnline(false);
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
@@ -4839,6 +4857,18 @@ function DutyRoster() {
             if (needsWrite && !snap.metadata.fromCache && !memberRef.current) ref.set(nbPackAccount(nbLiveOf(normalized))).catch(() => {});
             if (firstSnap && !snap.metadata.fromCache) {
               firstSnap = false; pubSyncedAcctRef.current = accountUid;
+              const pKey = user ? nbPendingKey(accountUid, user.uid) : null;
+              const pend = pKey ? nbPendingGet(pKey) : null;
+              if (pend && pend.mine && canEdit && Date.now() - (pend.at || 0) < 30 * 24 * 60 * 60 * 1000) {
+                setTimeout(() => {
+                  // same path as two devices saving at once: their newer changes and these are combined, nothing is overwritten
+                  if (pend.base) baseDataRef.current = normalizeData(pend.base);
+                  confirmedRevRef.current = pend.baseRev || 0;
+                  pendingBaseRef.current = { base: baseDataRef.current, baseRev: confirmedRevRef.current };
+                  writeToFirestore(normalizeData(pend.mine));
+                  showToast(t("Changes that weren't saved last time (no internet) are being saved now.", "ગયા વખતે (ઇન્ટરનેટ વગર) ન સચવાયેલા ફેરફારો હવે સચવાઈ રહ્યા છે."));
+                }, 300);
+              } else if (pend) nbPendingDrop(pKey);
               if (nbLsGet("nb_pubchk2_" + accountUid) !== todayStr()) { nbLsSet("nb_pubchk2_" + accountUid, todayStr()); syncPublicRoster(normalized); }
             }
           } else if (d.roster && !migratedRef.current && !snap.metadata.fromCache && !memberRef.current) {
@@ -4941,6 +4971,10 @@ function DutyRoster() {
   // Only one save runs at a time. Changes made while a save is on its way are sent right after it,
   // so two saves never race each other for the same record.
   const saveInFlightRef = useRef(false);
+  const retryNowRef = useRef(null);
+  const pendingTimerRef = useRef(null);
+  const pendingBaseRef = useRef(null);
+  const [justSaved, setJustSaved] = useState(false);
   const saveFailsRef = useRef(0);
   const [saveErrCode, setSaveErrCode] = useState("");
   const runSaveRef = useRef(null);
@@ -5177,6 +5211,14 @@ function DutyRoster() {
     pendingWritesRef.current += 1;
     setSaveStatus("saving");
     saveQueuedRef.current += 1;
+    if (user && accountUid) {
+      if (!pendingBaseRef.current) pendingBaseRef.current = { base: baseDataRef.current, baseRev: confirmedRevRef.current || 0 };
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = setTimeout(() => {
+        pendingTimerRef.current = null;
+        if (pendingWritesRef.current > 0 && pendingBaseRef.current) nbPendingPut(nbPendingKey(accountUid, user.uid), { at: Date.now(), baseRev: pendingBaseRef.current.baseRev, base: pendingBaseRef.current.base, mine: dataRef.current });
+      }, 400);
+    }
     if (saveTimerRef.current || saveInFlightRef.current) return;
     saveTimerRef.current = setTimeout(() => runSaveRef.current && runSaveRef.current(), 1200);
   };
@@ -5259,7 +5301,12 @@ function DutyRoster() {
           // the copy just saved already holds every change made meanwhile: nothing more to send
           if (dataRef.current === mineAtTx || dataRef.current === written) { pendingWritesRef.current = 0; saveQueuedRef.current = 0; }
           saveFailsRef.current = 0; setSaveErrCode("");
-          if (pendingWritesRef.current === 0) setSaveStatus("idle"); else setSaveStatus("saving");
+          if (pendingWritesRef.current === 0) {
+            setSaveStatus("idle"); setJustSaved(true);
+            pendingBaseRef.current = null;
+            if (pendingTimerRef.current) { clearTimeout(pendingTimerRef.current); pendingTimerRef.current = null; }
+            if (user && accountUid) nbPendingDrop(nbPendingKey(accountUid, user.uid));
+          } else setSaveStatus("saving");
           syncPublicRoster(dataRef.current);
           syncDistrictDigest(dataRef.current);
           done();
@@ -5267,7 +5314,7 @@ function DutyRoster() {
         .catch((e) => {
           if (e && e.__nameTaken) {
             pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
-            if (pendingWritesRef.current === 0) setSaveStatus("idle");
+            if (pendingWritesRef.current === 0) { setSaveStatus("idle"); pendingBaseRef.current = null; if (user && accountUid) nbPendingDrop(nbPendingKey(accountUid, user.uid)); }
             nameTakenToast(); done();
             docRef.get().then((snap) => {
               if (!snap.exists) return;
@@ -5287,7 +5334,7 @@ function DutyRoster() {
             confirmedRevRef.current = normalized._rev || 0;
             baseDataRef.current = normalized;
             pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
-            if (pendingWritesRef.current === 0) setSaveStatus("idle");
+            if (pendingWritesRef.current === 0) { setSaveStatus("idle"); pendingBaseRef.current = null; if (user && accountUid) nbPendingDrop(nbPendingKey(accountUid, user.uid)); }
             done();
             showToast(t(
               "Someone else saved a change here at the same moment — your last action wasn't applied, and the screen now shows their update instead. Please try again.",
@@ -5298,7 +5345,7 @@ function DutyRoster() {
           if (e && e.code === "permission-denied") {
             console.error("Save rejected by Security Rules:", e);
             pendingWritesRef.current = Math.max(0, pendingWritesRef.current - nSave);
-            if (pendingWritesRef.current === 0) setSaveStatus("idle");
+            if (pendingWritesRef.current === 0) { setSaveStatus("idle"); pendingBaseRef.current = null; if (user && accountUid) nbPendingDrop(nbPendingKey(accountUid, user.uid)); }
             showToast(t("This change isn't allowed and was not saved.", "આ ફેરફારની મંજૂરી નથી, તેથી સેવ થયો નથી."), "error"); done();
             docRef.get().then((snap) => {
               if (!snap.exists) return;
@@ -5318,7 +5365,8 @@ function DutyRoster() {
           // a single slow / dropped request is retried quietly; the red bar only shows if it keeps failing
           saveFailsRef.current += 1;
           if (saveFailsRef.current >= 2) { setSaveStatus("error"); setSaveErrCode(String((e && (e.code || e.name)) || "error").slice(0, 40)); }
-          retryTimerRef.current = setTimeout(() => attempt(saveFailsRef.current >= 2 ? 15000 : 4000), saveFailsRef.current >= 2 ? delayMs : 1000);
+          retryNowRef.current = () => { if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; } retryNowRef.current = null; attempt(4000); };
+          retryTimerRef.current = setTimeout(() => { retryNowRef.current = null; attempt(saveFailsRef.current >= 2 ? 15000 : 4000); }, saveFailsRef.current >= 2 ? delayMs : 1000);
         });
     };
     attempt(2000);
@@ -5421,6 +5469,7 @@ useEffect(() => {
   useEffect(() => () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); }, []);
   // a new app version is only switched to when nothing is waiting to be saved
   useEffect(() => { window.__nbUnsaved = saveStatus !== "idle"; }, [saveStatus]);
+  useEffect(() => { if (!justSaved) return; const tm = setTimeout(() => setJustSaved(false), 1600); return () => clearTimeout(tm); }, [justSaved]);
 
   const showToast = (msg, type) => {
     if (!canEdit && type !== "error") return;
@@ -7206,7 +7255,16 @@ const clearCategoryHistory = (catId) => {
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
           >☰</button>
           <div className="no-print top-toolbar" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16, alignItems: "center" }}>
-            {saveStatus !== "idle" && (
+            {saveStatus === "idle" && justSaved && (
+              <span className="gu" data-saved-chip style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 20, background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)" }}>✓ {langCtxValue.t("Saved", "સચવાયું")}</span>
+            )}
+            {saveStatus !== "idle" && !online && (
+              <span className="gu" data-offline-chip title={langCtxValue.t("No internet. Your changes are kept on this phone and will be saved by themselves when the internet is back.", "ઇન્ટરનેટ નથી. તમારા ફેરફારો આ ફોનમાં રાખેલા છે અને ઇન્ટરનેટ આવતાં આપમેળે સચવાઈ જશે.")}
+                style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 20, background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)" }}>
+                📴 {langCtxValue.t("Offline — will save when back online", "ઑફલાઇન — ઇન્ટરનેટ આવતાં સચવાશે")}
+              </span>
+            )}
+            {saveStatus !== "idle" && online && (
               <span
                 className="gu"
                 title={saveStatus === "saving"
