@@ -4869,7 +4869,7 @@ function DutyRoster() {
                   showToast(t("Changes that weren't saved last time (no internet) are being saved now.", "ગયા વખતે (ઇન્ટરનેટ વગર) ન સચવાયેલા ફેરફારો હવે સચવાઈ રહ્યા છે."));
                 }, 300);
               } else if (pend) nbPendingDrop(pKey);
-              if (nbLsGet("nb_pubchk2_" + accountUid) !== todayStr()) { nbLsSet("nb_pubchk2_" + accountUid, todayStr()); syncPublicRoster(normalized); }
+              if (nbLsGet("nb_pubchk3_" + accountUid) !== todayStr()) { nbLsSet("nb_pubchk3_" + accountUid, todayStr()); syncPublicRoster(normalized); }
             }
           } else if (d.roster && !migratedRef.current && !snap.metadata.fromCache && !memberRef.current) {
             migratedRef.current = true;
@@ -22220,7 +22220,8 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
     if (!selectedUid) { setSelectedData(undefined); return; }
     setSelectedData(undefined);
     const unsub = db.collection("publicRosters").doc(selectedUid).onSnapshot(
-      (snap) => setSelectedData(snap.exists && snap.data().v === 2 ? normalizeData(nbUnpackPublic(snap.data())) : null),
+      // copies saved before the district was included still get it on their PDFs
+      (snap) => setSelectedData(snap.exists && snap.data().v === 2 ? (() => { const d = normalizeData(nbUnpackPublic(snap.data())); return { ...d, district: d.district || districtId || null }; })() : null),
       () => setSelectedData(null)
     );
     return () => unsub();
