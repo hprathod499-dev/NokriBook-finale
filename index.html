@@ -7258,10 +7258,10 @@ const clearCategoryHistory = (catId) => {
             {saveStatus === "idle" && justSaved && (
               <span className="gu" data-saved-chip style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 20, background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)" }}>✓ {langCtxValue.t("Saved", "સચવાયું")}</span>
             )}
-            {saveStatus !== "idle" && !online && (
+            {!online && (
               <span className="gu" data-offline-chip title={langCtxValue.t("No internet. Your changes are kept on this phone and will be saved by themselves when the internet is back.", "ઇન્ટરનેટ નથી. તમારા ફેરફારો આ ફોનમાં રાખેલા છે અને ઇન્ટરનેટ આવતાં આપમેળે સચવાઈ જશે.")}
                 style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, padding: "5px 10px", borderRadius: 20, background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)" }}>
-                📴 {langCtxValue.t("Offline — will save when back online", "ઑફલાઇન — ઇન્ટરનેટ આવતાં સચવાશે")}
+                📴 {saveStatus !== "idle" ? langCtxValue.t("No internet — will save when back", "ઇન્ટરનેટ નથી — આવતાં સચવાશે") : langCtxValue.t("No internet", "ઇન્ટરનેટ નથી")}
               </span>
             )}
             {saveStatus !== "idle" && online && (
