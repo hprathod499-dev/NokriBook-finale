@@ -8290,58 +8290,139 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
   );
 }
 
+// Inline month calendar where several separate dates can be ticked (e.g. Sat 18 and Mon 20, skipping a Sunday holiday).
+function NbMultiDateCal({ picked, onToggle, busy, ym, setYm }) {
+  const { t, lang } = useLang();
+  const today = todayStr();
+  const [y, mo] = ym;
+  const gu = lang === "gu";
+  const months = gu ? NB_MON_GU : NB_MON_EN;
+  const wk = gu ? ["સોમ", "મંગળ", "બુધ", "ગુરુ", "શુક્ર", "શનિ", "રવિ"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const first = (new Date(y, mo, 1).getDay() + 6) % 7, days = new Date(y, mo + 1, 0).getDate();
+  const iso = (d) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const go = (d) => { let m2 = mo + d, y2 = y; if (m2 < 0) { m2 = 11; y2--; } if (m2 > 11) { m2 = 0; y2++; } setYm([y2, m2]); };
+  const years = []; for (let k = new Date().getFullYear() + 2; k >= Math.min(2015, y); k--) years.push(k);
+  const cells = []; for (let k = 0; k < first; k++) cells.push(null); for (let d = 1; d <= days; d++) cells.push(d);
+  const nav = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 34, height: 34, fontSize: 14, fontWeight: 700, color: "var(--text-primary)", cursor: "pointer", flexShrink: 0 };
+  const sel = { fontSize: 14, fontWeight: 700, padding: "6px 4px", borderRadius: 8, minWidth: 0 };
+  const pk = new Set(picked);
+  return (
+    <div data-multi-cal className="gu" style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 8, background: "var(--bg-page)" }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+        <button type="button" onClick={() => go(-1)} aria-label={t("Previous month", "પાછલો મહિનો")} data-mcal-prev style={nav}>◀</button>
+        <select value={mo} onChange={(e) => setYm([y, +e.target.value])} aria-label={t("Month", "મહિનો")} className="gu" style={{ ...sel, flex: 1.4 }}>{months.map((m, k) => <option key={k} value={k}>{m}</option>)}</select>
+        <select value={y} onChange={(e) => setYm([+e.target.value, mo])} aria-label={t("Year", "વર્ષ")} className="mono" style={{ ...sel, flex: 1 }}>{years.map((k) => <option key={k} value={k}>{k}</option>)}</select>
+        <button type="button" onClick={() => go(1)} aria-label={t("Next month", "આગલો મહિનો")} data-mcal-next style={nav}>▶</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, textAlign: "center" }}>
+        {wk.map((w, k) => <div key={w} style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 0", color: k === 6 ? "var(--status-error-text, #c0392b)" : "var(--text-secondary)" }}>{w}</div>)}
+        {cells.map((d, k) => {
+          if (!d) return <div key={"b" + k} />;
+          const v = iso(d), on = pk.has(v), isT = v === today, was = busy && busy.has(v);
+          return <button type="button" key={v} onClick={() => onToggle(v)} data-mcal-day={v} aria-pressed={on} className="mono"
+            title={was ? t("Already on leave / outstation", "પહેલેથી રજા / બહારગામ") : undefined}
+            style={{ height: 36, borderRadius: 8, fontSize: 14, cursor: "pointer", padding: 0,
+              border: on ? "1px solid var(--btn-dark-bg)" : isT ? "1.5px solid var(--btn-dark-bg)" : was ? "1px dashed var(--status-purple-border, var(--border))" : "1px solid transparent",
+              background: on ? "var(--btn-dark-bg)" : was ? "var(--status-purple-bg, transparent)" : "transparent",
+              color: on ? "#fff" : k % 7 === 6 ? "var(--status-error-text, #c0392b)" : "var(--text-primary)", fontWeight: on || isT ? 700 : 500 }}>{d}</button>;
+        })}
+      </div>
+    </div>
+  );
+}
+// sorted dates → continuous stretches [{from, to}]
+function nbDateRuns(dates) {
+  const ds = [...new Set(dates)].sort(); const runs = [];
+  ds.forEach((d) => { const r = runs[runs.length - 1]; if (r && addDaysStr(r.to, 1) === d) r.to = d; else runs.push({ from: d, to: d }); });
+  return runs;
+}
+function nbRunsText(runs, t) {
+  return runs.map((r) => (r.to === null ? formatDMY(r.from) + " " + t("onward", "થી આગળ") : r.to !== r.from ? `${formatDMY(r.from)} – ${formatDMY(r.to)}` : formatDMY(r.from))).join(", ");
+}
 function RecordLeaveView({ data, setUnavailable, showToast }) {
   const { t } = useLang();
   const leaveTypes = data.leaveTypes || [];
   const outstationTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
   const [kind, setKind] = useState("Leave");
   const typeList = kind === "Leave" ? leaveTypes : outstationTypes;
-  const [typeId, setTypeId] = useState(leaveTypes[0] ? leaveTypes[0].id : "");
-  const [dateMode, setDateMode] = useState("one");
+  const [typeId, setTypeId] = useState("");
+  const [dateMode, setDateMode] = useState("pick");
+  const [picked, setPicked] = useState([]);
   const [from, setFrom] = useState(todayStr());
   const [to, setTo] = useState(todayStr());
   const [numberInput, setNumberInput] = useState("");
   const [queue, setQueue] = useState([]);
   const [showInfo, setShowInfo] = useState(false);
+  const [justAdded, setJustAdded] = useState("");
+  const [ym, setYm] = useState(() => { const d = todayStr(); return [+d.slice(0, 4), +d.slice(5, 7) - 1]; });
+  const typeRef = useRef(null), calRef = useRef(null);
 
-  const switchKind = (nextKind) => {
-    setKind(nextKind);
-    const list = nextKind === "Leave" ? leaveTypes : outstationTypes;
-    setTypeId(list[0] ? list[0].id : "");
-  };
+  const switchKind = (nextKind) => { setKind(nextKind); setTypeId(""); setPicked([]); };
 
   const selectedType = typeList.find((lt) => lt.id === typeId);
+  const indefinite = !!(selectedType && selectedType.indefinite);
+  const mode = indefinite ? "noend" : dateMode;
 
+  const num = numberInput.trim();
   const lookupName = useMemo(() => {
-    const num = numberInput.trim();
     if (!num) return null;
     const s = data.staff[num];
     return s ? s.name : undefined;
-  }, [numberInput, data.staff]);
+  }, [num, data.staff]);
 
-  const effectiveTo = dateMode === "noend" ? null : (dateMode === "one" ? from : to);
-  const canAdd = numberInput.trim() && lookupName && typeId && from && (dateMode === "noend" || (effectiveTo && effectiveTo >= from));
+  // dates this person is already away (saved or waiting in the list) — shown shaded on the calendar
+  const busy = useMemo(() => {
+    const out = new Set(); const st = num && data.staff[num];
+    const add = (f, tt) => { if (!f) return; const end = tt || (f > todayStr() ? f : todayStr()); dateRangeStrs(f, end).slice(0, 400).forEach((d) => out.add(d)); };
+    if (st) { (st.unavailableHistory || []).forEach((p) => p && add(p.from, p.to)); if (st.unavailable) add(st.unavailable.from, st.unavailable.to); }
+    queue.forEach((q) => { if (q.number === num) q.runs.forEach((r) => add(r.from, r.to)); });
+    return out;
+  }, [num, data.staff, queue]);
+
+  const runs = mode === "pick" ? nbDateRuns(picked) : mode === "noend" ? (from ? [{ from, to: null }] : []) : (from && to && to >= from ? [{ from, to }] : []);
+  const canAdd = !!(num && lookupName && typeId && runs.length);
+  const ready = !!(num && lookupName && typeId);
+
+  // once a person and a type are chosen, bring the calendar into view
+  useEffect(() => {
+    if (ready && calRef.current && calRef.current.scrollIntoView) { try { calRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (e) {} }
+  }, [ready, typeId]);
+
+  const openTypePicker = () => {
+    setTimeout(() => { const el = typeRef.current; if (!el) return; try { el.focus(); if (el.showPicker) el.showPicker(); } catch (e) {} }, 60);
+  };
 
   const addToQueue = () => {
     if (!canAdd) return;
-    const num = numberInput.trim();
     if (kind === "Leave") {
-      const queued = queue.filter((q) => q.number === num && q.kind === "Leave").map((q) => ({ kind: "Leave", typeId: q.typeId, from: q.from, to: q.to }));
-      const over = nbLeaveOverLimit(data, num, typeId, from, effectiveTo, queued, t);
+      const queued = [];
+      queue.filter((q) => q.number === num && q.kind === "Leave").forEach((q) => q.runs.forEach((r) => queued.push({ kind: "Leave", typeId: q.typeId, from: r.from, to: r.to })));
+      let over = null;
+      for (const r of runs) { over = nbLeaveOverLimit(data, num, typeId, r.from, r.to, queued, t); if (over) break; queued.push({ kind: "Leave", typeId, from: r.from, to: r.to }); }
       if (over && !window.confirm(over + "\n\n" + t("Add this leave anyway?", "છતાં આ રજા ઉમેરવી છે?"))) return;
     }
-    setQueue((q) => [...q, { number: num, name: lookupName, kind, typeId, typeLabel: selectedType ? selectedType.label : "", from, to: effectiveTo }]);
-    setNumberInput("");
+    const label = selectedType ? selectedType.label : "";
+    setQueue((q) => [...q, { number: num, name: lookupName, kind, typeId, typeLabel: label, runs }]);
+    setJustAdded(`${label} · ${nbRunsText(runs, t)}`);
+    // keep the person; start a fresh type + dates for them
+    setTypeId(""); setPicked([]);
+    openTypePicker();
   };
 
+  const clearPerson = () => { setNumberInput(""); setTypeId(""); setPicked([]); setJustAdded(""); };
   const removeFromQueue = (idx) => setQueue((q) => q.filter((_, i) => i !== idx));
 
   const recordAll = () => {
     if (queue.length === 0) return;
-    queue.forEach((entry) => setUnavailable(entry.number, entry.kind, entry.typeId, entry.from, entry.to, true));
-    showToast(t(`Recorded ${queue.length} ${queue.length === 1 ? "entry" : "entries"}`, `${queue.length} નોંધ સંગ્રહાઈ`));
-    setQueue([]);
+    let n = 0;
+    queue.forEach((entry) => entry.runs.forEach((r) => { setUnavailable(entry.number, entry.kind, entry.typeId, r.from, r.to, true); n++; }));
+    showToast(t(`Recorded ${n} ${n === 1 ? "entry" : "entries"}`, `${n} નોંધ સંગ્રહાઈ`));
+    setQueue([]); setJustAdded("");
   };
+
+  const chip = (on) => ({ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (on ? "var(--accent-strong)" : "var(--border)"), background: on ? "var(--accent)" : "transparent", color: on ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" });
+  const lbl = { display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 };
+  const pickedRuns = nbDateRuns(picked);
 
   return (
     <React.Fragment>
@@ -8352,108 +8433,123 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 520 }} className="gu">
           {t(
-            "Pick Leave or Outstation, a type, and a date once, then add as many people to the list below as needed — different people, or the same person again for a separate stretch, either kind mixed freely in the same batch — before saving all of it together.",
-            "એક વખત રજા અથવા બહારગામ, પ્રકાર, અને તારીખ પસંદ કરો, પછી નીચેની યાદીમાં જરૂર મુજબ ઘણા લોકો ઉમેરો — અલગ લોકો, અથવા એ જ વ્યક્તિ ફરીથી અલગ સમયગાળા માટે, બંને પ્રકાર એક જ બેચમાં ભેગા પણ કરી શકાય — બધું એકસાથે સાચવતાં પહેલાં."
+            "Type the buckle number, pick the type — the calendar opens. Tap every date of the leave (skip a Sunday or holiday in between if you like), then Add to list. The person stays filled in so you can add another type for them; tap ✕ to clear them. Save everything at the end.",
+            "બકલ નંબર લખો, પ્રકાર પસંદ કરો — કૅલેન્ડર ખુલી જશે. રજાની દરેક તારીખ પર ટૅપ કરો (વચ્ચે રવિવાર કે જાહેર રજા હોય તો તે છોડી દો), પછી યાદીમાં ઉમેરો. વ્યક્તિ ભરેલી જ રહે છે જેથી તેમનો બીજો પ્રકાર ઉમેરી શકો; કાઢવા ✕ દબાવો. છેલ્લે બધું એકસાથે નોંધો."
           )}
         </p>
       )}
 
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480, marginBottom: queue.length ? 18 : 0 }}>
+      <div data-record-leave style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 480, marginBottom: queue.length ? 18 : 0, boxSizing: "border-box" }}>
         <div style={{ marginBottom: 14, display: "flex", gap: 6 }}>
-          <button
-            onClick={() => switchKind("Leave")}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (kind === "Leave" ? "var(--accent-strong)" : "var(--border)"), background: kind === "Leave" ? "var(--accent)" : "transparent", color: kind === "Leave" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
-          >🌴 {t("Leave", "રજા")}</button>
+          <button onClick={() => switchKind("Leave")} style={chip(kind === "Leave")} className="gu">🌴 {t("Leave", "રજા")}</button>
           <button
             onClick={() => switchKind("Outstation")}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (kind === "Outstation" ? "var(--status-purple-border)" : "var(--border)"), background: kind === "Outstation" ? "var(--status-purple-bg)" : "transparent", color: kind === "Outstation" ? "var(--status-purple-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
+            style={{ ...chip(false), border: "1px solid " + (kind === "Outstation" ? "var(--status-purple-border)" : "var(--border)"), background: kind === "Outstation" ? "var(--status-purple-bg)" : "transparent", color: kind === "Outstation" ? "var(--status-purple-text)" : "var(--text-primary)" }} className="gu"
           >🧳 {t("Outstation", "બહારગામ")}</button>
         </div>
         <div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Buckle number", "બકલ નંબર")}</label>
-          <BuckleOrNameInput
-            data={data} value={numberInput} onChange={setNumberInput} onEnter={addToQueue}
-            className="mono" style={{ width: "100%", boxSizing: "border-box" }}
-          />
-          {numberInput.trim() && (
+          <label style={lbl} className="gu">{t("Buckle number", "બકલ નંબર")}</label>
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <BuckleOrNameInput
+                data={data} value={numberInput} onChange={(v) => { setNumberInput(v); setJustAdded(""); }} onEnter={() => { if (lookupName) openTypePicker(); }}
+                className="mono" style={{ width: "100%", boxSizing: "border-box" }}
+              />
+            </div>
+            {numberInput && <button type="button" onClick={clearPerson} data-rl-clear title={t("Remove this person", "આ વ્યક્તિ કાઢો")} aria-label={t("Remove this person", "આ વ્યક્તિ કાઢો")} style={{ ...iconBtn, flexShrink: 0, height: 36, width: 36, padding: 0, fontSize: 14 }}>✕</button>}
+          </div>
+          {num && (
             <div style={{ fontSize: 11.5, marginTop: 4 }} className="gu">
               {lookupName
                 ? <span style={{ color: "var(--status-success-text)" }}>{lookupName}</span>
                 : <span style={{ color: "var(--status-error-text)" }}>{t("No staff found with that number — add them in Manage staff first", "તે નંબર સાથે કોઈ સ્ટાફ મળ્યો નથી — પહેલા સ્ટાફ સંચાલિત કરોમાં ઉમેરો")}</span>}
             </div>
           )}
-        </div>
-
-<div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
-          <button
-            onClick={() => setDateMode("one")}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "one" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "one" ? "var(--accent)" : "transparent", color: dateMode === "one" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
-          >{t("One day only", "ફક્ત એક દિવસ")}</button>
-          <button
-            onClick={() => setDateMode("multi")}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "multi" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "multi" ? "var(--accent)" : "transparent", color: dateMode === "multi" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
-          >{t("Multiple days", "એક કરતાં વધુ દિવસ")}</button>
-          <button
-            onClick={() => setDateMode("noend")}
-            style={{ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (dateMode === "noend" ? "var(--accent-strong)" : "var(--border)"), background: dateMode === "noend" ? "var(--accent)" : "transparent", color: dateMode === "noend" ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }} className="gu"
-          >{t("No end date", "કોઈ અંતિમ તારીખ નથી")}</button>
-        </div>
-
-        {dateMode !== "noend" ? (
-          <div style={{ marginBottom: 14, display: "flex", gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{dateMode === "one" ? t("Date", "તારીખ") : t("From", "થી")}</label>
-              <NbDateInput value={from} onChange={(e) => { setFrom(e.target.value); if (dateMode === "one") setTo(e.target.value); else if (to < e.target.value) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
+          {justAdded && lookupName && (
+            <div data-rl-added style={{ fontSize: 11.5, marginTop: 6, padding: "6px 9px", borderRadius: 7, background: "var(--status-success-bg, transparent)", border: "1px solid var(--status-success-border, var(--border))", color: "var(--status-success-text)" }} className="gu">
+              ✓ {t("Added", "ઉમેર્યું")}: {justAdded} — {t("pick another type for the same person, or ✕ to change the person.", "આ જ વ્યક્તિ માટે બીજો પ્રકાર પસંદ કરો, અથવા વ્યક્તિ બદલવા ✕ દબાવો.")}
             </div>
-            {dateMode === "multi" && (
-              <div style={{ flex: 1 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To", "સુધી")}</label>
-                <NbDateInput value={to} min={from} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
-              </div>
-            )}
-          </div>
-        ) : (
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Starts", "શરૂ થાય છે")}</label>
-            <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
-            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">{t("Stays on leave until you clear it from Manage staff.", "તમે સ્ટાફ સંચાલિત કરોમાંથી સાફ ન કરો ત્યાં સુધી રજા પર રહેશે.")}</div>
-          </div>
-        )}
+          )}
+        </div>
 
-<div style={{ marginBottom: 14 }}>
-          <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{kind === "Leave" ? t("Leave type", "રજાનો પ્રકાર") : t("Outstation type", "બહારગામનો પ્રકાર")}</label>
-          <select value={typeId} onChange={(e) => setTypeId(e.target.value)} style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }} className="gu">
-            {typeList.length === 0 && <option value="">{kind === "Leave" ? t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી") : t("No outstation types set up yet", "હજુ કોઈ બહારગામનો પ્રકાર સેટ નથી")}</option>}
+        <div style={{ marginBottom: 14 }}>
+          <label style={lbl} className="gu">{kind === "Leave" ? t("Leave type", "રજાનો પ્રકાર") : t("Outstation type", "બહારગામનો પ્રકાર")}</label>
+          <select ref={typeRef} value={typeId} onChange={(e) => { setTypeId(e.target.value); setPicked([]); }} data-rl-type style={{ width: "100%", boxSizing: "border-box", fontSize: 13 }} className="gu">
+            <option value="">{typeList.length === 0 ? (kind === "Leave" ? t("No leave types set up yet", "હજુ કોઈ રજાનો પ્રકાર સેટ નથી") : t("No outstation types set up yet", "હજુ કોઈ બહારગામનો પ્રકાર સેટ નથી")) : t("Choose a type…", "પ્રકાર પસંદ કરો…")}</option>
             {typeList.map((lt) => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
           </select>
         </div>
 
+        {ready && (
+          <div ref={calRef}>
+            {!indefinite && (
+              <div style={{ marginBottom: 10, display: "flex", gap: 6 }}>
+                <button onClick={() => setDateMode("pick")} data-rl-mode="pick" style={chip(mode === "pick")} className="gu">{t("Pick dates", "તારીખો પસંદ કરો")}</button>
+                <button onClick={() => setDateMode("range")} data-rl-mode="range" style={chip(mode === "range")} className="gu">{t("From – To", "થી – સુધી")}</button>
+                <button onClick={() => setDateMode("noend")} data-rl-mode="noend" style={chip(mode === "noend")} className="gu">{t("No end date", "અંતિમ તારીખ નથી")}</button>
+              </div>
+            )}
+            {mode === "pick" && (
+              <div style={{ marginBottom: 12 }}>
+                <NbMultiDateCal picked={picked} busy={busy} ym={ym} setYm={setYm} onToggle={(v) => setPicked((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]))} />
+                <div data-rl-picked style={{ fontSize: 12, marginTop: 6, color: picked.length ? "var(--text-primary)" : "var(--text-tertiary)", display: "flex", gap: 8, alignItems: "flex-start" }} className="gu">
+                  <span style={{ flex: 1 }}>
+                    {picked.length
+                      ? <React.Fragment><b>{t(`${picked.length} ${picked.length === 1 ? "day" : "days"}`, `${picked.length} દિવસ`)}</b>: {nbRunsText(pickedRuns, t)}</React.Fragment>
+                      : t("Tap the dates of the leave — tap again to unselect.", "રજાની તારીખો પર ટૅપ કરો — ફરી ટૅપ કરવાથી નીકળી જશે.")}
+                  </span>
+                  {picked.length > 0 && <button type="button" onClick={() => setPicked([])} style={{ background: "transparent", border: "none", color: "inherit", fontSize: 12, cursor: "pointer", padding: 0, textDecoration: "none" }} className="gu">{t("Clear", "ખાલી કરો")}</button>}
+                </div>
+              </div>
+            )}
+            {mode === "range" && (
+              <div style={{ marginBottom: 14, display: "flex", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={lbl} className="gu">{t("From", "થી")}</label>
+                  <NbDateInput value={from} onChange={(e) => { setFrom(e.target.value); if (to < e.target.value) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={lbl} className="gu">{t("To", "સુધી")}</label>
+                  <NbDateInput value={to} min={from} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+                </div>
+              </div>
+            )}
+            {mode === "noend" && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={lbl} className="gu">{t("Starts", "શરૂ થાય છે")}</label>
+                <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }} className="gu">{t("Stays on leave until you clear it from Manage staff.", "તમે સ્ટાફ સંચાલિત કરોમાંથી સાફ ન કરો ત્યાં સુધી રજા પર રહેશે.")}</div>
+              </div>
+            )}
+          </div>
+        )}
+
         <button
           onClick={addToQueue}
-          disabled={!canAdd}
+          disabled={!canAdd} data-rl-add
           style={{
             background: canAdd ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none", borderRadius: 7,
-            padding: "8px 16px", fontSize: 13, fontWeight: 600, width: "100%", cursor: canAdd ? "pointer" : "default",
+            padding: "9px 16px", fontSize: 13, fontWeight: 600, width: "100%", cursor: canAdd ? "pointer" : "default",
           }} className="gu"
         >+ {t("Add to list", "યાદીમાં ઉમેરો")}</button>
       </div>
 
       {queue.length > 0 && (
-        <div style={{ maxWidth: 480 }}>
+        <div style={{ maxWidth: 480 }} data-rl-queue>
           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 }} className="gu">
             {t(`${queue.length} to record`, `${queue.length} નોંધવાના`)}
           </div>
           {queue.map((entry, idx) => (
             <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", marginBottom: 6 }}>
-              <div style={{ fontSize: 12.5 }} className="gu">
+              <div style={{ fontSize: 12.5, minWidth: 0 }} className="gu">
                 <span style={{ fontWeight: 600 }}>{entry.name}</span>
-                <span style={{ color: "var(--text-tertiary)" }}> {nbBuckleTag(entry.number)} · {entry.kind === "Outstation" ? "🧳" : "🌴"} {entry.typeLabel} · {formatDMY(entry.from)}{entry.to && entry.to !== entry.from ? ` – ${formatDMY(entry.to)}` : ""}{!entry.to ? ` ${t("onward", "થી આગળ")}` : ""}</span>
+                <span style={{ color: "var(--text-tertiary)" }}> {nbBuckleTag(entry.number)} · {entry.kind === "Outstation" ? "🧳" : "🌴"} {entry.typeLabel} · {nbRunsText(entry.runs, t)}</span>
               </div>
               <button onClick={() => removeFromQueue(idx)} title={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} aria-label={t("Remove from list", "યાદીમાંથી કાઢી નાખો")} style={{ ...iconBtn, flexShrink: 0 }}>✕</button>
             </div>
           ))}
           <button
-            onClick={recordAll}
+            onClick={recordAll} data-rl-save
             style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 600, width: "100%", marginTop: 8 }} className="gu"
           >{t(`Record ${queue.length} ${queue.length === 1 ? "entry" : "entries"}`, `${queue.length} નોંધો`)}</button>
         </div>
