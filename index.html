@@ -82,6 +82,10 @@
     cursor: pointer; font-family: inherit;
     transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
+  [data-reorder-id] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  [data-reorder-drag="1"] { opacity: 0.35 !important; }
+  [data-reorder-over="before"] { box-shadow: inset 0 3px 0 var(--accent-strong) !important; }
+  [data-reorder-over="after"] { box-shadow: inset 0 -3px 0 var(--accent-strong) !important; }
   html:not(.nb-noanim) button:not(:disabled):active { transform: scale(0.93); transition-duration: 0.06s; }
   @media (hover: hover) {
     html:not(.nb-noanim) button:not(:disabled):hover { transform: translateY(-1px); }
@@ -3128,7 +3132,7 @@ function useSidebarSwipe(open, setOpen) {
     const deltaX = t.clientX - startRef.current.x;
     const deltaY = t.clientY - startRef.current.y;
     startRef.current = null;
-    if (insideScroller) return;
+    if (insideScroller || window.__nbReordering) return;
     if (Math.abs(deltaX) < 60 || Math.abs(deltaX) < Math.abs(deltaY)) return;
     if (!open && deltaX > 0) setOpen(true);
     else if (open && deltaX < 0) setOpen(false);
@@ -7659,7 +7663,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
-  const { draggedId, dragProps } = useDragReorder(reorderCategories);
+  const { draggedId, dragProps } = useDragReorder(reorderCategories, (id) => { setEditing(true); renameCategory(id); });
   const [collapsed, setCollapsed] = useState(() => nbLsGet("nb_sidebar_collapsed") === "1");
   useEffect(() => { nbLsSet("nb_sidebar_collapsed", collapsed ? "1" : "0"); }, [collapsed]);
 
@@ -7703,7 +7707,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
           const count = (data.membership[c.id] || []).length;
           const active = view.mode === "category" && c.id === view.catId;
           return (
-            <div key={c.id} {...(editing ? dragProps(c.id) : {})} style={{
+            <div key={c.id} {...(sectionOk("category") ? dragProps(c.id) : {})} style={{
               display: "flex", alignItems: "center", margin: editing ? "2px 8px" : 0, borderRadius: editing ? 8 : 0,
               background: draggedId === c.id ? "#1B2733" : "transparent", opacity: draggedId === c.id ? 0.55 : 1,
               transition: "opacity 0.12s ease",
@@ -7712,7 +7716,7 @@ function Sidebar({ data, view, setView, addCategory, renameCategory, deleteCateg
                 <span style={{
                   cursor: "grab", color: "var(--text-secondary)", fontSize: 14, letterSpacing: -1, lineHeight: 1,
                   padding: "0 4px 0 10px", userSelect: "none", display: "flex", flexDirection: "column", gap: 2,
-                }} title={t("Drag to reorder", "ફરીથી ગોઠવવા ખેંચો")}>
+                }} title={t("Hold and drag to reorder · hold to edit", "ફરીથી ગોઠવવા પકડીને ખેંચો · ફેરફાર માટે પકડી રાખો")}>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
@@ -11316,9 +11320,9 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   const [newDesgLabel, setNewDesgLabel] = useState("");
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
   const [showFairnessCompare, setShowFairnessCompare] = useState(false);
-  const leaveDrag = useDragReorder((from, to) => reorderList("leaveTypes", from, to));
-  const outDrag = useDragReorder((from, to) => reorderList("outstationTypes", from, to));
-  const desgDrag = useDragReorder((from, to) => reorderList("designations", from, to));
+  const leaveDrag = useDragReorder((from, to) => reorderList("leaveTypes", from, to), (id) => renameLeaveType(id));
+  const outDrag = useDragReorder((from, to) => reorderList("outstationTypes", from, to), (id) => renameOutstationType(id));
+  const desgDrag = useDragReorder((from, to) => reorderList("designations", from, to), (id) => renameDesignation(id));
 
   const leaveTypes = data.leaveTypes || DEFAULT_LEAVE_TYPES;
   const outstationTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
@@ -11727,7 +11731,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               opacity: leaveDrag.draggedId === lt.id ? 0.55 : 1, transition: "opacity 0.12s ease, background 0.12s ease",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <span style={{ cursor: "grab", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2, userSelect: "none" }} title={t("Drag to reorder", "ફરીથી ગોઠવવા ખેંચો")}>
+                <span style={{ cursor: "grab", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2, userSelect: "none" }} title={t("Hold and drag to reorder · hold to edit", "ફરીથી ગોઠવવા પકડીને ખેંચો · ફેરફાર માટે પકડી રાખો")}>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
@@ -11778,7 +11782,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               opacity: outDrag.draggedId === ot.id ? 0.55 : 1, transition: "opacity 0.12s ease, background 0.12s ease",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <span style={{ cursor: "grab", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2, userSelect: "none" }} title={t("Drag to reorder", "ફરીથી ગોઠવવા ખેંચો")}>
+                <span style={{ cursor: "grab", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2, userSelect: "none" }} title={t("Hold and drag to reorder · hold to edit", "ફરીથી ગોઠવવા પકડીને ખેંચો · ફેરફાર માટે પકડી રાખો")}>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
@@ -11829,7 +11833,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               opacity: desgDrag.draggedId === d.id ? 0.55 : 1, transition: "opacity 0.12s ease, background 0.12s ease",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <span style={{ cursor: "grab", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2, userSelect: "none" }} title={t("Drag to reorder", "ફરીથી ગોઠવવા ખેંચો")}>
+                <span style={{ cursor: "grab", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2, userSelect: "none" }} title={t("Hold and drag to reorder · hold to edit", "ફરીથી ગોઠવવા પકડીને ખેંચો · ફેરફાર માટે પકડી રાખો")}>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
                   <span style={{ display: "flex", gap: 2 }}><i style={dotStyle} /><i style={dotStyle} /></span>
@@ -12417,16 +12421,96 @@ function useEscToClose(onClose) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 }
-function useDragReorder(onReorder) {
-  const [draggedId, setDraggedId] = useState(null);
+// Hold-and-drag reordering that works with a finger as well as a mouse.
+// Hold an item (~0.45 s): it lifts and follows the finger — drop it on another item to move it there.
+// Hold and let go without moving: opens edit for that item (onEdit).  A mouse can also simply drag it.
+let _nbReorderGroupSeq = 0;
+function useDragReorder(onReorder, onEdit) {
+  const [st, setSt] = useState({ dragged: null, over: null, pos: null });
+  const groupRef = useRef(null); if (!groupRef.current) groupRef.current = "rg" + (++_nbReorderGroupSeq);
+  const cbRef = useRef({}); cbRef.current = { onReorder, onEdit };
+  const g = useRef(null);
+  useEffect(() => () => { if (g.current && g.current.cleanup) g.current.cleanup(); }, []);
+  const begin = (e, id) => {
+    if (e.button != null && e.button !== 0) return;
+    if (e.target && e.target.closest && e.target.closest("input, select, textarea, [data-no-hold]")) return;
+    if (g.current && g.current.cleanup) g.current.cleanup();
+    const row = e.currentTarget, group = groupRef.current;
+    const S = { id, x0: e.clientX, y0: e.clientY, lifted: false, moved: false, over: null, pos: null, ghost: null, timer: null };
+    g.current = S;
+    const swallowClick = () => {
+      const k = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      window.addEventListener("click", k, true); setTimeout(() => window.removeEventListener("click", k, true), 450);
+    };
+    const noScroll = (ev) => { if (S.lifted) ev.preventDefault(); };
+    const lift = () => {
+      if (S.lifted) return; S.lifted = true; window.__nbReordering = true;
+      try { if (navigator.vibrate) navigator.vibrate(25); } catch (x) {}
+      try { const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges(); } catch (x) {}
+      const r = row.getBoundingClientRect();
+      const gh = row.cloneNode(true);
+      gh.removeAttribute("data-reorder-id"); gh.setAttribute("data-reorder-ghost", "1");
+      Object.assign(gh.style, { position: "fixed", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px", margin: "0", zIndex: "2000", pointerEvents: "none", opacity: "0.95", boxShadow: "0 10px 28px rgba(0,0,0,0.28)", borderRadius: "8px", background: "var(--bg-surface)", transform: "scale(1.03)", transition: "transform 0.12s ease", boxSizing: "border-box" });
+      document.body.appendChild(gh); S.ghost = gh; S.top0 = r.top;
+      setSt({ dragged: id, over: null, pos: null });
+    };
+    const move = (ev) => {
+      const dx = ev.clientX - S.x0, dy = ev.clientY - S.y0;
+      if (!S.lifted) {
+        if (Math.abs(dx) > 9 || Math.abs(dy) > 9) {
+          if (ev.pointerType === "mouse") lift(); else { cleanup(); return; }   // a finger moving before the hold = scrolling
+        } else return;
+      }
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) S.moved = true;
+      if (ev.cancelable) ev.preventDefault();
+      if (S.ghost) S.ghost.style.top = (S.top0 + dy) + "px";
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const tgt = el && el.closest && el.closest(`[data-reorder-group="${group}"]`);
+      let over = null, pos = null;
+      if (tgt) {
+        over = tgt.getAttribute("data-reorder-id");
+        if (over === S.id) over = null;
+        else { const all = [...document.querySelectorAll(`[data-reorder-group="${group}"]`)]; pos = all.indexOf(tgt) < all.indexOf(row) ? "before" : "after"; }
+      }
+      // keep the list scrolled while dragging near the top / bottom of the screen
+      const H = window.innerHeight; if (ev.clientY < 60) window.scrollBy(0, -8); else if (ev.clientY > H - 60) window.scrollBy(0, 8);
+      const sc = row.parentElement && row.parentElement.closest && row.parentElement;
+      if (sc && sc.scrollHeight > sc.clientHeight) { const rr = sc.getBoundingClientRect(); if (ev.clientY < rr.top + 30) sc.scrollTop -= 8; else if (ev.clientY > rr.bottom - 30) sc.scrollTop += 8; }
+      if (over !== S.over || pos !== S.pos) { S.over = over; S.pos = pos; setSt({ dragged: S.id, over, pos }); }
+    };
+    const up = () => {
+      const lifted = S.lifted, over = S.over, moved = S.moved;
+      cleanup();
+      if (!lifted) return;
+      swallowClick();
+      if (over) { cbRef.current.onReorder && cbRef.current.onReorder(S.id, over); }
+      else if (!moved && cbRef.current.onEdit) setTimeout(() => cbRef.current.onEdit(S.id), 0);
+    };
+    const cancel = () => cleanup();
+    const ctx = (ev) => { if (S.timer || S.lifted) ev.preventDefault(); };
+    function cleanup() {
+      clearTimeout(S.timer); S.timer = null;
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("touchmove", noScroll); window.removeEventListener("contextmenu", ctx, true);
+      if (S.ghost) { S.ghost.remove(); S.ghost = null; }
+      if (S.lifted) setTimeout(() => { window.__nbReordering = false; }, 400);
+      if (g.current === S) g.current = null;
+      setSt((cur) => (cur.dragged || cur.over ? { dragged: null, over: null, pos: null } : cur));
+    }
+    S.cleanup = cleanup;
+    S.timer = setTimeout(() => { S.timer = null; lift(); }, 450);
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", cancel);
+    window.addEventListener("touchmove", noScroll, { passive: false }); window.addEventListener("contextmenu", ctx, true);
+  };
   const dragProps = (id) => ({
-    draggable: true,
-    onDragStart: () => setDraggedId(id),
-    onDragOver: (e) => e.preventDefault(),
-    onDrop: (e) => { e.preventDefault(); if (draggedId && draggedId !== id) onReorder(draggedId, id); setDraggedId(null); },
-    onDragEnd: () => setDraggedId(null),
+    "data-reorder-id": id,
+    "data-reorder-group": groupRef.current,
+    "data-reorder-drag": st.dragged === id ? "1" : undefined,
+    "data-reorder-over": st.over === id ? st.pos : undefined,
+    onPointerDown: (e) => begin(e, id),
+    onDragStart: (e) => e.preventDefault(),
   });
-  return { draggedId, dragProps };
+  return { draggedId: st.dragged, dragProps };
 }
 const calNavBtn = {
   background: "var(--bg-surface-2)", border: "1px solid var(--border)", borderRadius: 6, width: 26, height: 26,
