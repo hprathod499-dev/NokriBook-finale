@@ -82,7 +82,8 @@
     cursor: pointer; font-family: inherit;
     transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  [data-reorder-id] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  [data-reorder-id], [data-hold] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  tr[data-sel-row] td * { pointer-events: none; }
   [data-reorder-drag="1"] { opacity: 0.35 !important; }
   [data-reorder-over="before"] { box-shadow: inset 0 3px 0 var(--accent-strong) !important; }
   [data-reorder-over="after"] { box-shadow: inset 0 -3px 0 var(--accent-strong) !important; }
@@ -6416,6 +6417,56 @@ const clearCategoryHistory = (catId) => {
     showToast(t(`Duty assigned to ${name} for ${formatDMY(dutyDate)}`, `${formatDMY(dutyDate)} માટે ${name} ને ડ્યુટી સોંપાઈ`));
   };
 
+  // Several people of one work type at once (hold-to-select in the roster): one save for everyone.
+  const bulkCategory = (catId, numbers, action, opts) => {
+    const o = opts || {};
+    const cur = dataRef.current; if (!cur || !numbers || !numbers.length) return false;
+    const cat = (cur.categories || []).find((c) => c.id === catId); const catLabel = cat ? cat.label : catId;
+    const set = new Set(numbers), list = cur.membership[catId] || [];
+    const nameOf = (n) => ((cur.staff || {})[n] || {}).name || n;
+    const n = numbers.length;
+    if (action === "remove") {
+      let next = { ...cur, membership: { ...cur.membership, [catId]: list.filter((m) => !set.has(m.number)) } };
+      list.filter((m) => set.has(m.number)).forEach((entry) => { next = withRecycled(next, { type: "membership", label: `${nameOf(entry.number)} — ${catLabel}`, payload: { catId, catLabel, entry } }); });
+      persist(next);
+      showToast(t(`${n} removed from "${catLabel}" — moved to Recycle bin`, `"${catLabel}" માંથી ${n} કાઢી નાખ્યા — રિસાયકલ બિનમાં ખસેડાયા`));
+      return true;
+    }
+    if (action === "skip") {
+      const now = Date.now();
+      const logs = numbers.map((num, i) => ({ id: uid(), number: num, name: nameOf(num), note: (o.note || "").trim(), date: todayStr(), ts: now + i, byNumber: "", byName: "", scope: "category", catId, catLabel }));
+      persist({ ...cur, membership: { ...cur.membership, [catId]: list.map((m) => (set.has(m.number) ? { ...m, skip: true } : m)) }, skipLog: [...(cur.skipLog || []), ...logs] });
+      showToast(t(`${n} marked Skip in "${catLabel}" — logged in Skip history`, `"${catLabel}" માં ${n} ને સ્કિપ કર્યા — સ્કિપ ઇતિહાસમાં નોંધાયું`));
+      return true;
+    }
+    if (action === "present") {
+      const staff = { ...cur.staff }; numbers.forEach((num) => { if (staff[num] && staff[num].skip) staff[num] = { ...staff[num], skip: false }; });
+      persist({ ...cur, staff, membership: { ...cur.membership, [catId]: list.map((m) => (set.has(m.number) ? { ...m, skip: false } : m)) } });
+      showToast(t(`${n} marked Present`, `${n} ને હાજર કર્યા`));
+      return true;
+    }
+    if (action === "lastDuty") {
+      if (!o.date) return false;
+      const clash = numbers.map((num) => { const c = findDutyConflict(cur, num, o.date, catId); return c ? `${nameOf(num)} → "${c.label}"` : null; }).filter(Boolean);
+      if (clash.length && !window.confirm(t(`Already on another duty on ${formatDMY(o.date)}:\n${clash.join("\n")}\n\nSet the date anyway?`, `${formatDMY(o.date)} ના રોજ પહેલેથી બીજી ડ્યુટી છે:\n${clash.join("\n")}\n\nછતાં તારીખ મૂકવી છે?`))) return false;
+      persist({ ...cur, membership: { ...cur.membership, [catId]: list.map((m) => (set.has(m.number) ? { ...m, lastDuty: o.date } : m)) } });
+      showToast(t(`Last duty set to ${formatDMY(o.date)} for ${n}`, `${n} ની છેલ્લી ડ્યુટી ${formatDMY(o.date)} કરી`));
+      return true;
+    }
+    if (action === "assign") {
+      const d = o.date || todayStr();
+      const away = numbers.map((num) => { const u = unavailableOnDate((cur.staff || {})[num], d); return u ? `${nameOf(num)} → ${unavailLabel(cur, u)}` : null; }).filter(Boolean);
+      const clash = numbers.map((num) => { const c = findDutyConflict(cur, num, d, catId); return c ? `${nameOf(num)} → "${c.label}"` : null; }).filter(Boolean);
+      const warn = [...away, ...clash];
+      if (warn.length && !window.confirm(t(`On ${formatDMY(d)}:\n${warn.join("\n")}\n\nAssign this duty to all ${n} anyway?`, `${formatDMY(d)} ના રોજ:\n${warn.join("\n")}\n\nછતાં બધા ${n} ને આ ડ્યુટી સોંપવી છે?`))) return false;
+      const batch = uid(), ts = Date.now();
+      const staff = { ...cur.staff }; numbers.forEach((num) => { if (staff[num] && staff[num].skip) staff[num] = { ...staff[num], skip: false }; });
+      persist({ ...cur, staff, membership: { ...cur.membership, [catId]: list.map((m, i) => (set.has(m.number) ? { ...m, skip: false, lastDuty: d, history: [...(m.history || []), { date: d, ts: ts + i, note: (o.note || "").trim() || null, batch, ...(o.night ? { night: true } : {}) }] } : m)) } });
+      showToast(t(`Duty assigned to ${n} for ${formatDMY(d)}`, `${formatDMY(d)} માટે ${n} ને ડ્યુટી સોંપાઈ`));
+      return true;
+    }
+    return false;
+  };
   const swapDuty = (catId, aNum, bNum, date, backCatId) => {
     const cur = dataRef.current;
     const staff = cur.staff || {};
@@ -7418,6 +7469,7 @@ const clearCategoryHistory = (catId) => {
               importStaffToCategory={importStaffToCategory}
               setSkipInCategory={setSkipInCategory} skipInCategoryWithLog={skipInCategoryWithLog} setPresentInCategory={setPresentInCategory}
               setLastDuty={setLastDuty} assignDuty={assignDuty}
+              bulkCategory={bulkCategory} openStaffEdit={(num) => setView({ mode: "staff", staffId: num, presetSearch: num, edit: true })}
               clearCategoryHistory={clearCategoryHistory}
               deleteHistoryEntries={deleteHistoryEntries}
               editHistoryNote={editHistoryNote}
@@ -8945,7 +8997,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   );
 }
 
-function CategoryView({ data, catId, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, editHistoryNote, markHistoryOutstation, undo, redo, canUndo, canRedo }) {
+function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, editHistoryNote, markHistoryOutstation, undo, redo, canUndo, canRedo }) {
   const { t, lang } = useLang();
   const [newNumber, setNewNumber] = useState("");
   const [newName, setNewName] = useState("");
@@ -8972,6 +9024,19 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [pdfPeriod, setPdfPeriod] = useState({ key: "month", customFrom: todayStr(), customTo: todayStr() });
+  // hold a person in the roster → select mode: tap more people, then act on all of them at once
+  const [sel, setSel] = useState(null);
+  const [bulkModal, setBulkModal] = useState(null);
+  const [bulkDate, setBulkDate] = useState("");
+  const selOn = !!sel;
+  const toggleSel = (num) => setSel((cur) => { const nx = new Set(cur || []); if (nx.has(num)) nx.delete(num); else nx.add(num); return nx.size ? nx : null; });
+  const holdRow = useLongPress((num) => setSel((cur) => { const nx = new Set(cur || []); nx.add(num); return nx; }));
+  useEffect(() => { setSel(null); setBulkModal(null); }, [catId]);
+  useEffect(() => {
+    if (!selOn) return;
+    const k = (e) => { if (e.key === "Escape" && !bulkModal) setSel(null); };
+    window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
+  }, [selOn, bulkModal]);
   const cat = data.categories.find((c) => c.id === catId);
   const membership = data.membership[catId] || [];
 
@@ -9302,8 +9367,13 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
                 ? (data.designations.find((d) => d.id === p.staffRec.designation) || {}).label
                 : "";
               return (
-                <tr key={p.number} style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: p.rank === 1 ? "var(--highlight-bg)" : "transparent" }}>
-                  <td style={td}>{p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}</td>
+                <tr key={p.number} {...holdRow(p.number)} data-sel-row={selOn ? (sel.has(p.number) ? "on" : "off") : undefined}
+                  onClickCapture={selOn ? (e) => { e.preventDefault(); e.stopPropagation(); toggleSel(p.number); } : undefined}
+                  style={{ borderTop: p.rank === 1 ? "2px solid var(--highlight-border)" : "1px solid var(--border-soft)", background: selOn && sel.has(p.number) ? "var(--status-info-bg)" : p.rank === 1 ? "var(--highlight-bg)" : "transparent", cursor: selOn ? "pointer" : undefined }}>
+                  <td style={{ ...td, whiteSpace: "nowrap" }}>
+                    {selOn && <span data-sel-box aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: 5, marginRight: 6, verticalAlign: "middle", border: "1.5px solid " + (sel.has(p.number) ? "var(--status-info-text)" : "var(--text-tertiary)"), background: sel.has(p.number) ? "var(--status-info-text)" : "transparent", color: "#fff", fontSize: 12, fontWeight: 700 }}>{sel.has(p.number) ? "✓" : ""}</span>}
+                    {p.rank ? <span className="mono" style={{ fontWeight: 600, color: p.rank === 1 ? "var(--status-warning-text)" : "var(--text-primary)" }}>#{p.rank}</span> : <span style={{ color: "var(--text-tertiary)" }}>–</span>}
+                  </td>
                   <td
                     style={{ ...td, minWidth: 160, cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
                     className="gu"
@@ -9357,6 +9427,51 @@ function CategoryView({ data, catId, addToCategory, removeFromCategory, importSt
         </table>
         </div>
       </div>
+      {!selOn && displayRoster.length > 0 && (
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }} className="gu">{t("Tip: hold a name to select several people — then assign, skip, edit or remove them together.", "ટીપ: નામ પર આંગળી દબાવી રાખો — ઘણા લોકો પસંદ કરી સાથે ડ્યુટી સોંપો, સ્કિપ, સુધારો કે કાઢો.")}</div>
+      )}
+      {selOn && (() => {
+        const nums = displayRoster.filter((p) => sel.has(p.number)).map((p) => p.number);
+        const allOn = displayRoster.length > 0 && displayRoster.every((p) => sel.has(p.number));
+        const ab = { ...iconBtnWide, background: "var(--bg-surface)", color: "var(--text-primary)", fontWeight: 600, fontSize: 12.5, padding: "7px 10px", whiteSpace: "nowrap" };
+        const done = (ok) => { if (ok) { setSel(null); setBulkModal(null); } };
+        return (
+          <div data-sel-bar className="gu" style={{ position: "sticky", bottom: 0, zIndex: 15, marginTop: 10, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, boxShadow: "0 -6px 20px rgba(0,0,0,0.12)", padding: "10px 10px calc(10px + env(safe-area-inset-bottom, 0px))" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <button type="button" onClick={() => setSel(null)} aria-label={t("Cancel selection", "પસંદગી રદ કરો")} data-sel-cancel style={{ ...iconBtn, width: 32, height: 32, padding: 0, fontSize: 14 }}>✕</button>
+              <b style={{ flex: 1, fontSize: 13.5 }} data-sel-count>{t(`${nums.length} selected`, `${nums.length} પસંદ કર્યા`)}</b>
+              <button type="button" data-sel-all onClick={() => setSel(allOn ? null : new Set(displayRoster.map((p) => p.number)))} style={{ ...ab, fontWeight: 500 }}>{allOn ? t("Clear all", "બધું ખાલી") : t("Select all", "બધા પસંદ કરો")}</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button type="button" data-sel-act="assign" disabled={!nums.length} onClick={() => setBulkModal("assign")} style={ab}>✓ {t("Assign duty", "ડ્યુટી સોંપો")}</button>
+              <button type="button" data-sel-act="skip" disabled={!nums.length} onClick={() => setBulkModal("skip")} style={ab}>⏸ {t("Skip", "સ્કિપ")}</button>
+              <button type="button" data-sel-act="present" disabled={!nums.length} onClick={() => done(bulkCategory(catId, nums, "present"))} style={ab}>▶ {t("Present", "હાજર")}</button>
+              <button type="button" data-sel-act="date" disabled={!nums.length} onClick={() => { setBulkDate(""); setBulkModal("date"); }} style={ab}>📅 {t("Last duty date", "છેલ્લી ડ્યુટી તારીખ")}</button>
+              {nums.length === 1 && openStaffEdit && <button type="button" data-sel-act="edit" onClick={() => openStaffEdit(nums[0])} style={ab}>✎ {t("Edit person", "વ્યક્તિ સુધારો")}</button>}
+              <button type="button" data-sel-act="remove" disabled={!nums.length} onClick={() => {
+                if (!window.confirm(t(`Remove ${nums.length} from "${cat ? cat.label : ""}"? (They go to the Recycle bin.)`, `"${cat ? cat.label : ""}" માંથી ${nums.length} ને કાઢી નાખવા છે? (રિસાયકલ બિનમાં જશે.)`))) return;
+                done(bulkCategory(catId, nums, "remove"));
+              }} style={{ ...ab, color: "var(--status-error-text)", borderColor: "var(--status-error-border)" }}>🗑 {t("Remove", "કાઢી નાખો")}</button>
+            </div>
+            {bulkModal && ReactDOM.createPortal(<React.Fragment>
+            {bulkModal === "assign" && <AssignDutyModal name={t(`${nums.length} people`, `${nums.length} વ્યક્તિ`)} onCancel={() => setBulkModal(null)} onConfirm={(note, date, night) => done(bulkCategory(catId, nums, "assign", { note, date, night }))} />}
+            {bulkModal === "skip" && <SkipNoteModal name={t(`${nums.length} people`, `${nums.length} વ્યક્તિ`)} onCancel={() => setBulkModal(null)} onConfirm={(note) => done(bulkCategory(catId, nums, "skip", { note }))} />}
+            {bulkModal === "date" && (
+              <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20, padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setBulkModal(null); }}>
+                <div className="modal-card gu" data-sel-datebox style={{ background: "var(--bg-surface)", borderRadius: 12, padding: 18, width: 320, maxWidth: "100%", boxSizing: "border-box" }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>{t(`Last duty date for ${nums.length}`, `${nums.length} ની છેલ્લી ડ્યુટી તારીખ`)}</div>
+                  <NbDateInput value={bulkDate} onChange={(e) => setBulkDate(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                    <button type="button" onClick={() => setBulkModal(null)} style={ab}>{t("Cancel", "રદ કરો")}</button>
+                    <button type="button" disabled={!bulkDate} data-sel-date-ok onClick={() => done(bulkCategory(catId, nums, "lastDuty", { date: bulkDate }))} style={{ ...ab, background: bulkDate ? "var(--btn-dark-bg)" : "var(--border)", color: "#fff", border: "none" }}>{t("Save", "સાચવો")}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            </React.Fragment>, document.body)}
+          </div>
+        );
+      })()}
 
       <form
         onSubmit={(e) => { e.preventDefault(); addToCategory(catId, newNumber, lookupPreview || newName, newDate); setNewNumber(""); setNewName(""); setNewDate(todayStr()); }}
@@ -12424,6 +12539,33 @@ function useEscToClose(onClose) {
 // Hold-and-drag reordering that works with a finger as well as a mouse.
 // Hold an item (~0.45 s): it lifts and follows the finger — drop it on another item to move it there.
 // Hold and let go without moving: opens edit for that item (onEdit).  A mouse can also simply drag it.
+// Long-press (≈0.45 s) on an element → onLong(key). The click that follows the hold is swallowed.
+function useLongPress(onLong) {
+  const ref = useRef({}); ref.current.onLong = onLong;
+  return (key) => ({
+    onPointerDown: (e) => {
+      if (e.button != null && e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest("input, select, textarea, a")) return;
+      const S = { x: e.clientX, y: e.clientY, fired: false };
+      const stop = () => { clearTimeout(S.tm); window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); window.removeEventListener("contextmenu", cx, true); };
+      const mv = (ev) => { if (Math.abs(ev.clientX - S.x) > 9 || Math.abs(ev.clientY - S.y) > 9) stop(); };
+      const cx = (ev) => ev.preventDefault();
+      S.tm = setTimeout(() => {
+        S.fired = true; stop();
+        try { if (navigator.vibrate) navigator.vibrate(25); } catch (x) {}
+        try { const s2 = window.getSelection && window.getSelection(); if (s2) s2.removeAllRanges(); } catch (x) {}
+        // swallow only the click that the finger's release produces
+        const k = (ev) => { ev.stopPropagation(); ev.preventDefault(); off(); };
+        const off = () => { window.removeEventListener("click", k, true); window.removeEventListener("pointerup", lateUp, true); };
+        const lateUp = () => setTimeout(off, 300);
+        window.addEventListener("click", k, true); window.addEventListener("pointerup", lateUp, true); setTimeout(off, 4000);
+        ref.current.onLong && ref.current.onLong(key);
+      }, 450);
+      window.addEventListener("pointermove", mv); window.addEventListener("pointerup", stop); window.addEventListener("pointercancel", stop); window.addEventListener("contextmenu", cx, true);
+    },
+    "data-hold": "1",
+  });
+}
 let _nbReorderGroupSeq = 0;
 function useDragReorder(onReorder, onEdit) {
   const [st, setSt] = useState({ dragged: null, over: null, pos: null });
@@ -12439,8 +12581,8 @@ function useDragReorder(onReorder, onEdit) {
     const S = { id, x0: e.clientX, y0: e.clientY, lifted: false, moved: false, over: null, pos: null, ghost: null, timer: null };
     g.current = S;
     const swallowClick = () => {
-      const k = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-      window.addEventListener("click", k, true); setTimeout(() => window.removeEventListener("click", k, true), 450);
+      const k = (ev) => { ev.stopPropagation(); ev.preventDefault(); window.removeEventListener("click", k, true); };
+      window.addEventListener("click", k, true); setTimeout(() => window.removeEventListener("click", k, true), 300);
     };
     const noScroll = (ev) => { if (S.lifted) ev.preventDefault(); };
     const lift = () => {
