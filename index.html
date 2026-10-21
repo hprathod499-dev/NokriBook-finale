@@ -9431,7 +9431,11 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory,
         <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }} className="gu">{t("Tip: hold a name to select several people — then assign, skip, edit or remove them together.", "ટીપ: નામ પર આંગળી દબાવી રાખો — ઘણા લોકો પસંદ કરી સાથે ડ્યુટી સોંપો, સ્કિપ, સુધારો કે કાઢો.")}</div>
       )}
       {selOn && (() => {
-        const nums = displayRoster.filter((p) => sel.has(p.number)).map((p) => p.number);
+        const selRows = displayRoster.filter((p) => sel.has(p.number));
+        const nums = selRows.map((p) => p.number);
+        // Skip only makes sense for people who are Present, Present only for people who are Skipped
+        const presentNums = selRows.filter((p) => p.status === "Present").map((p) => p.number);
+        const skippedNums = selRows.filter((p) => p.status === "Skip").map((p) => p.number);
         const allOn = displayRoster.length > 0 && displayRoster.every((p) => sel.has(p.number));
         const ab = { ...iconBtnWide, background: "var(--bg-surface)", color: "var(--text-primary)", fontWeight: 600, fontSize: 12.5, padding: "7px 10px", whiteSpace: "nowrap" };
         const done = (ok) => { if (ok) { setSel(null); setBulkModal(null); } };
@@ -9444,8 +9448,8 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory,
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button type="button" data-sel-act="assign" disabled={!nums.length} onClick={() => setBulkModal("assign")} style={ab}>✓ {t("Assign duty", "ડ્યુટી સોંપો")}</button>
-              <button type="button" data-sel-act="skip" disabled={!nums.length} onClick={() => setBulkModal("skip")} style={ab}>⏸ {t("Skip", "સ્કિપ")}</button>
-              <button type="button" data-sel-act="present" disabled={!nums.length} onClick={() => done(bulkCategory(catId, nums, "present"))} style={ab}>▶ {t("Present", "હાજર")}</button>
+              {presentNums.length > 0 && <button type="button" data-sel-act="skip" onClick={() => setBulkModal("skip")} style={ab}>⏸ {t("Skip", "સ્કિપ")} ({presentNums.length})</button>}
+              {skippedNums.length > 0 && <button type="button" data-sel-act="present" onClick={() => done(bulkCategory(catId, skippedNums, "present"))} style={ab}>▶ {t("Present", "હાજર")} ({skippedNums.length})</button>}
               <button type="button" data-sel-act="date" disabled={!nums.length} onClick={() => { setBulkDate(""); setBulkModal("date"); }} style={ab}>📅 {t("Last duty date", "છેલ્લી ડ્યુટી તારીખ")}</button>
               {nums.length === 1 && openStaffEdit && <button type="button" data-sel-act="edit" onClick={() => openStaffEdit(nums[0])} style={ab}>✎ {t("Edit person", "વ્યક્તિ સુધારો")}</button>}
               <button type="button" data-sel-act="remove" disabled={!nums.length} onClick={() => {
@@ -9455,7 +9459,7 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory,
             </div>
             {bulkModal && ReactDOM.createPortal(<React.Fragment>
             {bulkModal === "assign" && <AssignDutyModal name={t(`${nums.length} people`, `${nums.length} વ્યક્તિ`)} onCancel={() => setBulkModal(null)} onConfirm={(note, date, night) => done(bulkCategory(catId, nums, "assign", { note, date, night }))} />}
-            {bulkModal === "skip" && <SkipNoteModal name={t(`${nums.length} people`, `${nums.length} વ્યક્તિ`)} onCancel={() => setBulkModal(null)} onConfirm={(note) => done(bulkCategory(catId, nums, "skip", { note }))} />}
+            {bulkModal === "skip" && <SkipNoteModal name={t(`${presentNums.length} people`, `${presentNums.length} વ્યક્તિ`)} onCancel={() => setBulkModal(null)} onConfirm={(note) => done(bulkCategory(catId, presentNums, "skip", { note }))} />}
             {bulkModal === "date" && (
               <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000055", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20, padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) setBulkModal(null); }}>
                 <div className="modal-card gu" data-sel-datebox style={{ background: "var(--bg-surface)", borderRadius: 12, padding: 18, width: 320, maxWidth: "100%", boxSizing: "border-box" }}>
