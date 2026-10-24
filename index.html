@@ -13450,11 +13450,17 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                             />
                           )}
                           <span>
-                            {r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(r.number)}</span>{r.night ? <span title={t("Night duty", "રાત્રિ ડ્યુટી")}> 🌙</span> : null}{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
+                            {!blk.note && r.note ? (
+                              <span
+                                onClick={(e) => { if (entrySelectMode) return; e.stopPropagation(); setNoteFor(r); }}
+                                style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
+                                title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
+                              >{r.name}</span>
+                            ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(r.number)}</span>{r.night ? <span title={t("Night duty", "રાત્રિ ડ્યુટી")}> 🌙</span> : null}{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
                             {range && (
                               <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
                             )}
-                            {!blk.note && nbDutyNoteText(r) && <span data-row-note style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)", marginTop: 1, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>📝 {nbDutyNoteText(r)}</span>}
+
                           </span>
                         </span>
                         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -13473,6 +13479,13 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                                 {remaining === 0 ? t("last day", "છેલ્લો દિવસ") : t(`${remaining} day${remaining === 1 ? "" : "s"} left`, `${remaining} દિવસ બાકી`)}
                               </span>
                             )
+                          )}
+                          {!blk.note && r.note && !entrySelectMode && (
+                            <span
+                              onClick={(e) => { e.stopPropagation(); setNoteFor(r); }}
+                              style={{ fontSize: 11.5, color: "var(--text-tertiary)", cursor: "pointer" }}
+                              title={t("Tap to see the note for this duty", "આ ડ્યુટીની નોંધ જોવા ટેપ કરો")}
+                            >📝</span>
                           )}
                           {swapDuty && !isOutstationHere && !entrySelectMode && !deleteMode && (
                             <button
