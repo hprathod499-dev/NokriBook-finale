@@ -9509,8 +9509,8 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
       })()}
 
       {groupFor && assignGroupDuty && ReactDOM.createPortal(
-        <div className="modal-backdrop" data-group-modal style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 60, padding: "24px 12px", overflowY: "auto" }} onClick={(e) => { if (e.target === e.currentTarget) setGroupFor(null); }}>
-          <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, padding: 18, width: 600, maxWidth: "100%", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div className="modal-backdrop" data-group-modal style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 60, padding: "16px 12px", overflowY: "auto", boxSizing: "border-box" }} onClick={(e) => { if (e.target === e.currentTarget) setGroupFor(null); }}>
+          <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, padding: 18, width: 600, maxWidth: "100%", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", margin: "auto" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 8 }}>
               <div className="disp" style={{ fontSize: 17, fontWeight: 700 }}>{t("Group duty", "જૂથ ડ્યુટી")}</div>
               <button type="button" onClick={() => setGroupFor(null)} data-group-close aria-label={t("Close", "બંધ કરો")} style={{ ...iconBtn, width: 32, height: 32, padding: 0, fontSize: 14 }}>✕</button>
@@ -12926,6 +12926,21 @@ function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
   );
 }
 
+// Duty calendar: people given one duty together (same batch) with the same note are listed under that note once.
+// Everyone else stays in a plain list with their own note under the name.
+function nbDutyNoteText(r) { return [r.note, r.extraNote].filter(Boolean).join(" — "); }
+function nbDutyBlocks(rows) {
+  const cnt = {};
+  rows.forEach((r) => { const nt = nbDutyNoteText(r); if (r.batch && nt) { const k = r.batch + "|" + nt; cnt[k] = (cnt[k] || 0) + 1; } });
+  const plain = { note: "", rows: [] }; const blocks = []; const byKey = {};
+  rows.forEach((r) => {
+    const nt = nbDutyNoteText(r);
+    const k = r.batch && nt ? r.batch + "|" + nt : null;
+    if (k && cnt[k] > 1) { if (!byKey[k]) { byKey[k] = { note: nt, rows: [] }; blocks.push(byKey[k]); } byKey[k].rows.push(r); }
+    else plain.rows.push(r);
+  });
+  return plain.rows.length ? [plain, ...blocks] : blocks;
+}
 function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty, editAwayPeriod, setUnavailable, editDutyNote }) {
   const [awayMenu, setAwayMenu] = useState(null);
   // hold a person's duty → menu: Add / Edit note · Swap duty · Remove this duty
@@ -13385,7 +13400,10 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                     <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", display: "inline-block", flexShrink: 0 }} />
                     {cat}
                   </div>
-                  {selGrouped[cat].map((r, i) => {
+                  {nbDutyBlocks(selGrouped[cat]).map((blk, bi) => (
+                  <div key={bi} data-duty-block={blk.note ? "note" : "plain"} style={blk.note ? { margin: "4px 0 8px", border: "1px solid var(--border-soft)", borderLeft: "3px solid var(--accent)", borderRadius: 8, padding: "6px 8px 4px", background: "var(--bg-surface-2)" } : undefined}>
+                  {blk.note && <div data-block-note className="gu" style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 2, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>📝 {blk.note} <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>· {t(`${blk.rows.length} people`, `${blk.rows.length} વ્યક્તિ`)}</span></div>}
+                  {blk.rows.map((r, i) => {
                     const remaining = dutyDaysRemaining(r.catId, r.number, selectedDate);
                     const range = dutySpanRange(r.catId, r.number, selectedDate);
                     const rowKey = `${r.catId}|${r.number}|${r.idx}`;
@@ -13415,16 +13433,11 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                             />
                           )}
                           <span>
-                            {r.note ? (
-                              <span
-                                onClick={(e) => { if (entrySelectMode) return; e.stopPropagation(); setNoteFor(r); }}
-                                style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
-                                title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
-                              >{r.name}</span>
-                            ) : r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(r.number)}</span>{r.night ? <span title={t("Night duty", "રાત્રિ ડ્યુટી")}> 🌙</span> : null}{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
+                            {r.name} <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{nbBuckleTag(r.number)}</span>{r.night ? <span title={t("Night duty", "રાત્રિ ડ્યુટી")}> 🌙</span> : null}{r.designation ? <span style={{ fontSize: 11, color: "var(--status-warning-text)" }}> · {r.designation}</span> : null}
                             {range && (
                               <span style={{ display: "block", fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 1 }}>{formatDMY(range.from)} – {formatDMY(range.to)}</span>
                             )}
+                            {!blk.note && nbDutyNoteText(r) && <span data-row-note style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)", marginTop: 1, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>📝 {nbDutyNoteText(r)}</span>}
                           </span>
                         </span>
                         <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -13443,13 +13456,6 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                                 {remaining === 0 ? t("last day", "છેલ્લો દિવસ") : t(`${remaining} day${remaining === 1 ? "" : "s"} left`, `${remaining} દિવસ બાકી`)}
                               </span>
                             )
-                          )}
-                          {r.note && !entrySelectMode && (
-                            <span
-                              onClick={(e) => { e.stopPropagation(); setNoteFor(r); }}
-                              style={{ fontSize: 11.5, color: "var(--text-tertiary)", cursor: "pointer" }}
-                              title={t("Tap to see the note for this duty", "આ ડ્યુટીની નોંધ જોવા ટેપ કરો")}
-                            >📝</span>
                           )}
                           {swapDuty && !isOutstationHere && !entrySelectMode && !deleteMode && (
                             <button
@@ -13480,6 +13486,8 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                       </div>
                     );
                   })}
+                  </div>
+                  ))}
                 </div>
               ))
             )}
