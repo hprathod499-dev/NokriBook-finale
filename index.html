@@ -6279,6 +6279,32 @@ const clearCategoryHistory = (catId) => {
     persist(recycled);
     showToast(t(`${count} history ${count === 1 ? "entry" : "entries"} deleted — moved to Recycle bin`, `${count} ઇતિહાસ ${count === 1 ? "એન્ટ્રી" : "એન્ટ્રીઓ"} ડિલીટ થઈ — રિસાયકલ બિનમાં ખસેડાયું`));
   };
+  // Duty calendar: add / change the note of one duty. scope "group" = everyone given this duty together (same batch), "one" = only this person.
+  const editDutyNote = (catId, number, idx, newNote, scope) => {
+    const cur = dataRef.current; if (!cur) return false;
+    const list = cur.membership[catId] || [];
+    const m0 = list.find((m) => m.number === number); if (!m0) return false;
+    const e0 = (m0.history || [])[idx]; if (e0 == null) return false;
+    const batch = historyBatch(e0);
+    const clean = (newNote || "").trim();
+    const apply = (entry) => {
+      const base = typeof entry === "string" ? { date: entry, ts: 0, batch: null } : entry;
+      const marks = (String(base.note || "").match(/⇄ [^·]*/g) || []).map((x) => x.trim());   // keep swap marks as they were
+      const nn = [clean, ...marks].filter(Boolean).join(" · ");
+      return { ...base, note: nn || null };
+    };
+    const hit = (m, e, i) => (batch ? historyBatch(e) === batch && (scope === "group" || m.number === number) : m.number === number && i === idx);
+    let people = 0;
+    const nextList = list.map((m) => {
+      let ch = false;
+      const h = (m.history || []).map((e, i) => { if (hit(m, e, i)) { ch = true; return apply(e); } return e; });
+      if (ch) people++;
+      return ch ? { ...m, history: h } : m;
+    });
+    persist({ ...cur, membership: { ...cur.membership, [catId]: nextList } });
+    showToast(people > 1 ? t(`Note saved for all ${people} in this duty`, `આ ડ્યુટીના બધા ${people} માટે નોંધ સાચવી`) : t("Note saved", "નોંધ સાચવી"));
+    return true;
+  };
   const editHistoryNote = (catId, number, idxs, newNote, newExtraNote) => {
     if (!idxs || idxs.size === 0) return;
     const cur = data.categories.find((c) => c.id === catId);
@@ -6657,6 +6683,7 @@ const clearCategoryHistory = (catId) => {
       `Group duty assigned to ${people.length} ${people.length === 1 ? "person" : "people"} for ${cat.label} ${dateRangeTxt}${outstationTxt}`,
       `${cat.label} માટે ${dateRangeTxt} ${people.length} લોકોને જૂથ ડ્યુટી સોંપાઈ${outstationTxt}`
     ));
+    return true;
   };
 
   const createStaff = (number, name, phone, designation) => {
@@ -7469,7 +7496,7 @@ const clearCategoryHistory = (catId) => {
               importStaffToCategory={importStaffToCategory}
               setSkipInCategory={setSkipInCategory} skipInCategoryWithLog={skipInCategoryWithLog} setPresentInCategory={setPresentInCategory}
               setLastDuty={setLastDuty} assignDuty={assignDuty}
-              bulkCategory={bulkCategory} openStaffEdit={(num) => setView({ mode: "staff", staffId: num, presetSearch: num, edit: true })}
+              bulkCategory={bulkCategory} assignGroupDuty={assignGroupDuty} openStaffEdit={(num) => setView({ mode: "staff", staffId: num, presetSearch: num, edit: true })}
               clearCategoryHistory={clearCategoryHistory}
               deleteHistoryEntries={deleteHistoryEntries}
               editHistoryNote={editHistoryNote}
@@ -7495,7 +7522,7 @@ const clearCategoryHistory = (catId) => {
               exportBackup={exportBackup}
             />
           )}
-          {vm === "calendar" && <CalendarView swapDuty={swapDuty} initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} editAwayPeriod={canEdit ? editAwayPeriod : null} />}
+          {vm === "calendar" && <CalendarView swapDuty={swapDuty} editDutyNote={editDutyNote} initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} editAwayPeriod={canEdit ? editAwayPeriod : null} />}
           {vm === "report" && <ReportView data={data} initialSort={view.sort} focus={view.focus} />}
           {vm === "events" && (
             <EventsView
@@ -8614,12 +8641,13 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
   );
 }
 
-function GroupDutyView({ data, assignGroupDuty }) {
+// inModal: the same Group duty form opened as a pop-up from a work type, with that work type and the selected people already filled in.
+function GroupDutyView({ data, assignGroupDuty, initialCatId, initialPeople, inModal, onAssigned }) {
   const { t, lang } = useLang();
-  const [catId, setCatId] = useState("");
+  const [catId, setCatId] = useState(initialCatId || "");
   const [numberInput, setNumberInput] = useState("");
   const [nameInput, setNameInput] = useState("");
-  const [people, setPeople] = useState([]);
+  const [people, setPeople] = useState(() => initialPeople || []);
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo] = useState(todayStr());
   const [dateMode, setDateMode] = useState("one");
@@ -8679,7 +8707,9 @@ function GroupDutyView({ data, assignGroupDuty }) {
 
   const handleAssign = () => {
     if (!canAssign) return;
-    assignGroupDuty(catId, people, dateFrom, effectiveDateTo, note, markOutstation ? effectiveOutstationTypeId : null, night);
+    const ok = assignGroupDuty(catId, people, dateFrom, effectiveDateTo, note, markOutstation ? effectiveOutstationTypeId : null, night);
+    if (inModal && !ok) return;
+    if (onAssigned) onAssigned();
     setLastAssigned({ catLabel: cat ? cat.label : "", dateFrom, dateTo: effectiveDateTo, people });
     setPeople([]);
     setNote("");
@@ -8688,10 +8718,10 @@ function GroupDutyView({ data, assignGroupDuty }) {
 
   return (
     <React.Fragment>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20 }}>
+      {!inModal && <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Group duty", "જૂથ ડ્યુટી")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
-      </div>
+      </div>}
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px", maxWidth: 560 }} className="gu">
           {t(
@@ -8701,7 +8731,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
         </p>
       )}
 
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, marginBottom: 20, maxWidth: 560 }}>
+      {!(inModal && lastAssigned) && <div data-group-form style={{ background: "var(--bg-surface)", border: inModal ? "none" : "1px solid var(--border)", borderRadius: 10, padding: inModal ? 0 : 18, marginBottom: inModal ? 0 : 20, maxWidth: 560 }}>
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("Work type", "કામનો પ્રકાર")}</label>
           <select value={catId} onChange={(e) => setCatId(e.target.value)} className="gu" style={{ width: "100%", fontSize: 13 }}>
@@ -8949,10 +8979,10 @@ function GroupDutyView({ data, assignGroupDuty }) {
             ? t(`Assign duty to ${people.length} ${people.length === 1 ? "person" : "people"}`, `${people.length} લોકોને ડ્યુટી સોંપો`)
             : t("Assign duty to group", "જૂથને ડ્યુટી સોંપો")}
         </button>
-      </div>
+      </div>}
 
       {lastAssigned && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, maxWidth: 560 }}>
+        <div data-group-sent style={{ background: "var(--bg-surface)", border: inModal ? "none" : "1px solid var(--border)", borderRadius: 10, padding: inModal ? 0 : 18, maxWidth: 560 }}>
           <div className="disp gu" style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{t("Send to WhatsApp", "WhatsApp પર મોકલો")}</div>
           <p style={{ fontSize: 12, color: "var(--text-tertiary)", margin: "0 0 14px" }} className="gu">
             {lastAssigned.catLabel} · {lastAssigned.dateTo && lastAssigned.dateTo !== lastAssigned.dateFrom ? `${formatDMY(lastAssigned.dateFrom)} – ${formatDMY(lastAssigned.dateTo)}` : formatDMY(lastAssigned.dateFrom)} — {t("each button below already has that person's saved number attached, so it opens straight into their chat with the message ready — no searching for their name in WhatsApp, just tap Send there.", "નીચેના દરેક બટન સાથે તે વ્યક્તિનો સેવ કરેલો નંબર પહેલેથી જોડાયેલો છે, તેથી તે સીધું તેમની ચેટમાં સંદેશ તૈયાર સાથે ખૂલે છે — WhatsAppમાં નામ શોધવાની જરૂર નથી, ત્યાં ફક્ત મોકલો ટેપ કરો.")}
@@ -8997,7 +9027,7 @@ function GroupDutyView({ data, assignGroupDuty }) {
   );
 }
 
-function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, editHistoryNote, markHistoryOutstation, undo, redo, canUndo, canRedo }) {
+function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDuty, addToCategory, removeFromCategory, importStaffToCategory, setSkipInCategory, skipInCategoryWithLog, setPresentInCategory, setLastDuty, assignDuty, clearCategoryHistory, deleteHistoryEntries, editHistoryNote, markHistoryOutstation, undo, redo, canUndo, canRedo }) {
   const { t, lang } = useLang();
   const [newNumber, setNewNumber] = useState("");
   const [newName, setNewName] = useState("");
@@ -9028,10 +9058,11 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory,
   const [sel, setSel] = useState(null);
   const [bulkModal, setBulkModal] = useState(null);
   const [bulkDate, setBulkDate] = useState("");
+  const [groupFor, setGroupFor] = useState(null);
   const selOn = !!sel;
   const toggleSel = (num) => setSel((cur) => { const nx = new Set(cur || []); if (nx.has(num)) nx.delete(num); else nx.add(num); return nx.size ? nx : null; });
   const holdRow = useLongPress((num) => setSel((cur) => { const nx = new Set(cur || []); nx.add(num); return nx; }));
-  useEffect(() => { setSel(null); setBulkModal(null); }, [catId]);
+  useEffect(() => { setSel(null); setBulkModal(null); setGroupFor(null); }, [catId]);
   useEffect(() => {
     if (!selOn) return;
     const k = (e) => { if (e.key === "Escape" && !bulkModal) setSel(null); };
@@ -9447,7 +9478,7 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory,
               <button type="button" data-sel-all onClick={() => setSel(allOn ? null : new Set(displayRoster.map((p) => p.number)))} style={{ ...ab, fontWeight: 500 }}>{allOn ? t("Clear all", "બધું ખાલી") : t("Select all", "બધા પસંદ કરો")}</button>
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <button type="button" data-sel-act="assign" disabled={!nums.length} onClick={() => setBulkModal("assign")} style={ab}>✓ {t("Assign duty", "ડ્યુટી સોંપો")}</button>
+              <button type="button" data-sel-act="assign" disabled={!nums.length} onClick={() => setGroupFor(selRows.map((p) => ({ number: p.number, name: p.name })))} style={ab}>✓ {t("Assign duty", "ડ્યુટી સોંપો")}</button>
               {presentNums.length > 0 && <button type="button" data-sel-act="skip" onClick={() => setBulkModal("skip")} style={ab}>⏸ {t("Skip", "સ્કિપ")} ({presentNums.length})</button>}
               {skippedNums.length > 0 && <button type="button" data-sel-act="present" onClick={() => done(bulkCategory(catId, skippedNums, "present"))} style={ab}>▶ {t("Present", "હાજર")} ({skippedNums.length})</button>}
               <button type="button" data-sel-act="date" disabled={!nums.length} onClick={() => { setBulkDate(""); setBulkModal("date"); }} style={ab}>📅 {t("Last duty date", "છેલ્લી ડ્યુટી તારીખ")}</button>
@@ -9476,6 +9507,17 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, addToCategory,
           </div>
         );
       })()}
+
+      {groupFor && assignGroupDuty && ReactDOM.createPortal(
+        <div className="modal-backdrop" data-group-modal style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 60, padding: "24px 12px", overflowY: "auto" }} onClick={(e) => { if (e.target === e.currentTarget) setGroupFor(null); }}>
+          <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, padding: 18, width: 600, maxWidth: "100%", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 8 }}>
+              <div className="disp" style={{ fontSize: 17, fontWeight: 700 }}>{t("Group duty", "જૂથ ડ્યુટી")}</div>
+              <button type="button" onClick={() => setGroupFor(null)} data-group-close aria-label={t("Close", "બંધ કરો")} style={{ ...iconBtn, width: 32, height: 32, padding: 0, fontSize: 14 }}>✕</button>
+            </div>
+            <GroupDutyView data={data} assignGroupDuty={assignGroupDuty} initialCatId={catId} initialPeople={groupFor} inModal onAssigned={() => setSel(null)} />
+          </div>
+        </div>, document.body)}
 
       <form
         onSubmit={(e) => { e.preventDefault(); addToCategory(catId, newNumber, lookupPreview || newName, newDate); setNewNumber(""); setNewName(""); setNewDate(todayStr()); }}
@@ -12884,8 +12926,14 @@ function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
   );
 }
 
-function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty, editAwayPeriod, setUnavailable }) {
+function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty, editAwayPeriod, setUnavailable, editDutyNote }) {
   const [awayMenu, setAwayMenu] = useState(null);
+  // hold a person's duty → menu: Add / Edit note · Swap duty · Remove this duty
+  const [holdFor, setHoldFor] = useState(null);
+  const [noteAsk, setNoteAsk] = useState(null);
+  const [noteEdit, setNoteEdit] = useState(null);
+  const [noteText, setNoteText] = useState("");
+  const holdDuty = useLongPress((r) => setHoldFor(r));
   const [addAway, setAddAway] = useState(null);
   const [histNum, setHistNum] = useState(null);
   const canDelete = !!(deleteHistoryEntries && deleteUnavailableHistoryEntry);
@@ -12923,7 +12971,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
           map[date].push({
             catId: c.id, catLabel: c.label, number: m.number, name,
             designation: staffRec ? desgLabelOf(staffRec.designation) : "",
-            note: historyNote(entry), extraNote: historyExtraNote(entry), idx,
+            note: historyNote(entry), extraNote: historyExtraNote(entry), idx, batch: historyBatch(entry),
             night: !!(entry && typeof entry === "object" && entry.night),
           });
         });
@@ -13139,10 +13187,58 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
     selDuties.forEach((r) => { (g[r.catLabel] = g[r.catLabel] || []).push(r); });
     return g;
   }, [selDuties]);
+  // how many people were given this same duty together (Group duty / work-type pop-up share one batch)
+  const batchSize = (r) => {
+    if (!r || !r.batch) return 1;
+    const n = new Set();
+    (data.membership[r.catId] || []).forEach((m) => { if ((m.history || []).some((e) => historyBatch(e) === r.batch)) n.add(m.number); });
+    return Math.max(1, n.size);
+  };
+  const openNoteEdit = (r, scope) => { setNoteText(r.note || ""); setNoteEdit({ r, scope }); setNoteAsk(null); setHoldFor(null); };
+  const startNote = (r) => { const n = batchSize(r); if (n > 1) { setNoteAsk({ r, n }); setHoldFor(null); } else openNoteEdit(r, "one"); };
+  const removeDuty = (r) => {
+    const idxs = dutySpanIdxs(r.catId, r.number, selectedDate);
+    const spanIdxs = idxs.length ? idxs : [r.idx];
+    const msg = spanIdxs.length > 1
+      ? t(`Remove this duty for ${r.name} — all ${spanIdxs.length} days of it? It goes to the Recycle bin.`, `${r.name} ની આ ડ્યુટી — તેના બધા ${spanIdxs.length} દિવસ — કાઢી નાખવી છે? તે રિસાયકલ બિનમાં જશે.`)
+      : t(`Remove this duty for ${r.name}? It goes to the Recycle bin.`, `${r.name} ની આ ડ્યુટી કાઢી નાખવી છે? તે રિસાયકલ બિનમાં જશે.`);
+    setHoldFor(null);
+    if (!window.confirm(msg)) return;
+    deleteHistoryEntries(r.catId, new Set(spanIdxs.map((idx) => `${r.number}#${idx}`)));
+  };
+  const sheetBtn = { display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", fontSize: 14, fontWeight: 600, color: "var(--text-primary)", marginTop: 8, cursor: "pointer" };
+  const sheetWrap = (children, onClose, attr) => ReactDOM.createPortal(
+    <div className="modal-backdrop" {...attr} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 16 }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 14, padding: 18, width: 360, maxWidth: "100%", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>{children}</div>
+    </div>, document.body);
 
   return (
     <React.Fragment>
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
+      {holdFor && sheetWrap(<React.Fragment>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{holdFor.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>{nbBuckleTag(holdFor.number)}</span></div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 4 }}>{holdFor.catLabel} · {formatDMY(selectedDate)}{batchSize(holdFor) > 1 ? " · " + t(`group of ${batchSize(holdFor)}`, `${batchSize(holdFor)} નું જૂથ`) : ""}</div>
+        {editDutyNote && <button type="button" data-hold-act="note" style={sheetBtn} onClick={() => startNote(holdFor)}>📝 {holdFor.note ? t("Edit note", "નોંધ સુધારો") : t("Add note", "નોંધ ઉમેરો")}</button>}
+        {swapDuty && <button type="button" data-hold-act="swap" style={sheetBtn} onClick={() => { const r = holdFor; setHoldFor(null); setSwapFor({ catId: r.catId, number: r.number, name: r.name }); }}>⇄ {t("Swap duty", "ડ્યુટી અદલાબદલી")}</button>}
+        {deleteHistoryEntries && <button type="button" data-hold-act="remove" style={{ ...sheetBtn, color: "var(--status-error-text)", borderColor: "var(--status-error-border)" }} onClick={() => removeDuty(holdFor)}>🗑 {t("Remove this duty", "આ ડ્યુટી કાઢી નાખો")}</button>}
+        <button type="button" onClick={() => setHoldFor(null)} style={{ ...sheetBtn, justifyContent: "center", fontWeight: 500, color: "var(--text-secondary)" }}>{t("Cancel", "રદ કરો")}</button>
+      </React.Fragment>, () => setHoldFor(null), { "data-hold-menu": "1" })}
+      {noteAsk && sheetWrap(<React.Fragment>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{noteAsk.r.note ? t("Edit note", "નોંધ સુધારો") : t("Add note", "નોંધ ઉમેરો")}</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t(`${noteAsk.n} people were given this duty together.`, `આ ડ્યુટી ${noteAsk.n} લોકોને સાથે આપવામાં આવી હતી.`)}</div>
+        <button type="button" data-note-scope="group" style={sheetBtn} onClick={() => openNoteEdit(noteAsk.r, "group")}>👥 {t(`Combined note — all ${noteAsk.n} people`, `સંયુક્ત નોંધ — બધા ${noteAsk.n} લોકો`)}</button>
+        <button type="button" data-note-scope="one" style={sheetBtn} onClick={() => openNoteEdit(noteAsk.r, "one")}>👤 {t(`Only ${noteAsk.r.name}`, `ફક્ત ${noteAsk.r.name}`)}</button>
+        <button type="button" onClick={() => setNoteAsk(null)} style={{ ...sheetBtn, justifyContent: "center", fontWeight: 500, color: "var(--text-secondary)" }}>{t("Cancel", "રદ કરો")}</button>
+      </React.Fragment>, () => setNoteAsk(null), { "data-note-ask": "1" })}
+      {noteEdit && sheetWrap(<React.Fragment>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{noteEdit.r.note ? t("Edit note", "નોંધ સુધારો") : t("Add note", "નોંધ ઉમેરો")}</div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 8 }}>{noteEdit.scope === "group" ? t(`For all ${batchSize(noteEdit.r)} people · ${noteEdit.r.catLabel}`, `બધા ${batchSize(noteEdit.r)} લોકો માટે · ${noteEdit.r.catLabel}`) : `${noteEdit.r.name} · ${noteEdit.r.catLabel}`}</div>
+        <textarea autoFocus value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={3} data-note-text className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 14 }} placeholder={t("Note", "નોંધ")} />
+        <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+          <button type="button" onClick={() => setNoteEdit(null)} style={{ ...iconBtnWide, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+          <button type="button" data-note-save onClick={() => { if (editDutyNote(noteEdit.r.catId, noteEdit.r.number, noteEdit.r.idx, noteText, noteEdit.scope)) setNoteEdit(null); }} style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>{t("Save", "સાચવો")}</button>
+        </div>
+      </React.Fragment>, () => setNoteEdit(null), { "data-note-edit": "1" })}
       {swapFor && <SwapDutyModal data={data} date={selectedDate} from={swapFor} onClose={() => setSwapFor(null)} onSwap={(bNum, backCatId) => { if (swapDuty(swapFor.catId, swapFor.number, bNum, selectedDate, backCatId)) setSwapFor(null); }} />}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
@@ -13301,6 +13397,8 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                     return (
                       <div
                         key={i} className="gu"
+                        {...(editDutyNote && !entrySelectMode && !deleteMode ? holdDuty(r) : {})}
+                        data-duty-row={r.number}
                         onClick={entrySelectMode ? () => toggleEntrySelected(rowKey) : undefined}
                         style={{
                           display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 4px",
