@@ -2986,6 +2986,21 @@ function unavailLabel(data, u) {
   return found ? found.label : (u.subtype || kind || "");
 }
 
+// Last day away when leaves / outstation follow each other with no gap (e.g. Casual Leave then a Public Holiday):
+// the person returns only after the whole run. null = no end date.
+function nbAwayUntil(staffRec, to) {
+  if (!to) return null;
+  let end = to;
+  for (let k = 0; k < 400; k++) {
+    const u = unavailableOnDate(staffRec, addDaysStr(end, 1));
+    const kind = u && unavailKind(u);
+    if (!u || (kind !== "Leave" && kind !== "Outstation")) break;
+    if (!u.to) return null;
+    if (u.to <= end) break;
+    end = u.to;
+  }
+  return end;
+}
 function unavailableOnDate(staffRec, dateStr) {
   if (!staffRec) return null;
   const periods = [...(staffRec.unavailableHistory || [])];
@@ -4944,7 +4959,8 @@ function DutyRoster() {
         const key = num + rec.unavailable.from + rec.unavailable.to;
         if (!notifiedRef.current.has(key)) {
           notifiedRef.current.add(key);
-          expired.push({ name: rec.name, type: unavailKind(rec.unavailable) });
+          // not "back on duty" when another leave / outstation carries on today
+          if (!unavailableOnDate(rec, today)) expired.push({ name: rec.name, type: unavailKind(rec.unavailable) });
         }
         expiredNumbers.push(num);
       }
@@ -13411,7 +13427,8 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                     const awayInfo = selAwayMap[r.number];
                     const isOutstationHere = awayInfo && awayInfo.type === "Outstation";
                     const awayStyle = isOutstationHere ? (EVENT_TYPE_STYLE[awayInfo.type] || {}) : null;
-                    const awayRemaining = isOutstationHere && awayInfo.to ? daysBetween(selectedDate, awayInfo.to) : null;
+                    const awayEnd = isOutstationHere && awayInfo.to ? (awayInfo.source === "unavailable" ? nbAwayUntil((data.staff || {})[awayInfo.number], awayInfo.to) : awayInfo.to) : null;
+                    const awayRemaining = awayEnd ? daysBetween(selectedDate, awayEnd) : null;
                     return (
                       <div
                         key={i} className="gu"
@@ -13497,7 +13514,8 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 5 }} className="gu">{t("Not present that day (leave / outstation)", "તે દિવસે હાજર નથી (રજા / બહારગામ)")}</div>
                 {selAway.map((a) => {
                   const style = EVENT_TYPE_STYLE[a.type] || STATUS_STYLE[a.type] || {};
-                  const remaining = a.to ? daysBetween(selectedDate, a.to) : null;
+                  const aEnd = a.to ? (a.source === "unavailable" ? nbAwayUntil((data.staff || {})[a.number], a.to) : a.to) : null;
+                  const remaining = aEnd ? daysBetween(selectedDate, aEnd) : null;
                   return (
                     <div key={a.number || a.name} className="gu" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 0" }}>
                       {editAwayPeriod && a.source === "unavailable" && !deleteMode ? (
