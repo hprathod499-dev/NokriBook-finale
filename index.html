@@ -6509,37 +6509,73 @@ const clearCategoryHistory = (catId) => {
     }
     return false;
   };
+  // Swap / replace from the duty calendar. The replaced person's duty for that day — and the rest of the same duty after it
+  // (same batch: a multi-day / group duty) — moves to the new person exactly as it was (group, note, night, work type),
+  // and an Outstation that came with that duty moves too: taken off the old person, given to the new one for the same days.
   const swapDuty = (catId, aNum, bNum, date, backCatId) => {
     const cur = dataRef.current;
-    const staff = cur.staff || {};
+    const staff = { ...(cur.staff || {}) };
     const A = staff[aNum], B = staff[bNum];
     if (!A || !B || aNum === bNum) return false;
     const now = Date.now();
     const lastOf = (hist) => { let d = null; (hist || []).forEach((e) => { const x = historyDate(e); if (!d || x > d) d = x; }); return d; };
-    const moveDay = (membership, cat, fromNum, toNum, otherName) => {
+    const moveDuty = (membership, cat, fromNum, toNum) => {
       const list = membership[cat] || [];
       const fromM = list.find((m) => m.number === fromNum);
       if (!fromM) return null;
-      const taken = (fromM.history || []).filter((e) => historyDate(e) === date);
-      if (!taken.length) return null;
-      if (list.some((m) => m.number === toNum && isOnDutyOn(m, date))) return "dup";
-      const src = typeof taken[0] === "string" ? { date } : taken[0];
-      const entry = { ...src, date, ts: now, batch: uid(), swappedWith: fromNum, note: src.note || null };
-      let next = list.map((m) => m.number === fromNum ? (() => { const h = (m.history || []).filter((e) => historyDate(e) !== date); return { ...m, history: h, lastDuty: lastOf(h) }; })() : m);
-      if (next.some((m) => m.number === toNum)) next = next.map((m) => m.number === toNum ? (() => { const h = [...(m.history || []), entry]; return { ...m, skip: false, history: h, lastDuty: lastOf(h) }; })() : m);
-      else next = [...next, { number: toNum, lastDuty: date, history: [entry], skip: false }];
-      return { ...membership, [cat]: next };
+      const hist = fromM.history || [];
+      const first = hist.find((e) => historyDate(e) === date);
+      if (first == null) return null;
+      const batch = historyBatch(first);
+      const moving = hist.filter((e) => historyDate(e) === date || (batch && historyBatch(e) === batch && historyDate(e) > date));
+      const dates = [...new Set(moving.map((e) => historyDate(e)))].sort();
+      const toM = list.find((m) => m.number === toNum);
+      if (toM && dates.some((d) => isOnDutyOn(toM, d))) return "dup";
+      const moved = moving.map((e, i) => { const src = typeof e === "string" ? { date: e } : e; return { ...src, ts: now + i, swappedWith: fromNum }; });
+      const movingSet = new Set(moving);
+      let next = list.map((m) => (m.number === fromNum ? (() => { const h = hist.filter((e) => !movingSet.has(e)); return { ...m, history: h, lastDuty: lastOf(h) }; })() : m));
+      if (toM) next = next.map((m) => (m.number === toNum ? (() => { const h = [...(m.history || []), ...moved]; return { ...m, skip: false, history: h, lastDuty: lastOf(h) }; })() : m));
+      else next = [...next, { number: toNum, lastDuty: dates[dates.length - 1], history: moved, skip: false }];
+      return { membership: { ...membership, [cat]: next }, batch, dates };
     };
-    let membership = moveDay(cur.membership, catId, aNum, bNum, A.name || aNum);
-    if (membership === "dup") { showToast(t(`${B.name} already has a duty in this work type that day`, `${B.name} ને તે દિવસે આ કામમાં પહેલેથી ડ્યુટી છે`), "error"); return false; }
-    if (!membership) return false;
+    const curOf = (rec, hist) => {
+      const legacy = rec.unavailable && !hist.some((p) => p === rec.unavailable || (p && p.from === rec.unavailable.from && p.to === rec.unavailable.to && p.typeId === rec.unavailable.typeId)) ? [rec.unavailable] : [];
+      return currentUnavailablePeriod([...hist, ...legacy]);
+    };
+    const moveAway = (fromNum, toNum, batch, dates) => {
+      if (!batch || !dates.length) return;
+      const F = staff[fromNum], T = staff[toNum]; if (!F || !T) return;
+      const d0 = dates[0], d1 = dates[dates.length - 1];
+      const keep = [], give = [];
+      (F.unavailableHistory || []).forEach((pp) => {
+        if (!pp || pp.batch !== batch) { keep.push(pp); return; }
+        const pTo = pp.to || d1;
+        if (pTo < d0 || pp.from > d1) { keep.push(pp); return; }
+        give.push({ ...pp, from: pp.from > d0 ? pp.from : d0, to: pp.to ? (pp.to < d1 ? pp.to : d1) : null });
+        if (pp.from < d0) keep.push({ ...pp, to: addDaysStr(d0, -1) });
+        if (pp.to && pp.to > d1) keep.push({ ...pp, from: addDaysStr(d1, 1) });
+      });
+      if (!give.length) return;
+      const fHadIt = F.unavailable && F.unavailable.batch === batch;
+      staff[fromNum] = { ...F, unavailableHistory: keep, unavailable: fHadIt ? currentUnavailablePeriod(keep) : F.unavailable };
+      const tHist = [...(T.unavailableHistory || []), ...give];
+      staff[toNum] = { ...T, skip: false, unavailableHistory: tHist, unavailable: curOf(T, tHist) };
+    };
+    const first = moveDuty(cur.membership, catId, aNum, bNum);
+    if (first === "dup") { showToast(t(`${B.name} already has a duty in this work type that day`, `${B.name} ને તે દિવસે આ કામમાં પહેલેથી ડ્યુટી છે`), "error"); return false; }
+    if (!first) return false;
+    let membership = first.membership;
+    moveAway(aNum, bNum, first.batch, first.dates);
     if (backCatId) {
-      const back = moveDay(membership, backCatId, bNum, aNum, B.name || bNum);
+      const back = moveDuty(membership, backCatId, bNum, aNum);
       if (back === "dup") { showToast(t(`${A.name} already has a duty in that work type that day`, `${A.name} ને તે દિવસે તે કામમાં પહેલેથી ડ્યુટી છે`), "error"); return false; }
-      if (back) membership = back;
+      if (back) { membership = back.membership; moveAway(bNum, aNum, back.batch, back.dates); }
     }
-    persist({ ...cur, membership });
-    showToast(t(`Duty updated (${formatDMY(date)})`, `ડ્યુટી બદલાઈ (${formatDMY(date)})`));
+    persist({ ...cur, staff, membership });
+    const days = first.dates.length;
+    showToast(days > 1
+      ? t(`Duty updated — ${B.name} takes ${days} days (${formatDMY(first.dates[0])} – ${formatDMY(first.dates[days - 1])})`, `ડ્યુટી બદલાઈ — ${B.name} ને ${days} દિવસ (${formatDMY(first.dates[0])} – ${formatDMY(first.dates[days - 1])})`)
+      : t(`Duty updated (${formatDMY(date)})`, `ડ્યુટી બદલાઈ (${formatDMY(date)})`));
     return true;
   };
 
