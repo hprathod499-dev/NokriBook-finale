@@ -88,6 +88,9 @@
   [data-reorder-over="before"] { box-shadow: inset 0 3px 0 var(--accent-strong) !important; }
   [data-reorder-over="after"] { box-shadow: inset 0 -3px 0 var(--accent-strong) !important; }
   html:not(.nb-noanim) button:not(:disabled):active { transform: scale(0.93); transition-duration: 0.06s; }
+  /* duty calendar: a tapped name presses in like the leave / outstation names */
+  [data-duty-name] { display: inline-block; transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1); transform-origin: left center; }
+  html:not(.nb-noanim) [data-duty-row]:active [data-duty-name] { transform: scale(0.93); transition-duration: 0.06s; }
   @media (hover: hover) {
     html:not(.nb-noanim) button:not(:disabled):hover { transform: translateY(-1px); }
     html:not(.nb-noanim) button:not(:disabled):active { transform: scale(0.93); }
@@ -13477,7 +13480,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                               aria-label={t("Select this entry", "આ એન્ટ્રી પસંદ કરો")}
                             />
                           )}
-                          <span>
+                          <span data-duty-name>
                             {!blk.note && r.note ? (
                               <span
                                 onClick={(e) => { if (entrySelectMode) return; e.stopPropagation(); if (editDutyNote && !deleteMode) setHoldFor(r); else setNoteFor(r); }}
