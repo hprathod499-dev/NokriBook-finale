@@ -13285,7 +13285,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
       {holdFor && sheetWrap(<React.Fragment>
         <div style={{ fontWeight: 700, fontSize: 15 }}>{holdFor.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>{nbBuckleTag(holdFor.number)}</span></div>
         <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 4 }}>{holdFor.catLabel} · {formatDMY(selectedDate)}{batchSize(holdFor) > 1 ? " · " + t(`group of ${batchSize(holdFor)}`, `${batchSize(holdFor)} નું જૂથ`) : ""}</div>
-        {editDutyNote && <button type="button" data-hold-act="note" style={sheetBtn} onClick={() => startNote(holdFor)}>📝 {holdFor.note ? t("Edit note", "નોંધ સુધારો") : t("Add note", "નોંધ ઉમેરો")}</button>}
+        {editDutyNote && <button type="button" data-hold-act="note" style={{ ...sheetBtn, flexWrap: "wrap" }} onClick={() => startNote(holdFor)}>📝 {holdFor.note ? t("Edit note", "નોંધ સુધારો") : t("Add note", "નોંધ ઉમેરો")}{nbDutyNoteText(holdFor) && <span style={{ flexBasis: "100%", fontSize: 12.5, fontWeight: 400, color: "var(--text-secondary)", whiteSpace: "pre-wrap", wordBreak: "break-word", paddingLeft: 26 }}>{nbDutyNoteText(holdFor)}</span>}</button>}
         {swapDuty && <button type="button" data-hold-act="swap" style={sheetBtn} onClick={() => { const r = holdFor; setHoldFor(null); setSwapFor({ catId: r.catId, number: r.number, name: r.name }); }}>⇄ {t("Swap duty", "ડ્યુટી અદલાબદલી")}</button>}
         {deleteHistoryEntries && <button type="button" data-hold-act="remove" style={{ ...sheetBtn, color: "var(--status-error-text)", borderColor: "var(--status-error-border)" }} onClick={() => removeDuty(holdFor)}>🗑 {t("Remove this duty", "આ ડ્યુટી કાઢી નાખો")}</button>}
         <button type="button" onClick={() => setHoldFor(null)} style={{ ...sheetBtn, justifyContent: "center", fontWeight: 500, color: "var(--text-secondary)" }}>{t("Cancel", "રદ કરો")}</button>
@@ -13470,10 +13470,10 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                         key={i} className="gu"
                         {...(editDutyNote && !entrySelectMode && !deleteMode ? holdDuty(r) : {})}
                         data-duty-row={r.number}
-                        onClick={entrySelectMode ? () => toggleEntrySelected(rowKey) : undefined}
+                        onClick={entrySelectMode ? () => toggleEntrySelected(rowKey) : (editDutyNote && !deleteMode ? () => setHoldFor(r) : undefined)}
                         style={{
                           display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "5px 4px",
-                          borderTop: i ? "1px solid var(--border-soft)" : "none", gap: 8, cursor: entrySelectMode ? "pointer" : "default",
+                          borderTop: i ? "1px solid var(--border-soft)" : "none", gap: 8, cursor: entrySelectMode || (editDutyNote && !deleteMode) ? "pointer" : "default",
                           borderRadius: entrySelectMode ? 6 : 0, background: isSelected ? "var(--status-warning-bg)" : "transparent",
                         }}
                       >
@@ -13488,7 +13488,7 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                           <span>
                             {!blk.note && r.note ? (
                               <span
-                                onClick={(e) => { if (entrySelectMode) return; e.stopPropagation(); setNoteFor(r); }}
+                                onClick={(e) => { if (entrySelectMode) return; e.stopPropagation(); if (editDutyNote && !deleteMode) setHoldFor(r); else setNoteFor(r); }}
                                 style={{ cursor: "pointer", borderBottom: "1px dashed var(--text-tertiary)" }}
                                 title={t("Tap to see the full note for this duty", "આ ડ્યુટીની સંપૂર્ણ નોંધ જોવા ટેપ કરો")}
                               >{r.name}</span>
