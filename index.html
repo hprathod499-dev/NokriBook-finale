@@ -6453,7 +6453,7 @@ const clearCategoryHistory = (catId) => {
       staff: staffRec ? { ...data.staff, [number]: { ...staffRec, skip: false } } : data.staff,
       membership: {
         ...data.membership,
-        [catId]: list.map((m) => m.number === number ? { ...m, skip: false, lastDuty: dutyDate, history: [...(m.history || []), entry] } : m),
+        [catId]: list.map((m) => m.number === number ? { ...m, skip: false, lastDuty: dutyDate, history: [...(m.history || []), { ...entry, pskip: !!m.skip, pss: !!(staffRec && staffRec.skip) }] } : m),
       },
     });
     showToast(t(`Duty assigned to ${name} for ${formatDMY(dutyDate)}`, `${formatDMY(dutyDate)} માટે ${name} ને ડ્યુટી સોંપાઈ`));
@@ -6503,7 +6503,7 @@ const clearCategoryHistory = (catId) => {
       if (warn.length && !window.confirm(t(`On ${formatDMY(d)}:\n${warn.join("\n")}\n\nAssign this duty to all ${n} anyway?`, `${formatDMY(d)} ના રોજ:\n${warn.join("\n")}\n\nછતાં બધા ${n} ને આ ડ્યુટી સોંપવી છે?`))) return false;
       const batch = uid(), ts = Date.now();
       const staff = { ...cur.staff }; numbers.forEach((num) => { if (staff[num] && staff[num].skip) staff[num] = { ...staff[num], skip: false }; });
-      persist({ ...cur, staff, membership: { ...cur.membership, [catId]: list.map((m, i) => (set.has(m.number) ? { ...m, skip: false, lastDuty: d, history: [...(m.history || []), { date: d, ts: ts + i, note: (o.note || "").trim() || null, batch, ...(o.night ? { night: true } : {}) }] } : m)) } });
+      persist({ ...cur, staff, membership: { ...cur.membership, [catId]: list.map((m, i) => (set.has(m.number) ? { ...m, skip: false, lastDuty: d, history: [...(m.history || []), { date: d, ts: ts + i, note: (o.note || "").trim() || null, batch, pskip: !!m.skip, pss: !!(((cur.staff || {})[m.number] || {}).skip), ...(o.night ? { night: true } : {}) }] } : m)) } });
       showToast(t(`Duty assigned to ${n} for ${formatDMY(d)}`, `${formatDMY(d)} માટે ${n} ને ડ્યુટી સોંપાઈ`));
       return true;
     }
@@ -6527,16 +6527,18 @@ const clearCategoryHistory = (catId) => {
       const first = hist.find((e) => historyDate(e) === date);
       if (first == null) return null;
       const batch = historyBatch(first);
-      const moving = hist.filter((e) => historyDate(e) === date || (batch && historyBatch(e) === batch && historyDate(e) > date));
+      const moving = hist.filter((e) => (batch ? historyBatch(e) === batch : historyDate(e) === date));
       const dates = [...new Set(moving.map((e) => historyDate(e)))].sort();
       const toM = list.find((m) => m.number === toNum);
       if (toM && dates.some((d) => isOnDutyOn(toM, d))) return "dup";
-      const moved = moving.map((e, i) => { const src = typeof e === "string" ? { date: e } : e; return { ...src, ts: now + i, swappedWith: fromNum }; });
+      const moved = moving.map((e) => ({ ...(typeof e === "string" ? { date: e } : e), pskip: toM ? !!toM.skip : false, pss: !!((staff[toNum] || {}).skip) }));
+      // the replaced person goes back to how they were before this duty (Present / Skip as it was then)
+      const prev = moving.find((e) => e && typeof e === "object" && e.pskip !== undefined);
       const movingSet = new Set(moving);
-      let next = list.map((m) => (m.number === fromNum ? (() => { const h = hist.filter((e) => !movingSet.has(e)); return { ...m, history: h, lastDuty: lastOf(h) }; })() : m));
+      let next = list.map((m) => (m.number === fromNum ? (() => { const h = hist.filter((e) => !movingSet.has(e)); return { ...m, history: h, lastDuty: lastOf(h), ...(prev ? { skip: !!prev.pskip } : {}) }; })() : m));
       if (toM) next = next.map((m) => (m.number === toNum ? (() => { const h = [...(m.history || []), ...moved]; return { ...m, skip: false, history: h, lastDuty: lastOf(h) }; })() : m));
       else next = [...next, { number: toNum, lastDuty: dates[dates.length - 1], history: moved, skip: false }];
-      return { membership: { ...membership, [cat]: next }, batch, dates };
+      return { membership: { ...membership, [cat]: next }, batch, dates, prevStaffSkip: prev && prev.pss !== undefined ? !!prev.pss : undefined };
     };
     const curOf = (rec, hist) => {
       const legacy = rec.unavailable && !hist.some((p) => p === rec.unavailable || (p && p.from === rec.unavailable.from && p.to === rec.unavailable.to && p.typeId === rec.unavailable.typeId)) ? [rec.unavailable] : [];
@@ -6545,16 +6547,8 @@ const clearCategoryHistory = (catId) => {
     const moveAway = (fromNum, toNum, batch, dates) => {
       if (!batch || !dates.length) return;
       const F = staff[fromNum], T = staff[toNum]; if (!F || !T) return;
-      const d0 = dates[0], d1 = dates[dates.length - 1];
       const keep = [], give = [];
-      (F.unavailableHistory || []).forEach((pp) => {
-        if (!pp || pp.batch !== batch) { keep.push(pp); return; }
-        const pTo = pp.to || d1;
-        if (pTo < d0 || pp.from > d1) { keep.push(pp); return; }
-        give.push({ ...pp, from: pp.from > d0 ? pp.from : d0, to: pp.to ? (pp.to < d1 ? pp.to : d1) : null });
-        if (pp.from < d0) keep.push({ ...pp, to: addDaysStr(d0, -1) });
-        if (pp.to && pp.to > d1) keep.push({ ...pp, from: addDaysStr(d1, 1) });
-      });
+      (F.unavailableHistory || []).forEach((pp) => { if (pp && pp.batch === batch) give.push({ ...pp }); else keep.push(pp); });
       if (!give.length) return;
       const fHadIt = F.unavailable && F.unavailable.batch === batch;
       staff[fromNum] = { ...F, unavailableHistory: keep, unavailable: fHadIt ? currentUnavailablePeriod(keep) : F.unavailable };
@@ -6566,16 +6560,14 @@ const clearCategoryHistory = (catId) => {
     if (!first) return false;
     let membership = first.membership;
     moveAway(aNum, bNum, first.batch, first.dates);
+    if (first.prevStaffSkip !== undefined && staff[aNum]) staff[aNum] = { ...staff[aNum], skip: first.prevStaffSkip };
     if (backCatId) {
       const back = moveDuty(membership, backCatId, bNum, aNum);
       if (back === "dup") { showToast(t(`${A.name} already has a duty in that work type that day`, `${A.name} ને તે દિવસે તે કામમાં પહેલેથી ડ્યુટી છે`), "error"); return false; }
-      if (back) { membership = back.membership; moveAway(bNum, aNum, back.batch, back.dates); }
+      if (back) { membership = back.membership; moveAway(bNum, aNum, back.batch, back.dates); if (back.prevStaffSkip !== undefined && staff[bNum]) staff[bNum] = { ...staff[bNum], skip: back.prevStaffSkip }; }
     }
     persist({ ...cur, staff, membership });
-    const days = first.dates.length;
-    showToast(days > 1
-      ? t(`Duty updated — ${B.name} takes ${days} days (${formatDMY(first.dates[0])} – ${formatDMY(first.dates[days - 1])})`, `ડ્યુટી બદલાઈ — ${B.name} ને ${days} દિવસ (${formatDMY(first.dates[0])} – ${formatDMY(first.dates[days - 1])})`)
-      : t(`Duty updated (${formatDMY(date)})`, `ડ્યુટી બદલાઈ (${formatDMY(date)})`));
+    showToast(t(`${A.name} replaced by ${B.name}`, `${A.name} ની જગ્યાએ ${B.name}`));
     return true;
   };
 
@@ -6703,12 +6695,12 @@ const clearCategoryHistory = (catId) => {
     const existingNumbers = new Set(existingList.map((m) => m.number));
     const updatedExisting = existingList.map((m) =>
       people.some((p) => p.number === m.number)
-        ? { ...m, skip: false, lastDuty: lastDate, history: [...(m.history || []), ...entries] }
+        ? { ...m, skip: false, lastDuty: lastDate, history: [...(m.history || []), ...entries.map((e) => ({ ...e, pskip: !!m.skip, pss: !!((data.staff[m.number] || {}).skip) }))] }
         : m
     );
     const newMembers = people
       .filter((p) => !existingNumbers.has(p.number))
-      .map((p) => ({ number: p.number, lastDuty: lastDate, history: [...entries], skip: false }));
+      .map((p) => ({ number: p.number, lastDuty: lastDate, history: entries.map((e) => ({ ...e, pskip: false, pss: !!((data.staff[p.number] || {}).skip) })), skip: false }));
     people.forEach((p) => {
       if (!nextStaff[p.number]) {
         nextStaff[p.number] = { number: p.number, name: p.name, phone: null, unavailable: null, designation: null, skip: false };
