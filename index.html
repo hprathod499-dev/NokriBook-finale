@@ -1711,6 +1711,85 @@ const DEFAULT_DESIGNATIONS = [
   { id: "desg-alrd", label: "ALRD" },
 ];
 
+// Gujarat Police designations, highest rank first. Used to sort every staff list by rank and
+// offered as a ready list when a new designation is added (the station's own list is never changed by this).
+const NB_GUJ_DESIGNATIONS = [
+  { code: "DGP", gu: "પોલીસ મહાનિર્દેશક", aka: ["DG"] },
+  { code: "ADGP", gu: "અધિક પોલીસ મહાનિર્દેશક", aka: ["ADG"] },
+  { code: "IGP", gu: "પોલીસ મહાનિરીક્ષક", aka: ["IG"] },
+  { code: "DIGP", gu: "નાયબ પોલીસ મહાનિરીક્ષક", aka: ["DIG"] },
+  { code: "SP", gu: "પોલીસ અધિક્ષક", aka: ["DSP", "DCP"] },
+  { code: "Addl. SP", gu: "અધિક પોલીસ અધિક્ષક", aka: ["ADDLSP", "ADDSP"] },
+  { code: "ASP", gu: "મદદનીશ પોલીસ અધિક્ષક", aka: ["ACP"] },
+  { code: "DySP", gu: "નાયબ પોલીસ અધિક્ષક", aka: ["DYSP", "SDPO"] },
+  { code: "PI", gu: "પોલીસ ઇન્સ્પેક્ટર", aka: ["પીઆઇ", "INSPECTOR"] },
+  { code: "PSI", gu: "પોલીસ સબ ઇન્સ્પેક્ટર", aka: ["પીએસઆઇ", "SI"] },
+  { code: "WPSI", gu: "મહિલા પોલીસ સબ ઇન્સ્પેક્ટર", aka: [] },
+  { code: "UASI", gu: "બિન હથિયારી મદદનીશ સબ ઇન્સ્પેક્ટર", aka: ["ASI"] },
+  { code: "WUASI", gu: "મહિલા બિન હથિયારી મદદનીશ સબ ઇન્સ્પેક્ટર", aka: ["WASI"] },
+  { code: "AASI", gu: "હથિયારી મદદનીશ સબ ઇન્સ્પેક્ટર", aka: [] },
+  { code: "WAASI", gu: "મહિલા હથિયારી મદદનીશ સબ ઇન્સ્પેક્ટર", aka: [] },
+  { code: "UHC", gu: "બિન હથિયારી હેડ કોન્સ્ટેબલ", aka: ["HC"] },
+  { code: "WUHC", gu: "મહિલા બિન હથિયારી હેડ કોન્સ્ટેબલ", aka: ["WHC"] },
+  { code: "AHC", gu: "હથિયારી હેડ કોન્સ્ટેબલ", aka: [] },
+  { code: "WAHC", gu: "મહિલા હથિયારી હેડ કોન્સ્ટેબલ", aka: [] },
+  { code: "UPC", gu: "બિન હથિયારી પોલીસ કોન્સ્ટેબલ", aka: ["PC"] },
+  { code: "WUPC", gu: "મહિલા બિન હથિયારી પોલીસ કોન્સ્ટેબલ", aka: ["WPC"] },
+  { code: "APC", gu: "હથિયારી પોલીસ કોન્સ્ટેબલ", aka: [] },
+  { code: "WAPC", gu: "મહિલા હથિયારી પોલીસ કોન્સ્ટેબલ", aka: [] },
+  { code: "ULRD", gu: "બિન હથિયારી લોકરક્ષક", aka: ["LRD", "LR", "ULR"] },
+  { code: "WULRD", gu: "મહિલા બિન હથિયારી લોકરક્ષક", aka: ["WLRD", "WLR", "WULR"] },
+  { code: "ALRD", gu: "હથિયારી લોકરક્ષક", aka: ["ALR"] },
+  { code: "WALRD", gu: "મહિલા હથિયારી લોકરક્ષક", aka: ["WALR"] },
+  { code: "SRP", gu: "રાજ્ય અનામત પોલીસ જવાન", aka: ["SRPF"] },
+  { code: "TRB", gu: "ટ્રાફિક બ્રિગેડ", aka: [] },
+  { code: "GRD", gu: "ગ્રામ રક્ષક દળ", aka: [] },
+  { code: "WGRD", gu: "મહિલા ગ્રામ રક્ષક દળ", aka: [] },
+  { code: "HG", gu: "હોમગાર્ડ", aka: ["HOMEGUARD"] },
+  { code: "SKR", gu: "સાગર રક્ષક દળ", aka: ["SAGARRAKSHAK"] },
+];
+function nbDesigKey(label) { return String(label || "").toUpperCase().replace(/[\s.\-_()]/g, ""); }
+const NB_DESIG_RANK = (() => {
+  const m = {};
+  NB_GUJ_DESIGNATIONS.forEach((d, i) => { [d.code, ...(d.aka || [])].forEach((k) => { const kk = nbDesigKey(k); if (m[kk] == null) m[kk] = i; }); });
+  return m;
+})();
+// rank of every designation in the station's list; ones not in the Gujarat list sit just after the designation above them in that list
+const _nbDesigRankCache = new WeakMap();
+function nbDesigRanks(data) {
+  const list = (data && data.designations) || DEFAULT_DESIGNATIONS;
+  const hit = _nbDesigRankCache.get(list); if (hit) return hit;
+  const out = {}; let last = -1;
+  list.forEach((d, i) => {
+    const r = NB_DESIG_RANK[nbDesigKey(d.label)];
+    if (r != null) { out[d.id] = r; last = r; } else out[d.id] = last + 0.5 + i / 1000;
+  });
+  _nbDesigRankCache.set(list, out);
+  return out;
+}
+function nbDesigRankOf(data, desigId) {
+  if (!desigId) return 1e6;
+  const r = nbDesigRanks(data)[desigId];
+  return r == null ? 1e6 - 1 : r;
+}
+// compare two staff records (or anything with .designation / .name / .number): highest rank first, then name
+function nbStaffRankCmp(data) {
+  return (a, b) => {
+    const sa = a && a.s ? a.s : (a && a.staffRec ? a.staffRec : a), sb = b && b.s ? b.s : (b && b.staffRec ? b.staffRec : b);
+    const da = sa && sa.designation !== undefined ? sa.designation : (data.staff && data.staff[(a && a.number) || ""] || {}).designation;
+    const db = sb && sb.designation !== undefined ? sb.designation : (data.staff && data.staff[(b && b.number) || ""] || {}).designation;
+    return nbDesigRankOf(data, da) - nbDesigRankOf(data, db) || String((sa && sa.name) || (a && a.name) || "").localeCompare(String((sb && sb.name) || (b && b.name) || ""), "gu");
+  };
+}
+function nbDesigRankOfLabel(data, label) {
+  const d = ((data && data.designations) || DEFAULT_DESIGNATIONS).find((x) => x.label === label);
+  if (d) return nbDesigRankOf(data, d.id);
+  const r = NB_DESIG_RANK[nbDesigKey(label)];
+  return r == null ? 1e6 - 1 : r;
+}
+// staff records → sorted by rank
+function nbByRank(data, arr) { return [...arr].sort(nbStaffRankCmp(data)); }
+
 const seed112 = [];
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -7955,7 +8034,7 @@ function nbDutyOrderRows(data, date) {
       const entry = (m.history || []).find((e) => historyDate(e) === date);
       people.push({ number: m.number, name: st.name || m.name || "", desg: desg(st.designation), note: entry ? historyNote(entry) : "", night: !!(entry && entry.night) });
     });
-    if (people.length) groups.push({ label: c.label, people });
+    if (people.length) groups.push({ label: c.label, people: people.sort(nbStaffRankCmp(data)) });
   });
   const away = [];
   Object.values(data.staff || {}).forEach((st) => {
@@ -7965,7 +8044,8 @@ function nbDutyOrderRows(data, date) {
     if (kind !== "Leave" && kind !== "Outstation") return;
     away.push({ number: st.number, name: st.name || "", desg: desg(st.designation), kind, label: unavailLabel(data, u) || kind, to: u.to || null });
   });
-  away.sort((a, b) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label) || a.name.localeCompare(b.name));
+  const rk = nbStaffRankCmp(data);
+  away.sort((a, b) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label) || rk(a, b));
   return { groups, away };
 }
 function nbDutyOrderText(data, date, includeAway, lang) {
@@ -8235,6 +8315,7 @@ function BuckleOrNameInput({ data, value, onChange, placeholder, className, styl
     if (!q) return [];
     return Object.values(data.staff || {})
       .filter((s) => nbSrch(s.name, q) || nbSrch(s.number, q))
+      .sort(nbStaffRankCmp(data))
       .slice(0, 8);
   }, [value, data.staff]);
   useEffect(() => {
@@ -8714,7 +8795,7 @@ function GroupDutyView({ data, assignGroupDuty, initialCatId, initialPeople, inM
   const rosterCandidates = useMemo(() => {
     let list = categoryRoster.filter((p) => !people.some((pp) => pp.number === p.number));
     if (rosterOnlyDesignation.size > 0) list = list.filter((p) => p.staffRec && rosterOnlyDesignation.has(p.staffRec.designation));
-    return list;
+    return [...list].sort(nbStaffRankCmp(data));
   }, [categoryRoster, people, rosterOnlyDesignation]);
   const addSelectedFromRoster = () => {
     const chosen = categoryRoster.filter((p) => rosterPickerSelected.has(p.number));
@@ -9124,7 +9205,7 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
     const already = new Set(membership.map((m) => m.number));
     return Object.values(data.staff || {})
       .filter((s) => !already.has(s.number))
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      .sort(nbStaffRankCmp(data));
   }, [data.staff, membership]);
   const filteredImportCandidates = useMemo(() => {
     const q = importSearch.trim().toLowerCase();
@@ -10301,7 +10382,7 @@ function LeaveBalanceModal({ data, onClose, setLeaveTypeAllowance, setStaffLeave
         return { s, cells, any: cells.some((c) => c.used > 0), over: cells.some((c) => c.over) };
       })
       .filter((r) => !onlyOver || r.over)
-      .sort((a, b) => Number(b.over) - Number(a.over) || Number(b.any) - Number(a.any) || (a.s.name || "").localeCompare(b.s.name || ""));
+      .sort((a, b) => Number(b.over) - Number(a.over) || Number(b.any) - Number(a.any) || nbStaffRankCmp(data)(a, b));
   }, [data, year, search, onlyOver]);
   const th = { padding: "7px 8px", fontSize: 11.5, color: "var(--text-secondary)", borderBottom: "1px solid var(--border)", textAlign: "center", whiteSpace: "nowrap", position: "sticky", top: 0, background: "var(--bg-surface)" };
   const td = { padding: "6px 8px", fontSize: 12.5, borderBottom: "1px solid var(--border-soft)", textAlign: "center", whiteSpace: "nowrap" };
@@ -10394,7 +10475,7 @@ function nbBandobastRows(data, b) {
       if (x && typeof x === "object") return { desg: x.desg || "", number: "", name: x.name || "", phone: x.phone || x.mobile || "" };
       const st = (data.staff || {})[x] || {};
       return { desg: desg(st.designation), number: String(x), name: st.name || "", phone: st.phone || "" };
-    }),
+    }).sort((a, b) => nbDesigRankOfLabel(data, a.desg) - nbDesigRankOfLabel(data, b.desg)),
   }));
 }
 function nbBandobastWhen(b) {
@@ -10677,7 +10758,7 @@ function nbNrPrintRows(data, sheet) {
   const out = []; let sr = 0;
   (sheet.rows || []).filter((r) => (r.staff || []).length || r.vehicle || r.place).forEach((r) => {
     sr++;
-    const people = (r.staff || []).length ? r.staff : [null];
+    const people = (r.staff || []).length ? [...r.staff].sort((a, b) => nbDesigRankOfLabel(data, nbNrDesgLabel(data, a)) - nbDesigRankOfLabel(data, nbNrDesgLabel(data, b))) : [null];
     people.forEach((x, j) => {
       const st = typeof x === "string" ? (data.staff[x] || {}) : null;
       out.push({
@@ -10889,7 +10970,7 @@ function NrPeopleList({ data, list, onChange, date, othersUsed, label, tone, can
   const [manDesg, setManDesg] = useState("");
   const [remaining, setRemaining] = useState(false);
   const inList = new Set((list || []).filter((x) => typeof x === "string"));
-  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => nbSrch(st.number, s) || nbSrch(st.name, s)).slice(0, 8); }, [q, data.staff]);
+  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => nbSrch(st.number, s) || nbSrch(st.name, s)).sort(nbStaffRankCmp(data)).slice(0, 8); }, [q, data.staff]);
   const inp = { fontSize: 13, boxSizing: "border-box" };
   const add = (x) => { if (typeof x === "string" && inList.has(x)) return; onChange([...(list || []), x]); };
   const bg = tone === "green" ? "var(--status-success-bg)" : tone === "yellow" ? "var(--status-warning-bg)" : "var(--bg-surface-2)";
@@ -11166,7 +11247,7 @@ function BandobastRemainingModal({ data, draft, point, onAdd, onClose }) {
   const desgLabel = (id) => ((data.designations || []).find((d) => d.id === id) || {}).label || "";
   const all = useMemo(() => Object.values(data.staff || {}).filter((s) => !used.has(s.number))
     .map((s) => ({ s, away: unavailableOnDate(s, draft.from) }))
-    .sort((a, b) => (desgLabel(a.s.designation) || "~").localeCompare(desgLabel(b.s.designation) || "~") || (a.s.name || "").localeCompare(b.s.name || "")), [data.staff, used, draft.from]);
+    .sort(nbStaffRankCmp(data)), [data, used, draft.from]);
   const list = all.filter(({ s, away }) => (!hideAway || !away) && (!desg || s.designation === desg)
     && (!q.trim() || nbSrch(s.name, q.trim().toLowerCase()) || nbSrch(s.number, q.trim().toLowerCase())));
   const awayCount = all.filter((x) => x.away).length;
@@ -11254,7 +11335,7 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
   const [remainingFor, setRemainingFor] = useState(null);
   const [manName, setManName] = useState("");
   const [manDesg, setManDesg] = useState("");
-  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => nbSrch(st.number, s) || nbSrch(st.name, s)).slice(0, 8); }, [q, data.staff]);
+  const matches = useMemo(() => { const s = q.trim().toLowerCase(); if (!s) return []; return Object.values(data.staff || {}).filter((st) => nbSrch(st.number, s) || nbSrch(st.name, s)).sort(nbStaffRankCmp(data)).slice(0, 8); }, [q, data.staff]);
   const inp = { fontSize: 13, boxSizing: "border-box" };
   if (!cur || !draft) {
     return (
@@ -11494,7 +11575,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   const [search, setSearch] = useState(initialSearch || "");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
-  const [sortBy, setSortBy] = useState("name");
+  const [sortBy, setSortBy] = useState("designation");
   const [modalFor, setModalFor] = useState(null);
   const [modalKind, setModalKind] = useState("Leave");
   const [modalKindLocked, setModalKindLocked] = useState(false);
@@ -11576,11 +11657,11 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
     if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
     list = [...list];
     if (sortBy === "present") {
-      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort((a, b) => a.name.localeCompare(b.name));
+      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort(nbStaffRankCmp(data));
     } else if (sortBy === "unavailable") {
-      list = list.filter((s) => s.activeUnavailable).sort((a, b) => a.name.localeCompare(b.name));
+      list = list.filter((s) => s.activeUnavailable).sort(nbStaffRankCmp(data));
     } else if (sortBy === "designation") {
-      list.sort((a, b) => a.desgLabel.localeCompare(b.desgLabel) || a.name.localeCompare(b.name));
+      list.sort(nbStaffRankCmp(data));
     } else if (sortBy === "heat") {
       list.sort((a, b) => b.dutiesThisMonth - a.dutiesThisMonth || a.name.localeCompare(b.name));
     } else {
@@ -11595,7 +11676,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
       const key = s.desgLabel || t("No designation", "કોઈ હોદ્દો નથી");
       (groups[key] = groups[key] || []).push(s.dutiesThisMonth);
     });
-    return Object.keys(groups).sort().map((label) => {
+    return Object.keys(groups).sort((x, y) => nbDesigRankOfLabel(data, x) - nbDesigRankOfLabel(data, y) || x.localeCompare(y)).map((label) => {
       const counts = groups[label];
       const total = counts.reduce((a, b) => a + b, 0);
       return {
@@ -12058,6 +12139,16 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
             <div style={{ fontSize: 12, color: "var(--text-tertiary)", padding: "6px 0", borderTop: "1px solid var(--border-soft)" }} className="gu">{t("No designations yet — add your own below.", "હજુ કોઈ હોદ્દા નથી — નીચે તમારો પોતાનો ઉમેરો.")}</div>
           )}
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+            {(() => {
+              const have = new Set(designations.map((d) => nbDesigKey(d.label)));
+              const opts = NB_GUJ_DESIGNATIONS.filter((d) => !have.has(nbDesigKey(d.code)));
+              return opts.length ? (
+                <select value="" data-desg-pick onChange={(e) => { if (e.target.value) addDesignation(e.target.value); }} style={{ flexBasis: "100%", fontSize: 12.5 }} className="gu" aria-label={t("Choose a Gujarat Police designation", "ગુજરાત પોલીસનો હોદ્દો પસંદ કરો")}>
+                  <option value="">{t("Choose from the Gujarat Police list (highest rank first)…", "ગુજરાત પોલીસની યાદીમાંથી પસંદ કરો (ઊંચો હોદ્દો પહેલા)…")}</option>
+                  {opts.map((d) => <option key={d.code} value={d.code}>{d.code} — {d.gu}</option>)}
+                </select>
+              ) : null;
+            })()}
             <input type="text" placeholder={t("New designation", "નવો હોદ્દો")} value={newDesgLabel} onChange={(e) => setNewDesgLabel(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { addDesignation(newDesgLabel); setNewDesgLabel(""); } }}
               style={{ flex: 1, minWidth: 120, fontSize: 12 }} className="gu" />
@@ -12761,7 +12852,7 @@ function SwapDutyModal({ data, date, from, onClose, onSwap }) {
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
-    return Object.values(data.staff || {}).filter((p) => p.number !== from.number && (nbSrch(p.number, s) || nbSrch(p.name, s))).slice(0, 8);
+    return Object.values(data.staff || {}).filter((p) => p.number !== from.number && (nbSrch(p.number, s) || nbSrch(p.name, s))).sort(nbStaffRankCmp(data)).slice(0, 8);
   }, [q, data, from.number]);
   const picked = pick ? data.staff[pick] : null;
   const pickedDuties = useMemo(() => !pick ? [] : (data.categories || []).filter((c) => (data.membership[c.id] || []).some((m) => m.number === pick && isOnDutyOn(m, date))).map((c) => c.id), [pick, data, date]);
@@ -12913,7 +13004,7 @@ function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
   const matches = useMemo(() => {
     const qq = nbAsciiDigits(q).trim().toLowerCase();
     if (!qq) return [];
-    return Object.values(data.staff || {}).filter((s) => String(s.number).startsWith(qq) || String(s.name || "").toLowerCase().includes(qq)).slice(0, 8);
+    return Object.values(data.staff || {}).filter((s) => String(s.number).startsWith(qq) || String(s.name || "").toLowerCase().includes(qq)).sort(nbStaffRankCmp(data)).slice(0, 8);
   }, [q, data.staff]);
   const save = () => {
     if (!number || !st) { setErr(t("Pick the person.", "વ્યક્તિ પસંદ કરો.")); return; }
@@ -13235,8 +13326,8 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   };
 
-  const selDuties = dutyByDate[selectedDate] || [];
-  const selAwayAll = awayForDate(selectedDate);
+  const selDuties = useMemo(() => [...(dutyByDate[selectedDate] || [])].sort(nbStaffRankCmp(data)), [dutyByDate, selectedDate, data]);
+  const selAwayAll = useMemo(() => [...awayForDate(selectedDate)].sort(nbStaffRankCmp(data)), [selectedDate, data, awayForDate]);
   const selAwayMap = useMemo(() => {
     const map = {};
     selAwayAll.forEach((a) => { if (a.number) map[a.number] = a; });
@@ -13691,8 +13782,8 @@ function ReportView({ initialSort, focus, data }) {
   const orderedNames = useMemo(() => {
     const names = Object.keys(grouped);
     if (sortNames === "duties") return names.sort((a, b) => grouped[b].length - grouped[a].length || a.localeCompare(b));
-    return names.sort();
-  }, [grouped, sortNames]);
+    return names.sort((a, b) => nbDesigRankOfLabel(data, grouped[a][0].designation) - nbDesigRankOfLabel(data, grouped[b][0].designation) || a.localeCompare(b, "gu"));
+  }, [grouped, sortNames, data]);
 
   const monthLabel = new Date(month + "-01T00:00:00").toLocaleDateString(t("en-IN", "gu-IN"), { month: "long", year: "numeric" });
 
@@ -13972,7 +14063,7 @@ function EventsTab({ data, events, addEvent, updateEvent, deleteEvent }) {
   const [editingId, setEditingId] = useState(null);
 
   const staffList = useMemo(
-    () => Object.values(data.staff || {}).sort((a, b) => (a.number || "").localeCompare(b.number || "", undefined, { numeric: true })),
+    () => nbByRank(data, Object.values(data.staff || {})),
     [data.staff]
   );
   const staffNames = useMemo(() => staffList.map((s) => s.name), [staffList]);
@@ -15946,7 +16037,7 @@ function PublicStaffView({ data }) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
-  const [sortBy, setSortBy] = useState("name");
+  const [sortBy, setSortBy] = useState("designation");
   const [showFairnessCompare, setShowFairnessCompare] = useState(false);
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
 
@@ -15973,11 +16064,11 @@ function PublicStaffView({ data }) {
     if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
     list = [...list];
     if (sortBy === "present") {
-      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort(nbStaffRankCmp(data));
     } else if (sortBy === "unavailable") {
-      list = list.filter((s) => s.activeUnavailable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      list = list.filter((s) => s.activeUnavailable).sort(nbStaffRankCmp(data));
     } else if (sortBy === "designation") {
-      list.sort((a, b) => (a.desgLabel || "").localeCompare(b.desgLabel || "") || (a.name || "").localeCompare(b.name || ""));
+      list.sort(nbStaffRankCmp(data));
     } else if (sortBy === "heat") {
       list.sort((a, b) => b.dutiesThisMonth - a.dutiesThisMonth || (a.name || "").localeCompare(b.name || ""));
     } else {
@@ -16093,7 +16184,7 @@ function DistrictStaffView({ data }) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
-  const [sortBy, setSortBy] = useState("name");
+  const [sortBy, setSortBy] = useState("designation");
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
 
   const currentMonth = todayStr().slice(0, 7);
@@ -16119,11 +16210,11 @@ function DistrictStaffView({ data }) {
     if (desgFilter) list = desgFilter === "__none__" ? list.filter((s) => !s.designation) : list.filter((s) => s.designation === desgFilter);
     list = [...list];
     if (sortBy === "present") {
-      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      list = list.filter((s) => !s.activeUnavailable && !s.skip).sort(nbStaffRankCmp(data));
     } else if (sortBy === "unavailable") {
-      list = list.filter((s) => s.activeUnavailable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      list = list.filter((s) => s.activeUnavailable).sort(nbStaffRankCmp(data));
     } else if (sortBy === "designation") {
-      list.sort((a, b) => (a.desgLabel || "").localeCompare(b.desgLabel || "") || (a.name || "").localeCompare(b.name || ""));
+      list.sort(nbStaffRankCmp(data));
     } else if (sortBy === "heat") {
       list.sort((a, b) => b.dutiesThisMonth - a.dutiesThisMonth || (a.name || "").localeCompare(b.name || ""));
     } else {
