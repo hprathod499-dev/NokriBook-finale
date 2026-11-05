@@ -18127,7 +18127,7 @@ function nbCrSearchText(e) {
   try { Object.defineProperty(e, "__srch", { value: v, enumerable: false }); } catch (x) {}
   return v;
 }
-function CrimeQuickSearch({ entries, onOpen, onClose }) {
+function CrimeQuickSearch({ entries, onOpen, onClose, onQuick }) {
   const { t } = useLang();
   useEscToClose(onClose);
   const [q, setQ] = useState("");
@@ -18169,7 +18169,8 @@ function CrimeQuickSearch({ entries, onOpen, onClose }) {
                 <b style={{ fontSize: 13.5 }}>{nbReg(e.reg).gu} {nbG(e.no || "")}/{nbG(e.year || "")}</b>
                 <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{e.regDate ? nbGDate(e.regDate) : ""}</span>
                 <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{short(e.sections, 60)}</span>
-                <span style={{ marginLeft: "auto", fontSize: 11, padding: "1px 7px", borderRadius: 10, border: "1px solid var(--border)", color: e.closeType ? "var(--status-success-text)" : "var(--status-warning-text, #b7791f)" }}>{e.closeType ? t("Disposed", "નિકાલ") : t("Pending", "પેન્ડીંગ")}</span>
+                <span style={{ marginLeft: "auto" }} onClick={(ev) => ev.stopPropagation()}><CrimeQuickChip e={e} onQuick={(x) => { onClose(); onQuick && onQuick(x); }} /></span>
+                <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 10, border: "1px solid var(--border)", color: e.closeType ? "var(--status-success-text)" : "var(--status-warning-text, #b7791f)" }}>{e.closeType ? t("Disposed", "નિકાલ") : t("Pending", "પેન્ડીંગ")}</span>
               </div>
               <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{short(e.complainant || e.informant || e.missing, 70)}{e.accused ? " · " + t("Accused: ", "આરોપી: ") + short(e.accused, 60) : ""}</div>
             </button>
@@ -18181,7 +18182,7 @@ function CrimeQuickSearch({ entries, onOpen, onClose }) {
   );
 }
 // ---- dashboard (home) ----
-function CrimeDashboard({ ctx, showList, onOpen, onSearch, onTab }) {
+function CrimeDashboard({ ctx, showList, onOpen, onSearch, onTab, onQuick }) {
   const { t } = useLang();
   const today = todayStr(), ym = nbYM(today), yr = today.slice(0, 4);
   const E = ctx.entries;
@@ -18298,6 +18299,7 @@ function CrimeDashboard({ ctx, showList, onOpen, onSearch, onTab }) {
           <button key={e.id} type="button" onClick={() => onOpen(e)} data-dash-recent style={{ display: "flex", gap: 10, alignItems: "baseline", width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: "1px solid var(--border-soft)", padding: "8px 2px", color: "inherit", font: "inherit", cursor: "pointer" }}>
             <b style={{ fontSize: 13, whiteSpace: "nowrap" }}>{nbReg(e.reg).gu} {nbG(e.no || "")}/{nbG(e.year || "")}</b>
             <span style={{ fontSize: 12, color: "var(--text-secondary)", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{String(e.sections || e.complainant || "").slice(0, 90)}</span>
+            <CrimeQuickChip e={e} onQuick={onQuick} />
             <span style={{ fontSize: 11, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{e.updatedAt > 1000 ? new Date(Number(e.updatedAt)).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit" }) : ""}</span>
           </button>
         ))}
@@ -18383,6 +18385,132 @@ function CrimeYearCompare({ ctx, R, setR, showList }) {
         </table>
       </div>
       <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Pick any period above (or a preset) — the same dates of the earlier year are compared automatically. ▲ red = more crimes, ▼ green = fewer.", "ઉપર કોઈ પણ ગાળો (કે ઝડપી બટન) પસંદ કરો — અગાઉના વર્ષની એ જ તારીખો આપોઆપ સરખાવાય છે. ▲ લાલ = ગુના વધ્યા, ▼ લીલું = ઘટ્યા.")}</div>
+    </div>
+  );
+}
+
+// ---- quick update: detected? accused + arrest, charge-sheet / final — one small screen instead of the whole form ----
+function CrimeQuickChip({ e, onQuick }) {
+  const { t } = useLang();
+  if (!onQuick || !["A", "B", "C", "M"].includes(e.reg)) return null;
+  return (
+    <span role="button" tabIndex={0} data-quick-btn title={t("Quick update: detected, accused, charge-sheet", "ઝડપી અપડેટ: ડીટેક્ટ, આરોપી, ચાર્જશીટ")}
+      onClick={(ev) => { ev.stopPropagation(); ev.preventDefault(); onQuick(e); }}
+      onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.stopPropagation(); ev.preventDefault(); onQuick(e); } }}
+      style={{ fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 9px", border: "1px solid var(--accent-strong, var(--border))", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer", whiteSpace: "nowrap" }}>⚡ {t("Quick update", "ઝડપી અપડેટ")}</span>
+  );
+}
+function CrimeQuickUpdate({ entry, onClose, showToast, onFull }) {
+  const { t } = useLang();
+  const [e, setE] = useState(() => {
+    const x = JSON.parse(JSON.stringify(entry));
+    x.accList = nbPeople(x.accList).filter((p) => p && p.name && String(p.name).trim()).map((p) => ({ ...p }));
+    return x;
+  });
+  const startRef = useRef(JSON.stringify(e));
+  const [paste, setPaste] = useState("");
+  const [busy, setBusy] = useState(false);
+  const firstRef = useRef(null);
+  const close = () => { if (JSON.stringify(e) === startRef.current || window.confirm(t("Close without saving?", "સાચવ્યા વગર બંધ કરવું છે?"))) onClose(); };
+  useEscToClose(close);
+  const set = (k, v) => setE((x) => ({ ...x, [k]: v }));
+  const setP = (i, k, v) => setE((x) => ({ ...x, accList: x.accList.map((p, j) => (j === i ? { ...p, [k]: v } : p)) }));
+  const addNames = (txt) => {
+    const names = String(txt || "").split(/\n|;|(?:\s*,\s*(?=\(?[0-9૦-૯]{1,2}\)))/).map((s) => s.replace(/^\s*\(?[0-9૦-૯]{1,2}\)\s*/, "").trim()).filter(Boolean);
+    if (!names.length) return;
+    setE((x) => ({ ...x, detected: x.detected || names.some((n) => !/અજાણ/.test(n)), accList: [...x.accList, ...names.map((n) => ({ ...nbPersonOf(n).age ? { age: nbAsciiDigits(nbPersonOf(n).age) } : {}, name: n, g: "M", st: "yes" }))] }));
+    setPaste("");
+    setTimeout(() => { const L = document.querySelectorAll("[data-qu-acc-name]"); const el = L[L.length - 1]; if (el) el.focus(); }, 30);
+  };
+  const removeP = (i) => setE((x) => ({ ...x, accList: x.accList.filter((_, j) => j !== i) }));
+  const save = async () => {
+    setBusy(true);
+    try {
+      const out = { ...e, updatedAt: Date.now() };
+      const named = out.accList.filter((p) => p.name && String(p.name).trim());
+      out.accList = named;
+      if (named.length && (!String(out.accused || "").trim() || /અજાણ|ન[મા]ુદનથ/.test(out.accused))) out.accused = named.map((p, i) => `(${nbG(i + 1)}) ${p.name}`).join(" ");
+      if (named.length && !out.detected && named.some((p) => !/અજાણ/.test(p.name))) out.detected = true;
+      await nbEntryStore.put(out);
+      showToast(t("Saved — Ctrl+Z / ↶ undoes it", "સચવાયું — પાછું કરવા ↶ / Ctrl+Z"));
+      onClose();
+    } catch (err) { nbSaveFailed(t, err); } finally { setBusy(false); }
+  };
+  useEffect(() => {
+    const k = (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") { ev.preventDefault(); save(); } };
+    window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
+  });
+  const chip = (on, tone) => ({ fontSize: 13, fontWeight: 700, borderRadius: 999, padding: "7px 13px", border: "1.5px solid " + (on ? tone : "var(--border)"), background: on ? tone : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)", cursor: "pointer" });
+  const lbl = { fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", margin: "14px 0 6px" };
+  const inp = { fontSize: 14, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", boxSizing: "border-box" };
+  const closeT = e.closeType || "";
+  const finals = [["", t("Pending", "પેન્ડીંગ (તપાસ ચાલુ)"), "#64748b"], ["cs", t("Charge-sheet", "ચાર્જશીટ"), "#16a34a"], ["fa", "'A' " + t("final", "ફાઇનલ"), "#2563eb"], ["fb", "'B' " + t("final", "ફાઇનલ"), "#7c3aed"], ["fc", "'C' " + t("final", "ફાઇનલ"), "#db2777"]];
+  return (
+    <div role="dialog" aria-modal="true" className="modal-backdrop" data-quick-update onClick={close} style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 420, padding: "16px 10px", overflowY: "auto" }}>
+      <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 16, width: 620, maxWidth: "100%", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", padding: "16px 18px 18px", boxSizing: "border-box", margin: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="disp" style={{ fontSize: 17, fontWeight: 800 }}>⚡ {nbReg(e.reg).gu} {nbG(e.no || "")}/{nbG(e.year || "")}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[e.regDate ? nbGDate(e.regDate) : "", e.sections].filter(Boolean).join(" · ")}</div>
+          </div>
+          {onFull && <button type="button" onClick={() => { onClose(); onFull(entry); }} style={nbJkBtn}>📝 {t("Full form", "આખું ફોર્મ")}</button>}
+          <button type="button" onClick={close} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 18, color: "var(--text-tertiary)", cursor: "pointer" }}>✕</button>
+        </div>
+
+        <div style={lbl}>{t("Detected?", "ગુનો ડીટેક્ટ થયો?")}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <button type="button" data-qu-undet onClick={() => set("detected", false)} style={chip(!e.detected, "#64748b")}>❓ {t("Undetected", "અનડીટેક્ટ")}</button>
+          <button type="button" data-qu-det onClick={() => set("detected", true)} style={chip(!!e.detected, "#16a34a")}>✅ {t("Detected", "ડીટેક્ટ")}</button>
+          {e.detected && <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>{t("on", "તારીખ")} <NbDateInput value={e.detectDate || ""} onChange={(ev) => set("detectDate", ev.target.value)} style={{ ...nbCrDate, width: 140 }} /></span>}
+        </div>
+
+        <div style={lbl}>{t("Accused", "આરોપી")} {e.accList.length ? `(${nbG(e.accList.length)})` : ""}</div>
+        {e.accList.map((p, i) => (
+          <div key={i} data-qu-acc style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 8, marginBottom: 8, background: "var(--bg-page)" }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)", width: 22 }}>{nbG(i + 1)}.</span>
+              <input data-qu-acc-name ref={i === 0 ? firstRef : undefined} value={p.name || ""} onChange={(ev) => setP(i, "name", ev.target.value)} placeholder={t("Name, father's name, surname, age, village", "નામ, પિતાનું નામ, અટક, ઉ.વ., રહે.")} className="gu" style={{ ...inp, flex: 1, minWidth: 0 }} />
+              <input value={p.age || ""} onChange={(ev) => setP(i, "age", ev.target.value.replace(/[^0-9૦-૯]/g, "").slice(0, 3))} inputMode="numeric" placeholder={t("Age", "ઉ.વ.")} className="mono" style={{ ...inp, width: 58 }} />
+              <button type="button" onClick={() => removeP(i)} aria-label={t("Remove", "કાઢો")} style={{ ...nbJkBtn, padding: "6px 9px" }}>✕</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6, paddingLeft: 28 }}>
+              {[["yes", t("Arrested", "અટક"), "#16a34a"], ["no", t("Not yet", "અટક બાકી"), "#ef4444"], ["notice", t("Notice", "નોટીસ"), "#2563eb"], ["asked", t("Questioned", "પૂછપરછ"), "#64748b"]].map(([k, l, c]) => (
+                <button key={k} type="button" data-qu-st={k} onClick={() => setP(i, "st", k)} style={{ ...chip(p.st === k, c), fontSize: 12, padding: "4px 10px" }}>{l}</button>
+              ))}
+              {(p.st === "yes" || p.st === "notice") && <span style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12 }}>{t("date", "તારીખ")} <NbDateInput value={p.arrestDate || ""} onChange={(ev) => setP(i, "arrestDate", ev.target.value)} style={{ ...nbCrDate, width: 132 }} /></span>}
+              <select value={p.g || "M"} onChange={(ev) => setP(i, "g", ev.target.value)} style={{ fontSize: 12 }} aria-label={t("Gender", "જાતિ")}><option value="M">{t("Male", "પુરૂષ")}</option><option value="F">{t("Female", "સ્ત્રી")}</option></select>
+            </div>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+          <textarea value={paste} onChange={(ev) => setPaste(ev.target.value)} rows={paste.includes("\n") ? 3 : 1} data-qu-paste placeholder={t("Type or paste accused names — one per line — then Add", "આરોપીના નામ લખો કે પેસ્ટ કરો — દરેક લાઇનમાં એક — પછી ઉમેરો")}
+            onKeyDown={(ev) => { if (ev.key === "Enter" && !ev.shiftKey && !ev.ctrlKey) { ev.preventDefault(); addNames(paste); } }} className="gu" style={{ ...inp, flex: 1, minWidth: 0, resize: "vertical" }} />
+          <button type="button" data-qu-add onClick={() => (paste.trim() ? addNames(paste) : setE((x) => ({ ...x, accList: [...x.accList, { name: "", g: "M", st: "yes" }] })))} style={{ ...nbJkBtn, padding: "9px 12px", fontSize: 13 }}>＋ {t("Add", "ઉમેરો")}</button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{t("Enter adds one; Shift+Enter for a new line to paste many.", "Enter થી એક ઉમેરાય; ઘણા નામ માટે Shift+Enter થી નવી લાઇન.")}</div>
+
+        <div style={lbl}>{t("Disposal", "નિકાલ")}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {finals.map(([k, l, c]) => <button key={k || "p"} type="button" data-qu-close={k || "pending"} onClick={() => set("closeType", k)} style={chip(closeT === k, c)}>{l}</button>)}
+        </div>
+        {closeT === "cs" && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)", flex: "1 1 180px" }}>{t("Charge-sheet no.", "ચાર્જશીટ નંબર")}<input data-qu-csno value={e.csNo || ""} onChange={(ev) => set("csNo", ev.target.value)} className="gu" style={inp} placeholder="દા.ત. ૨૫/૨૦૨૬" /></label>
+            <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)" }}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}<NbDateInput value={e.closeDate || ""} onChange={(ev) => set("closeDate", ev.target.value)} style={{ ...nbCrDate, width: 150 }} /></label>
+          </div>
+        )}
+        {["fa", "fb", "fc"].includes(closeT) && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)", flex: "1 1 180px" }}>{t("Final / summary no.", "ફાઇનલ / સમરી નંબર")}<input value={e.finalNo || ""} onChange={(ev) => set("finalNo", ev.target.value)} className="gu" style={inp} /></label>
+            <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)" }}>{t("Date", "તારીખ")}<NbDateInput value={e.closeDate || ""} onChange={(ev) => set("closeDate", ev.target.value)} style={{ ...nbCrDate, width: 150 }} /></label>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, marginTop: 18, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)", flex: 1 }}>Ctrl+Enter {t("saves", "થી સચવાય")}</span>
+          <button type="button" onClick={close} style={{ ...nbJkBtn, padding: "9px 16px", fontSize: 13.5 }}>{t("Cancel", "રદ કરો")}</button>
+          <button type="button" onClick={save} disabled={busy} data-qu-save style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 10, padding: "10px 22px", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>{busy ? "…" : "✓ " + t("Save", "સાચવો")}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -19533,6 +19661,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
   const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("nb_cr_tab") || "home"; } catch (e) { return "home"; } });
   useEffect(() => { try { sessionStorage.setItem("nb_cr_tab", tab); } catch (e) {} }, [tab]);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [quick, setQuick] = useState(null);
   useEffect(() => {
     const k = (ev) => {
       const tag = ev.target && ev.target.tagName;
@@ -19580,8 +19709,8 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setSearchOpen(true)} style={{ ...tabBtn(false), marginLeft: "auto" }} data-cr-search-btn title={t("Search (Ctrl+K)", "શોધો (Ctrl+K)")}>🔍 {t("Search", "શોધો")}</button>
       </div>
       <NbViewBoundary key={tab}><div className="view-fade-in">
-      {tab === "home" && <CrimeDashboard ctx={ctx} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onSearch={() => setSearchOpen(true)} onTab={setTab} />}
-      {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} rng={rng} setRng={setRng} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
+      {tab === "home" && <CrimeDashboard onQuick={setQuick} ctx={ctx} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onSearch={() => setSearchOpen(true)} onTab={setTab} />}
+      {tab === "reg" && <CrimeRegisterList onQuick={setQuick} entries={ctx.entries} reg={reg} setReg={setReg} rng={rng} setRng={setRng} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} showList={showList} showBst={showBst} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
       {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
@@ -19591,8 +19720,9 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "acc" && <CrimeAccusedPanel ctx={ctx} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       </div></NbViewBoundary>
-      {searchOpen && <CrimeQuickSearch entries={ctx.entries} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onClose={() => setSearchOpen(false)} />}
-      {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
+      {quick && <CrimeQuickUpdate entry={entries.find((x) => x.id === quick.id) || quick} showToast={showToast} onClose={() => setQuick(null)} onFull={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
+      {searchOpen && <CrimeQuickSearch onQuick={setQuick} entries={ctx.entries} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onClose={() => setSearchOpen(false)} />}
+      {drill && <CrimeDrillModal onQuick={setQuick} title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
       {bsv && <CrimeBStatementView title={bsv.title} list={bsv.draft ? [nbNormEntry(bsv.draft)] : ctx.entries.filter((e) => bsv.ids.includes(e.id))} ctx={ctx} onClose={() => setBsv(null)} />}
       {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} onBst={(e) => setBsv({ title: "B સ્ટેટમેન્ટ — " + nbG(e.no || "") + "/" + nbG(String(e.year || "").slice(-2)), ids: [e.id], draft: e })} />}
     </div>
@@ -19897,7 +20027,7 @@ function NbDrillNum({ list, title, onShow, children, style }) {
       style={{ background: "transparent", border: "none", padding: 0, margin: 0, font: "inherit", color: "inherit", textAlign: "inherit", cursor: "pointer", ...(style || {}) }}>{children}</button>
   );
 }
-function CrimeDrillModal({ title, list, onOpen, onBst, onClose }) {
+function CrimeDrillModal({ title, list, onOpen, onBst, onClose, onQuick }) {
   const { t } = useLang();
   useEscToClose(onClose);
   const today = todayStr();
@@ -19926,6 +20056,7 @@ function CrimeDrillModal({ title, list, onOpen, onBst, onClose }) {
                   <b>{nbEntryTitle(e)}</b>
                   <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
                   <div style={{ flex: 1 }} />
+                  <CrimeQuickChip e={e} onQuick={onQuick} />
                   {r.crime && (e.detected ? <span style={{ fontSize: 11.5, color: "var(--status-success-text)" }}>✓ {t("Detected", "ડીટેક્ટ")}</span> : <span style={{ fontSize: 11.5, color: "var(--status-error-text)" }}>{t("Undetected", "અનડીટેક્ટ")}</span>)}
                   {e.closeType ? <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{nbCloseStory(e)}{nbCourtLabel(e) ? " · " + nbCourtLabel(e) : ""}</span> : pend && <span style={{ fontSize: 11.5, color: "var(--status-warning-text, #b7791f)" }}>{t("Pending", "પેન્ડીંગ")}{e.pendingReason ? " · " + e.pendingReason : ""}</span>}
                 </div>
@@ -19982,7 +20113,7 @@ function CrimeBStatementView({ title, list, ctx, onClose }) {
     </div>
   );
 }
-function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q: typedQ, setQ, onlyPending, setOnlyPending, ctx, onOpen, onNew }) {
+function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q: typedQ, setQ, onlyPending, setOnlyPending, ctx, onOpen, onNew, onQuick }) {
   const { t, lang } = useLang();
   const today = todayStr();
   const q = (React.useDeferredValue || ((x) => x))(typedQ);
@@ -20037,6 +20168,7 @@ function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q: typedQ, setQ,
               <b>{title}</b>
               <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{nbGDate(e.regDate)}</span>
               <div style={{ flex: 1 }} />
+              <CrimeQuickChip e={e} onQuick={onQuick} />
               {r.crime && e.detected && <span style={{ fontSize: 11.5, color: "var(--status-success-text)" }}>✓ {t("Detected", "ડીટેક્ટ")}</span>}
               {e.closeType ? <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{nbCloseStory(e)}</span> : reg === "GUM" && e.foundDate ? <span style={{ fontSize: 11.5, color: "var(--status-success-text)" }}>{t("Found", "પરત મળ્યા")}</span> : pend && <span style={{ fontSize: 11.5, color: age >= 6 ? "var(--status-error-text)" : age >= 3 ? "var(--status-warning-text)" : "var(--text-tertiary)" }}>{age >= 3 ? `⏳ ${nbG(age)} ${t("months", "માસ")}` : t("Pending", "પેન્ડીંગ")}</span>}
             </div>
