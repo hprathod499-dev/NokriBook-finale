@@ -20599,7 +20599,7 @@ function nbFirToEntry(pages, fileName) {
   const dFrom = d(val(/^Date from/i)), dTo = d(val(/^Date to/i)), tFrom = tm(val(/^Time from/i)), tTo = tm(val(/^Time to/i));
   const day = flat(val(/^Day/i));
   let occText = "";
-  if (dFrom) occText = `તા.${nbG(formatDMY(dFrom))}${tFrom ? " ના કલાક " + nbG(tFrom.replace(":", "/")) : ""}${dTo && (dTo !== dFrom || (tTo && tTo !== tFrom)) ? " થી તા." + nbG(formatDMY(dTo)) + (tTo ? " ના કલાક " + nbG(tTo.replace(":", "/")) : "") + " સુધી" : ""}`;
+  if (dFrom) occText = `તા.${nbG(formatDMY(dFrom))}${tFrom ? " ના કલાક " + nbG(tFrom.replace(":", "/")) : ""}${dTo && (dTo !== dFrom || tTo) ? " થી તા." + nbG(formatDMY(dTo)) + (tTo ? " ના કલાક " + nbG(tTo.replace(":", "/")) : "") + " સુધી" : ""}`;
   if (occText && day && dTo === dFrom) occText = day + " " + occText;
   // item 2 can list several Acts, each with its own sections (e.g. BNS 318(4),319(2) and IT Act 66(d)) — read every row
   const GL = { a: "એ", b: "બી", c: "સી", d: "ડી", e: "ઇ", f: "એફ", g: "જી", h: "એચ" };
@@ -20629,7 +20629,7 @@ function nbFirToEntry(pages, fileName) {
     : [act && act + " કલમ", secFmt(secs)].filter(Boolean).join(" ");
   const dir = flat(val(/^Direction/i, S.place, S.comp));
   const addr = flat(val(/^Addres/i, S.place, S.comp));
-  const place = [addr, dir ? `(પો.સ્ટે.થી ${nbG(dir)})` : ""].filter(Boolean).join(" ");
+  const place = [addr, dir ? `(પો.સ્ટે.થી ${dir})` : ""].filter(Boolean).join(" ");
   const fixUv = (s) => s.replace(/ઉ\.\s?[૧1વ]\.\s?/g, "ઉ.વ.").replace(/ઉ\s?\.\s?વ\s?\./g, "ઉ.વ.");
   const bodyCells = S.info >= 0 ? all.slice(S.info + 1, S.action >= 0 ? S.action : undefined) : [];
   const body = bodyCells.map((c) => c.text).join("\n");
