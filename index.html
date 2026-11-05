@@ -20180,7 +20180,9 @@ function nbWAutoFill(e) {
   const head = Number(nbGuessHead44(e.sections) || 0);
   const prop = [3, 4, 5, 6, 7, 8, 9, 10, 32].includes(head);
   if (prop && amts.length) {
-    const tot = /કુલ\s*કિ/.test(f) ? amts[amts.length - 1] : Math.max(...amts);
+    const freq = {}; amts.forEach((n) => { freq[n] = (freq[n] || 0) + 1; });
+    const top = Math.max(...Object.values(freq));
+    const tot = /કુલ\s*કિ/.test(f) ? amts[amts.length - 1] : top > 1 ? Math.max(...amts.filter((n) => freq[n] === top)) : Math.max(...amts);
     if (!e.stolenValue) e.stolenValue = String(tot);
     if (!e.loss) e.loss = `કિ.રૂ. ${nbG(nbMoney(tot))}/-`;
   }
@@ -20602,7 +20604,13 @@ function nbFirToEntry(pages, fileName) {
   // item 2 can list several Acts, each with its own sections (e.g. BNS 318(4),319(2) and IT Act 66(d)) — read every row
   const GL = { a: "એ", b: "બી", c: "સી", d: "ડી", e: "ઇ", f: "એફ", g: "જી", h: "એચ" };
   const secFmt = (x) => nbG(x).replace(/\(\s*([a-h])\s*\)/gi, (m, l) => "(" + GL[l.toLowerCase()] + ")");
-  const actLbl = (x) => (/બી\.?\s?એન\s?\.?\s?એસ|BNS|ભારતીય\s*ન્યાય/i.test(x) ? "બી.એન.એસ." : x.replace(/\s+/g, " ").trim());
+  const bnssEra = all.some((c) => /B\.?\s?N\.?\s?S\.?\s?S|નાગરિક\s*સુરક્ષા/i.test(c.raw));
+  const actLbl = (x, k) => {
+    if (/બી\.?\s?એન\s?\.?\s?એસ|BNS|ભારતીય\s*ન્યાય/i.test(x)) return "બી.એન.એસ.";
+    const gu = (x.match(/[઀-૿]/g) || []).length;
+    if (k === 0 && gu < 2 && !/act|એક્ટ|અધિનિયમ/i.test(x) && bnssEra) return "બી.એન.એસ.";
+    return x.replace(/\s+/g, " ").trim();
+  };
   const actPairs = [];
   all.forEach((c, i) => {
     if (!/^Act\b/i.test(c.raw) || (S.place >= 0 && i > S.place)) return;
@@ -20617,7 +20625,7 @@ function nbFirToEntry(pages, fileName) {
   const secs = actPairs.length ? actPairs.map((x) => x.secs).filter(Boolean).join(",") : flat(val(/\(કલમો\)|^Sectio/i));
   if (!actPairs.length && (/બી\.?એન\.?એસ|BNS/i.test(act) || (!act && secs))) act = "બી.એન.એસ.";
   const sections = actPairs.length
-    ? actPairs.map((x) => [x.act ? actLbl(x.act) + " કલમ" : "", secFmt(x.secs)].filter(Boolean).join(" ")).filter(Boolean).join(" તથા ")
+    ? actPairs.map((x, k) => { const L = actLbl(x.act, k); return [L ? L + " કલમ" : "", secFmt(x.secs)].filter(Boolean).join(" "); }).filter(Boolean).join(" તથા ")
     : [act && act + " કલમ", secFmt(secs)].filter(Boolean).join(" ");
   const dir = flat(val(/^Direction/i, S.place, S.comp));
   const addr = flat(val(/^Addres/i, S.place, S.comp));
