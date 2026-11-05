@@ -82,6 +82,16 @@
     cursor: pointer; font-family: inherit;
     transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
+  /* crime register look */
+  .crime-review-app .nb-cr-head { background: linear-gradient(120deg, var(--bg-surface) 0%, var(--bg-surface-2) 100%) !important; box-shadow: 0 2px 14px rgba(0,0,0,0.06); }
+  .crime-review-app .nb-cr-tabs button { border-radius: 999px !important; transition: box-shadow 0.15s, background 0.15s, transform 0.12s; }
+  .crime-review-app .nb-cr-tabs button:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.08); }
+  .crime-review-app .nb-tab-on { box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+  .nb-dash-tile { box-shadow: 0 1px 3px rgba(0,0,0,0.04); transition: transform 0.15s, box-shadow 0.15s; }
+  .nb-dash-tile:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.08); }
+  .nb-dash-bar { transition: width 0.6s ease, height 0.6s ease; }
+  .nb-dash-search:hover, .nb-cr-sync-card { box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+  @media (max-width: 560px) { .nb-cr-hide-sm { display: none; } }
   [data-reorder-id], [data-hold] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   tr[data-sel-row] td * { pointer-events: none; }
   [data-reorder-drag="1"] { opacity: 0.35 !important; }
@@ -17928,6 +17938,455 @@ function useLocalEntries() {
   }, []);
   return entries;
 }
+// ===== Crime register: Undo / Redo, per-entry change history, quick search, dashboard =====
+// Every change the writer makes (an entry saved / deleted, an import, monthly figures, settings) becomes one undo step;
+// changes made within a moment of each other (an import of many entries) are one step. Background tidy-ups are not recorded.
+const NB_UNDO_META = new Set(["monthly", "regSettings", "prohiData", "profile"]);
+function nbIdbGetMany(store, keys) {
+  return nbCrimeDb().then((d) => new Promise((resolve) => {
+    const out = new Array(keys.length);
+    try {
+      const tx = d.transaction(store, "readonly"), st = tx.objectStore(store);
+      keys.forEach((k, i) => { const r = st.get(k); r.onsuccess = () => { out[i] = r.result; }; });
+      tx.oncomplete = () => resolve(out); tx.onerror = () => resolve(out); tx.onabort = () => resolve(out);
+    } catch (e) { resolve(out); }
+  })).catch(() => new Array(keys.length));
+}
+// history of an entry: meta "hist:<id>" = [{ at, v }] newest first (kept on this device only, not in backups)
+const NB_HIST_MAX = 25;
+function nbCrHistAddMany(pairs) {
+  const L = (pairs || []).filter((x) => x && x[0] && x[1]);
+  if (!L.length) return Promise.resolve();
+  const keys = L.map(([id]) => "hist:" + id);
+  return nbIdbGetMany("meta", keys).then((old) => nbIdb("meta", "readwrite", (st) => {
+    L.forEach(([id, v], i) => { const prev = Array.isArray(old[i]) ? old[i] : []; st.put([{ at: Date.now(), v }, ...prev].slice(0, NB_HIST_MAX), keys[i]); });
+  })).catch((e) => console.warn("history", e));
+}
+function nbCrHistGet(id) { return nbIdb("meta", "readonly", (st) => st.get("hist:" + id)).then((x) => (Array.isArray(x) ? x : [])).catch(() => []); }
+const nbCrUndo = {
+  undo: [], redo: [], cur: null, timer: null, busy: 0, quiet: 0, subs: new Set(),
+  emit() { this.subs.forEach((f) => { try { f(); } catch (e) {} }); },
+  rec(op) {
+    if (!this.cur) { this.cur = { at: Date.now(), ops: [] }; this.undo.push(this.cur); if (this.undo.length > 60) this.undo.shift(); this.redo = []; }
+    const ex = this.cur.ops.find((o) => o.store === op.store && o.key === op.key);
+    if (ex) ex.after = op.after; else this.cur.ops.push(op);
+    clearTimeout(this.timer); this.timer = setTimeout(() => { this.cur = null; }, 800);
+    this.emit();
+  },
+  async silent(fn) { this.quiet++; try { return await fn(); } finally { this.quiet--; } },
+  async go(dir) {
+    const from = dir === "undo" ? this.undo : this.redo;
+    const step = from.pop();
+    if (!step) return null;
+    clearTimeout(this.timer); this.cur = null; this.busy++;
+    try {
+      const by = {};
+      step.ops.forEach((o) => { (by[o.store] = by[o.store] || []).push(o); });
+      for (const store of Object.keys(by)) {
+        const ops = by[store];
+        if (store === "entries") { const now = await nbIdbGetMany("entries", ops.map((o) => o.key)); await nbCrHistAddMany(ops.map((o, i) => [o.key, now[i]])); }
+        await nbIdb(store, "readwrite", (st) => {
+          ops.forEach((o) => {
+            const v = dir === "undo" ? o.before : o.after;
+            if (v === undefined) st.delete(o.key); else if (store === "meta") st.put(v, o.key); else st.put(v);
+          });
+        });
+      }
+    } catch (e) { from.push(step); this.busy--; this.emit(); throw e; }
+    this.busy--;
+    (dir === "undo" ? this.redo : this.undo).push(step);
+    nbCrimeChanged(); this.emit();
+    return step;
+  },
+};
+async function nbCrRecWrite(store, items, write) {
+  const track = !nbCrUndo.busy && !nbCrUndo.quiet;
+  const before = track ? await nbIdbGetMany(store, items.map((x) => x.key)) : null;
+  await write();
+  if (!track) return;
+  const hist = [];
+  items.forEach((it, i) => {
+    const b = before[i];
+    if (JSON.stringify(b === undefined ? null : b) === JSON.stringify(it.after === undefined ? null : it.after)) return;
+    nbCrUndo.rec({ store, key: it.key, before: b, after: it.after });
+    if (store === "entries" && b) hist.push([it.key, b]);
+  });
+  if (hist.length) nbCrHistAddMany(hist);
+}
+{
+  const E = { put: nbEntryStore.put, putMany: nbEntryStore.putMany, del: nbEntryStore.del };
+  nbEntryStore.put = (e) => { const c = nbCompactEntry(e); return nbCrRecWrite("entries", [{ key: c.id, after: c }], () => E.put(e)); };
+  nbEntryStore.putMany = (list) => { const L = (list || []).map(nbCompactEntry); return nbCrRecWrite("entries", L.map((c) => ({ key: c.id, after: c })), () => E.putMany(list)); };
+  nbEntryStore.del = (id) => nbCrRecWrite("entries", [{ key: id, after: undefined }], () => E.del(id));
+  const C = { put: nbCrimeStore.put, putMany: nbCrimeStore.putMany, del: nbCrimeStore.del, setMeta: nbCrimeStore.setMeta };
+  nbCrimeStore.put = (c) => nbCrRecWrite("cases", [{ key: c.id, after: c }], () => C.put(c));
+  nbCrimeStore.putMany = (list) => nbCrRecWrite("cases", (list || []).map((c) => ({ key: c.id, after: c })), () => C.putMany(list));
+  nbCrimeStore.del = (id) => nbCrRecWrite("cases", [{ key: id, after: undefined }], () => C.del(id));
+  nbCrimeStore.setMeta = (k, v) => (NB_UNDO_META.has(k) ? nbCrRecWrite("meta", [{ key: k, after: v }], () => C.setMeta(k, v)) : C.setMeta(k, v));
+}
+function useCrUndo() {
+  const [, force] = useState(0);
+  useEffect(() => { const f = () => force((x) => x + 1); nbCrUndo.subs.add(f); return () => nbCrUndo.subs.delete(f); }, []);
+  return { canUndo: nbCrUndo.undo.length > 0, canRedo: nbCrUndo.redo.length > 0 };
+}
+function nbCrStepText(step, t) {
+  const n = step.ops.length;
+  const ent = step.ops.filter((o) => o.store === "entries");
+  if (ent.length === 1) { const v = ent[0].after || ent[0].before; return v ? `${nbReg(v.reg).gu} ${nbG(v.no || "")}/${nbG(v.year || "")}` : t("1 entry", "૧ એન્ટ્રી"); }
+  if (ent.length > 1) return t(`${ent.length} entries`, `${nbG(ent.length)} એન્ટ્રી`);
+  return t(`${n} change${n > 1 ? "s" : ""}`, `${nbG(n)} ફેરફાર`);
+}
+function CrimeUndoButtons({ showToast }) {
+  const { t } = useLang();
+  const { canUndo, canRedo } = useCrUndo();
+  const run = async (dir) => {
+    try {
+      const s = await nbCrUndo.go(dir);
+      if (s) showToast((dir === "undo" ? "↶ " + t("Undone: ", "પાછું કર્યું: ") : "↷ " + t("Redone: ", "ફરી કર્યું: ")) + nbCrStepText(s, t));
+    } catch (e) { window.alert(t("Could not undo: ", "પાછું થઈ શક્યું નહીં: ") + (e.message || e)); }
+  };
+  useEffect(() => {
+    const k = (ev) => {
+      if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+      const tg = ev.target, tag = tg && tg.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (tg && tg.isContentEditable)) return;   // typing keeps its own undo
+      if (document.querySelector(".modal-backdrop")) return;
+      const key = ev.key.toLowerCase();
+      if (key === "z" && !ev.shiftKey) { ev.preventDefault(); run("undo"); }
+      else if (key === "y" || (key === "z" && ev.shiftKey)) { ev.preventDefault(); run("redo"); }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  const b = (on) => ({ ...iconBtnWide, padding: "6px 10px", fontWeight: 700, opacity: on ? 1 : 0.4, cursor: on ? "pointer" : "default" });
+  return (
+    <div style={{ display: "flex", gap: 4 }} data-cr-undo>
+      <button type="button" onClick={() => canUndo && run("undo")} disabled={!canUndo} data-cr-undo-btn title={t("Undo the last change (Ctrl+Z)", "છેલ્લો ફેરફાર પાછો (Ctrl+Z)")} aria-label={t("Undo", "પાછું")} className="gu" style={b(canUndo)}>↶ <span className="nb-cr-hide-sm">{t("Undo", "પાછું")}</span></button>
+      <button type="button" onClick={() => canRedo && run("redo")} disabled={!canRedo} data-cr-redo-btn title={t("Redo (Ctrl+Y)", "ફરી કરો (Ctrl+Y)")} aria-label={t("Redo", "ફરી કરો")} className="gu" style={b(canRedo)}>↷ <span className="nb-cr-hide-sm">{t("Redo", "ફરી")}</span></button>
+    </div>
+  );
+}
+// ---- change history of one entry ----
+const NB_HIST_SKIP = new Set(["updatedAt", "createdAt", "_headAuto", "_pbAuto", "_rhAuto", "_srcYM", "_src", "id"]);
+function nbHistDiff(a, b) {
+  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+  return [...keys].filter((k) => !NB_HIST_SKIP.has(k) && JSON.stringify((a || {})[k] ?? "") !== JSON.stringify((b || {})[k] ?? ""));
+}
+function nbHistVal(v) {
+  if (v == null || v === "") return "—";
+  if (Array.isArray(v)) return v.map((x) => (x && typeof x === "object" ? x.name || JSON.stringify(x) : String(x))).join(", ") || "—";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+function CrimeHistoryModal({ entry, onRestore, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [list, setList] = useState(null);
+  useEffect(() => { nbCrHistGet(entry.id).then(setList); }, [entry.id]);
+  const labels = useMemo(() => { const m = {}; nbRegFields(entry.reg).forEach((f) => { if (f && f.k) m[f.k] = f.gu || f.en; }); return m; }, [entry.reg]);
+  const cur = nbCompactEntry(entry);
+  return (
+    <div role="dialog" aria-modal="true" className="modal-backdrop" data-cr-history onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 400, padding: "24px 12px", overflowY: "auto" }}>
+      <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 720, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", padding: 16, boxSizing: "border-box", margin: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div className="disp" style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>🕘 {t("Change history", "ફેરફાર ઇતિહાસ")} · {nbReg(entry.reg).gu} {nbG(entry.no || "")}/{nbG(entry.year || "")}</div>
+          <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)", cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Each earlier version of this entry, newest first. \"Bring back\" puts that version in the form — check it and press Save.", "આ એન્ટ્રીની દરેક જૂની વિગત, નવી પહેલાં. \"પાછી લાવો\" દબાવતાં એ વિગત ફોર્મમાં આવશે — જોઈને સાચવો દબાવો.")}</div>
+        {list === null ? <div style={{ padding: 16, color: "var(--text-tertiary)" }}>…</div>
+          : !list.length ? <div style={{ padding: 16, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("No earlier versions yet. From now on every change is kept here.", "હજુ કોઈ જૂની વિગત નથી. હવેથી દરેક ફેરફાર અહીં સચવાશે.")}</div>
+          : list.map((h, i) => {
+            const diff = nbHistDiff(h.v, cur);
+            return (
+              <div key={i} data-hist-row style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", marginBottom: 8, background: "var(--bg-page)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: diff.length ? 6 : 0 }}>
+                  <b style={{ fontSize: 13, flex: 1 }}>{new Date(h.at).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</b>
+                  <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{diff.length ? t(`${diff.length} field(s) differ from now`, `હાલ કરતાં ${nbG(diff.length)} ખાના જુદાં`) : t("same as now", "હાલ જેવું જ")}</span>
+                  <button type="button" data-hist-restore onClick={() => onRestore(h.v)} disabled={!diff.length} style={{ ...nbJkBtn, opacity: diff.length ? 1 : 0.5 }}>↩ {t("Bring back", "પાછી લાવો")}</button>
+                </div>
+                {diff.slice(0, 12).map((k) => (
+                  <div key={k} style={{ fontSize: 12, display: "grid", gridTemplateColumns: "minmax(90px, 160px) 1fr", gap: 8, padding: "3px 0", borderTop: "1px dashed var(--border-soft)" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>{labels[k] || k}</span>
+                    <span style={{ wordBreak: "break-word" }}><span style={{ background: "var(--status-error-bg, transparent)", textDecoration: "line-through", color: "var(--text-tertiary)" }}>{nbHistVal(cur[k]).slice(0, 160)}</span>{" → "}<span style={{ background: "var(--status-success-bg, transparent)" }}>{nbHistVal(h.v[k]).slice(0, 220)}</span></span>
+                  </div>
+                ))}
+                {diff.length > 12 && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>+{nbG(diff.length - 12)} {t("more", "વધુ")}</div>}
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+// ---- quick search (Ctrl+K) ----
+function nbCrSearchText(e) {
+  if (e.__srch) return e.__srch;
+  const acc = (nbPeople(e.accList) || []).map((p) => p && p.name).filter(Boolean).join(" ");
+  const s = [nbReg(e.reg).gu, e.no, e.year, `${e.no}/${e.year}`, e.sections, e.complainant, e.informant, e.missing, e.accused, acc, e.place, e.occText, e.io, e.writer, e.facts, e.courtNo].filter(Boolean).join(" ");
+  const v = nbAsciiDigits(s).toLowerCase();
+  try { Object.defineProperty(e, "__srch", { value: v, enumerable: false }); } catch (x) {}
+  return v;
+}
+function CrimeQuickSearch({ entries, onOpen, onClose }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const res = useMemo(() => {
+    const qq = nbAsciiDigits(q).toLowerCase().trim();
+    if (!qq) return [...entries].sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)).slice(0, 12);
+    const words = qq.split(/\s+/).filter(Boolean);
+    const num = qq.match(/^(\d{1,6})(?:\s*\/\s*(\d{2,4}))?$/);
+    const L = entries.filter((e) => { const s = nbCrSearchText(e); return words.every((w) => s.includes(w)); });
+    const score = (e) => (num && String(e.no) === num[1] && (!num[2] || String(e.year).endsWith(num[2])) ? 0 : 1);
+    return L.sort((a, b) => score(a) - score(b) || (b.regDate || "").localeCompare(a.regDate || "")).slice(0, 60);
+  }, [q, entries]);
+  useEffect(() => setSel(0), [q]);
+  const open = (e) => { onClose(); onOpen(e); };
+  const key = (ev) => {
+    if (ev.key === "ArrowDown") { ev.preventDefault(); setSel((s) => Math.min(res.length - 1, s + 1)); }
+    else if (ev.key === "ArrowUp") { ev.preventDefault(); setSel((s) => Math.max(0, s - 1)); }
+    else if (ev.key === "Enter" && res[sel]) { ev.preventDefault(); open(res[sel]); }
+  };
+  const short = (x, n) => { const s = String(x || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) + "…" : s; };
+  return (
+    <div role="dialog" aria-modal="true" className="modal-backdrop" data-cr-search onClick={onClose} style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 380, padding: "8vh 12px 12px" }}>
+      <div onClick={(ev) => ev.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 680, maxWidth: "100%", boxShadow: "0 24px 70px rgba(0,0,0,0.35)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--border-soft)" }}>
+          <span style={{ fontSize: 18 }}>🔍</span>
+          <input autoFocus value={q} onChange={(ev) => setQ(ev.target.value)} onKeyDown={key} data-cr-search-input className="gu"
+            placeholder={t("C.R. no. (204/2025), name, mobile, section, village…", "ગુ.ર.નં. (૨૦૪/૨૦૨૫), નામ, મોબાઇલ, કલમ, ગામ…")}
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 16, background: "transparent", color: "var(--text-primary)", minWidth: 0 }} />
+          <span className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", border: "1px solid var(--border)", borderRadius: 5, padding: "1px 5px" }}>Esc</span>
+        </div>
+        <div style={{ maxHeight: "62vh", overflowY: "auto" }}>
+          {!q && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", padding: "8px 14px 2px" }}>{t("Recently changed", "હમણાં સુધારેલા")}</div>}
+          {res.length === 0 && <div style={{ padding: 22, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>{t("Nothing found", "કંઈ મળ્યું નહીં")}</div>}
+          {res.map((e, i) => (
+            <button key={e.id} type="button" data-cr-search-row onMouseEnter={() => setSel(i)} onClick={() => open(e)}
+              style={{ display: "block", width: "100%", textAlign: "left", border: "none", borderBottom: "1px solid var(--border-soft)", padding: "9px 14px", background: i === sel ? "var(--bg-surface-2)" : "transparent", color: "inherit", cursor: "pointer", font: "inherit" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                <b style={{ fontSize: 13.5 }}>{nbReg(e.reg).gu} {nbG(e.no || "")}/{nbG(e.year || "")}</b>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{e.regDate ? nbGDate(e.regDate) : ""}</span>
+                <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{short(e.sections, 60)}</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, padding: "1px 7px", borderRadius: 10, border: "1px solid var(--border)", color: e.closeType ? "var(--status-success-text)" : "var(--status-warning-text, #b7791f)" }}>{e.closeType ? t("Disposed", "નિકાલ") : t("Pending", "પેન્ડીંગ")}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{short(e.complainant || e.informant || e.missing, 70)}{e.accused ? " · " + t("Accused: ", "આરોપી: ") + short(e.accused, 60) : ""}</div>
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", padding: "7px 14px", borderTop: "1px solid var(--border-soft)" }}>↑ ↓ {t("to move", "ફરવા")} · Enter {t("to open", "ખોલવા")} · Ctrl+K {t("anywhere", "ગમે ત્યાંથી")}</div>
+      </div>
+    </div>
+  );
+}
+// ---- dashboard (home) ----
+function CrimeDashboard({ ctx, showList, onOpen, onSearch, onTab }) {
+  const { t } = useLang();
+  const today = todayStr(), ym = nbYM(today), yr = today.slice(0, 4);
+  const E = ctx.entries;
+  const A = E.filter((e) => e.reg === "A");
+  const crime = E.filter((e) => ["A", "B", "C", "M"].includes(e.reg));
+  const monthAll = crime.filter((e) => nbYM(e.regDate) === ym);
+  const monthA = monthAll.filter((e) => e.reg === "A");
+  const yearA = A.filter((e) => String(e.regDate || "").slice(0, 4) === yr);
+  const pendA = A.filter((e) => !e.closeType);
+  const undet = yearA.filter((e) => !e.detected);
+  const days = (d) => (d ? Math.floor((Date.parse(today) - Date.parse(d)) / 86400000) : 0);
+  const old60 = pendA.filter((e) => days(e.regDate) > 60);
+  const old90 = pendA.filter((e) => days(e.regDate) > 90);
+  const accLeft = pendA.filter((e) => nbPeople(e.accList).some((p) => p && p.name && p.st === "no" && !/અજાણ/.test(p.name)));
+  const heads = {};
+  yearA.forEach((e) => { const h = nbHeadLabel(e); (heads[h] = heads[h] || []).push(e); });
+  const headRows = Object.entries(heads).sort((a, b) => b[1].length - a[1].length).slice(0, 10);
+  const maxH = Math.max(1, ...headRows.map((x) => x[1].length));
+  const months = Array.from({ length: 12 }, (_, i) => { const k = `${yr}-${String(i + 1).padStart(2, "0")}`; return { k, L: A.filter((e) => nbYM(e.regDate) === k) }; });
+  const maxM = Math.max(1, ...months.map((m) => m.L.length));
+  const recent = [...E].sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)).slice(0, 6);
+  // undetected Part A crimes still pending, by how long they have been undetected (from the registration date)
+  const undPend = pendA.filter((e) => !e.detected && e.regDate);
+  const mAgo = (n) => { const d = new Date(Date.parse(today)); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10); };
+  const m1 = mAgo(1), m3 = mAgo(3), m6 = mAgo(6), m12 = mAgo(12);
+  const ageB = [
+    [t("Up to 1 month", "૧ માસ સુધી"), undPend.filter((e) => e.regDate > m1)],
+    [t("1 – 3 months", "૧ થી ૩ માસ"), undPend.filter((e) => e.regDate <= m1 && e.regDate > m3)],
+    [t("3 – 6 months", "૩ થી ૬ માસ"), undPend.filter((e) => e.regDate <= m3 && e.regDate > m6)],
+    [t("6 months – 1 year", "૬ માસ થી ૧ વર્ષ"), undPend.filter((e) => e.regDate <= m6 && e.regDate > m12)],
+    [t("Over 1 year", "૧ વર્ષ ઉપર"), undPend.filter((e) => e.regDate <= m12)],
+  ];
+  const ageAbove = [[t("Over 1 month", "૧ માસ ઉપર"), undPend.filter((e) => e.regDate <= m1)], [t("Over 3 months", "૩ માસ ઉપર"), undPend.filter((e) => e.regDate <= m3)], [t("Over 6 months", "૬ માસ ઉપર"), undPend.filter((e) => e.regDate <= m6)], [t("Over 1 year", "૧ વર્ષ ઉપર"), undPend.filter((e) => e.regDate <= m12)]];
+  const [ageCopied, setAgeCopied] = useState(false);
+  const copyAge = () => {
+    const txt = [["અનડીટેક્ટ પેન્ડીંગ ગુના (ભાગ-એ)", "સંખ્યા"], ...ageB.map(([l, L]) => [l, L.length]), ["કુલ", undPend.length], ...ageAbove.map(([l, L]) => [l, L.length])].map((r) => r.map((c) => nbG(String(c))).join("\t")).join("\n");
+    const done = () => { setAgeCopied(true); setTimeout(() => setAgeCopied(false), 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt)); else window.prompt(t("Copy:", "કોપી કરો:"), txt);
+  };
+  const tile = (icon, label, list, tone, sub) => (
+    <div className="nb-dash-tile" data-dash-tile style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", borderTop: "3px solid " + tone, minWidth: 0 }}>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", gap: 6, alignItems: "center" }}><span>{icon}</span><span>{label}</span></div>
+      <div className="mono" style={{ fontSize: 26, fontWeight: 800, marginTop: 4 }}><NbDrillNum list={list} title={label} onShow={showList}>{nbG(String(list.length))}</NbDrillNum></div>
+      {sub && <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+  const card = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", minWidth: 0 };
+  return (
+    <div data-cr-dashboard>
+      <button type="button" onClick={onSearch} data-dash-search className="gu nb-dash-search"
+        style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", boxSizing: "border-box", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 16px", fontSize: 14, color: "var(--text-tertiary)", cursor: "pointer", marginBottom: 14, textAlign: "left" }}>
+        <span style={{ fontSize: 17 }}>🔍</span><span style={{ flex: 1 }}>{t("Search any case — C.R. no., name, mobile, section…", "કોઈ પણ ગુનો શોધો — ગુ.ર.નં., નામ, મોબાઇલ, કલમ…")}</span>
+        <span className="mono" style={{ fontSize: 11, border: "1px solid var(--border)", borderRadius: 5, padding: "1px 6px" }}>Ctrl K</span>
+      </button>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
+        {tile("📅", t("Registered this month", "આ મહિને દાખલ"), monthAll, "var(--accent-strong, #3b82f6)", t(`Part A: ${monthA.length}`, `ભાગ-એ: ${nbG(monthA.length)}`))}
+        {tile("📘", t(`Part A in ${yr}`, `${nbG(yr)} માં ભાગ-એ`), yearA, "#8b5cf6")}
+        {tile("⏳", t("Pending (Part A)", "તપાસ ચાલુ (ભાગ-એ)"), pendA, "#f59e0b", t(`over 60 days: ${old60.length}`, `૬૦ દિવસથી વધુ: ${nbG(old60.length)}`))}
+        {tile("⚠️", t("Pending over 90 days", "૯૦ દિવસથી વધુ પેન્ડીંગ"), old90, "#ef4444")}
+        {tile("❓", t(`Undetected in ${yr}`, `${nbG(yr)} અનડિટેક્ટ`), undet, "#64748b")}
+        {tile("🚔", t("Accused yet to be arrested", "આરોપી અટક બાકી"), accLeft, "#0ea5e9")}
+      </div>
+      <div style={{ ...card, marginBottom: 14 }} data-dash-undet-age>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>❓ {t("Undetected pending crimes (Part A) — how old", "અનડીટેક્ટ પેન્ડીંગ ગુના (ભાગ-એ) — કેટલા સમયથી")}</div>
+          <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Total", "કુલ")}: <b className="mono"><NbDrillNum list={undPend} title={t("Undetected pending", "અનડીટેક્ટ પેન્ડીંગ")} onShow={showList}>{nbG(String(undPend.length))}</NbDrillNum></b></span>
+          <button type="button" onClick={copyAge} data-dash-undet-copy style={nbJkBtn}>{ageCopied ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy", "કોપી")}</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 8 }}>
+          {ageB.map(([l, L], i) => (
+            <div key={l} style={{ background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 10, padding: "8px 10px", borderLeft: "3px solid " + ["#22c55e", "#eab308", "#f97316", "#ef4444", "#991b1b"][i] }}>
+              <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{l}</div>
+              <div className="mono" style={{ fontSize: 20, fontWeight: 800 }}><NbDrillNum list={L} title={t("Undetected", "અનડીટેક્ટ") + " — " + l} onShow={showList}>{nbG(String(L.length))}</NbDrillNum></div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12.5, marginTop: 10, color: "var(--text-secondary)" }}>
+          {ageAbove.map(([l, L]) => <span key={l}>{l}: <b className="mono" style={{ color: "var(--text-primary)" }}><NbDrillNum list={L} title={t("Undetected", "અનડીટેક્ટ") + " — " + l} onShow={showList}>{nbG(String(L.length))}</NbDrillNum></b></span>)}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Counted from the registration date to today; only cases still pending (not disposed) and not detected.", "દાખલ તારીખથી આજ સુધી ગણેલ; ફક્ત નિકાલ ન થયેલા અને ડીટેક્ટ ન થયેલા ગુના.")}</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 14 }}>
+        <div style={card}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📊 {t(`Part A by head — ${yr}`, `હેડ પ્રમાણે ભાગ-એ — ${nbG(yr)}`)}</div>
+          {!headRows.length && <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>{t("No Part A cases this year yet.", "આ વર્ષે હજુ ભાગ-એ નો ગુનો નથી.")}</div>}
+          {headRows.map(([h, L]) => (
+            <div key={h} style={{ display: "grid", gridTemplateColumns: "minmax(80px, 140px) 1fr 34px", gap: 8, alignItems: "center", margin: "5px 0", fontSize: 12.5 }}>
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h}</span>
+              <div style={{ height: 10, borderRadius: 6, background: "var(--bg-surface-2)", overflow: "hidden" }}><div className="nb-dash-bar" style={{ height: "100%", width: (L.length / maxH) * 100 + "%", borderRadius: 6, background: "linear-gradient(90deg, var(--accent-strong, #3b82f6), #8b5cf6)" }} /></div>
+              <span className="mono" style={{ textAlign: "right", fontWeight: 700 }}><NbDrillNum list={L} title={h} onShow={showList}>{nbG(String(L.length))}</NbDrillNum></span>
+            </div>
+          ))}
+        </div>
+        <div style={card}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>📈 {t(`Part A each month — ${yr}`, `દર મહિને ભાગ-એ — ${nbG(yr)}`)}</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 130 }}>
+            {months.map((m, i) => (
+              <div key={m.k} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0 }}>
+                <span className="mono" style={{ fontSize: 10.5, color: "var(--text-secondary)" }}>{m.L.length ? <NbDrillNum list={m.L} title={nbYMLabel(m.k)} onShow={showList}>{nbG(String(m.L.length))}</NbDrillNum> : ""}</span>
+                <div className="nb-dash-bar" style={{ width: "100%", height: Math.max(2, (m.L.length / maxM) * 96), borderRadius: "5px 5px 2px 2px", background: m.k === ym ? "linear-gradient(180deg, #f59e0b, #ef4444)" : "linear-gradient(180deg, #8b5cf6, var(--accent-strong, #3b82f6))", opacity: m.k > ym ? 0.25 : 1 }} />
+                <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>{nbG(String(i + 1))}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>🕘 {t("Recently changed", "હમણાં સુધારેલા")}</div>
+          <button type="button" onClick={() => onTab("reg")} style={nbJkBtn}>📋 {t("All registers", "બધા રજીસ્ટર")}</button>
+        </div>
+        {!recent.length && <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>{t("Nothing yet — add an entry or import the Utara / FIR files.", "હજુ કંઈ નથી — એન્ટ્રી ઉમેરો અથવા ઉતારા / FIR ફાઇલ ઇમ્પોર્ટ કરો.")}</div>}
+        {recent.map((e) => (
+          <button key={e.id} type="button" onClick={() => onOpen(e)} data-dash-recent style={{ display: "flex", gap: 10, alignItems: "baseline", width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: "1px solid var(--border-soft)", padding: "8px 2px", color: "inherit", font: "inherit", cursor: "pointer" }}>
+            <b style={{ fontSize: 13, whiteSpace: "nowrap" }}>{nbReg(e.reg).gu} {nbG(e.no || "")}/{nbG(e.year || "")}</b>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{String(e.sections || e.complainant || "").slice(0, 90)}</span>
+            <span style={{ fontSize: 11, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{e.updatedAt > 1000 ? new Date(Number(e.updatedAt)).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit" }) : ""}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+// ---- annual book: this period against the same dates of an earlier year ----
+function CrimeYearCompare({ ctx, R, setR, showList }) {
+  const { t } = useLang();
+  const [back, setBack] = useState(1);
+  const [copied, setCopied] = useState(false);
+  const R2 = { from: nbShiftYear(R.from, -back), to: nbShiftYear(R.to, -back) };
+  const E1 = nbRangeEntries(ctx, R), E2 = nbRangeEntries(ctx, R2);
+  const l1 = nbRangeLabel(R), l2 = nbRangeLabel(R2);
+  const today = todayStr(), y = today.slice(0, 4), m = today.slice(0, 7);
+  const lastM = nbYMShift(m, -1);
+  const presets = [
+    [t("This year till today", "આ વર્ષ — આજ સુધી"), { from: y + "-01-01", to: today }],
+    [t("This month till today", "આ મહિનો — આજ સુધી"), { from: m + "-01", to: today }],
+    [t("Last month", "ગયો મહિનો"), { from: lastM + "-01", to: nbYMEnd(lastM) }],
+    [t("Whole of last year", "આખું ગયું વર્ષ"), { from: (Number(y) - 1) + "-01-01", to: (Number(y) - 1) + "-12-31" }],
+  ];
+  const by = (L) => { const o = {}; L.forEach((e) => { const h = nbBookHeadOf(e); (o[h] = o[h] || []).push(e); }); return o; };
+  const H1 = by(E1), H2 = by(E2);
+  const rows = NB_BOOK_HEADS.filter((b) => (H1[b.id] || []).length || (H2[b.id] || []).length).map((b) => ({ b, a: H1[b.id] || [], c: H2[b.id] || [] }));
+  const s1 = nbAnnualStats(E1), s2 = nbAnnualStats(E2);
+  const diff = (a, b) => {
+    const d = a - b;
+    const pct = b ? Math.round((d / b) * 100) : null;
+    const col = d > 0 ? "var(--status-error-text)" : d < 0 ? "var(--status-success-text)" : "var(--text-tertiary)";
+    return <span style={{ color: col, fontWeight: 700 }}>{d > 0 ? "▲ +" : d < 0 ? "▼ " : ""}{nbG(String(d))}{pct !== null && d ? <span style={{ fontWeight: 500, fontSize: 11 }}> ({nbG(String(pct))}%)</span> : ""}</span>;
+  };
+  const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "center", whiteSpace: "nowrap", background: "var(--bg-surface-2)" };
+  const td = { padding: "5px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 13, textAlign: "center" };
+  const tiles = [[t("Registered", "દાખલ"), E1, E2], [t("Detected", "ડીટેક્ટ"), E1.filter(nbAnnF.det), E2.filter(nbAnnF.det)], [t("Undetected", "અનડીટેક્ટ"), E1.filter(nbAnnF.und), E2.filter(nbAnnF.und)], [t("Accused", "આરોપી"), E1.filter(nbAnnF.acc), E2.filter(nbAnnF.acc), s1.acc, s2.acc]];
+  const copy = () => {
+    const L = [["હેડ", l1, l2, "વધ / ઘટ"], ...rows.map((r) => [r.b.gu, r.a.length, r.c.length, r.a.length - r.c.length]), ["કુલ", E1.length, E2.length, E1.length - E2.length]];
+    const txt = L.map((x) => x.map((c) => nbG(String(c))).join("\t")).join("\n");
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt)); else window.prompt(t("Copy:", "કોપી કરો:"), txt);
+  };
+  return (
+    <div data-year-compare style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, flex: "1 1 220px" }}>⚖️ {t("Compare with the same dates of", "સમાંતર તારીખો સાથે સરખામણી —")}</div>
+        <select value={back} onChange={(ev) => setBack(Number(ev.target.value))} data-compare-back className="gu" style={{ fontSize: 13 }}>
+          <option value={1}>{t("last year", "ગયું વર્ષ")}</option><option value={2}>{t("2 years back", "૨ વર્ષ પહેલાં")}</option><option value={3}>{t("3 years back", "૩ વર્ષ પહેલાં")}</option>
+        </select>
+        <button type="button" onClick={copy} data-compare-copy style={nbJkBtn}>{copied ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy table", "ટેબલ કોપી")}</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {presets.map(([lbl, r]) => { const on = r.from === R.from && r.to === R.to; return <button key={lbl} type="button" data-compare-preset onClick={() => setR(r)} style={{ ...nbJkBtn, background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)" }}>{lbl}</button>; })}
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10 }}><b>{l1}</b> {t("against", "સામે")} <b>{l2}</b></div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8, marginBottom: 12 }}>
+        {tiles.map(([lbl, a, c, na, nc]) => (
+          <div key={lbl} style={{ background: "var(--bg-page)", border: "1px solid var(--border-soft)", borderRadius: 10, padding: "8px 10px" }}>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{lbl}</div>
+            <div className="mono" style={{ fontSize: 18, fontWeight: 800 }}>
+              <NbDrillNum list={a} title={`${lbl} — ${l1}`} onShow={showList}>{nbG(String(na != null ? na : a.length))}</NbDrillNum>
+              <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-tertiary)" }}> / <NbDrillNum list={c} title={`${lbl} — ${l2}`} onShow={showList}>{nbG(String(nc != null ? nc : c.length))}</NbDrillNum></span>
+            </div>
+            <div style={{ fontSize: 12 }}>{diff(na != null ? na : a.length, nc != null ? nc : c.length)}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 480 }}>
+          <thead><tr><th style={{ ...th, textAlign: "left" }}>{t("Head", "હેડ")}</th><th style={th}>{l1}</th><th style={th}>{l2}</th><th style={th}>{t("Up / down", "વધ / ઘટ")}</th></tr></thead>
+          <tbody>
+            {rows.map(({ b, a, c }) => (
+              <tr key={b.id} data-compare-row>
+                <td style={{ ...td, textAlign: "left" }}>{b.gu}</td>
+                <td style={td}><NbDrillNum list={a} title={`${b.gu} — ${l1}`} onShow={showList}>{nbG(String(a.length))}</NbDrillNum></td>
+                <td style={td}><NbDrillNum list={c} title={`${b.gu} — ${l2}`} onShow={showList}>{nbG(String(c.length))}</NbDrillNum></td>
+                <td style={td}>{diff(a.length, c.length)}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={4} style={{ ...td, padding: 18, color: "var(--text-tertiary)" }}>{t("No crimes in either period.", "બંને ગાળામાં કોઈ ગુનો નથી.")}</td></tr>}
+            {rows.length > 0 && <tr><td style={{ ...td, textAlign: "left", fontWeight: 800 }}>{t("Total", "કુલ")}</td><td style={{ ...td, fontWeight: 800 }}><NbDrillNum list={E1} title={l1} onShow={showList}>{nbG(String(E1.length))}</NbDrillNum></td><td style={{ ...td, fontWeight: 800 }}><NbDrillNum list={E2} title={l2} onShow={showList}>{nbG(String(E2.length))}</NbDrillNum></td><td style={td}>{diff(E1.length, E2.length)}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{t("Pick any period above (or a preset) — the same dates of the earlier year are compared automatically. ▲ red = more crimes, ▼ green = fewer.", "ઉપર કોઈ પણ ગાળો (કે ઝડપી બટન) પસંદ કરો — અગાઉના વર્ષની એ જ તારીખો આપોઆપ સરખાવાય છે. ▲ લાલ = ગુના વધ્યા, ▼ લીલું = ઘટ્યા.")}</div>
+    </div>
+  );
+}
+
 async function nbClearGuessedDisposals() {
   const all = await nbEntryStore.all();
   const isMonthEnd = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "") && new Date(+d.slice(0, 4), +d.slice(5, 7), 0).getDate() === +d.slice(8, 10);
@@ -18104,7 +18563,8 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
   const [e, setE] = useState(() => JSON.parse(JSON.stringify(initial)));
   const startRef = useRef(JSON.stringify(e));
   const tryClose = () => { if (JSON.stringify(e) === startRef.current || window.confirm(t("You have changes that are not saved. Close without saving?", "ફેરફાર સચવાયા નથી. સાચવ્યા વગર બંધ કરવું છે?"))) onClose(); };
-  useEscToClose(tryClose);
+  const [histOpen, setHistOpen] = useState(false);
+  useEscToClose(() => { if (!histOpen) tryClose(); });
   const [busy, setBusy] = useState(false);
   const fields = nbRegFields(e.reg);
   const reg = nbReg(e.reg);
@@ -18197,6 +18657,8 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
       <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 760, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", zIndex: 2, borderRadius: "12px 12px 0 0" }}>
           <div className="disp" style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{reg.gu} — {initial.updatedAt ? t("Edit", "સુધારો") : t("New entry", "નવી એન્ટ્રી")}{e.no ? " · " + nbG(e.no) + "/" + nbG(e.year) : ""}</div>
+          {initial.updatedAt && <button type="button" onClick={() => setHistOpen(true)} data-cr-hist-btn title={t("Change history", "ફેરફાર ઇતિહાસ")} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>🕘 <span className="nb-cr-hide-sm">{t("History", "ઇતિહાસ")}</span></button>}
+          {histOpen && <CrimeHistoryModal entry={e} onClose={() => setHistOpen(false)} onRestore={(v) => { setE({ ...JSON.parse(JSON.stringify(v)), id: e.id }); setHistOpen(false); }} />}
           {onBst && e.reg === "A" && <button type="button" onClick={() => onBst(e)} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>📄 {t("B-statement", "B સ્ટેટમેન્ટ")}</button>}
           <button onClick={tryClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
@@ -19047,10 +19509,10 @@ function CrimeRegisterView({ profile, showToast, look }) {
   useEffect(() => {
     let alive = true;
     const load = () => Promise.all([nbCrimeStore.getMeta("regSettings"), nbCrimeStore.getMeta("monthly")]).then(([s, m]) => { if (!alive) return; setSettingsState(s || {}); setMonthlyState(m || {}); });
-    const loadClean = () => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).then(() => nbFixIpcHeads().catch((e) => console.warn("ipc heads", e))).then(() => nbFillDisposals().catch((e) => console.warn("disposal text", e))).finally(load);
-    nbMigrateOldCases().catch((e) => console.warn("migration", e)).finally(loadClean);
+    const loadClean = () => nbCrUndo.silent(() => nbClearGuessedDisposals().catch((e) => console.warn("disposal cleanup", e)).then(() => nbApplyProhiRules().catch((e) => console.warn("prohibition parts", e))).then(() => nbFixIpcHeads().catch((e) => console.warn("ipc heads", e))).then(() => nbFillDisposals().catch((e) => console.warn("disposal text", e)))).finally(load);
+    nbCrUndo.silent(() => nbMigrateOldCases()).catch((e) => console.warn("migration", e)).finally(loadClean);
     let tidy = null;
-    const onChange = () => { load(); clearTimeout(tidy); tidy = setTimeout(() => { nbClearGuessedDisposals().catch(() => {}).then(() => nbApplyProhiRules().catch(() => {})); }, 2500); };
+    const onChange = () => { load(); clearTimeout(tidy); tidy = setTimeout(() => { nbCrUndo.silent(() => nbClearGuessedDisposals().catch(() => {}).then(() => nbApplyProhiRules().catch(() => {}))); }, 2500); };
     window.addEventListener(NB_CRIME_EVT, onChange);
     return () => { alive = false; clearTimeout(tidy); window.removeEventListener(NB_CRIME_EVT, onChange); };
   }, []);
@@ -19068,7 +19530,18 @@ function CrimeRegisterView({ profile, showToast, look }) {
     timer = setTimeout(step, 800);
     return () => { dead = true; clearTimeout(timer); };
   }, [entries]);
-  const [tab, setTab] = useState("reg");
+  const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("nb_cr_tab") || "home"; } catch (e) { return "home"; } });
+  useEffect(() => { try { sessionStorage.setItem("nb_cr_tab", tab); } catch (e) {} }, [tab]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const k = (ev) => {
+      const tag = ev.target && ev.target.tagName;
+      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "k") { ev.preventDefault(); setSearchOpen(true); }
+      else if (ev.key === "/" && !ev.ctrlKey && !ev.metaKey && tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT" && !document.querySelector(".modal-backdrop")) { ev.preventDefault(); setSearchOpen(true); }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
   const [reg, setReg] = useState("A");
   const [ym, setYm] = useState(nbYM(todayStr()));
   const [q, setQ] = useState("");
@@ -19093,7 +19566,8 @@ function CrimeRegisterView({ profile, showToast, look }) {
   const tabBtn = (on) => ({ background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13.5, fontWeight: 700 });
   return (
     <div className="gu">
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+      <div className="nb-cr-tabs" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        <button onClick={() => setTab("home")} style={tabBtn(tab === "home")} className={tab === "home" ? "nb-tab-on" : ""} data-tab-home>🏠 {t("Dashboard", "ડેશબોર્ડ")}</button>
         <button onClick={() => setTab("reg")} style={tabBtn(tab === "reg")} className={tab === "reg" ? "nb-tab-on" : ""}>📋 {t("Registers", "રજીસ્ટર")}</button>
         <button onClick={() => setTab("rep")} style={tabBtn(tab === "rep")} className={tab === "rep" ? "nb-tab-on" : ""}>📄 {t("Monthly reports", "માસિક અહેવાલ")}</button>
         <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")} className={tab === "inp" ? "nb-tab-on" : ""}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
@@ -19103,8 +19577,10 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} className={tab === "fr" ? "nb-tab-on" : ""} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
         <button onClick={() => setTab("acc")} style={tabBtn(tab === "acc")} className={tab === "acc" ? "nb-tab-on" : ""} data-tab-acc>👤 {t("Accused search", "આરોપી શોધ")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")} className={tab === "set" ? "nb-tab-on" : ""}>⚙️ {t("Settings", "સેટિંગ")}</button>
+        <button onClick={() => setSearchOpen(true)} style={{ ...tabBtn(false), marginLeft: "auto" }} data-cr-search-btn title={t("Search (Ctrl+K)", "શોધો (Ctrl+K)")}>🔍 {t("Search", "શોધો")}</button>
       </div>
       <NbViewBoundary key={tab}><div className="view-fade-in">
+      {tab === "home" && <CrimeDashboard ctx={ctx} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onSearch={() => setSearchOpen(true)} onTab={setTab} />}
       {tab === "reg" && <CrimeRegisterList entries={ctx.entries} reg={reg} setReg={setReg} rng={rng} setRng={setRng} q={q} setQ={setQ} onlyPending={onlyPending} setOnlyPending={setOnlyPending} ctx={ctx} onOpen={setEditing} onNew={() => setEditing(nbNewEntry(reg, entries))} />}
       {tab === "rep" && <CrimeReportsPanel ctx={ctx} ym={ym} setYm={setYm} showToast={showToast} showList={showList} showBst={showBst} />}
       {tab === "inp" && <CrimeMonthlyInputs ctx={ctx} ym={ym} setYm={setYm} monthly={monthly} showToast={showToast} />}
@@ -19115,6 +19591,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "acc" && <CrimeAccusedPanel ctx={ctx} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       </div></NbViewBoundary>
+      {searchOpen && <CrimeQuickSearch entries={ctx.entries} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onClose={() => setSearchOpen(false)} />}
       {drill && <CrimeDrillModal title={drill.title} list={ctx.entries.filter((e) => drill.ids.includes(e.id))} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} onBst={showBst} onClose={() => setDrill(null)} />}
       {bsv && <CrimeBStatementView title={bsv.title} list={bsv.draft ? [nbNormEntry(bsv.draft)] : ctx.entries.filter((e) => bsv.ids.includes(e.id))} ctx={ctx} onClose={() => setBsv(null)} />}
       {editing && <CrimeEntryForm initial={editing} entries={entries} settings={settings} profile={profile} onSave={saveEntry} onDelete={delEntry} onClose={() => setEditing(null)} onBst={(e) => setBsv({ title: "B સ્ટેટમેન્ટ — " + nbG(e.no || "") + "/" + nbG(String(e.year || "").slice(-2)), ids: [e.id], draft: e })} />}
@@ -21773,6 +22250,7 @@ function CrimeAnnualPanel({ ctx, showToast, showList }) {
           </div>
         ))}
       </div>
+      <CrimeYearCompare ctx={ctx} R={R} setR={setR} showList={showList} />
       {docs.map((d) => (
         <div key={d[0]} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
           <div style={{ flex: "1 1 240px" }}>
@@ -21875,6 +22353,7 @@ function CrimeOfflineApp({ tab }) {
   const regEntries = useLocalEntries();
   const [unlocked, setUnlocked] = useState(() => { try { return sessionStorage.getItem("nb_crime_unlocked") === "1"; } catch (e) { return false; } });
   const [showMenu, setShowMenu] = useState(false);
+  const [menuDrive, setMenuDrive] = useState(false);
   const [toast, setToast] = useState("");
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(""), 3000); };
   const [driveNeedsTap, setDriveNeedsTap] = useState(false);
@@ -21886,11 +22365,26 @@ function CrimeOfflineApp({ tab }) {
     let timer = null;
     const run = () => { clearTimeout(timer); timer = setTimeout(() => {
       nbCrimeDriveBackupNow(profileRef.current, false, true).then(() => setDriveNeedsTap(false)).catch((e) => { if (e && e.message === "needs-tap") setDriveNeedsTap(true); else console.warn("Drive backup:", e); });
-    }, 15000); };
+    }, 6000); };
     run();
+    nbLoadGsi().catch(() => {});
     window.addEventListener(NB_CRIME_EVT, run);
-    return () => { clearTimeout(timer); window.removeEventListener(NB_CRIME_EVT, run); };
+    // leaving the page / switching away: send what is pending straight away
+    const away = () => { if (document.visibilityState === "hidden" && nbCrDrive.cached()) { clearTimeout(timer); nbCrimeDriveBackupNow(profileRef.current, false, true).catch(() => {}); } };
+    document.addEventListener("visibilitychange", away);
+    return () => { clearTimeout(timer); window.removeEventListener(NB_CRIME_EVT, run); document.removeEventListener("visibilitychange", away); };
   }, [driveOn, unlocked]);
+  // Google gives the app access for about an hour at a time. When it runs out, the very next tap anywhere in the app
+  // renews it (a tap is needed by Google) and the waiting changes are synced — no separate button to remember.
+  useEffect(() => {
+    if (!driveOn || !driveNeedsTap) return;
+    const go = () => {
+      window.removeEventListener("pointerdown", go, true);
+      nbCrimeDriveBackupNow(profileRef.current, true, true).then(() => setDriveNeedsTap(false)).catch((e) => { if (e && e.message !== "needs-tap") console.warn("Drive sync:", e); });
+    };
+    window.addEventListener("pointerdown", go, true);
+    return () => window.removeEventListener("pointerdown", go, true);
+  }, [driveOn, driveNeedsTap]);
   const driveTap = async () => {
     setDriveBusy(true);
     try { const n = await nbCrimeDriveBackupNow(profileRef.current, true, false); setDriveNeedsTap(false); showToast(t(`Backed up to Google Drive (${n} entries)`, `Google Drive પર બેકઅપ થયો (${n} એન્ટ્રી)`)); }
@@ -21943,22 +22437,35 @@ function CrimeOfflineApp({ tab }) {
   return (
     <LangContext.Provider value={langCtx}>
       <div className="crime-review-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap", position: "sticky", top: 0, zIndex: 40 }}>
+        <div className="nb-cr-head" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 20px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap", position: "sticky", top: 0, zIndex: 40 }}>
           <div style={{ fontSize: 26 }}>🚔</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="disp gu" style={{ fontSize: 17, fontWeight: 700, lineHeight: 1.2 }}>{t("Crime Register", "ગુના રજીસ્ટર")}</div>
             <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[profile.stationName, profile.district].filter(Boolean).join(", ")}</div>
           </div>
+          <CrimeUndoButtons showToast={showToast} />
           {langBtns}
           {meta.pinHash && <button onClick={() => { try { sessionStorage.removeItem("nb_crime_unlocked"); } catch (e) {} setUnlocked(false); }} title={t("Lock", "લૉક")} className="gu" style={{ ...iconBtnWide, padding: "6px 10px" }}>🔒</button>}
           <button onClick={() => setShowMenu(true)} className="gu" style={{ ...iconBtnWide, padding: "6px 10px", fontWeight: 700 }}>⚙️ {t("Data", "ડેટા")}</button>
         </div>
         <div style={{ padding: "16px 16px 40px", maxWidth: 1000, margin: "0 auto" }}>
           <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            <span>📱 {t("Saved only on this device — nothing is sent online.", "ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી.")}</span>
+            <span>{meta.driveOn ? "📱☁️ " + t("Saved on this device and synced to your own Google Drive.", "આ ડિવાઇસ પર સચવાય છે અને તમારા પોતાના Google Drive માં સિંક થાય છે.") : "📱 " + t("Saved only on this device — nothing is sent online.", "ફક્ત આ ડિવાઇસ પર સચવાય છે — કંઈ ઓનલાઇન જતું નથી.")}</span>
             {meta.driveOn && <span style={{ color: "var(--status-success-text)" }}><DriveIcon />{t("Google Drive backup on", "Google Drive બેકઅપ ચાલુ")}{meta.driveLastAt ? " · " + new Date(meta.driveLastAt).toLocaleString("en-IN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : ""}</span>}
             <span style={{ color: "var(--text-tertiary)" }}>{meta.lastBackupAt ? t(`Last backup: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`, `છેલ્લો બેકઅપ: ${formatDMY(new Date(meta.lastBackupAt).toISOString().slice(0, 10))}`) : t("No backup yet", "હજુ બેકઅપ નથી")}</span>
           </div>
+          {!meta.driveOn && nEntries === 0 && (
+            <div className="gu nb-cr-sync-card" data-cr-restore-card style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--accent-strong, var(--border))", borderRadius: 12, padding: "12px 14px", marginBottom: 14, fontSize: 13 }}>
+              <span style={{ flex: 1, minWidth: 220 }}><DriveIcon />{t("New computer or browser? Bring your data back from your Google Drive.", "નવું કમ્પ્યુટર કે બ્રાઉઝર છે? તમારા Google Drive માંથી ડેટા પાછો લાવો.")}</span>
+              <button onClick={() => { setMenuDrive(true); setShowMenu(true); }} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}><DriveIcon />{t("Restore from Drive", "Drive માંથી પાછો લાવો")}</button>
+            </div>
+          )}
+          {!meta.driveOn && nEntries > 0 && (
+            <div className="gu nb-cr-sync-card" data-cr-sync-card style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--accent-strong, var(--border))", borderRadius: 12, padding: "12px 14px", marginBottom: 14, fontSize: 13 }}>
+              <span style={{ flex: 1, minWidth: 220 }}>☁️ <b>{t("Turn on automatic sync to your Google Drive", "Google Drive માં આપોઆપ સિંક ચાલુ કરો")}</b> — {t("every change is copied to your own Drive within seconds, so nothing is lost if this computer breaks.", "દરેક ફેરફાર થોડી સેકન્ડમાં તમારા પોતાના Drive માં જાય — કમ્પ્યુટર બગડે તો પણ કંઈ ખોવાય નહીં.")}</span>
+              <button onClick={async () => { await nbCrimeStore.setMeta("driveOn", 1); driveTap(); }} data-cr-sync-on className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}><DriveIcon />{t("Turn on", "ચાલુ કરો")}</button>
+            </div>
+          )}
           {driveOn && driveNeedsTap && (
             <div className="gu" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
               <span style={{ flex: 1, minWidth: 200 }}><DriveIcon />{t("Google Drive backup is waiting. Tap once to continue automatic backups in this session.", "Google Drive બેકઅપ બાકી છે. આ સત્રમાં આપોઆપ બેકઅપ ચાલુ રાખવા એક વાર દબાવો.")}</span>
@@ -21974,7 +22481,7 @@ function CrimeOfflineApp({ tab }) {
           )}
           <CrimeRegisterView profile={profile} showToast={showToast} look={look} />
         </div>
-        {showMenu && <CrimeDataMenu meta={meta} cases={cases || []} entries={regEntries || []} onDriveBackup={driveTap} onBackup={doBackup} onClose={() => setShowMenu(false)} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} look={look} bigBtn={bigBtn} />}
+        {showMenu && <CrimeDataMenu autoDrive={menuDrive} meta={meta} cases={cases || []} entries={regEntries || []} onDriveBackup={driveTap} onBackup={doBackup} onClose={() => { setShowMenu(false); setMenuDrive(false); }} showToast={showToast} darkMode={darkMode} setDarkMode={setDarkMode} look={look} bigBtn={bigBtn} />}
         {toast && <div className="gu toast-anim" style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--btn-dark-bg)", color: "#fff", padding: "9px 16px", borderRadius: 8, fontSize: 13, zIndex: 300 }}>{toast}</div>}
       </div>
     </LangContext.Provider>
@@ -22725,7 +23232,7 @@ function CrimeImportReview({ plan, onCancel, onApply }) {
     </div>
   );
 }
-function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose, showToast, darkMode, setDarkMode, look, bigBtn }) {
+function CrimeDataMenu({ autoDrive, meta, cases, entries, onBackup, onDriveBackup, onClose, showToast, darkMode, setDarkMode, look, bigBtn }) {
   const [open, setOpen] = useState(() => { try { return sessionStorage.getItem("nb_cr_menu_open") || ""; } catch (e) { return ""; } });
   const toggle = (k) => { const v = open === k ? "" : k; setOpen(v); try { sessionStorage.setItem("nb_cr_menu_open", v); } catch (e) {} };
   const { t } = useLang();
@@ -22769,6 +23276,7 @@ function CrimeDataMenu({ meta, cases, entries, onBackup, onDriveBackup, onClose,
     catch (e) { window.alert(t("Couldn't open Google Drive: ", "Google Drive ખુલ્યું નહીં: ") + e.message); }
     finally { setDriveBusy(false); }
   };
+  useEffect(() => { if (autoDrive) driveList(); }, []);
   const driveRestore = async (f) => {
     setDriveBusy(true);
     try { const tok = await nbCrDrive.token(true); await applyBackupText(await nbCrDrive.read(tok, f.id)); }
