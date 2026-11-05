@@ -17273,7 +17273,7 @@ function nbIpcHeadTokens(sections) {
   const raw = nbAsciiDigits(sections).toLowerCase();
   if (!NB_IPC_RE.test(raw) || NB_BNS_RE.test(raw)) return null;
   let s = raw.replace(/\d{4,}(\s*\/\s*\d{2,4})?/g, " ");
-  const cut = s.search(/એમ\.?\s?વી|m\.?\s?v\.?\s?act|જી\.?\s?પી|g\.?\s?p\.?\s?a|gp act|પ્રોહી|prohi|એટ્રો|atroc|પોક્સો|પોકસો|pocso|ndps|આર્મ્સ|arms|દહેજ|dowry|i\.?\s?t\.?\s?act|આઇ\.?ટી/);
+  const cut = s.search(NB_OTHER_ACT_RE);
   if (cut > 0) s = s.slice(0, cut);
   s = s.replace(/\(\s*ર\s*\)/g, "(2)").replace(/\(\s*(?:એ|અ|ક|a)\s*\)/g, "(a)").replace(/\(\s*(?:બી|ખ|b)\s*\)/g, "(b)")
     .replace(/(\d{3})\s*[-–]?\s*(a|અ|એ|ક)(?![઀-૿a-z])/g, "$1(a)").replace(/(\d{3})\s*[-–]?\s*(b|બી|ખ)(?![઀-૿a-z])/g, "$1(b)");
@@ -17292,7 +17292,13 @@ function nbIpcHeadTokens(sections) {
   return out;
 }
 function nbGuessHead44(sections) { return nbMemoStr(nbGuessHead44__, sections); }
-function nbGuessHead44__(sections) { return nbHead44FromTokens(nbIpcHeadTokens(sections) || nbSectionTokens(sections)); }
+// other Acts written next to the IPC / BNS sections ("… તથા આઈ ટી એક્ટ કલમ ૬૬(ડી)") must not decide the BNS head (66 is not rape here)
+const NB_OTHER_ACT_RE = /એમ\.?\s?વી|m\.?\s?v\.?\s?act|જી\.?\s?પી|g\.?\s?p\.?\s?a|gp act|પ્રોહી|prohi|એટ્રો|atroc|પોક્સો|પોકસો|pocso|ndps|આર્મ્સ|arms|દહેજ|dowry|i\.?\s?t\.?\s?act|આ[ઇઈ]\.?\s?ટી/;
+function nbStripOtherActs(sections) {
+  const parts = String(sections || "").split(/\s+(?:તથા|અને)\s+|;/);
+  return parts.filter((x) => !NB_OTHER_ACT_RE.test(nbAsciiDigits(x).toLowerCase())).join(" ");
+}
+function nbGuessHead44__(sections) { return nbHead44FromTokens(nbIpcHeadTokens(sections) || nbSectionTokens(nbStripOtherActs(sections))); }
 function nbHead44FromTokens(tk) {
   if (!tk.size) return null;
   const has = (x) => tk.has(x);
@@ -20591,15 +20597,31 @@ function nbFirToEntry(pages, fileName) {
   const dFrom = d(val(/^Date from/i)), dTo = d(val(/^Date to/i)), tFrom = tm(val(/^Time from/i)), tTo = tm(val(/^Time to/i));
   const day = flat(val(/^Day/i));
   let occText = "";
-  if (dFrom) occText = `તા.${nbG(formatDMY(dFrom))}${tFrom ? " ના કલાક " + nbG(tFrom.replace(":", "/")) : ""}${dTo && (dTo !== dFrom || tTo) ? " થી તા." + nbG(formatDMY(dTo)) + (tTo ? " ના કલાક " + nbG(tTo.replace(":", "/")) : "") + " સુધી" : ""}`;
+  if (dFrom) occText = `તા.${nbG(formatDMY(dFrom))}${tFrom ? " ના કલાક " + nbG(tFrom.replace(":", "/")) : ""}${dTo && (dTo !== dFrom || (tTo && tTo !== tFrom)) ? " થી તા." + nbG(formatDMY(dTo)) + (tTo ? " ના કલાક " + nbG(tTo.replace(":", "/")) : "") + " સુધી" : ""}`;
   if (occText && day && dTo === dFrom) occText = day + " " + occText;
-  let act = flat(val(/^Act/i)).replace(/\s+/g, "");
-  const secs = flat(val(/\(કલમો\)|^Sectio/i));
-  if (/બી\.?એન\.?એસ|BNS/i.test(act) || (!act && secs)) act = "બી.એન.એસ.";
-  const sections = [act && act + " કલમ", nbG(secs)].filter(Boolean).join(" ");
+  // item 2 can list several Acts, each with its own sections (e.g. BNS 318(4),319(2) and IT Act 66(d)) — read every row
+  const GL = { a: "એ", b: "બી", c: "સી", d: "ડી", e: "ઇ", f: "એફ", g: "જી", h: "એચ" };
+  const secFmt = (x) => nbG(x).replace(/\(\s*([a-h])\s*\)/gi, (m, l) => "(" + GL[l.toLowerCase()] + ")");
+  const actLbl = (x) => (/બી\.?\s?એન\s?\.?\s?એસ|BNS|ભારતીય\s*ન્યાય/i.test(x) ? "બી.એન.એસ." : x.replace(/\s+/g, " ").trim());
+  const actPairs = [];
+  all.forEach((c, i) => {
+    if (!/^Act\b/i.test(c.raw) || (S.place >= 0 && i > S.place)) return;
+    const a = rightOf(i);
+    const row = all.filter((x) => x.pg === c.pg && near(x.y0, c.y0) && x.x0 > c.x1 - 2).sort((x, y) => x.x0 - y.x0);
+    const h = row.findIndex((x) => /\(કલમો\)|^Sectio/i.test(x.raw));
+    const sv = h >= 0 ? row[h + 1] : null;
+    const A = flat(a ? a.text : ""), V = flat(sv ? sv.text : "");
+    if (A || V) actPairs.push({ act: A, secs: V });
+  });
+  let act = actPairs.length ? actPairs.map((x) => x.act).join(" ") : flat(val(/^Act/i)).replace(/\s+/g, "");
+  const secs = actPairs.length ? actPairs.map((x) => x.secs).filter(Boolean).join(",") : flat(val(/\(કલમો\)|^Sectio/i));
+  if (!actPairs.length && (/બી\.?એન\.?એસ|BNS/i.test(act) || (!act && secs))) act = "બી.એન.એસ.";
+  const sections = actPairs.length
+    ? actPairs.map((x) => [x.act ? actLbl(x.act) + " કલમ" : "", secFmt(x.secs)].filter(Boolean).join(" ")).filter(Boolean).join(" તથા ")
+    : [act && act + " કલમ", secFmt(secs)].filter(Boolean).join(" ");
   const dir = flat(val(/^Direction/i, S.place, S.comp));
   const addr = flat(val(/^Addres/i, S.place, S.comp));
-  const place = [addr, dir ? `(પો.સ્ટે.થી ${dir})` : ""].filter(Boolean).join(" ");
+  const place = [addr, dir ? `(પો.સ્ટે.થી ${nbG(dir)})` : ""].filter(Boolean).join(" ");
   const fixUv = (s) => s.replace(/ઉ\.\s?[૧1વ]\.\s?/g, "ઉ.વ.").replace(/ઉ\s?\.\s?વ\s?\./g, "ઉ.વ.");
   const bodyCells = S.info >= 0 ? all.slice(S.info + 1, S.action >= 0 ? S.action : undefined) : [];
   const body = bodyCells.map((c) => c.text).join("\n");
@@ -20625,8 +20647,17 @@ function nbFirToEntry(pages, fileName) {
   }
   const accText = accused.length > 1 ? accused.map((a, i) => `(${nbG(i + 1)}) ${a}`).join("\n") : accused.join("");
   const totalTxt = nbWA(val(/Total value of property/i)).replace(/[^\d]/g, "");
-  const factsCell = bodyCells.find((c) => /હકીકત|હકિકત/.test(c.text)) || bodyCells[0];
-  const facts = factsCell ? flat(factsCell.text) : "";
+  // ટૂંક વિગત: the short summary the FIR gives at the top of item 12 ("આ કામના આરોપીએ … બાબત"), before the complaint itself.
+  // If there is none, the whole complaint (all its pages), not just one piece of it.
+  const compAt = bodyCells.findIndex((c) => /\(ફરિયાદ\)|^Complaint|-::|મા(?:ર[ૂુ]?)\s*નામ/.test(c.text));
+  const summary = flat(bodyCells.slice(0, compAt >= 0 ? compAt : 0).map((c) => c.text).join(" "));
+  let facts = summary.length >= 30 ? summary : "";
+  if (!facts) {
+    const comp = flat(bodyCells.slice(compAt >= 0 ? compAt : 0).map((c) => c.text).join(" "))
+      .replace(/^.*?\(ફરિયાદ\)\s*/, "").replace(/^-?:*\s*તા\.?[^:]*::-?\s*/, "");
+    const end = comp.search(/(ખરી|સાચી)\s*છે/);
+    facts = (end > 0 ? comp.slice(0, end + comp.slice(end).match(/(ખરી|સાચી)\s*છે/)[0].length) : comp).trim();
+  }
   const act13 = S.action >= 0 ? flat(all.slice(S.action, S.action + 8).map((c) => c.text).join(" ")) : "";
   const io1 = act13.match(/અધિકારીનું\s*નામ\)?\s*:?-?\s*(.+?)\s*Rank/i), rk = act13.match(/Rank\s*\([^)]*\)\s*:?-?\s*(.+?)\s*No\b/i);
   const io = [io1 && io1[1].replace(/^[:\-\s]+/, ""), rk && rk[1]].filter(Boolean).join(" ");
