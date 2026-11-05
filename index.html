@@ -22738,7 +22738,6 @@ function CrimeAnnualPanel({ ctx, showToast, showList }) {
           </div>
         ))}
       </div>
-      <CrimeYearCompare ctx={ctx} R={R} setR={setR} showList={showList} />
       {docs.map((d) => (
         <div key={d[0]} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
           <div style={{ flex: "1 1 240px" }}>
