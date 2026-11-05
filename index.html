@@ -20655,16 +20655,17 @@ function nbFirToEntry(pages, fileName) {
   }
   const accText = accused.length > 1 ? accused.map((a, i) => `(${nbG(i + 1)}) ${a}`).join("\n") : accused.join("");
   const totalTxt = nbWA(val(/Total value of property/i)).replace(/[^\d]/g, "");
-  // ટૂંક વિગત: the short summary the FIR gives at the top of item 12 ("આ કામના આરોપીએ … બાબત"), before the complaint itself.
-  // If there is none, the whole complaint (all its pages), not just one piece of it.
+  // ટૂંક વિગત: only the short summary the FIR gives at the top of item 12 ("આ કામના આરોપીએ … બાબત").
+  // No summary → left empty for the writer to fill; the full complaint is never put there (it is only read for the loss amount).
   const compAt = bodyCells.findIndex((c) => /\(ફરિયાદ\)|^Complaint|-::|મા(?:ર[ૂુ]?)\s*નામ/.test(c.text));
   const summary = flat(bodyCells.slice(0, compAt >= 0 ? compAt : 0).map((c) => c.text).join(" "));
-  let facts = summary.length >= 30 ? summary : "";
-  if (!facts) {
+  const facts = summary.length >= 30 ? summary : "";
+  let complaintText = "";
+  {
     const comp = flat(bodyCells.slice(compAt >= 0 ? compAt : 0).map((c) => c.text).join(" "))
       .replace(/^.*?\(ફરિયાદ\)\s*/, "").replace(/^-?:*\s*તા\.?[^:]*::-?\s*/, "");
     const end = comp.search(/(ખરી|સાચી)\s*છે/);
-    facts = (end > 0 ? comp.slice(0, end + comp.slice(end).match(/(ખરી|સાચી)\s*છે/)[0].length) : comp).trim();
+    complaintText = (end > 0 ? comp.slice(0, end + comp.slice(end).match(/(ખરી|સાચી)\s*છે/)[0].length) : comp).trim();
   }
   const act13 = S.action >= 0 ? flat(all.slice(S.action, S.action + 8).map((c) => c.text).join(" ")) : "";
   const io1 = act13.match(/અધિકારીનું\s*નામ\)?\s*:?-?\s*(.+?)\s*Rank/i), rk = act13.match(/Rank\s*\([^)]*\)\s*:?-?\s*(.+?)\s*No\b/i);
@@ -20681,6 +20682,11 @@ function nbFirToEntry(pages, fileName) {
   if (totalTxt && Number(totalTxt) > 0) { e.stolenValue = String(Number(totalTxt)); e.loss = `કિ.રૂ. ${nbG(nbMoney(Number(totalTxt)))}/-`; }
   const ppl = accT ? nbAccusedWithArrests(accT, "") : []; if (ppl.length) e.accList = ppl;
   nbWAutoFill(e);
+  if (!e.loss && complaintText) {   // no summary to read the amount from → take it from the complaint, without storing the complaint
+    const tmp = { ...e, facts: complaintText }; nbWAutoFill(tmp);
+    if (tmp.loss) { e.loss = tmp.loss; e.stolenValue = tmp.stolenValue; }
+    if (!e.motive && tmp.motive) e.motive = tmp.motive;
+  }
   return { entry: nbNormEntry(e), ok: !!(no && year && regDate), missing: [!no && "ગુ.ર.નં.", !regDate && "તારીખ", !secs && "કલમ", !complainant && "ફરિયાદી", !facts && "હકીકત"].filter(Boolean) };
 }
 function CrimeWordImport({ entries, profile, showToast, showBst, compact }) {
