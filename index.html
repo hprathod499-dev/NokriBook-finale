@@ -18532,6 +18532,139 @@ function CrimeQuickUpdate({ entry, onClose, showToast, onFull }) {
   );
 }
 
+// ---- 60 / 90 day charge-sheet limit (BNSS 187): 90 days when the offence carries death, life or 10 years or more; 60 days otherwise ----
+// BNS sections whose punishment can reach 10 years / life / death. A best-effort list — every entry can be set to 60 or 90 by hand.
+const NB_BNS_90_ALL = new Set(["64", "65", "66", "68", "69", "70", "71", "80", "87", "89", "95", "96", "98", "99", "103", "104", "105", "107", "108", "109", "111", "113", "139", "140", "141", "143", "147", "148", "149", "150", "152", "178", "179", "307", "310", "311", "312", "313", "338"]);
+const NB_BNS_90_SUB = new Set(["106(2)", "117(3)", "118(2)", "121(2)", "124(1)", "309(4)", "309(5)", "309(6)", "316(4)", "316(5)", "317(3)", "317(4)", "326(f)", "326(g)", "332(a)", "332(b)"]);
+function nbCsLimitAuto(e) {
+  const tk = nbSectionTokens(nbStripOtherActs(e.sections || ""));
+  for (const x of tk) if (NB_BNS_90_ALL.has(x) || NB_BNS_90_SUB.has(x)) return 90;
+  // house-breaking to commit theft (BNS 331(3) / 331(4) with theft) carries 10 / 14 years
+  if ((tk.has("331(3)") || tk.has("331(4)")) && ["303", "305", "306"].some((x) => tk.has(x))) return 90;
+  const raw = nbAsciiDigits(e.sections || "").toLowerCase();
+  const pm = raw.match(/(પોક્સો|પોકસો|pocso)[^૦-૯a-z]*(.{0,40})/);
+  if (pm && /(^|\D)(4|5|6|14)(\D|$)/.test(pm[2])) return 90;
+  return 60;
+}
+function nbCsLimit(e) { return e.csLimit === "90" ? 90 : e.csLimit === "60" ? 60 : nbCsLimitAuto(e); }
+function nbFirstArrest(e) {
+  const d = nbPeople(e.accList).filter((p) => p && p.st === "yes" && p.arrestDate).map((p) => p.arrestDate).sort()[0];
+  return d || (/^\d{4}-\d{2}-\d{2}$/.test(e.arrestDate || "") ? e.arrestDate : "");
+}
+function nbCsDueRows(ctx, R, opts) {
+  const today = todayStr();
+  return ctx.entries.filter((e) => opts.parts.includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to && !e.closeType).map((e) => {
+    const lim = nbCsLimit(e), arr = nbFirstArrest(e), start = opts.from === "arrest" ? arr : e.regDate;
+    if (!start) return null;
+    const due = addDaysStr(start, lim), over = daysBetween(due, today);
+    return { e, lim, arr, start, due, over };
+  }).filter((r) => r && (r.over > 0 || (opts.soon && r.over > -opts.soon))).sort((a, b) => a.due.localeCompare(b.due));
+}
+function nbCsDueModel(ctx, R, opts, L60, L90) {
+  const B = [];
+  const per = `તા.${nbGDate(R.from)} થી ${R.to === todayStr() ? "આજદિન" : "તા." + nbGDate(R.to)} સુધીમાં`;
+  const H = (x) => nbCell(x, { b: true, center: true });
+  const c = (v) => nbCell(v, { center: true });
+  const table = (L) => ({ table: true, sz: 17, widths: [500, 1700, 1100, 2600, 1100, 1100, 900, 1700, 1500],
+    headRows: [[H("અ.નં."), H("ગુ.ર.નં. / કલમ"), H("ગુનો દાખલ તા."), H("આરોપીનું નામ"), H("અટક તા."), H(opts.from === "arrest" ? "અટક તારીખથી મર્યાદા પૂરી તા." : "મર્યાદા પૂરી થયાની તા."), H("વધુ દિવસ"), H("તપાસ અધિકારી"), H("પેન્ડીંગ કારણ")]],
+    rows: L.length ? L.map((r, i) => [c(nbG(i + 1)), nbCell(`${nbReg(r.e.reg).part} ગુ.ર.નં.${nbG(r.e.no)}/${nbG(r.e.year)}${r.e.sections ? "\n" + r.e.sections : ""}`), c(nbGDate(r.e.regDate)), nbCell(nbAccArrestText(r.e) || r.e.accused || "-"), c(r.arr ? nbGDate(r.arr) : "-"), c(nbGDate(r.due)), c(r.over > 0 ? nbG(String(r.over)) : "-"), nbCell(r.e.ioNow || r.e.io || "-"), nbCell(r.e.pendingReason || "-")])
+      : [[nbCell("નીલ", { center: true, colSpan: 9 }), SKIP, SKIP, SKIP, SKIP, SKIP, SKIP, SKIP, SKIP]] });
+  const ps = ctx.ps ? ctx.ps + " પો.સ્ટે." : "";
+  B.push({ p: `પત્રક નં.૧ — ૬૦ દિવસમાં ચાર્જશીટ કરવાના થતા હોય પરંતુ થયેલ ન હોય અને હાલ પેન્ડીંગ હોય તેવા ગુના`, b: true, sz: 23, center: true, after: 40 });
+  B.push({ p: `${ps} ${per} દાખલ થયેલ ગુનાઓ પૈકી (૧૦ વર્ષથી ઓછી સજાને પાત્ર — ${opts.parts.map((k) => nbReg(k).part).join(", ")})`, sz: 20, center: true, after: 100 });
+  B.push(table(L60));
+  B.push({ p: "", after: 200, pageBreak: true });
+  B.push({ p: `પત્રક નં.૨ — ૯૦ દિવસમાં ચાર્જશીટ કરવાના થતા હોય પરંતુ થયેલ ન હોય અને હાલ પેન્ડીંગ હોય તેવા ગુના`, b: true, sz: 23, center: true, after: 40 });
+  B.push({ p: `${ps} ${per} દાખલ થયેલ ગુનાઓ પૈકી (૧૦ વર્ષ કે તેથી વધુ સજાને પાત્ર — ${opts.parts.map((k) => nbReg(k).part).join(", ")})`, sz: 20, center: true, after: 100 });
+  B.push(table(L90));
+  return B;
+}
+function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
+  const { t } = useLang();
+  const today = todayStr();
+  const [R, setR] = useState(() => ({ from: (Number(today.slice(0, 4)) - 1) + "-01-01", to: today }));
+  const [from, setFrom] = useState("reg");
+  const [parts, setParts] = useState(["A", "B", "C"]);
+  const [soon, setSoon] = useState(0);
+  const [pdf, setPdf] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState("");
+  const opts = { from, parts, soon };
+  const rows = nbCsDueRows(ctx, R, opts);
+  const L60 = rows.filter((r) => r.lim === 60), L90 = rows.filter((r) => r.lim === 90);
+  const setLim = async (e, v) => { const cur = (await nbIdb("entries", "readonly", (st) => st.get(e.id))) || e; await nbEntryStore.put({ ...cur, csLimit: v, updatedAt: Date.now() }); };
+  const fname = `chargesheet-60-90-days-${R.from}-to-${R.to}`;
+  const copy = (L, k) => {
+    const txt = [["અ.નં.", "ગુ.ર.નં. / કલમ", "ગુનો દાખલ તા.", "આરોપી", "અટક તા.", "મર્યાદા પૂરી તા.", "વધુ દિવસ", "તપાસ અધિકારી"], ...L.map((r, i) => [nbG(i + 1), `${nbReg(r.e.reg).part} ${nbG(r.e.no)}/${nbG(r.e.year)} ${r.e.sections || ""}`, nbGDate(r.e.regDate), (nbAccArrestText(r.e) || r.e.accused || "-").replace(/\s+/g, " "), r.arr ? nbGDate(r.arr) : "-", nbGDate(r.due), r.over > 0 ? nbG(String(r.over)) : "-", r.e.ioNow || r.e.io || "-"])].map((x) => x.map((c) => String(c).replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
+    const done = () => { setCopied(k); setTimeout(() => setCopied(""), 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt)); else window.prompt(t("Copy:", "કોપી કરો:"), txt);
+  };
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap", cursor: "pointer" };
+  const chip = (on) => ({ ...nbJkBtn, background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)" });
+  const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "left", whiteSpace: "nowrap", background: "var(--bg-surface-2)" };
+  const td = { padding: "6px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, verticalAlign: "top" };
+  const list = (L, lim, title) => (
+    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }} data-csdue-list={lim}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ fontWeight: 800, fontSize: 14.5, flex: 1 }}>{title} — <span className="mono"><NbDrillNum list={L.map((r) => r.e)} title={title} onShow={showList}>{nbG(String(L.length))}</NbDrillNum></span></div>
+        <button type="button" onClick={() => copy(L, String(lim))} style={nbJkBtn}>{copied === String(lim) ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy", "કોપી")}</button>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
+          <thead><tr>{["#", t("C.R. no. / sections", "ગુ.ર.નં. / કલમ"), t("Registered", "દાખલ તા."), t("Accused", "આરોપી"), t("Arrested", "અટક તા."), t("Limit ended", "મર્યાદા પૂરી"), t("Days over", "વધુ દિવસ"), t("IO", "ત.ક.અ."), t("Limit", "મર્યાદા"), ""].map((h, i) => <th key={i} style={th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {L.map((r, i) => (
+              <tr key={r.e.id} data-csdue-row>
+                <td style={td}>{nbG(i + 1)}</td>
+                <td style={td}><button type="button" onClick={() => onOpen(r.e)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", textAlign: "left", cursor: "pointer" }}><b>{nbReg(r.e.reg).gu} {nbG(r.e.no)}/{nbG(r.e.year)}</b><div style={{ fontSize: 11.5, color: "var(--text-secondary)", maxWidth: 260 }}>{r.e.sections}</div></button></td>
+                <td style={td}>{nbGDate(r.e.regDate)}</td>
+                <td style={{ ...td, maxWidth: 240, fontSize: 12 }}>{(nbAccArrestText(r.e) || r.e.accused || "-").slice(0, 160)}</td>
+                <td style={td}>{r.arr ? nbGDate(r.arr) : "-"}</td>
+                <td style={td}>{nbGDate(r.due)}</td>
+                <td style={{ ...td, fontWeight: 800, color: r.over > 0 ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{r.over > 0 ? nbG(String(r.over)) : t(`in ${-r.over}`, `${nbG(String(-r.over))} બાકી`)}</td>
+                <td style={{ ...td, fontSize: 12 }}>{r.e.ioNow || r.e.io || "-"}</td>
+                <td style={td}><select value={r.e.csLimit || ""} onChange={(ev) => setLim(r.e, ev.target.value)} data-csdue-lim style={{ fontSize: 12 }} title={t("Change if the automatic choice is wrong", "આપોઆપ નક્કી થયેલ ખોટું હોય તો બદલો")}><option value="">{t(`Auto (${nbCsLimitAuto(r.e)})`, `આપોઆપ (${nbG(String(nbCsLimitAuto(r.e)))})`)}</option><option value="60">{t("60 days", "૬૦ દિવસ")}</option><option value="90">{t("90 days", "૯૦ દિવસ")}</option></select></td>
+                <td style={td}><CrimeQuickChip e={r.e} onQuick={onQuick} /></td>
+              </tr>
+            ))}
+            {!L.length && <tr><td colSpan={10} style={{ ...td, textAlign: "center", padding: 16, color: "var(--text-tertiary)" }}>{t("None", "નીલ")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+  return (
+    <div data-csdue>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>⏰ {t("Charge-sheet due in 60 / 90 days — not filed, still pending", "૬૦ / ૯૦ દિવસમાં ચાર્જશીટ કરવાના — થયેલ નથી, હાલ પેન્ડીંગ")}</div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Under 10 years' punishment → 60 days (Patrak 1); 10 years or more / life / death → 90 days (Patrak 2).", "૧૦ વર્ષથી ઓછી સજાને પાત્ર → ૬૦ દિવસ (પત્રક નં.૧); ૧૦ વર્ષ કે તેથી વધુ / આજીવન / ફાંસી → ૯૦ દિવસ (પત્રક નં.૨).")}</div>
+        <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+          <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Count the days from", "દિવસ ગણવા")}:</span>
+          <button type="button" data-csdue-from="reg" onClick={() => setFrom("reg")} style={chip(from === "reg")}>{t("registration date", "ગુનો દાખલ તારીખથી")}</button>
+          <button type="button" data-csdue-from="arrest" onClick={() => setFrom("arrest")} style={chip(from === "arrest")}>{t("first arrest date", "પહેલી અટક તારીખથી")}</button>
+          <span style={{ width: 10 }} />
+          {["A", "B", "C"].map((k) => <button key={k} type="button" onClick={() => setParts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k].sort()))} style={chip(parts.includes(k))}>{parts.includes(k) ? "✓ " : ""}{nbReg(k).gu}</button>)}
+          <span style={{ width: 10 }} />
+          <select value={soon} onChange={(ev) => setSoon(Number(ev.target.value))} style={{ fontSize: 12.5 }} data-csdue-soon>
+            <option value={0}>{t("Only limit already over", "ફક્ત મર્યાદા પૂરી થયેલ")}</option>
+            <option value={7}>{t("+ ending in 7 days", "+ ૭ દિવસમાં પૂરી થનાર")}</option>
+            <option value={15}>{t("+ ending in 15 days", "+ ૧૫ દિવસમાં પૂરી થનાર")}</option>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          <button type="button" onClick={() => { try { nbDeliverBlob(nbModelDocx(nbCsDueModel(ctx, R, opts, L60, L90), { landscape: true }), fname + ".docx", "૬૦-૯૦ દિવસ ચાર્જશીટ પત્રક"); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn} data-csdue-word><WordIcon />Word ({t("Patrak 1 + 2", "પત્રક ૧ + ૨")})</button>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(nbCsDueModel(ctx, R, opts, L60, L90), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શકી નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{t("60 / 90 is chosen from the BNS sections (and POCSO 4/6). If one is wrong, change it in the Limit column — it is remembered for that crime.", "૬૦ / ૯૦ બી.એન.એસ.ની કલમો (અને પોક્સો ૪/૬) પરથી આપોઆપ નક્કી થાય છે. કોઈ ખોટું લાગે તો \"મર્યાદા\" કોલમમાં બદલો — તે ગુના માટે યાદ રહેશે.")}</div>
+      </div>
+      {list(L60, 60, t("Patrak 1 — 60 days", "પત્રક નં.૧ — ૬૦ દિવસ"))}
+      {list(L90, 90, t("Patrak 2 — 90 days", "પત્રક નં.૨ — ૯૦ દિવસ"))}
+    </div>
+  );
+}
+
 async function nbClearGuessedDisposals() {
   const all = await nbEntryStore.all();
   const isMonthEnd = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "") && new Date(+d.slice(0, 4), +d.slice(5, 7), 0).getDate() === +d.slice(8, 10);
@@ -18562,6 +18695,7 @@ function nbRegFields(reg) {
     nbF("pendingReason", "Pending reason", "પેન્ડીંગ રહેવાનું કારણ", "sel", { opts: [["", "—"], ...NB_PENDING_REASONS.map((r) => [r, r])] }),
     nbF("closeType", "Disposal", "નિકાલનો પ્રકાર", "sel", { opts: [["", "— પેન્ડીંગ (તપાસ ચાલુ) —"], ...NB_CLOSE_TYPES] }),
     nbF("closeDate", "Date", "તારીખ", "date", { when: (e) => e.closeType !== "cs" }),
+    nbF("csLimit", "Charge-sheet time limit", "ચાર્જશીટ સમય મર્યાદા (૬૦ / ૯૦ દિવસ)", "sel", { opts: [["", "આપોઆપ — કલમ પરથી"], ["60", "૬૦ દિવસ (૧૦ વર્ષથી ઓછી સજા)"], ["90", "૯૦ દિવસ (૧૦ વર્ષ કે વધુ / આજીવન / ફાંસી)"]], when: (e) => ["A", "B", "C"].includes(e.reg) && !e.closeType }),
   ];
   const isCs = (e) => e.closeType === "cs";
   const proved = (e) => isCs(e) && (e.verdict === "proved" || e.verdict === "guilty");
@@ -19770,6 +19904,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")} className={tab === "inp" ? "nb-tab-on" : ""}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
         <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")} className={tab === "ann" ? "nb-tab-on" : ""}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
         <button onClick={() => setTab("pr")} style={tabBtn(tab === "pr")} className={tab === "pr" ? "nb-tab-on" : ""} data-tab-pr>🍾 {t("Prohibition", "પ્રોહી / દારૂ")}</button>
+        <button onClick={() => setTab("csd")} style={tabBtn(tab === "csd")} className={tab === "csd" ? "nb-tab-on" : ""} data-tab-csd>⏰ {t("60 / 90 days", "૬૦ / ૯૦ દિવસ")}</button>
         <button onClick={() => setTab("io")} style={tabBtn(tab === "io")} className={tab === "io" ? "nb-tab-on" : ""} data-tab-io>👮 {t("Pending by officer", "ત.ક.અ. મુજબ પેન્ડીંગ")}</button>
         <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} className={tab === "fr" ? "nb-tab-on" : ""} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
         <button onClick={() => setTab("acc")} style={tabBtn(tab === "acc")} className={tab === "acc" ? "nb-tab-on" : ""} data-tab-acc>👤 {t("Accused search", "આરોપી શોધ")}</button>
@@ -19784,6 +19919,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
       {tab === "pr" && <CrimeProhiHub ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "io" && <CrimeIoPanel ctx={ctx} showList={showList} />}
+      {tab === "csd" && <CrimeCsDuePanel ctx={ctx} showList={showList} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "acc" && <CrimeAccusedPanel ctx={ctx} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
