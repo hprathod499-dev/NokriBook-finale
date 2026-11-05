@@ -83,6 +83,23 @@
     transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   /* crime register look */
+  .nb-cr-form-nav { width: 200px; flex-shrink: 0; border-right: 1px solid var(--border-soft); overflow-y: auto; padding: 10px 8px; background: var(--bg-page); }
+  .nb-cr-form-nav button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: transparent; color: var(--text-primary); font-size: 13px; font-weight: 600; padding: 9px 10px; border-radius: 9px; cursor: pointer; margin-bottom: 2px; }
+  .nb-cr-form-nav button:hover { background: var(--bg-surface-2); }
+  .nb-cr-form-nav button.on { background: var(--btn-dark-bg); color: #fff; }
+  .nb-cr-nav-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nb-cr-nav-n { font-size: 10.5px; opacity: 0.75; }
+  .nb-cr-sec { border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; background: var(--bg-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.04); scroll-margin-top: 8px; }
+  .nb-cr-sec-head { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 11px 12px; font-size: 14px; font-weight: 800; color: var(--accent-strong); cursor: pointer; border-radius: 12px; }
+  .nb-cr-sec-head:hover { background: var(--bg-surface-2); }
+  .nb-cr-pill { font-size: 12px; font-weight: 700; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; background: var(--bg-page); }
+  @media (max-width: 860px) {
+    .nb-cr-form-body { flex-direction: column; }
+    .nb-cr-form-nav { width: auto; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; border-right: none; border-bottom: 1px solid var(--border-soft); padding: 6px 8px; }
+    .nb-cr-form-nav button { width: auto; white-space: nowrap; margin: 0; padding: 7px 10px; }
+    .nb-cr-nav-txt { overflow: visible; }
+    .nb-cr-nav-n { display: none; }
+  }
   .crime-review-app .nb-cr-head { background: linear-gradient(120deg, var(--bg-surface) 0%, var(--bg-surface-2) 100%) !important; box-shadow: 0 2px 14px rgba(0,0,0,0.06); }
   .crime-review-app .nb-cr-tabs button { border-radius: 999px !important; transition: box-shadow 0.15s, background 0.15s, transform 0.12s; }
   .crime-review-app .nb-cr-tabs button:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.08); }
@@ -18778,11 +18795,40 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
       </div>
     );
   };
+  // the long first part is split into smaller named sections so the form can be jumped through
+  const SPLIT = { occText: { sec: "occ", en: "When & where", gu: "બનાવ — સમય અને સ્થળ" }, complainant: { sec: "ppl", en: "Complainant & accused", gu: "ફરિયાદી અને આરોપી" }, facts: { sec: "facts", en: "Facts & investigation", gu: "ટૂંક વિગત અને તપાસ" } };
   const groups = [];
-  fields.forEach((f) => { if (f.sec) groups.push({ head: f, items: [] }); else groups[groups.length - 1].items.push(f); });
+  fields.forEach((f) => {
+    if (f.sec) { groups.push({ head: f, items: [] }); return; }
+    if (SPLIT[f.k] && groups.length && ["basic", "occ", "ppl"].includes(groups[groups.length - 1].head.sec)) groups.push({ head: SPLIT[f.k], items: [] });
+    groups[groups.length - 1].items.push(f);
+  });
+  const SEC_ICON = { basic: "📁", occ: "🕒", ppl: "👥", facts: "📝", status: "✅", chg: "✏️", book: "📊", bst: "📄", more: "➕" };
+  const shown = (f) => !f.when || f.when(e);
+  const filled = (f) => { const v = e[f.k]; return Array.isArray(v) ? v.length > 0 : v != null && v !== "" && v !== false; };
+  const gCount = (g) => { const L = g.items.filter((f) => f.k && f.type !== "stack" && shown(f)); return [L.filter(filled).length, L.length]; };
+  const colKey = "nb_cr_form_closed";
+  const [closed, setClosed] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem(colKey) || "[]")); } catch (x) { return new Set(); } });
+  const toggleSec = (k) => setClosed((c) => { const n = new Set(c); if (n.has(k)) n.delete(k); else n.add(k); try { localStorage.setItem(colKey, JSON.stringify([...n])); } catch (x) {} return n; });
+  const bodyRef = useRef(null);
+  const secRefs = useRef({});
+  const [activeSec, setActiveSec] = useState(groups[0] ? groups[0].head.sec : "");
+  const jump = (k) => { if (closed.has(k)) toggleSec(k); setTimeout(() => { const el = secRefs.current[k], box = bodyRef.current; if (el && box) box.scrollTo({ top: el.offsetTop - 8, behavior: "smooth" }); }, 20); };
+  const onBodyScroll = () => {
+    const box = bodyRef.current; if (!box) return;
+    let cur = groups[0] && groups[0].head.sec;
+    groups.forEach((g) => { const el = secRefs.current[g.head.sec]; if (el && el.offsetTop - box.scrollTop <= 60) cur = g.head.sec; });
+    if (cur !== activeSec) setActiveSec(cur);
+  };
+  useEffect(() => {
+    const k = (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") { ev.preventDefault(); if (!busy && !histOpen) save(); } };
+    window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
+  });
+  useEffect(() => { const el = document.querySelector(`[data-form-nav-item="${activeSec}"]`); if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (x) {} } }, [activeSec]);
+  const accN = nbPeople(e.accList).filter((p) => p && p.name).length, accArr = nbPeople(e.accList).filter((p) => p && p.name && p.st === "yes").length;
   return (
     <div role="dialog" aria-modal="true" aria-label={t("Entry", "એન્ટ્રી")} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000077", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 130, padding: "12px 10px", overflowY: "auto" }}>
-      <div className="modal-card gu" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 760, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+      <div className="modal-card gu nb-cr-form" style={{ background: "var(--bg-surface)", borderRadius: 14, width: 1180, maxWidth: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 24px)", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--bg-surface)", zIndex: 2, borderRadius: "12px 12px 0 0" }}>
           <div className="disp" style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>{reg.gu} — {initial.updatedAt ? t("Edit", "સુધારો") : t("New entry", "નવી એન્ટ્રી")}{e.no ? " · " + nbG(e.no) + "/" + nbG(e.year) : ""}</div>
           {initial.updatedAt && <button type="button" onClick={() => setHistOpen(true)} data-cr-hist-btn title={t("Change history", "ફેરફાર ઇતિહાસ")} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>🕘 <span className="nb-cr-hide-sm">{t("History", "ઇતિહાસ")}</span></button>}
@@ -18790,19 +18836,41 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
           {onBst && e.reg === "A" && <button type="button" onClick={() => onBst(e)} className="gu" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" }}>📄 {t("B-statement", "B સ્ટેટમેન્ટ")}</button>}
           <button onClick={tryClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", fontSize: 17, color: "var(--text-tertiary)" }}>✕</button>
         </div>
-        <div style={{ padding: "4px 18px 16px" }}>
-          {["A", "B", "C", "M"].includes(e.reg) && e.no && (
-            <div className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8 }}>{nbCrText(e, { ps: nbPsShort(profile, settings), settings })}</div>
-          )}
-          {dup && <div style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 6 }}>⚠ {t("This number is already used this year.", "આ નંબર આ વર્ષે વપરાઈ ગયો છે.")}</div>}
-          {groups.map((g, gi) => (
-            <div key={gi} style={{ marginTop: 14, paddingTop: gi ? 12 : 0, borderTop: gi ? "1px dashed var(--border)" : "none" }}>
-              <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--accent-strong)" }}>{lang === "gu" ? g.head.gu : g.head.en}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", columnGap: 12 }}>{g.items.map(renderField)}</div>
-            </div>
-          ))}
+        <div className="nb-cr-form-body" style={{ display: "flex", flex: 1, minHeight: 0 }}>
+          <nav className="nb-cr-form-nav" data-form-nav aria-label={t("Sections", "વિભાગો")}>
+            {groups.map((g) => { const [a, b] = gCount(g); const k = g.head.sec; return (
+              <button key={k} type="button" onClick={() => jump(k)} data-form-nav-item={k} className={"gu" + (activeSec === k ? " on" : "")}>
+                <span>{SEC_ICON[k] || "•"}</span><span className="nb-cr-nav-txt">{lang === "gu" ? g.head.gu : g.head.en}</span>{b > 0 && <span className="mono nb-cr-nav-n">{nbG(String(a))}/{nbG(String(b))}</span>}
+              </button>
+            ); })}
+          </nav>
+          <div ref={bodyRef} onScroll={onBodyScroll} style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: "8px 18px 20px" }}>
+            {["A", "B", "C", "M"].includes(e.reg) && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", margin: "6px 0 2px" }} data-form-status>
+                {e.reg === "A" && <span className="nb-cr-pill" style={{ color: e.detected ? "var(--status-success-text)" : "var(--status-error-text)" }}>{e.detected ? "✅ " + t("Detected", "ડીટેક્ટ") : "❓ " + t("Undetected", "અનડીટેક્ટ")}</span>}
+                <span className="nb-cr-pill">{e.closeType ? "📦 " + nbCloseLabel(e) : "⏳ " + t("Pending", "પેન્ડીંગ")}</span>
+                {accN > 0 && <span className="nb-cr-pill">👥 {t(`Accused ${accN}, arrested ${accArr}`, `આરોપી ${nbG(String(accN))}, અટક ${nbG(String(accArr))}`)}</span>}
+                <span style={{ fontSize: 11, color: "var(--text-tertiary)", marginLeft: "auto" }}>Ctrl+S {t("saves", "થી સચવાય")}</span>
+              </div>
+            )}
+            {["A", "B", "C", "M"].includes(e.reg) && e.no && (
+              <div className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6 }}>{nbCrText(e, { ps: nbPsShort(profile, settings), settings })}</div>
+            )}
+            {dup && <div style={{ color: "var(--status-error-text)", fontSize: 12.5, marginTop: 6 }}>⚠ {t("This number is already used this year.", "આ નંબર આ વર્ષે વપરાઈ ગયો છે.")}</div>}
+            {groups.map((g) => { const k = g.head.sec; const isClosed = closed.has(k); const [a, b] = gCount(g); return (
+              <section key={k} ref={(el) => { secRefs.current[k] = el; }} data-form-sec={k} className="nb-cr-sec">
+                <button type="button" onClick={() => toggleSec(k)} className="gu nb-cr-sec-head" aria-expanded={!isClosed}>
+                  <span style={{ fontSize: 15 }}>{SEC_ICON[k] || "•"}</span>
+                  <span style={{ flex: 1, textAlign: "left" }}>{lang === "gu" ? g.head.gu : g.head.en}</span>
+                  {b > 0 && <span className="mono" style={{ fontSize: 11, fontWeight: 600, color: a === b ? "var(--status-success-text)" : "var(--text-tertiary)" }}>{nbG(String(a))}/{nbG(String(b))} {t("filled", "ભરેલ")}</span>}
+                  <span style={{ fontSize: 12, color: "var(--text-tertiary)", transform: isClosed ? "rotate(-90deg)" : "none", transition: "transform 0.15s" }}>▾</span>
+                </button>
+                {!isClosed && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", columnGap: 14, padding: "0 12px 12px" }}>{g.items.map(renderField)}</div>}
+              </section>
+            ); })}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8, padding: "12px 18px", borderTop: "1px solid var(--border-soft)", position: "sticky", bottom: 0, background: "var(--bg-surface)", borderRadius: "0 0 12px 12px" }}>
+        <div style={{ display: "flex", gap: 8, padding: "12px 18px", borderTop: "1px solid var(--border-soft)", background: "var(--bg-surface)", flexShrink: 0 }}>
           {initial.updatedAt && <button onClick={() => { if (window.confirm(t("Delete this entry permanently?", "આ એન્ટ્રી કાયમ માટે ડિલીટ કરવી છે?"))) onDelete(e.id); }} className="gu" style={{ background: "transparent", border: "1px solid var(--status-error-border)", color: "var(--status-error-text)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>🗑 {t("Delete", "ડિલીટ")}</button>}
           <div style={{ flex: 1 }} />
           <button onClick={tryClose} className="gu" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
