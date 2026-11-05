@@ -18665,6 +18665,156 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
   );
 }
 
+// ---- filter any information quickly: period, parts, detected / pending / disposal, head, IO, arrest, text → list, Word, PDF, copy ----
+const NB_FLT_COLS = [
+  ["no", "ગુ.ર.નં. / કલમ"], ["reg", "દાખલ તા."], ["occ", "ગુ.બ.તા.ટા."], ["place", "ગુનાનું સ્થળ"], ["comp", "ફરિયાદી"], ["acc", "આરોપી / અટક"],
+  ["facts", "ટૂંક વિગત"], ["loss", "નુકશાન / મુદ્દામાલ"], ["io", "તપાસ અધિકારી"], ["status", "ડીટેક્ટ / પેન્ડીંગ / નિકાલ"], ["head", "હેડ"], ["reason", "પેન્ડીંગ કારણ"],
+];
+function nbFltCell(e, k) {
+  if (k === "no") return `${nbReg(e.reg).part} ગુ.ર.નં.${nbG(e.no || "")}/${nbG(e.year || "")}${e.sections ? "\n" + e.sections : ""}`;
+  if (k === "reg") return e.regDate ? nbGDate(e.regDate) : "";
+  if (k === "occ") return e.occText || "";
+  if (k === "place") return e.place || "";
+  if (k === "comp") return e.complainant || e.informant || "";
+  if (k === "acc") return nbAccArrestText(e) || e.accused || "";
+  if (k === "facts") return e.facts || "";
+  if (k === "loss") return e.loss || (Number(e.stolenValue) ? "કિ.રૂ. " + nbG(nbMoney(Number(e.stolenValue))) + "/-" : "");
+  if (k === "io") return e.ioNow || e.io || "";
+  if (k === "status") return [e.reg === "A" ? (e.detected ? "ડીટેક્ટ" : "અનડીટેક્ટ") : "", e.closeType ? nbCloseStory(e) : "પેન્ડીંગ (તપાસ ચાલુ)"].filter(Boolean).join(" · ");
+  if (k === "head") { const b = NB_BOOK_HEADS.find((x) => x.id === nbBookHeadOf(e)); return b ? b.gu : nbHeadLabel(e); }
+  if (k === "reason") return e.pendingReason || "";
+  return "";
+}
+function CrimeFilterPanel({ ctx, showList, showBst, onOpen, onQuick }) {
+  const { t } = useLang();
+  const today = todayStr();
+  const [R, setR] = useState(() => ({ from: today.slice(0, 4) + "-01-01", to: today }));
+  const [parts, setParts] = useState(["A", "B", "C"]);
+  const [det, setDet] = useState("all");
+  const [disp, setDisp] = useState("all");
+  const [head, setHead] = useState("");
+  const [io, setIo] = useState("");
+  const [arr, setArr] = useState("all");
+  const [q, setQ] = useState("");
+  const [cols, setCols] = useState(() => { try { const c = JSON.parse(localStorage.getItem("nb_flt_cols") || "null"); if (Array.isArray(c) && c.length) return c; } catch (x) {} return ["no", "reg", "comp", "acc", "status", "io"]; });
+  useEffect(() => { try { localStorage.setItem("nb_flt_cols", JSON.stringify(cols)); } catch (x) {} }, [cols]);
+  const [title, setTitle] = useState("");
+  const [pdf, setPdf] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [limit, setLimit] = useState(100);
+  const crime = ctx.entries.filter((e) => ["A", "B", "C", "M"].includes(e.reg));
+  const ios = useMemo(() => [...new Set(crime.map((e) => String(e.ioNow || e.io || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "gu")), [ctx.entries]);
+  const qq = nbAsciiDigits(q).toLowerCase().trim();
+  const L = crime.filter((e) => {
+    if (!parts.includes(e.reg)) return false;
+    if (!e.regDate || e.regDate < R.from || e.regDate > R.to) return false;
+    if (det === "det" && !e.detected) return false;
+    if (det === "und" && e.detected) return false;
+    if (disp === "pend" && e.closeType) return false;
+    if (disp === "done" && !e.closeType) return false;
+    if (["cs", "fa", "fb", "fc"].includes(disp) && e.closeType !== disp) return false;
+    if (head && nbBookHeadOf(e) !== head) return false;
+    if (io && String(e.ioNow || e.io || "").trim() !== io) return false;
+    if (arr === "left" && !nbPeople(e.accList).some((p) => p && p.name && p.st === "no")) return false;
+    if (arr === "none" && nbPeople(e.accList).some((p) => p && p.st === "yes")) return false;
+    if (qq && !qq.split(/\s+/).every((w) => nbCrSearchText(e).includes(w))) return false;
+    return true;
+  }).sort((a, b) => (a.regDate || "").localeCompare(b.regDate || "") || (Number(a.no) || 0) - (Number(b.no) || 0));
+  const byPart = ["A", "B", "C", "M"].map((k) => [k, L.filter((e) => e.reg === k)]).filter(([, x]) => x.length);
+  const years = [...new Set(L.map((e) => e.regDate.slice(0, 4)))].sort();
+  const per = `તા.${nbGDate(R.from)} થી ${R.to === today ? "આજદિન" : "તા." + nbGDate(R.to)} સુધી`;
+  const autoTitle = [`${ctx.ps ? ctx.ps + " પો.સ્ટે." : ""} ${per} દાખલ`, parts.map((k) => nbReg(k).part).join(", "), "ગુના પૈકી",
+    det === "und" ? "અનડીટેક્ટ રહેલ" : det === "det" ? "ડીટેક્ટ થયેલ" : "", disp === "pend" ? "હાલ પેન્ડીંગ" : disp === "done" ? "નિકાલ થયેલ" : disp === "cs" ? "ચાર્જશીટ થયેલ" : ["fa", "fb", "fc"].includes(disp) ? "'" + disp.slice(1).toUpperCase() + "' ફાઇનલ થયેલ" : "",
+    arr === "left" ? "આરોપી અટક બાકી હોય તેવા" : arr === "none" ? "કોઈ આરોપી અટક ન થયેલ" : "", "ગુનાની વિગત"].filter(Boolean).join(" ").replace(/\s+/g, " ");
+  const heading = title.trim() || autoTitle;
+  const presets = [
+    [t("Undetected since 2021 (A+B+C)", "૨૦૨૧ થી આજ સુધી અનડીટેક્ટ (એ+બી+સી)"), () => { setR({ from: "2021-01-01", to: today }); setParts(["A", "B", "C"]); setDet("und"); setDisp("all"); setArr("all"); setHead(""); setIo(""); }],
+    [t("All pending now", "હાલ પેન્ડીંગ તમામ"), () => { setR({ from: "2015-01-01", to: today }); setParts(["A", "B", "C"]); setDet("all"); setDisp("pend"); setArr("all"); }],
+    [t("Charge-sheeted this year", "આ વર્ષે ચાર્જશીટ થયેલ"), () => { setR({ from: today.slice(0, 4) + "-01-01", to: today }); setDet("all"); setDisp("cs"); setArr("all"); }],
+    [t("Accused still to be arrested", "આરોપી અટક બાકી"), () => { setR({ from: "2015-01-01", to: today }); setDet("all"); setDisp("pend"); setArr("left"); }],
+  ];
+  const model = () => {
+    const H = (x) => nbCell(x, { b: true, center: true });
+    const C = ["#", ...cols];
+    const W = { "#": 500, no: 1900, reg: 1100, occ: 1700, place: 1800, comp: 2200, acc: 2400, facts: 3400, loss: 1300, io: 1600, status: 1700, head: 1500, reason: 1500 };
+    return [
+      { p: heading, b: true, sz: 22, center: true, after: 60 },
+      { p: `કુલ ગુના: ${nbG(String(L.length))}${byPart.length > 1 ? " (" + byPart.map(([k, x]) => nbReg(k).part + " " + nbG(String(x.length))).join(", ") + ")" : ""}`, sz: 19, center: true, after: 120 },
+      { table: true, sz: 16, widths: C.map((k) => W[k] || 1400), headRows: [C.map((k) => H(k === "#" ? "અ.નં." : (NB_FLT_COLS.find((c) => c[0] === k) || [])[1]))],
+        rows: L.length ? L.map((e, i) => C.map((k) => (k === "#" ? nbCell(nbG(i + 1), { center: true }) : nbCell(nbFltCell(e, k) || "-")))) : [[nbCell("નીલ", { center: true, colSpan: C.length }), ...C.slice(1).map(() => SKIP)]] },
+    ];
+  };
+  const fname = `crime-list-${R.from}-to-${R.to}`;
+  const copy = () => {
+    const C = ["#", ...cols];
+    const txt = [C.map((k) => (k === "#" ? "અ.નં." : (NB_FLT_COLS.find((c) => c[0] === k) || [])[1])), ...L.map((e, i) => C.map((k) => (k === "#" ? nbG(i + 1) : nbFltCell(e, k))))].map((r) => r.map((c) => String(c || "").replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt)); else window.prompt(t("Copy:", "કોપી કરો:"), txt);
+  };
+  const chip = (on) => ({ ...nbJkBtn, background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)" });
+  const row = { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 };
+  const lab = { fontSize: 12.5, color: "var(--text-secondary)", minWidth: 92 };
+  const opt = (val, set, list) => list.map(([k, l]) => <button key={k} type="button" data-flt-opt={k} onClick={() => set(k)} style={chip(val === k)}>{l}</button>);
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap", cursor: "pointer" };
+  const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "left", whiteSpace: "nowrap", background: "var(--bg-surface-2)" };
+  const td = { padding: "6px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, verticalAlign: "top" };
+  return (
+    <div data-flt>
+      {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>🔎 {t("Find any information", "કોઈ પણ માહિતી ફિલ્ટર કરો")}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>{presets.map(([l, f]) => <button key={l} type="button" data-flt-preset onClick={f} style={{ ...nbJkBtn, borderColor: "var(--accent-strong, var(--border))" }}>⚡ {l}</button>)}</div>
+        <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
+        <div style={row}><span style={lab}>{t("Parts", "ભાગ")}</span>{["A", "B", "C", "M"].map((k) => <button key={k} type="button" onClick={() => setParts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k].sort()))} style={chip(parts.includes(k))}>{parts.includes(k) ? "✓ " : ""}{nbReg(k).gu}</button>)}</div>
+        <div style={row}><span style={lab}>{t("Detection", "ડીટેક્શન")}</span>{opt(det, setDet, [["all", t("All", "બધા")], ["und", t("Undetected", "અનડીટેક્ટ")], ["det", t("Detected", "ડીટેક્ટ")]])}</div>
+        <div style={row}><span style={lab}>{t("Disposal", "નિકાલ")}</span>{opt(disp, setDisp, [["all", t("All", "બધા")], ["pend", t("Pending", "પેન્ડીંગ")], ["done", t("Disposed", "નિકાલ થયેલ")], ["cs", t("Charge-sheet", "ચાર્જશીટ")], ["fa", "'A' " + t("final", "ફાઇનલ")], ["fb", "'B'"], ["fc", "'C'"]])}</div>
+        <div style={row}><span style={lab}>{t("Accused", "આરોપી")}</span>{opt(arr, setArr, [["all", t("All", "બધા")], ["left", t("Someone not arrested", "અટક બાકી હોય")], ["none", t("Nobody arrested", "કોઈ અટક નહીં")]])}</div>
+        <div style={row}>
+          <span style={lab}>{t("Head / IO", "હેડ / ત.ક.અ.")}</span>
+          <select value={head} onChange={(ev) => setHead(ev.target.value)} className="gu" style={{ fontSize: 12.5, maxWidth: 260 }} data-flt-head><option value="">{t("All heads", "બધા હેડ")}</option>{NB_BOOK_HEADS.map((b) => <option key={b.id} value={b.id}>{b.gu}</option>)}</select>
+          <select value={io} onChange={(ev) => setIo(ev.target.value)} className="gu" style={{ fontSize: 12.5, maxWidth: 260 }} data-flt-io><option value="">{t("All officers", "બધા અધિકારી")}</option>{ios.map((x) => <option key={x} value={x}>{x}</option>)}</select>
+          <input value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={t("Section, name, village, word…", "કલમ, નામ, ગામ, શબ્દ…")} className="gu" data-flt-q style={{ fontSize: 13, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--border)", minWidth: 180, flex: "1 1 180px", background: "var(--bg-surface)", color: "var(--text-primary)" }} />
+        </div>
+      </div>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <div className="mono" style={{ fontSize: 26, fontWeight: 800 }} data-flt-count><NbDrillNum list={L} title={heading} onShow={showList}>{nbG(String(L.length))}</NbDrillNum></div>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>{t("crimes", "ગુના")} {byPart.length ? "· " + byPart.map(([k, x]) => `${nbReg(k).gu} ${nbG(String(x.length))}`).join(" · ") : ""}</div>
+          {years.length > 1 && <div style={{ fontSize: 12, color: "var(--text-tertiary)", flexBasis: "100%" }}>{years.map((y) => `${nbG(y)}: ${nbG(String(L.filter((e) => e.regDate.startsWith(y)).length))}`).join("   ")}</div>}
+        </div>
+        <input value={title} onChange={(ev) => setTitle(ev.target.value)} placeholder={autoTitle} className="gu" data-flt-title style={{ width: "100%", boxSizing: "border-box", marginTop: 8, fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-page)", color: "var(--text-primary)" }} title={t("Heading for the Word / PDF (change it if you like)", "Word / PDF નું મથાળું (જોઈએ તો બદલો)")} />
+        <div style={{ ...row, marginTop: 10 }}>
+          <span style={lab}>{t("Columns", "કોલમ")}</span>
+          {NB_FLT_COLS.map(([k, l]) => <button key={k} type="button" onClick={() => setCols((c) => (c.includes(k) ? c.filter((x) => x !== k) : NB_FLT_COLS.map((x) => x[0]).filter((x) => c.includes(x) || x === k)))} style={{ ...chip(cols.includes(k)), fontSize: 11.5, padding: "3px 9px" }}>{cols.includes(k) ? "✓ " : ""}{l}</button>)}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          <button type="button" data-flt-word onClick={() => { try { nbDeliverBlob(nbModelDocx(model(), { landscape: true }), fname + ".docx", heading.slice(0, 60)); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn}><WordIcon />Word</button>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(model(), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શકી નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+          <button type="button" onClick={copy} style={btn} data-flt-copy>{copied ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy table", "ટેબલ કોપી")}</button>
+          {showBst && L.some((e) => e.reg === "A") && <button type="button" onClick={() => showBst(t("B-statement — ", "B સ્ટેટમેન્ટ — ") + heading, L.filter((e) => e.reg === "A"))} style={btn}>📄 {t("B-statement of these", "આ ગુનાના B સ્ટેટમેન્ટ")}</button>}
+        </div>
+      </div>
+      <div style={{ overflowX: "auto", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+          <thead><tr><th style={th}>#</th>{cols.map((k) => <th key={k} style={th}>{(NB_FLT_COLS.find((c) => c[0] === k) || [])[1]}</th>)}<th style={th}></th></tr></thead>
+          <tbody>
+            {L.slice(0, limit).map((e, i) => (
+              <tr key={e.id} data-flt-row style={{ cursor: "pointer" }} onClick={() => onOpen(e)}>
+                <td style={td}>{nbG(i + 1)}</td>
+                {cols.map((k) => <td key={k} style={{ ...td, maxWidth: k === "facts" ? 360 : 260, whiteSpace: "pre-wrap", fontWeight: k === "no" ? 600 : 400 }}>{String(nbFltCell(e, k) || "-").slice(0, k === "facts" ? 300 : 200)}</td>)}
+                <td style={td} onClick={(ev) => ev.stopPropagation()}><CrimeQuickChip e={e} onQuick={onQuick} /></td>
+              </tr>
+            ))}
+            {!L.length && <tr><td colSpan={cols.length + 2} style={{ ...td, textAlign: "center", padding: 18, color: "var(--text-tertiary)" }}>{t("No crime matches.", "કોઈ ગુનો મળ્યો નહીં.")}</td></tr>}
+          </tbody>
+        </table>
+        {L.length > limit && <div style={{ padding: 10, textAlign: "center" }}><button type="button" onClick={() => setLimit((x) => x + 200)} style={nbJkBtn}>{t(`Show more (${L.length - limit} more)`, `વધુ બતાવો (${nbG(String(L.length - limit))} બાકી)`)}</button></div>}
+      </div>
+    </div>
+  );
+}
+
 async function nbClearGuessedDisposals() {
   const all = await nbEntryStore.all();
   const isMonthEnd = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "") && new Date(+d.slice(0, 4), +d.slice(5, 7), 0).getDate() === +d.slice(8, 10);
@@ -19904,6 +20054,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("inp")} style={tabBtn(tab === "inp")} className={tab === "inp" ? "nb-tab-on" : ""}>✍️ {t("Monthly inputs", "માસિક વિગત")}</button>
         <button onClick={() => setTab("ann")} style={tabBtn(tab === "ann")} className={tab === "ann" ? "nb-tab-on" : ""}>📊 {t("Annual book", "વાર્ષિક પત્રક")}</button>
         <button onClick={() => setTab("pr")} style={tabBtn(tab === "pr")} className={tab === "pr" ? "nb-tab-on" : ""} data-tab-pr>🍾 {t("Prohibition", "પ્રોહી / દારૂ")}</button>
+        <button onClick={() => setTab("flt")} style={tabBtn(tab === "flt")} className={tab === "flt" ? "nb-tab-on" : ""} data-tab-flt>🔎 {t("Filter / information", "ફિલ્ટર / માહિતી")}</button>
         <button onClick={() => setTab("csd")} style={tabBtn(tab === "csd")} className={tab === "csd" ? "nb-tab-on" : ""} data-tab-csd>⏰ {t("60 / 90 days", "૬૦ / ૯૦ દિવસ")}</button>
         <button onClick={() => setTab("io")} style={tabBtn(tab === "io")} className={tab === "io" ? "nb-tab-on" : ""} data-tab-io>👮 {t("Pending by officer", "ત.ક.અ. મુજબ પેન્ડીંગ")}</button>
         <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} className={tab === "fr" ? "nb-tab-on" : ""} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
@@ -19919,6 +20070,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "ann" && <CrimeAnnualPanel ctx={ctx} showToast={showToast} showList={showList} />}
       {tab === "pr" && <CrimeProhiHub ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "io" && <CrimeIoPanel ctx={ctx} showList={showList} />}
+      {tab === "flt" && <CrimeFilterPanel ctx={ctx} showList={showList} showBst={showBst} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "csd" && <CrimeCsDuePanel ctx={ctx} showList={showList} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "acc" && <CrimeAccusedPanel ctx={ctx} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
