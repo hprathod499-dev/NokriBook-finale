@@ -18532,21 +18532,75 @@ function CrimeQuickUpdate({ entry, onClose, showToast, onFull }) {
   );
 }
 
-// ---- 60 / 90 day charge-sheet limit (BNSS 187): 90 days when the offence carries death, life or 10 years or more; 60 days otherwise ----
-// BNS sections whose punishment can reach 10 years / life / death. A best-effort list — every entry can be set to 60 or 90 by hand.
-const NB_BNS_90_ALL = new Set(["64", "65", "66", "68", "69", "70", "71", "80", "87", "89", "95", "96", "98", "99", "103", "104", "105", "107", "108", "109", "111", "113", "139", "140", "141", "143", "147", "148", "149", "150", "152", "178", "179", "307", "310", "311", "312", "313", "338"]);
-const NB_BNS_90_SUB = new Set(["106(2)", "117(3)", "118(2)", "121(2)", "124(1)", "309(4)", "309(5)", "309(6)", "316(4)", "316(5)", "317(3)", "317(4)", "326(f)", "326(g)", "332(a)", "332(b)"]);
-function nbCsLimitAuto(e) {
-  const tk = nbSectionTokens(nbStripOtherActs(e.sections || ""));
-  for (const x of tk) if (NB_BNS_90_ALL.has(x) || NB_BNS_90_SUB.has(x)) return 90;
-  // house-breaking to commit theft (BNS 331(3) / 331(4) with theft) carries 10 / 14 years
-  if ((tk.has("331(3)") || tk.has("331(4)")) && ["303", "305", "306"].some((x) => tk.has(x))) return 90;
-  const raw = nbAsciiDigits(e.sections || "").toLowerCase();
-  const pm = raw.match(/(પોક્સો|પોકસો|pocso)[^૦-૯a-z]*(.{0,40})/);
-  if (pm && /(^|\D)(4|5|6|14)(\D|$)/.test(pm[2])) return 90;
-  return 60;
+// ---- 60 / 90 day charge-sheet limit (BNSS 187(3)) ----
+// 90 days only when the offence carries death, life imprisonment or a MINIMUM of 10 years (Rakesh Kumar Paul, SC 2017; Kalandar Shafi, Karnataka HC 2024).
+// Offences punishable only "up to 10 years" (robbery 309(4), 108, 331(3) …) are 60 days. Part B and Part C crimes are always 60 days.
+const NB_BNS_90 = new Set(["64", "65", "66", "70", "71", "80", "89", "103", "104", "105", "107", "109", "111", "113", "139", "147", "148", "149", "150", "152", "178", "179", "310", "311", "312", "313", "338",
+  "117(3)", "118(2)", "124(1)", "140(1)", "140(2)", "143(3)", "143(4)", "143(5)", "143(6)", "143(7)", "309(6)", "316(5)", "317(3)", "317(4)", "326(f)", "326(g)", "332(a)"]);
+const NB_IPC_90 = new Set(["121", "122", "124a", "125", "130", "131", "132", "194", "195", "232", "238", "255", "302", "303", "304", "304b", "305", "307", "311", "313", "314", "326", "326a", "329", "364", "364a", "371",
+  "376", "376a", "376ab", "376d", "376da", "376db", "376e", "377", "389", "394", "395", "396", "397", "398", "400", "409", "412", "413", "436", "438", "449", "459", "460", "467", "472", "489a", "489b", "489d"]);
+// up to 14 years with no minimum, or it depends on the facts — counted as 60 and marked "check"
+const NB_BNS_CHK = new Set(["99", "140", "143"]);
+const NB_IPC_CHK = new Set(["363a", "370", "474"]);
+// heads that stay 90 even when the sections could not be read
+const NB_CS_HEAD90 = new Set(["murder", "atm", "dac"]);
+function nbIpcCsTokens(sections) {
+  let s = nbAsciiDigits(nbStripOtherActs(sections)).toLowerCase().replace(/\d{4,}(\s*\/\s*\d{2,4})?/g, " ");
+  const cut = s.search(NB_OTHER_ACT_RE);
+  if (cut > 0) s = s.slice(0, cut);
+  const L = { "ડીએ": "da", "ડીબી": "db", "એબી": "ab", "બી": "b", "ડી": "d", "એ": "a", "અ": "a", "ઇ": "e", "ઈ": "e" };
+  const out = new Set();
+  const re = /(\d{1,3})(?:\s*[-–]?\s*\(?\s*(ડીએ|ડીબી|એબી|બી|ડી|એ|અ|ઇ|ઈ|da|db|ab|a|b|d|e)\s*\)?(?![઀-૿a-z]))?/g;
+  let m;
+  while ((m = re.exec(s))) out.add(m[1] + (m[2] ? L[m[2]] || m[2] : ""));
+  return out;
 }
-function nbCsLimit(e) { return e.csLimit === "90" ? 90 : e.csLimit === "60" ? 60 : nbCsLimitAuto(e); }
+function nbIsIpcCrime(e) {
+  const raw = nbAsciiDigits(e.sections || "").toLowerCase();
+  if (NB_BNS_RE.test(raw)) return false;
+  if (NB_IPC_RE.test(raw)) return true;
+  return !!e.regDate && e.regDate < "2024-07-01";
+}
+// { lim: 60 | 90, check: true when the law is not settled for this offence, why: short reason }
+const _nbCsMemo = new WeakMap(), NB_CS_NOSET = {};
+function nbCsLimitInfo(e, settings) {
+  const S = settings || NB_CS_NOSET;
+  let m = _nbCsMemo.get(S);
+  if (!m) { m = new WeakMap(); _nbCsMemo.set(S, m); }
+  if (m.has(e)) return m.get(e);
+  const v = nbCsLimitInfo__(e, S); m.set(e, v); return v;
+}
+function nbCsLimitInfo__(e, settings) {
+  if (e.csLimit === "90" || e.csLimit === "60") return { lim: Number(e.csLimit), why: "જાતે નક્કી કરેલ" };
+  if (e.reg !== "A") return { lim: 60, why: nbReg(e.reg).part + " — હંમેશા ૬૦" };
+  const head = nbBookHeadOf(e);
+  const hr = ((settings || {}).csHeadLim || {})[head];
+  if (hr === "60" || hr === "90") return { lim: Number(hr), why: "હેડ નિયમ" };
+  const raw = nbAsciiDigits(e.sections || "").toLowerCase();
+  let check = false;
+  if (nbIsIpcCrime(e)) {
+    const tk = nbIpcCsTokens(e.sections || "");
+    const hit = [...tk].find((x) => NB_IPC_90.has(x));
+    if (hit) return { lim: 90, why: "કલમ " + nbG(hit.toUpperCase()) };
+    if ([...tk].some((x) => NB_IPC_CHK.has(x)) || (tk.has("457") && ["379", "380", "381"].some((x) => tk.has(x)))) check = true;
+  } else {
+    const tk = nbSectionTokens(nbStripOtherActs(e.sections || ""));
+    const hit = [...tk].find((x) => NB_BNS_90.has(x));
+    if (hit) return { lim: 90, why: "કલમ " + nbG(hit) };
+    if ([...tk].some((x) => NB_BNS_CHK.has(x) && ![...tk].some((y) => y.startsWith(x + "(")))) check = true;
+    if (tk.has("331(4)") && ["303", "305", "306"].some((x) => tk.has(x))) check = true;
+  }
+  const pm = raw.match(/(પોક્સો|પોકસો|pocso)[^0-9a-z]*(.{0,40})/);
+  if (pm && /(^|\D)(4|5|6)(\D|$)/.test(pm[2])) return { lim: 90, why: "પોક્સો" };
+  if (pm && /(^|\D)14(\D|$)/.test(pm[2])) check = true;
+  if (/એટ્રો|atroc/.test(raw) && /3\s*\(\s*2\s*\)\s*\(\s*(5|v|વી)\s*\)/.test(raw)) return { lim: 90, why: "એટ્રોસીટી ૩(૨)(૫)" };
+  if (/આર્મ્સ|arms/.test(raw) && /25\s*\(\s*1\s*(aa|એએ)\s*\)|27\s*\(\s*3\s*\)/.test(raw)) return { lim: 90, why: "આર્મ્સ એક્ટ" };
+  if (/ndps|એન\.?\s?ડી\.?\s?પી/.test(raw)) check = true;
+  if (NB_CS_HEAD90.has(head) && !/\d/.test(raw)) return { lim: 90, why: "હેડ" };
+  return { lim: 60, check, why: check ? "ચકાસો — કાયદો સ્પષ્ટ નથી" : "૧૦ વર્ષથી ઓછી સજા" };
+}
+function nbCsLimitAuto(e, settings) { return nbCsLimitInfo({ ...e, csLimit: "" }, settings).lim; }
+function nbCsLimit(e, settings) { return nbCsLimitInfo(e, settings).lim; }
 function nbFirstArrest(e) {
   const d = nbPeople(e.accList).filter((p) => p && p.st === "yes" && p.arrestDate).map((p) => p.arrestDate).sort()[0];
   return d || (/^\d{4}-\d{2}-\d{2}$/.test(e.arrestDate || "") ? e.arrestDate : "");
@@ -18554,10 +18608,11 @@ function nbFirstArrest(e) {
 function nbCsDueRows(ctx, R, opts) {
   const today = todayStr();
   return ctx.entries.filter((e) => opts.parts.includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to && !e.closeType).map((e) => {
-    const lim = nbCsLimit(e), arr = nbFirstArrest(e), start = opts.from === "arrest" ? arr : e.regDate;
+    const info = nbCsLimitInfo(e, ctx.settings), lim = info.lim, arr = nbFirstArrest(e), start = opts.from === "arrest" ? arr : e.regDate;
     if (!start) return null;
+    if (opts.head && nbBookHeadOf(e) !== opts.head) return null;
     const due = addDaysStr(start, lim), over = daysBetween(due, today);
-    return { e, lim, arr, start, due, over };
+    return { e, lim, info, arr, start, due, over };
   }).filter((r) => r && (r.over > 0 || (opts.soon && r.over > -opts.soon))).sort((a, b) => a.due.localeCompare(b.due));
 }
 function nbCsDueModel(ctx, R, opts, L60, L90) {
@@ -18570,12 +18625,16 @@ function nbCsDueModel(ctx, R, opts, L60, L90) {
     rows: L.length ? L.map((r, i) => [c(nbG(i + 1)), nbCell(`${nbReg(r.e.reg).part} ગુ.ર.નં.${nbG(r.e.no)}/${nbG(r.e.year)}${r.e.sections ? "\n" + r.e.sections : ""}`), c(nbGDate(r.e.regDate)), nbCell(nbAccArrestText(r.e) || r.e.accused || "-"), c(r.arr ? nbGDate(r.arr) : "-"), c(nbGDate(r.due)), c(r.over > 0 ? nbG(String(r.over)) : "-"), nbCell(r.e.ioNow || r.e.io || "-"), nbCell(r.e.pendingReason || "-")])
       : [[nbCell("નીલ", { center: true, colSpan: 9 }), SKIP, SKIP, SKIP, SKIP, SKIP, SKIP, SKIP, SKIP]] });
   const ps = ctx.ps ? ctx.ps + " પો.સ્ટે." : "";
-  B.push({ p: `પત્રક નં.૧ — ૬૦ દિવસમાં ચાર્જશીટ કરવાના થતા હોય પરંતુ થયેલ ન હોય અને હાલ પેન્ડીંગ હોય તેવા ગુના`, b: true, sz: 23, center: true, after: 40 });
-  B.push({ p: `${ps} ${per} દાખલ થયેલ ગુનાઓ પૈકી (૧૦ વર્ષથી ઓછી સજાને પાત્ર — ${opts.parts.map((k) => nbReg(k).part).join(", ")})`, sz: 20, center: true, after: 100 });
-  B.push(table(L60));
-  B.push({ p: "", after: 200, pageBreak: true });
+  const hd = opts.head && nbBookHead(opts.head) ? ` — હેડ: ${nbBookHead(opts.head).gu}` : "";
+  if (L60) {
+    B.push({ p: `પત્રક નં.૧ — ૬૦ દિવસમાં ચાર્જશીટ કરવાના થતા હોય પરંતુ થયેલ ન હોય અને હાલ પેન્ડીંગ હોય તેવા ગુના`, b: true, sz: 23, center: true, after: 40 });
+    B.push({ p: `${ps} ${per} દાખલ થયેલ ગુનાઓ પૈકી (૧૦ વર્ષથી ઓછી સજાને પાત્ર — ${opts.parts.map((k) => nbReg(k).part).join(", ")})${hd}`, sz: 20, center: true, after: 100 });
+    B.push(table(L60));
+  }
+  if (!L90) return B;
+  if (L60) B.push({ p: "", after: 200, pageBreak: true });
   B.push({ p: `પત્રક નં.૨ — ૯૦ દિવસમાં ચાર્જશીટ કરવાના થતા હોય પરંતુ થયેલ ન હોય અને હાલ પેન્ડીંગ હોય તેવા ગુના`, b: true, sz: 23, center: true, after: 40 });
-  B.push({ p: `${ps} ${per} દાખલ થયેલ ગુનાઓ પૈકી (૧૦ વર્ષ કે તેથી વધુ સજાને પાત્ર — ${opts.parts.map((k) => nbReg(k).part).join(", ")})`, sz: 20, center: true, after: 100 });
+  B.push({ p: `${ps} ${per} દાખલ થયેલ ગુનાઓ પૈકી (ફાંસી / આજીવન / ઓછામાં ઓછી ૧૦ વર્ષ સજાને પાત્ર — ${opts.parts.map((k) => nbReg(k).part).join(", ")})${hd}`, sz: 20, center: true, after: 100 });
   B.push(table(L90));
   return B;
 }
@@ -18589,9 +18648,35 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
   const [pdf, setPdf] = useState(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState("");
-  const opts = { from, parts, soon };
+  const [limF, setLimF] = useState("all");
+  const [head, setHead] = useState("");
+  const [showHeads, setShowHeads] = useState(true);
+  const opts = { from, parts, soon, head };
   const rows = nbCsDueRows(ctx, R, opts);
   const L60 = rows.filter((r) => r.lim === 60), L90 = rows.filter((r) => r.lim === 90);
+  const W60 = limF === "90" ? null : L60, W90 = limF === "60" ? null : L90;
+  // every crime registered in the period, sorted into 60 / 90 by annual-book head
+  const regd = ctx.entries.filter((e) => parts.includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to);
+  const headRows = (() => {
+    const m = new Map();
+    for (const e of regd) {
+      const k = e.reg === "A" ? nbBookHeadOf(e) : "part" + e.reg;
+      if (!m.has(k)) m.set(k, { k, l60: [], l90: [], chk: [] });
+      const info = nbCsLimitInfo(e, ctx.settings), x = m.get(k);
+      (info.lim === 90 ? x.l90 : x.l60).push(e);
+      if (info.check) x.chk.push(e);
+    }
+    const order = NB_BOOK_HEADS.map((b) => b.id);
+    return [...m.values()].sort((a, b) => (a.k.startsWith("part") ? 1 : 0) - (b.k.startsWith("part") ? 1 : 0) || order.indexOf(a.k) - order.indexOf(b.k) || a.k.localeCompare(b.k));
+  })();
+  const headRule = (id) => ((ctx.settings || {}).csHeadLim || {})[id] || "";
+  const setHeadRule = async (id, v) => {
+    const cur = (await nbCrimeStore.getMeta("regSettings")) || {};
+    const hl = { ...(cur.csHeadLim || {}) };
+    if (v) hl[id] = v; else delete hl[id];
+    await nbCrimeStore.setMeta("regSettings", { ...cur, csHeadLim: hl });
+  };
+  const all60 = headRows.flatMap((x) => x.l60), all90 = headRows.flatMap((x) => x.l90), allChk = headRows.flatMap((x) => x.chk);
   const setLim = async (e, v) => { const cur = (await nbIdb("entries", "readonly", (st) => st.get(e.id))) || e; await nbEntryStore.put({ ...cur, csLimit: v, updatedAt: Date.now() }); };
   const fname = `chargesheet-60-90-days-${R.from}-to-${R.to}`;
   const copy = (L, k) => {
@@ -18623,7 +18708,7 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
                 <td style={td}>{nbGDate(r.due)}</td>
                 <td style={{ ...td, fontWeight: 800, color: r.over > 0 ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{r.over > 0 ? nbG(String(r.over)) : t(`in ${-r.over}`, `${nbG(String(-r.over))} બાકી`)}</td>
                 <td style={{ ...td, fontSize: 12 }}>{r.e.ioNow || r.e.io || "-"}</td>
-                <td style={td}><select value={r.e.csLimit || ""} onChange={(ev) => setLim(r.e, ev.target.value)} data-csdue-lim style={{ fontSize: 12 }} title={t("Change if the automatic choice is wrong", "આપોઆપ નક્કી થયેલ ખોટું હોય તો બદલો")}><option value="">{t(`Auto (${nbCsLimitAuto(r.e)})`, `આપોઆપ (${nbG(String(nbCsLimitAuto(r.e)))})`)}</option><option value="60">{t("60 days", "૬૦ દિવસ")}</option><option value="90">{t("90 days", "૯૦ દિવસ")}</option></select></td>
+                <td style={td}><select value={r.e.csLimit || ""} onChange={(ev) => setLim(r.e, ev.target.value)} data-csdue-lim style={{ fontSize: 12 }} title={t("Change if the automatic choice is wrong", "આપોઆપ નક્કી થયેલ ખોટું હોય તો બદલો")}><option value="">{t(`Auto (${nbCsLimitAuto(r.e, ctx.settings)})`, `આપોઆપ (${nbG(String(nbCsLimitAuto(r.e, ctx.settings)))})`)}</option><option value="60">{t("60 days", "૬૦ દિવસ")}</option><option value="90">{t("90 days", "૯૦ દિવસ")}</option></select><div style={{ fontSize: 10.5, color: r.info.check ? "var(--status-warning-text, #b7791f)" : "var(--text-tertiary)", marginTop: 2, maxWidth: 140 }} data-csdue-why>{r.info.check ? "⚠ " : ""}{r.info.why}</div></td>
                 <td style={td}><CrimeQuickChip e={r.e} onQuick={onQuick} /></td>
               </tr>
             ))}
@@ -18638,7 +18723,7 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
         <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>⏰ {t("Charge-sheet due in 60 / 90 days — not filed, still pending", "૬૦ / ૯૦ દિવસમાં ચાર્જશીટ કરવાના — થયેલ નથી, હાલ પેન્ડીંગ")}</div>
-        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Under 10 years' punishment → 60 days (Patrak 1); 10 years or more / life / death → 90 days (Patrak 2).", "૧૦ વર્ષથી ઓછી સજાને પાત્ર → ૬૦ દિવસ (પત્રક નં.૧); ૧૦ વર્ષ કે તેથી વધુ / આજીવન / ફાંસી → ૯૦ દિવસ (પત્રક નં.૨).")}</div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Death / life / minimum 10 years → 90 days (Patrak 2). Everything else → 60 days (Patrak 1). Part B and Part C are always 60.", "ફાંસી / આજીવન / ઓછામાં ઓછી ૧૦ વર્ષ સજા → ૯૦ દિવસ (પત્રક નં.૨). બાકીના બધા → ૬૦ દિવસ (પત્રક નં.૧). ભાગ-બી અને ભાગ-સી હંમેશા ૬૦ દિવસ.")}</div>
         <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
           <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Count the days from", "દિવસ ગણવા")}:</span>
@@ -18653,14 +18738,51 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
             <option value={15}>{t("+ ending in 15 days", "+ ૧૫ દિવસમાં પૂરી થનાર")}</option>
           </select>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-          <button type="button" onClick={() => { try { nbDeliverBlob(nbModelDocx(nbCsDueModel(ctx, R, opts, L60, L90), { landscape: true }), fname + ".docx", "૬૦-૯૦ દિવસ ચાર્જશીટ પત્રક"); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn} data-csdue-word><WordIcon />Word ({t("Patrak 1 + 2", "પત્રક ૧ + ૨")})</button>
-          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(nbCsDueModel(ctx, R, opts, L60, L90), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શકી નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+          <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Show", "બતાવો")}:</span>
+          {[["all", t("60 + 90", "૬૦ + ૯૦ બંને")], ["60", t("Only 60-day crimes", "ફક્ત ૬૦ દિવસ વાળા")], ["90", t("Only 90-day crimes", "ફક્ત ૯૦ દિવસ વાળા")]].map(([k, l]) => <button key={k} type="button" data-csdue-limf={k} onClick={() => setLimF(k)} style={chip(limF === k)}>{l}</button>)}
+          <select value={head} onChange={(ev) => setHead(ev.target.value)} className="gu" style={{ fontSize: 12.5, maxWidth: 240 }} data-csdue-head><option value="">{t("All heads", "બધા હેડ")}</option>{NB_BOOK_HEADS.map((b) => <option key={b.id} value={b.id}>{b.gu}</option>)}</select>
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{t("60 / 90 is chosen from the BNS sections (and POCSO 4/6). If one is wrong, change it in the Limit column — it is remembered for that crime.", "૬૦ / ૯૦ બી.એન.એસ.ની કલમો (અને પોક્સો ૪/૬) પરથી આપોઆપ નક્કી થાય છે. કોઈ ખોટું લાગે તો \"મર્યાદા\" કોલમમાં બદલો — તે ગુના માટે યાદ રહેશે.")}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          <button type="button" onClick={() => { try { nbDeliverBlob(nbModelDocx(nbCsDueModel(ctx, R, opts, W60, W90), { landscape: true }), fname + ".docx", "૬૦-૯૦ દિવસ ચાર્જશીટ પત્રક"); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn} data-csdue-word><WordIcon />Word ({limF === "60" ? t("Patrak 1", "પત્રક ૧") : limF === "90" ? t("Patrak 2", "પત્રક ૨") : t("Patrak 1 + 2", "પત્રક ૧ + ૨")})</button>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(nbCsDueModel(ctx, R, opts, W60, W90), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શકી નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{t("60 / 90 is chosen from the sections (BNS or old IPC, POCSO, Atrocity, Arms). If one is wrong, change it in the Limit column — it is remembered for that crime.", "૬૦ / ૯૦ કલમો (બી.એન.એસ. કે જૂની ઇ.પી.કો., પોક્સો, એટ્રોસીટી, આર્મ્સ) પરથી આપોઆપ નક્કી થાય છે. કોઈ ખોટું લાગે તો \"મર્યાદા\" કોલમમાં બદલો — તે ગુના માટે યાદ રહેશે.")}</div>
       </div>
-      {list(L60, 60, t("Patrak 1 — 60 days", "પત્રક નં.૧ — ૬૦ દિવસ"))}
-      {list(L90, 90, t("Patrak 2 — 90 days", "પત્રક નં.૨ — ૯૦ દિવસ"))}
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }} data-csdue-heads>
+        <button type="button" onClick={() => setShowHeads((v) => !v)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", display: "flex", width: "100%", alignItems: "center", gap: 8, textAlign: "left" }}>
+          <span style={{ fontWeight: 800, fontSize: 14.5, flex: 1 }}>📚 {t("60-day and 90-day crimes by head (all registered in the period)", "હેડ પ્રમાણે ૬૦ દિવસ / ૯૦ દિવસ વાળા ગુના (સમયગાળામાં દાખલ તમામ)")}</span>
+          <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{showHeads ? "▲" : "▼"}</span>
+        </button>
+        <div style={{ fontSize: 13, marginTop: 6 }}>
+          {t("60 days", "૬૦ દિવસ વાળા")}: <b className="mono"><NbDrillNum list={all60} title={t("60-day crimes", "૬૦ દિવસ વાળા ગુના")} onShow={showList}>{nbG(String(all60.length))}</NbDrillNum></b>
+          {"   ·   "}{t("90 days", "૯૦ દિવસ વાળા")}: <b className="mono"><NbDrillNum list={all90} title={t("90-day crimes", "૯૦ દિવસ વાળા ગુના")} onShow={showList}>{nbG(String(all90.length))}</NbDrillNum></b>
+          {allChk.length > 0 && <>{"   ·   "}⚠ {t("check", "ચકાસો")}: <b className="mono"><NbDrillNum list={allChk} title={t("Check the limit of these", "આ ગુનાની મર્યાદા ચકાસો")} onShow={showList}>{nbG(String(allChk.length))}</NbDrillNum></b></>}
+        </div>
+        {showHeads && <div style={{ overflowX: "auto", marginTop: 8 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560 }}>
+            <thead><tr>{[t("Head", "હેડ"), t("Rule", "નિયમ"), t("60 days", "૬૦ દિવસ"), t("90 days", "૯૦ દિવસ"), "⚠ " + t("check", "ચકાસો")].map((h, i) => <th key={i} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {headRows.map((x) => {
+                const b = nbBookHead(x.k), nm = b ? b.gu : nbReg(x.k.slice(4)).gu;
+                return (
+                  <tr key={x.k} data-csdue-headrow={x.k}>
+                    <td style={{ ...td, fontWeight: 700 }}>{nm}</td>
+                    <td style={td}>{x.k.startsWith("part") ? <span style={{ color: "var(--text-secondary)" }}>{t("always 60", "હંમેશા ૬૦")}</span> : <select value={headRule(x.k)} onChange={(ev) => setHeadRule(x.k, ev.target.value)} data-csdue-rule={x.k} style={{ fontSize: 12 }}><option value="">{t("By sections", "કલમ પ્રમાણે")}</option><option value="60">{t("Always 60", "હંમેશા ૬૦")}</option><option value="90">{t("Always 90", "હંમેશા ૯૦")}</option></select>}</td>
+                    <td style={{ ...td, fontWeight: 700 }} className="mono">{x.l60.length ? <NbDrillNum list={x.l60} title={`${nm} — ${t("60 days", "૬૦ દિવસ")}`} onShow={showList}>{nbG(String(x.l60.length))}</NbDrillNum> : "-"}</td>
+                    <td style={{ ...td, fontWeight: 700 }} className="mono">{x.l90.length ? <NbDrillNum list={x.l90} title={`${nm} — ${t("90 days", "૯૦ દિવસ")}`} onShow={showList}>{nbG(String(x.l90.length))}</NbDrillNum> : "-"}</td>
+                    <td style={td} className="mono">{x.chk.length ? <NbDrillNum list={x.chk} title={`${nm} — ${t("check", "ચકાસો")}`} onShow={showList}>{nbG(String(x.chk.length))}</NbDrillNum> : ""}</td>
+                  </tr>
+                );
+              })}
+              {!headRows.length && <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)" }}>{t("None", "નીલ")}</td></tr>}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("\"By sections\" decides each crime from its sections. Choose \"Always 60 / 90\" to fix a whole head. ⚠ = the law is not settled (e.g. night house-breaking theft 331(4), NDPS) — counted as 60; change it on the crime if needed.", "\"કલમ પ્રમાણે\" એટલે દરેક ગુનો તેની કલમો પરથી નક્કી થાય. આખો હેડ એક જ રાખવો હોય તો \"હંમેશા ૬૦ / ૯૦\" પસંદ કરો. ⚠ = કાયદો સ્પષ્ટ નથી (જેમ કે રાત્રે ઘરફોડ ચોરી ૩૩૧(૪), NDPS) — ૬૦ માં ગણેલ છે; જરૂર હોય તો તે ગુનામાં બદલો.")}</div>
+        </div>}
+      </div>
+      {W60 && list(L60, 60, t("Patrak 1 — 60 days", "પત્રક નં.૧ — ૬૦ દિવસ"))}
+      {W90 && list(L90, 90, t("Patrak 2 — 90 days", "પત્રક નં.૨ — ૯૦ દિવસ"))}
     </div>
   );
 }
@@ -18668,9 +18790,10 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
 // ---- filter any information quickly: period, parts, detected / pending / disposal, head, IO, arrest, text → list, Word, PDF, copy ----
 const NB_FLT_COLS = [
   ["no", "ગુ.ર.નં. / કલમ"], ["reg", "દાખલ તા."], ["occ", "ગુ.બ.તા.ટા."], ["place", "ગુનાનું સ્થળ"], ["comp", "ફરિયાદી"], ["acc", "આરોપી / અટક"],
-  ["facts", "ટૂંક વિગત"], ["loss", "નુકશાન / મુદ્દામાલ"], ["io", "તપાસ અધિકારી"], ["status", "ડીટેક્ટ / પેન્ડીંગ / નિકાલ"], ["head", "હેડ"], ["reason", "પેન્ડીંગ કારણ"],
+  ["facts", "ટૂંક વિગત"], ["loss", "નુકશાન / મુદ્દામાલ"], ["io", "તપાસ અધિકારી"], ["status", "ડીટેક્ટ / પેન્ડીંગ / નિકાલ"], ["head", "હેડ"], ["reason", "પેન્ડીંગ કારણ"], ["csl", "ચાર્જશીટ મર્યાદા"],
 ];
-function nbFltCell(e, k) {
+function nbFltCell(e, k, settings) {
+  if (k === "csl") { const i = nbCsLimitInfo(e, settings); return `${i.lim === 90 ? "૯૦" : "૬૦"} દિવસ${i.check ? " (ચકાસો)" : ""}`; }
   if (k === "no") return `${nbReg(e.reg).part} ગુ.ર.નં.${nbG(e.no || "")}/${nbG(e.year || "")}${e.sections ? "\n" + e.sections : ""}`;
   if (k === "reg") return e.regDate ? nbGDate(e.regDate) : "";
   if (k === "occ") return e.occText || "";
@@ -18695,6 +18818,7 @@ function CrimeFilterPanel({ ctx, showList, showBst, onOpen, onQuick }) {
   const [head, setHead] = useState("");
   const [io, setIo] = useState("");
   const [arr, setArr] = useState("all");
+  const [csl, setCsl] = useState("all");
   const [q, setQ] = useState("");
   const [cols, setCols] = useState(() => { try { const c = JSON.parse(localStorage.getItem("nb_flt_cols") || "null"); if (Array.isArray(c) && c.length) return c; } catch (x) {} return ["no", "reg", "comp", "acc", "status", "io"]; });
   useEffect(() => { try { localStorage.setItem("nb_flt_cols", JSON.stringify(cols)); } catch (x) {} }, [cols]);
@@ -18715,6 +18839,7 @@ function CrimeFilterPanel({ ctx, showList, showBst, onOpen, onQuick }) {
     if (disp === "done" && !e.closeType) return false;
     if (["cs", "fa", "fb", "fc"].includes(disp) && e.closeType !== disp) return false;
     if (head && nbBookHeadOf(e) !== head) return false;
+    if (csl !== "all" && String(nbCsLimit(e, ctx.settings)) !== csl) return false;
     if (io && String(e.ioNow || e.io || "").trim() !== io) return false;
     if (arr === "left" && !nbPeople(e.accList).some((p) => p && p.name && p.st === "no")) return false;
     if (arr === "none" && nbPeople(e.accList).some((p) => p && p.st === "yes")) return false;
@@ -18726,12 +18851,14 @@ function CrimeFilterPanel({ ctx, showList, showBst, onOpen, onQuick }) {
   const per = `તા.${nbGDate(R.from)} થી ${R.to === today ? "આજદિન" : "તા." + nbGDate(R.to)} સુધી`;
   const autoTitle = [`${ctx.ps ? ctx.ps + " પો.સ્ટે." : ""} ${per} દાખલ`, parts.map((k) => nbReg(k).part).join(", "), "ગુના પૈકી",
     det === "und" ? "અનડીટેક્ટ રહેલ" : det === "det" ? "ડીટેક્ટ થયેલ" : "", disp === "pend" ? "હાલ પેન્ડીંગ" : disp === "done" ? "નિકાલ થયેલ" : disp === "cs" ? "ચાર્જશીટ થયેલ" : ["fa", "fb", "fc"].includes(disp) ? "'" + disp.slice(1).toUpperCase() + "' ફાઇનલ થયેલ" : "",
-    arr === "left" ? "આરોપી અટક બાકી હોય તેવા" : arr === "none" ? "કોઈ આરોપી અટક ન થયેલ" : "", "ગુનાની વિગત"].filter(Boolean).join(" ").replace(/\s+/g, " ");
+    arr === "left" ? "આરોપી અટક બાકી હોય તેવા" : arr === "none" ? "કોઈ આરોપી અટક ન થયેલ" : "", csl === "60" ? "૬૦ દિવસમાં ચાર્જશીટ કરવાના થતા" : csl === "90" ? "૯૦ દિવસમાં ચાર્જશીટ કરવાના થતા" : "", head && nbBookHead(head) ? "(હેડ: " + nbBookHead(head).gu + ")" : "", "ગુનાની વિગત"].filter(Boolean).join(" ").replace(/\s+/g, " ");
   const heading = title.trim() || autoTitle;
   const presets = [
     [t("Undetected since 2021 (A+B+C)", "૨૦૨૧ થી આજ સુધી અનડીટેક્ટ (એ+બી+સી)"), () => { setR({ from: "2021-01-01", to: today }); setParts(["A", "B", "C"]); setDet("und"); setDisp("all"); setArr("all"); setHead(""); setIo(""); }],
     [t("All pending now", "હાલ પેન્ડીંગ તમામ"), () => { setR({ from: "2015-01-01", to: today }); setParts(["A", "B", "C"]); setDet("all"); setDisp("pend"); setArr("all"); }],
     [t("Charge-sheeted this year", "આ વર્ષે ચાર્જશીટ થયેલ"), () => { setR({ from: today.slice(0, 4) + "-01-01", to: today }); setDet("all"); setDisp("cs"); setArr("all"); }],
+    [t("Pending 90-day crimes", "પેન્ડીંગ ૯૦ દિવસ વાળા ગુના"), () => { setR({ from: "2015-01-01", to: today }); setParts(["A"]); setDet("all"); setDisp("pend"); setArr("all"); setCsl("90"); setHead(""); }],
+    [t("Pending 60-day crimes", "પેન્ડીંગ ૬૦ દિવસ વાળા ગુના"), () => { setR({ from: "2015-01-01", to: today }); setParts(["A", "B", "C"]); setDet("all"); setDisp("pend"); setArr("all"); setCsl("60"); setHead(""); }],
     [t("Accused still to be arrested", "આરોપી અટક બાકી"), () => { setR({ from: "2015-01-01", to: today }); setDet("all"); setDisp("pend"); setArr("left"); }],
   ];
   const model = () => {
@@ -18742,13 +18869,13 @@ function CrimeFilterPanel({ ctx, showList, showBst, onOpen, onQuick }) {
       { p: heading, b: true, sz: 22, center: true, after: 60 },
       { p: `કુલ ગુના: ${nbG(String(L.length))}${byPart.length > 1 ? " (" + byPart.map(([k, x]) => nbReg(k).part + " " + nbG(String(x.length))).join(", ") + ")" : ""}`, sz: 19, center: true, after: 120 },
       { table: true, sz: 16, widths: C.map((k) => W[k] || 1400), headRows: [C.map((k) => H(k === "#" ? "અ.નં." : (NB_FLT_COLS.find((c) => c[0] === k) || [])[1]))],
-        rows: L.length ? L.map((e, i) => C.map((k) => (k === "#" ? nbCell(nbG(i + 1), { center: true }) : nbCell(nbFltCell(e, k) || "-")))) : [[nbCell("નીલ", { center: true, colSpan: C.length }), ...C.slice(1).map(() => SKIP)]] },
+        rows: L.length ? L.map((e, i) => C.map((k) => (k === "#" ? nbCell(nbG(i + 1), { center: true }) : nbCell(nbFltCell(e, k, ctx.settings) || "-")))) : [[nbCell("નીલ", { center: true, colSpan: C.length }), ...C.slice(1).map(() => SKIP)]] },
     ];
   };
   const fname = `crime-list-${R.from}-to-${R.to}`;
   const copy = () => {
     const C = ["#", ...cols];
-    const txt = [C.map((k) => (k === "#" ? "અ.નં." : (NB_FLT_COLS.find((c) => c[0] === k) || [])[1])), ...L.map((e, i) => C.map((k) => (k === "#" ? nbG(i + 1) : nbFltCell(e, k))))].map((r) => r.map((c) => String(c || "").replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
+    const txt = [C.map((k) => (k === "#" ? "અ.નં." : (NB_FLT_COLS.find((c) => c[0] === k) || [])[1])), ...L.map((e, i) => C.map((k) => (k === "#" ? nbG(i + 1) : nbFltCell(e, k, ctx.settings))))].map((r) => r.map((c) => String(c || "").replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
     const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1500); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt)); else window.prompt(t("Copy:", "કોપી કરો:"), txt);
   };
@@ -18769,6 +18896,7 @@ function CrimeFilterPanel({ ctx, showList, showBst, onOpen, onQuick }) {
         <div style={row}><span style={lab}>{t("Parts", "ભાગ")}</span>{["A", "B", "C", "M"].map((k) => <button key={k} type="button" onClick={() => setParts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k].sort()))} style={chip(parts.includes(k))}>{parts.includes(k) ? "✓ " : ""}{nbReg(k).gu}</button>)}</div>
         <div style={row}><span style={lab}>{t("Detection", "ડીટેક્શન")}</span>{opt(det, setDet, [["all", t("All", "બધા")], ["und", t("Undetected", "અનડીટેક્ટ")], ["det", t("Detected", "ડીટેક્ટ")]])}</div>
         <div style={row}><span style={lab}>{t("Disposal", "નિકાલ")}</span>{opt(disp, setDisp, [["all", t("All", "બધા")], ["pend", t("Pending", "પેન્ડીંગ")], ["done", t("Disposed", "નિકાલ થયેલ")], ["cs", t("Charge-sheet", "ચાર્જશીટ")], ["fa", "'A' " + t("final", "ફાઇનલ")], ["fb", "'B'"], ["fc", "'C'"]])}</div>
+        <div style={row}><span style={lab}>{t("Charge-sheet limit", "ચાર્જશીટ મર્યાદા")}</span>{opt(csl, setCsl, [["all", t("All", "બધા")], ["60", t("60-day crimes", "૬૦ દિવસ વાળા")], ["90", t("90-day crimes", "૯૦ દિવસ વાળા")]])}</div>
         <div style={row}><span style={lab}>{t("Accused", "આરોપી")}</span>{opt(arr, setArr, [["all", t("All", "બધા")], ["left", t("Someone not arrested", "અટક બાકી હોય")], ["none", t("Nobody arrested", "કોઈ અટક નહીં")]])}</div>
         <div style={row}>
           <span style={lab}>{t("Head / IO", "હેડ / ત.ક.અ.")}</span>
@@ -18802,7 +18930,7 @@ function CrimeFilterPanel({ ctx, showList, showBst, onOpen, onQuick }) {
             {L.slice(0, limit).map((e, i) => (
               <tr key={e.id} data-flt-row style={{ cursor: "pointer" }} onClick={() => onOpen(e)}>
                 <td style={td}>{nbG(i + 1)}</td>
-                {cols.map((k) => <td key={k} style={{ ...td, maxWidth: k === "facts" ? 360 : 260, whiteSpace: "pre-wrap", fontWeight: k === "no" ? 600 : 400 }}>{String(nbFltCell(e, k) || "-").slice(0, k === "facts" ? 300 : 200)}</td>)}
+                {cols.map((k) => <td key={k} style={{ ...td, maxWidth: k === "facts" ? 360 : 260, whiteSpace: "pre-wrap", fontWeight: k === "no" ? 600 : 400 }}>{String(nbFltCell(e, k, ctx.settings) || "-").slice(0, k === "facts" ? 300 : 200)}</td>)}
                 <td style={td} onClick={(ev) => ev.stopPropagation()}><CrimeQuickChip e={e} onQuick={onQuick} /></td>
               </tr>
             ))}
