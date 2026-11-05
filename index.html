@@ -92,6 +92,22 @@
   .nb-cr-sec { border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; background: var(--bg-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.04); scroll-margin-top: 8px; }
   .nb-cr-sec-head { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 11px 12px; font-size: 14px; font-weight: 800; color: var(--accent-strong); cursor: pointer; border-radius: 12px; }
   .nb-cr-sec-head:hover { background: var(--bg-surface-2); }
+  .nb-csd-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; }
+  .nb-csd-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .nb-csd-seg { display: inline-flex; gap: 2px; align-items: center; padding: 3px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-page); flex-wrap: wrap; }
+  .nb-csd-seglbl { font-size: 11.5px; color: var(--text-tertiary); padding: 0 6px 0 4px; }
+  .nb-csd-sel { font-size: 12.5px; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-page); color: var(--text-primary); max-width: 240px; }
+  .nb-csd-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+  .nb-csd-tile { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--border); background: var(--bg-page); color: inherit; cursor: pointer; font: inherit; transition: transform .08s ease, background .15s ease; }
+  .nb-csd-tile:active { transform: scale(.98); }
+  .nb-csd-tile.on { background: var(--btn-dark-bg); color: #fff; border-color: var(--btn-dark-bg); }
+  .nb-csd-row { border: 1px solid var(--border-soft, var(--border)); border-radius: 12px; padding: 11px 12px; margin-top: 8px; background: var(--bg-page); }
+  .nb-csd-meta { display: flex; gap: 4px 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+  .nb-csd-meta b { color: var(--text-primary); font-weight: 700; }
+  .nb-csd-badge { font-size: 12.5px; font-weight: 800; border-radius: 999px; padding: 4px 11px; background: var(--bg-surface-2); color: var(--status-warning-text, #b7791f); white-space: nowrap; }
+  .nb-csd-badge.over { color: var(--status-error-text, #c53030); }
+  .nb-csd-file { font-size: 12.5px; font-weight: 800; border-radius: 9px; padding: 6px 12px; border: 1px solid var(--border); background: var(--bg-surface); color: var(--text-primary); cursor: pointer; white-space: nowrap; }
+  .nb-csd-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
   .nb-cr-pill { font-size: 12px; font-weight: 700; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; background: var(--bg-page); }
   @media (max-width: 860px) {
     .nb-cr-form-body { flex-direction: column; }
@@ -17425,6 +17441,7 @@ function nbPendingAt(e, asOf) {
   if (e.closeDate) return e.closeDate > asOf;
   return !e.closeType;
 }
+const NB_COURT_SHORT = [["cc", "C.C. (ફોજદારી)"], ["sc", "S.C. (સેશન્સ)"], ["pocso", "સ્પે. પોક્સો"], ["atro", "સ્પે. એટ્રોસીટી"], ["ndps", "સ્પે. NDPS"], ["jcc", "JJB (બાળ)"], ["sp", "અન્ય સ્પેશિયલ કેસ"]];
 const NB_COURT_TYPES = [["sc", "સેશન્સ કેસ નં."], ["cc", "ફોજદારી કેસ નં. (CC)"], ["atro", "સ્પેશિયલ એટ્રો. કેસ નં."], ["pocso", "સ્પેશિયલ પોક્સો કેસ નં."], ["ndps", "સ્પેશિયલ NDPS કેસ નં."], ["jcc", "બાળ ફોજદારી કેસ નં. (JJB)"], ["sp", "સ્પેશિયલ કેસ નં."], ["smry", "સમરી કેસ નં."]];
 const NB_VERDICTS = [["proved", "સાબિત (સજા)"], ["guilty", "ગુનો કબૂલ કરતાં સજા (પ્લીડ ગિલ્ટી)"], ["notproved", "ના સાબિત (નિર્દોષ છુટકારો)"], ["abated", "એબેટેડ — આરોપીનું અવસાન"], ["sdisposed", "કેસ નિકાલ ગણાયો (સ્ટેન્ડ્સ ડિસ્પોઝ્ડ ઓફ)"], ["disposed", "કેસ નિકાલ (ડિસ્પોઝ્ડ ઓફ)"], ["discharged", "આરોપી ડિસ્ચાર્જ"], ["quashed", "હાઇકોર્ટ દ્વારા રદ"], ["lokadalat", "લોક અદાલતમાં નિકાલ"], ["compounded", "સમાધાન (કમ્પાઉન્ડ)"], ["withdrawn", "કેસ પરત ખેંચાયો"], ["judged", "ચુકાદો (પ્રકાર લખેલ નથી)"], ["committed", "સેશન્સ કોર્ટને કમીટ"], ["transfer", "બીજી કોર્ટમાં ટ્રાન્સફર"]];
 const NB_VD_SHORT = { proved: "સાબિત", guilty: "ગુનો કબૂલ — સજા", notproved: "ના સાબિત", abated: "એબેટેડ", sdisposed: "નિકાલ ગણાયો", disposed: "કેસ નિકાલ", discharged: "ડિસ્ચાર્જ", quashed: "હાઇકોર્ટ દ્વારા રદ", lokadalat: "લોક અદાલત", compounded: "સમાધાન", withdrawn: "પરત ખેંચાયો", judged: "ચુકાદો", committed: "સેશન્સમાં કમીટ", transfer: "ટ્રાન્સફર" };
@@ -18516,6 +18533,20 @@ function CrimeQuickUpdate({ entry, onClose, showToast, onFull }) {
             <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)" }}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}<NbDateInput value={e.closeDate || ""} onChange={(ev) => set("closeDate", ev.target.value)} style={{ ...nbCrDate, width: 150 }} /></label>
           </div>
         )}
+        {closeT === "cs" && (
+          <div data-qu-court>
+            <div style={lbl}>{t("Court case no. (when the court gives it)", "કોર્ટ કેસ નંબર (કોર્ટ આપે ત્યારે)")}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {NB_COURT_SHORT.map(([k, l]) => <button key={k} type="button" data-qu-ct={k} onClick={() => set("courtType", e.courtType === k ? "" : k)} style={{ ...chip(e.courtType === k, "#7c3aed"), fontSize: 12.5, padding: "6px 12px" }}>{l}</button>)}
+            </div>
+            {!!e.courtType && (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)", flex: "1 1 180px" }}>{(NB_COURT_TYPES.find((x) => x[0] === e.courtType) || [, t("Case no.", "કેસ નંબર")])[1]}<input data-qu-courtno value={e.courtNo || ""} onChange={(ev) => set("courtNo", ev.target.value)} className="gu" style={inp} placeholder="દા.ત. ૧૨૩/૨૦૨૬" /></label>
+                <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)" }}>{t("Number given on", "કોર્ટે નંબર આપ્યા તારીખ")}<NbDateInput value={e.courtNoDate || ""} onChange={(ev) => set("courtNoDate", ev.target.value)} style={{ ...nbCrDate, width: 150 }} /></label>
+              </div>
+            )}
+          </div>
+        )}
         {["fa", "fb", "fc"].includes(closeT) && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
             <label style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)", flex: "1 1 180px" }}>{t("Final / summary no.", "ફાઇનલ / સમરી નંબર")}<input value={e.finalNo || ""} onChange={(ev) => set("finalNo", ev.target.value)} className="gu" style={inp} /></label>
@@ -18607,7 +18638,7 @@ function nbFirstArrest(e) {
 }
 function nbCsDueRows(ctx, R, opts) {
   const today = todayStr();
-  return ctx.entries.filter((e) => opts.parts.includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to && !e.closeType).map((e) => {
+  return ctx.entries.filter((e) => opts.parts.includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to && !nbCsFiled(e)).map((e) => {
     const info = nbCsLimitInfo(e, ctx.settings), lim = info.lim, arr = nbFirstArrest(e), start = opts.from === "arrest" ? arr : e.regDate;
     if (!start) return null;
     if (opts.head && nbBookHeadOf(e) !== opts.head) return null;
@@ -18638,7 +18669,84 @@ function nbCsDueModel(ctx, R, opts, L60, L90) {
   B.push(table(L90));
   return B;
 }
-function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
+// a crime counts as charge-sheeted once it has a disposal, a charge-sheet number or a court CC / SC number (the court gives that number only on a charge-sheet)
+function nbCsFiled(e) { return !!(e.closeType || String(e.csNo || "").trim() || String(e.courtNo || "").trim() || String(e.ccNo || "").trim() || e.verdict || e.courtSrc === "ecourts" || e.courtNature || String(e.finalRef || "").trim()); }
+function CrimeCsDueRow({ r, ctx, onOpen, onQuick, onDone, setLim }) {
+  const { t } = useLang();
+  const e = r.e;
+  const [open, setOpen] = useState(false);
+  const [csNo, setCsNo] = useState("");
+  const [csDate, setCsDate] = useState("");
+  const [ct, setCt] = useState("cc");
+  const [cno, setCno] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!csNo.trim() && !cno.trim()) { window.alert(t("Write the charge-sheet number or the court case number.", "ચાર્જશીટ નંબર અથવા કોર્ટ કેસ નંબર લખો.")); return; }
+    setBusy(true);
+    try {
+      const cur = (await nbIdb("entries", "readonly", (st) => st.get(e.id))) || e;
+      const n = { ...cur, closeType: cur.closeType || "cs", updatedAt: Date.now() };
+      if (csNo.trim()) n.csNo = csNo.trim();
+      if (csDate) n.closeDate = csDate;
+      if (cno.trim()) { n.courtType = ct; n.courtNo = cno.trim(); }
+      await nbEntryStore.put(n);
+      onDone(e);
+    } catch (err) { nbSaveFailed(t, err); setBusy(false); }
+  };
+  const over = r.over > 0;
+  const lbl = { display: "grid", gap: 4, fontSize: 12, color: "var(--text-secondary)" };
+  const inp = { fontSize: 13.5, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", boxSizing: "border-box", width: "100%", minHeight: 38 };
+  return (
+    <div data-csdue-row className="nb-csd-row">
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+          <button type="button" onClick={() => onOpen(e)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", textAlign: "left", cursor: "pointer", display: "block", width: "100%" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+              <b style={{ fontSize: 15 }}>{nbReg(e.reg).gu} {nbG(e.no)}/{nbG(e.year)}</b>
+              <span className="nb-cr-pill" style={{ fontSize: 11, padding: "1px 8px" }}>{nbG(String(r.lim))} {t("days", "દિવસ")}</span>
+            </div>
+            {e.sections && <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>{e.sections}</div>}
+          </button>
+          <div className="nb-csd-meta">
+            <span>{t("Registered", "દાખલ")} <b>{nbGDate(e.regDate)}</b></span>
+            <span>{t("Arrested", "અટક")} <b>{r.arr ? nbGDate(r.arr) : "-"}</b></span>
+            <span>{t("Limit ends", "મર્યાદા પૂરી")} <b>{nbGDate(r.due)}</b></span>
+            {(e.ioNow || e.io) && <span>{t("IO", "ત.ક.અ.")} <b>{e.ioNow || e.io}</b></span>}
+          </div>
+          {(nbAccArrestText(e) || e.accused) && <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{t("Accused", "આરોપી")}: {(nbAccArrestText(e) || e.accused).replace(/\s+/g, " ")}</div>}
+          <div style={{ fontSize: 11, color: r.info.check ? "var(--status-warning-text, #b7791f)" : "var(--text-tertiary)", marginTop: 4 }} data-csdue-why>{r.info.check ? "⚠ " : ""}{r.info.why}</div>
+        </div>
+        <div style={{ display: "grid", gap: 6, justifyItems: "end", marginLeft: "auto" }}>
+          <div className={"nb-csd-badge" + (over ? " over" : "")}>{over ? t(`${r.over} days over`, `${nbG(String(r.over))} દિવસ વધુ`) : t(`${-r.over} days left`, `${nbG(String(-r.over))} દિવસ બાકી`)}</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button type="button" data-csdue-file onClick={() => setOpen((v) => !v)} className="nb-csd-file">✓ {t("Charge-sheet filed", "ચાર્જશીટ થઈ ગઈ")}</button>
+            <CrimeQuickChip e={e} onQuick={onQuick} />
+          </div>
+          <select value={e.csLimit || ""} onChange={(ev) => setLim(e, ev.target.value)} data-csdue-lim style={{ fontSize: 11.5 }} title={t("Change if the automatic choice is wrong", "આપોઆપ નક્કી થયેલ ખોટું હોય તો બદલો")}><option value="">{t(`Limit: auto (${nbCsLimitAuto(e, ctx.settings)})`, `મર્યાદા: આપોઆપ (${nbG(String(nbCsLimitAuto(e, ctx.settings)))})`)}</option><option value="60">{t("Limit: 60 days", "મર્યાદા: ૬૦ દિવસ")}</option><option value="90">{t("Limit: 90 days", "મર્યાદા: ૯૦ દિવસ")}</option></select>
+        </div>
+      </div>
+      {open && (
+        <div className="nb-csd-form" data-csdue-form>
+          <label style={{ ...lbl, flex: "1 1 150px" }}>{t("Charge-sheet no.", "ચાર્જશીટ નંબર")}<input data-csdue-csno autoFocus value={csNo} onChange={(ev) => setCsNo(ev.target.value)} onKeyDown={(ev) => { if (ev.key === "Enter") save(); }} className="gu" style={inp} placeholder="દા.ત. ૨૫/૨૦૨૬" /></label>
+          <label style={lbl}>{t("Charge-sheet date", "ચાર્જશીટ તારીખ")}<NbDateInput value={csDate} onChange={(ev) => setCsDate(ev.target.value)} style={{ ...nbCrDate, width: 150 }} /></label>
+          <div style={{ alignSelf: "center", fontSize: 12, color: "var(--text-tertiary)", padding: "0 2px" }}>{t("or", "અથવા")}</div>
+          <label style={{ ...lbl, flex: "1 1 220px" }}>{t("Court case no. (CC / SC)", "કોર્ટ કેસ નંબર (CC / SC)")}
+            <div style={{ display: "flex", gap: 6 }}>
+              <select value={ct} onChange={(ev) => setCt(ev.target.value)} className="gu" style={{ ...inp, width: "auto", flex: "0 1 auto", maxWidth: 170 }}>{NB_COURT_SHORT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+              <input data-csdue-ccno value={cno} onChange={(ev) => setCno(ev.target.value)} onKeyDown={(ev) => { if (ev.key === "Enter") save(); }} className="gu" style={{ ...inp, flex: 1, minWidth: 80 }} placeholder="દા.ત. ૧૨૩/૨૦૨૬" />
+            </div>
+          </label>
+          <div style={{ display: "flex", gap: 6, alignSelf: "flex-end" }}>
+            <button type="button" onClick={() => setOpen(false)} style={{ ...nbJkBtn, padding: "8px 12px" }}>{t("Cancel", "રદ")}</button>
+            <button type="button" data-csdue-save disabled={busy} onClick={save} style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>{busy ? "…" : "✓ " + t("Save", "સાચવો")}</button>
+          </div>
+          <div style={{ flexBasis: "100%", fontSize: 11, color: "var(--text-tertiary)" }}>{t("Once saved, the crime leaves this list. Leave the date empty if you don't have it — you can add it later.", "સાચવતાં જ આ ગુનો લિસ્ટમાંથી દૂર થશે. તારીખ ખબર ન હોય તો ખાલી રાખો — પછી ઉમેરી શકાશે.")}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick, showToast }) {
   const { t } = useLang();
   const today = todayStr();
   const [R, setR] = useState(() => ({ from: (Number(today.slice(0, 4)) - 1) + "-01-01", to: today }));
@@ -18650,13 +18758,33 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
   const [copied, setCopied] = useState("");
   const [limF, setLimF] = useState("all");
   const [head, setHead] = useState("");
-  const [showHeads, setShowHeads] = useState(true);
+  const [showHeads, setShowHeads] = useState(false);
+  const [court, setCourt] = useState(null);
+  const [cBusy, setCBusy] = useState("");
+  const courtRef = useRef(null);
+  const readCourt = async (files) => {
+    const recs = [];
+    try {
+      for (const f of files) {
+        setCBusy(t("Reading ", "વંચાય છે: ") + f.name);
+        const buf = await f.arrayBuffer();
+        let cr = null;
+        if (/\.pdf$/i.test(f.name) || f.type === "application/pdf") cr = await nbCourtFromPdf(buf, (pg, of) => setCBusy(t(`Reading the court list, page ${pg} of ${of}…`, `કોર્ટ યાદી વંચાય છે — પાનું ${nbG(pg)} / ${nbG(of)}…`)));
+        else cr = nbCourtFromBlocks(await nbAnyBlocks(buf));
+        if (cr && cr.length) recs.push(...cr);
+      }
+      if (!recs.length) { window.alert(t("No court disposal rows were found in this file.", "આ ફાઇલમાં કોર્ટ નિકાલની લાઇન મળી નહીં.")); return; }
+      setCourt(nbCourtPlan(recs, ctx.entries, ctx.profile || {}));
+    } catch (err) { console.error(err); window.alert(t("Could not read the court file.", "કોર્ટની ફાઇલ વંચાઇ નહીં.")); }
+    finally { setCBusy(""); if (courtRef.current) courtRef.current.value = ""; }
+  };
   const opts = { from, parts, soon, head };
   const rows = nbCsDueRows(ctx, R, opts);
   const L60 = rows.filter((r) => r.lim === 60), L90 = rows.filter((r) => r.lim === 90);
   const W60 = limF === "90" ? null : L60, W90 = limF === "60" ? null : L90;
-  // every crime registered in the period, sorted into 60 / 90 by annual-book head
   const regd = ctx.entries.filter((e) => parts.includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to);
+  // court number / charge-sheet number written but the disposal not marked — not in the list
+  const byCourt = regd.filter((e) => !e.closeType && nbCsFiled(e));
   const headRows = (() => {
     const m = new Map();
     for (const e of regd) {
@@ -18678,89 +18806,88 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
   };
   const all60 = headRows.flatMap((x) => x.l60), all90 = headRows.flatMap((x) => x.l90), allChk = headRows.flatMap((x) => x.chk);
   const setLim = async (e, v) => { const cur = (await nbIdb("entries", "readonly", (st) => st.get(e.id))) || e; await nbEntryStore.put({ ...cur, csLimit: v, updatedAt: Date.now() }); };
+  const onDone = (e) => { if (showToast) showToast(t(`${nbReg(e.reg).gu} ${e.no}/${e.year} — charge-sheet saved, removed from the list (Undo brings it back)`, `${nbReg(e.reg).gu} ${nbG(e.no)}/${nbG(e.year)} — ચાર્જશીટ નોંધાઈ, લિસ્ટમાંથી દૂર થયો (Undo થી પાછો આવે)`)); };
   const fname = `chargesheet-60-90-days-${R.from}-to-${R.to}`;
   const copy = (L, k) => {
     const txt = [["અ.નં.", "ગુ.ર.નં. / કલમ", "ગુનો દાખલ તા.", "આરોપી", "અટક તા.", "મર્યાદા પૂરી તા.", "વધુ દિવસ", "તપાસ અધિકારી"], ...L.map((r, i) => [nbG(i + 1), `${nbReg(r.e.reg).part} ${nbG(r.e.no)}/${nbG(r.e.year)} ${r.e.sections || ""}`, nbGDate(r.e.regDate), (nbAccArrestText(r.e) || r.e.accused || "-").replace(/\s+/g, " "), r.arr ? nbGDate(r.arr) : "-", nbGDate(r.due), r.over > 0 ? nbG(String(r.over)) : "-", r.e.ioNow || r.e.io || "-"])].map((x) => x.map((c) => String(c).replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
     const done = () => { setCopied(k); setTimeout(() => setCopied(""), 1500); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt(t("Copy:", "કોપી કરો:"), txt)); else window.prompt(t("Copy:", "કોપી કરો:"), txt);
   };
-  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap", cursor: "pointer" };
-  const chip = (on) => ({ ...nbJkBtn, background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)" });
-  const th = { padding: "6px 8px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "left", whiteSpace: "nowrap", background: "var(--bg-surface-2)" };
-  const td = { padding: "6px 8px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, verticalAlign: "top" };
+  const seg = (on) => ({ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: on ? "var(--btn-dark-bg)" : "transparent", color: on ? "#fff" : "var(--text-primary)", whiteSpace: "nowrap" });
+  const btn = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 };
+  const th = { padding: "7px 10px", borderBottom: "1px solid var(--border)", fontSize: 12, textAlign: "left", whiteSpace: "nowrap", background: "var(--bg-surface-2)" };
+  const td = { padding: "7px 10px", borderBottom: "1px solid var(--border-soft)", fontSize: 12.5, verticalAlign: "middle" };
+  const tile = (k, n, L, lbl, sub) => (
+    <button type="button" data-csdue-limf={k} onClick={() => setLimF((v) => (v === k ? "all" : k))} className={"nb-csd-tile" + (limF === k ? " on" : "")} aria-pressed={limF === k}>
+      <span style={{ fontSize: 12.5, fontWeight: 700 }}>{lbl}</span>
+      <span className="mono" style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.1 }}>{nbG(String(L.length))}</span>
+      <span style={{ fontSize: 11.5, opacity: 0.8 }}>{sub}{L.filter((r) => r.over > 0).length !== L.length ? " · " + t(`${L.filter((r) => r.over > 0).length} over`, `${nbG(String(L.filter((r) => r.over > 0).length))} મર્યાદા પૂરી`) : ""}</span>
+    </button>
+  );
   const list = (L, lim, title) => (
-    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }} data-csdue-list={lim}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        <div style={{ fontWeight: 800, fontSize: 14.5, flex: 1 }}>{title} — <span className="mono"><NbDrillNum list={L.map((r) => r.e)} title={title} onShow={showList}>{nbG(String(L.length))}</NbDrillNum></span></div>
-        <button type="button" onClick={() => copy(L, String(lim))} style={nbJkBtn}>{copied === String(lim) ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy", "કોપી")}</button>
+    <section className="nb-csd-card" data-csdue-list={lim}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, flex: 1 }}>{title} — <span className="mono"><NbDrillNum list={L.map((r) => r.e)} title={title} onShow={showList}>{nbG(String(L.length))}</NbDrillNum></span></div>
+        {L.length > 0 && <button type="button" onClick={() => copy(L, String(lim))} style={nbJkBtn}>{copied === String(lim) ? "✓ " + t("Copied", "કોપી થયું") : "📋 " + t("Copy table", "ટેબલ કોપી")}</button>}
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
-          <thead><tr>{["#", t("C.R. no. / sections", "ગુ.ર.નં. / કલમ"), t("Registered", "દાખલ તા."), t("Accused", "આરોપી"), t("Arrested", "અટક તા."), t("Limit ended", "મર્યાદા પૂરી"), t("Days over", "વધુ દિવસ"), t("IO", "ત.ક.અ."), t("Limit", "મર્યાદા"), ""].map((h, i) => <th key={i} style={th}>{h}</th>)}</tr></thead>
-          <tbody>
-            {L.map((r, i) => (
-              <tr key={r.e.id} data-csdue-row>
-                <td style={td}>{nbG(i + 1)}</td>
-                <td style={td}><button type="button" onClick={() => onOpen(r.e)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", textAlign: "left", cursor: "pointer" }}><b>{nbReg(r.e.reg).gu} {nbG(r.e.no)}/{nbG(r.e.year)}</b><div style={{ fontSize: 11.5, color: "var(--text-secondary)", maxWidth: 260 }}>{r.e.sections}</div></button></td>
-                <td style={td}>{nbGDate(r.e.regDate)}</td>
-                <td style={{ ...td, maxWidth: 240, fontSize: 12 }}>{(nbAccArrestText(r.e) || r.e.accused || "-").slice(0, 160)}</td>
-                <td style={td}>{r.arr ? nbGDate(r.arr) : "-"}</td>
-                <td style={td}>{nbGDate(r.due)}</td>
-                <td style={{ ...td, fontWeight: 800, color: r.over > 0 ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{r.over > 0 ? nbG(String(r.over)) : t(`in ${-r.over}`, `${nbG(String(-r.over))} બાકી`)}</td>
-                <td style={{ ...td, fontSize: 12 }}>{r.e.ioNow || r.e.io || "-"}</td>
-                <td style={td}><select value={r.e.csLimit || ""} onChange={(ev) => setLim(r.e, ev.target.value)} data-csdue-lim style={{ fontSize: 12 }} title={t("Change if the automatic choice is wrong", "આપોઆપ નક્કી થયેલ ખોટું હોય તો બદલો")}><option value="">{t(`Auto (${nbCsLimitAuto(r.e, ctx.settings)})`, `આપોઆપ (${nbG(String(nbCsLimitAuto(r.e, ctx.settings)))})`)}</option><option value="60">{t("60 days", "૬૦ દિવસ")}</option><option value="90">{t("90 days", "૯૦ દિવસ")}</option></select><div style={{ fontSize: 10.5, color: r.info.check ? "var(--status-warning-text, #b7791f)" : "var(--text-tertiary)", marginTop: 2, maxWidth: 140 }} data-csdue-why>{r.info.check ? "⚠ " : ""}{r.info.why}</div></td>
-                <td style={td}><CrimeQuickChip e={r.e} onQuick={onQuick} /></td>
-              </tr>
-            ))}
-            {!L.length && <tr><td colSpan={10} style={{ ...td, textAlign: "center", padding: 16, color: "var(--text-tertiary)" }}>{t("None", "નીલ")}</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
+      {L.map((r) => <CrimeCsDueRow key={r.e.id} r={r} ctx={ctx} onOpen={onOpen} onQuick={onQuick} onDone={onDone} setLim={setLim} />)}
+      {!L.length && <div style={{ textAlign: "center", padding: "18px 8px", color: "var(--text-tertiary)", fontSize: 13 }}>✓ {t("None — nothing pending here.", "નીલ — અહીં કોઈ ગુનો બાકી નથી.")}</div>}
+    </section>
   );
   return (
-    <div data-csdue>
+    <div data-csdue className="nb-csd">
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
-        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>⏰ {t("Charge-sheet due in 60 / 90 days — not filed, still pending", "૬૦ / ૯૦ દિવસમાં ચાર્જશીટ કરવાના — થયેલ નથી, હાલ પેન્ડીંગ")}</div>
-        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>{t("Death / life / minimum 10 years → 90 days (Patrak 2). Everything else → 60 days (Patrak 1). Part B and Part C are always 60.", "ફાંસી / આજીવન / ઓછામાં ઓછી ૧૦ વર્ષ સજા → ૯૦ દિવસ (પત્રક નં.૨). બાકીના બધા → ૬૦ દિવસ (પત્રક નં.૧). ભાગ-બી અને ભાગ-સી હંમેશા ૬૦ દિવસ.")}</div>
+      {court && <CourtImportReview plan={court} profile={ctx.profile || {}} onCancel={() => setCourt(null)} onApply={async () => { const n = await nbCourtApply(court); setCourt(null); if (showToast) showToast(t(`Court details updated in ${n} crimes — disposed ones left the list`, `${nbG(String(n))} ગુનામાં કોર્ટની વિગત ઉમેરાઈ — નિકાલ / ચાર્જશીટ થયેલ ગુના લિસ્ટમાંથી દૂર થયા`)); }} />}
+      <section className="nb-csd-card">
+        <div style={{ fontWeight: 800, fontSize: 16.5 }}>⏰ {t("Charge-sheet due in 60 / 90 days", "૬૦ / ૯૦ દિવસમાં ચાર્જશીટ કરવાના ગુના")}</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "3px 0 12px" }}>{t("Not filed yet and still pending. Death / life / minimum 10 years → 90 days; everything else → 60. Part B and C are always 60.", "ચાર્જશીટ થયેલ નથી અને હાલ પેન્ડીંગ છે. ફાંસી / આજીવન / ઓછામાં ઓછી ૧૦ વર્ષ સજા → ૯૦ દિવસ; બાકીના બધા → ૬૦. ભાગ-બી અને સી હંમેશા ૬૦.")}</div>
         <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-          <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Count the days from", "દિવસ ગણવા")}:</span>
-          <button type="button" data-csdue-from="reg" onClick={() => setFrom("reg")} style={chip(from === "reg")}>{t("registration date", "ગુનો દાખલ તારીખથી")}</button>
-          <button type="button" data-csdue-from="arrest" onClick={() => setFrom("arrest")} style={chip(from === "arrest")}>{t("first arrest date", "પહેલી અટક તારીખથી")}</button>
-          <span style={{ width: 10 }} />
-          {["A", "B", "C"].map((k) => <button key={k} type="button" onClick={() => setParts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k].sort()))} style={chip(parts.includes(k))}>{parts.includes(k) ? "✓ " : ""}{nbReg(k).gu}</button>)}
-          <span style={{ width: 10 }} />
-          <select value={soon} onChange={(ev) => setSoon(Number(ev.target.value))} style={{ fontSize: 12.5 }} data-csdue-soon>
-            <option value={0}>{t("Only limit already over", "ફક્ત મર્યાદા પૂરી થયેલ")}</option>
-            <option value={7}>{t("+ ending in 7 days", "+ ૭ દિવસમાં પૂરી થનાર")}</option>
-            <option value={15}>{t("+ ending in 15 days", "+ ૧૫ દિવસમાં પૂરી થનાર")}</option>
-          </select>
+        <div className="nb-csd-bar">
+          <div className="nb-csd-seg" role="group" aria-label={t("Count the days from", "દિવસ ગણવા")}>
+            <span className="nb-csd-seglbl">{t("Count from", "દિવસ ગણવા")}</span>
+            <button type="button" data-csdue-from="reg" onClick={() => setFrom("reg")} style={seg(from === "reg")}>{t("registration", "દાખલ તારીખથી")}</button>
+            <button type="button" data-csdue-from="arrest" onClick={() => setFrom("arrest")} style={seg(from === "arrest")}>{t("first arrest", "અટક તારીખથી")}</button>
+          </div>
+          <div className="nb-csd-seg" role="group">
+            {["A", "B", "C"].map((k) => <button key={k} type="button" onClick={() => setParts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k].sort()))} style={seg(parts.includes(k))} aria-pressed={parts.includes(k)}>{nbReg(k).gu}</button>)}
+          </div>
+          <div className="nb-csd-seg" role="group">
+            {[[0, t("Limit over", "મર્યાદા પૂરી")], [7, t("+ 7 days", "+ ૭ દિવસમાં")], [15, t("+ 15 days", "+ ૧૫ દિવસમાં")]].map(([n, l]) => <button key={n} type="button" data-csdue-soon={n} onClick={() => setSoon(n)} style={seg(soon === n)}>{l}</button>)}
+          </div>
+          <select value={head} onChange={(ev) => setHead(ev.target.value)} className="gu nb-csd-sel" data-csdue-head><option value="">{t("All heads", "બધા હેડ")}</option>{NB_BOOK_HEADS.map((b) => <option key={b.id} value={b.id}>{b.gu}</option>)}</select>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-          <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{t("Show", "બતાવો")}:</span>
-          {[["all", t("60 + 90", "૬૦ + ૯૦ બંને")], ["60", t("Only 60-day crimes", "ફક્ત ૬૦ દિવસ વાળા")], ["90", t("Only 90-day crimes", "ફક્ત ૯૦ દિવસ વાળા")]].map(([k, l]) => <button key={k} type="button" data-csdue-limf={k} onClick={() => setLimF(k)} style={chip(limF === k)}>{l}</button>)}
-          <select value={head} onChange={(ev) => setHead(ev.target.value)} className="gu" style={{ fontSize: 12.5, maxWidth: 240 }} data-csdue-head><option value="">{t("All heads", "બધા હેડ")}</option>{NB_BOOK_HEADS.map((b) => <option key={b.id} value={b.id}>{b.gu}</option>)}</select>
+        <div className="nb-csd-tiles">
+          {tile("60", 60, L60, t("Patrak 1 — 60 days", "પત્રક નં.૧ — ૬૦ દિવસ"), t("under 10 years", "૧૦ વર્ષથી ઓછી સજા"))}
+          {tile("90", 90, L90, t("Patrak 2 — 90 days", "પત્રક નં.૨ — ૯૦ દિવસ"), t("death / life / min. 10 years", "ફાંસી / આજીવન / ઓછામાં ઓછી ૧૦ વર્ષ"))}
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
           <button type="button" onClick={() => { try { nbDeliverBlob(nbModelDocx(nbCsDueModel(ctx, R, opts, W60, W90), { landscape: true }), fname + ".docx", "૬૦-૯૦ દિવસ ચાર્જશીટ પત્રક"); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } }} style={btn} data-csdue-word><WordIcon />Word ({limF === "60" ? t("Patrak 1", "પત્રક ૧") : limF === "90" ? t("Patrak 2", "પત્રક ૨") : t("Patrak 1 + 2", "પત્રક ૧ + ૨")})</button>
           <button type="button" disabled={busy} onClick={async () => { setBusy(true); try { setPdf({ doc: await nbModelPdf(nbCsDueModel(ctx, R, opts, W60, W90), { landscape: true }), filename: fname + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શકી નહીં.")); } finally { setBusy(false); } }} style={btn}>{busy ? "…" : <><PdfIcon />PDF</>}</button>
+          <input ref={courtRef} type="file" multiple accept=".pdf,.xlsx,.xls,.csv,.docx,application/pdf" style={{ display: "none" }} data-csdue-court-file onChange={(ev) => { const f = Array.from(ev.target.files || []); if (f.length) readCourt(f); }} />
+          <button type="button" disabled={!!cBusy} onClick={() => courtRef.current && courtRef.current.click()} style={btn} data-csdue-court title={t("The court disposal list shows which FIR numbers are already charge-sheeted / disposed — they leave this list", "કોર્ટની નિકાલ યાદી પરથી કયા ગુ.ર.નં.નો કેસ ચાર્જશીટ / નિકાલ થયો છે તે ખબર પડે — તે ગુના આ લિસ્ટમાંથી દૂર થાય")}>⚖️ {cBusy || t("Court disposal PDF", "કોર્ટ ડિસ્પોઝલ PDF ઉમેરો")}</button>
+          {limF !== "all" && <button type="button" onClick={() => setLimF("all")} style={nbJkBtn}>✕ {t("Show both", "બંને બતાવો")}</button>}
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>{t("60 / 90 is chosen from the sections (BNS or old IPC, POCSO, Atrocity, Arms). If one is wrong, change it in the Limit column — it is remembered for that crime.", "૬૦ / ૯૦ કલમો (બી.એન.એસ. કે જૂની ઇ.પી.કો., પોક્સો, એટ્રોસીટી, આર્મ્સ) પરથી આપોઆપ નક્કી થાય છે. કોઈ ખોટું લાગે તો \"મર્યાદા\" કોલમમાં બદલો — તે ગુના માટે યાદ રહેશે.")}</div>
-      </div>
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }} data-csdue-heads>
-        <button type="button" onClick={() => setShowHeads((v) => !v)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", display: "flex", width: "100%", alignItems: "center", gap: 8, textAlign: "left" }}>
-          <span style={{ fontWeight: 800, fontSize: 14.5, flex: 1 }}>📚 {t("60-day and 90-day crimes by head (all registered in the period)", "હેડ પ્રમાણે ૬૦ દિવસ / ૯૦ દિવસ વાળા ગુના (સમયગાળામાં દાખલ તમામ)")}</span>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 10 }} data-csdue-excl>
+          {t("Crimes with a charge-sheet number, a court CC / SC number or a disposal in the court PDF are left out.", "ચાર્જશીટ નંબર, કોર્ટ CC / SC નંબર કે કોર્ટ ડિસ્પોઝલ PDF માં નિકાલ આવી ગયો હોય તેવા ગુના આ લિસ્ટમાં ગણાતા નથી.")}
+          {byCourt.length > 0 && <> {t("Left out because of such a number though the disposal is not marked:", "નિકાલ નોંધેલ નથી પણ આવો નંબર હોવાથી દૂર કરેલ:")} <b className="mono"><NbDrillNum list={byCourt} title={t("Have a charge-sheet / court number — disposal not marked", "ચાર્જશીટ / કોર્ટ નંબર છે — નિકાલ નોંધેલ નથી")} onShow={showList}>{nbG(String(byCourt.length))}</NbDrillNum></b></>}
+        </div>
+      </section>
+
+      {W60 && list(L60, 60, t("Patrak 1 — 60 days", "પત્રક નં.૧ — ૬૦ દિવસ"))}
+      {W90 && list(L90, 90, t("Patrak 2 — 90 days", "પત્રક નં.૨ — ૯૦ દિવસ"))}
+
+      <section className="nb-csd-card" data-csdue-heads>
+        <button type="button" onClick={() => setShowHeads((v) => !v)} data-csdue-heads-tog style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", display: "flex", width: "100%", alignItems: "center", gap: 8, textAlign: "left" }}>
+          <span style={{ fontWeight: 800, fontSize: 14.5, flex: 1 }}>📚 {t("By head — 60-day and 90-day crimes registered in the period", "હેડ પ્રમાણે — સમયગાળામાં દાખલ ૬૦ દિવસ / ૯૦ દિવસ વાળા ગુના")}</span>
           <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{showHeads ? "▲" : "▼"}</span>
         </button>
-        <div style={{ fontSize: 13, marginTop: 6 }}>
-          {t("60 days", "૬૦ દિવસ વાળા")}: <b className="mono"><NbDrillNum list={all60} title={t("60-day crimes", "૬૦ દિવસ વાળા ગુના")} onShow={showList}>{nbG(String(all60.length))}</NbDrillNum></b>
-          {"   ·   "}{t("90 days", "૯૦ દિવસ વાળા")}: <b className="mono"><NbDrillNum list={all90} title={t("90-day crimes", "૯૦ દિવસ વાળા ગુના")} onShow={showList}>{nbG(String(all90.length))}</NbDrillNum></b>
-          {allChk.length > 0 && <>{"   ·   "}⚠ {t("check", "ચકાસો")}: <b className="mono"><NbDrillNum list={allChk} title={t("Check the limit of these", "આ ગુનાની મર્યાદા ચકાસો")} onShow={showList}>{nbG(String(allChk.length))}</NbDrillNum></b></>}
+        <div style={{ fontSize: 13, marginTop: 6, display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <span>{t("60 days", "૬૦ દિવસ વાળા")}: <b className="mono"><NbDrillNum list={all60} title={t("60-day crimes", "૬૦ દિવસ વાળા ગુના")} onShow={showList}>{nbG(String(all60.length))}</NbDrillNum></b></span>
+          <span>{t("90 days", "૯૦ દિવસ વાળા")}: <b className="mono"><NbDrillNum list={all90} title={t("90-day crimes", "૯૦ દિવસ વાળા ગુના")} onShow={showList}>{nbG(String(all90.length))}</NbDrillNum></b></span>
+          {allChk.length > 0 && <span>⚠ {t("check", "ચકાસો")}: <b className="mono"><NbDrillNum list={allChk} title={t("Check the limit of these", "આ ગુનાની મર્યાદા ચકાસો")} onShow={showList}>{nbG(String(allChk.length))}</NbDrillNum></b></span>}
         </div>
-        {showHeads && <div style={{ overflowX: "auto", marginTop: 8 }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560 }}>
+        {showHeads && <div style={{ overflowX: "auto", marginTop: 10 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 520 }}>
             <thead><tr>{[t("Head", "હેડ"), t("Rule", "નિયમ"), t("60 days", "૬૦ દિવસ"), t("90 days", "૯૦ દિવસ"), "⚠ " + t("check", "ચકાસો")].map((h, i) => <th key={i} style={th}>{h}</th>)}</tr></thead>
             <tbody>
               {headRows.map((x) => {
@@ -18778,11 +18905,9 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick }) {
               {!headRows.length && <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)" }}>{t("None", "નીલ")}</td></tr>}
             </tbody>
           </table>
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("\"By sections\" decides each crime from its sections. Choose \"Always 60 / 90\" to fix a whole head. ⚠ = the law is not settled (e.g. night house-breaking theft 331(4), NDPS) — counted as 60; change it on the crime if needed.", "\"કલમ પ્રમાણે\" એટલે દરેક ગુનો તેની કલમો પરથી નક્કી થાય. આખો હેડ એક જ રાખવો હોય તો \"હંમેશા ૬૦ / ૯૦\" પસંદ કરો. ⚠ = કાયદો સ્પષ્ટ નથી (જેમ કે રાત્રે ઘરફોડ ચોરી ૩૩૧(૪), NDPS) — ૬૦ માં ગણેલ છે; જરૂર હોય તો તે ગુનામાં બદલો.")}</div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>{t("\"By sections\" decides each crime from its sections (BNS or old IPC, POCSO, Atrocity, Arms). Choose \"Always 60 / 90\" to fix a whole head. ⚠ = the law is not settled (e.g. night house-breaking theft 331(4), NDPS) — counted as 60.", "\"કલમ પ્રમાણે\" એટલે દરેક ગુનો તેની કલમો (બી.એન.એસ. / જૂની ઇ.પી.કો., પોક્સો, એટ્રોસીટી, આર્મ્સ) પરથી નક્કી થાય. આખો હેડ એક જ રાખવો હોય તો \"હંમેશા ૬૦ / ૯૦\" પસંદ કરો. ⚠ = કાયદો સ્પષ્ટ નથી (જેમ કે રાત્રે ઘરફોડ ચોરી ૩૩૧(૪), NDPS) — ૬૦ માં ગણેલ છે.")}</div>
         </div>}
-      </div>
-      {W60 && list(L60, 60, t("Patrak 1 — 60 days", "પત્રક નં.૧ — ૬૦ દિવસ"))}
-      {W90 && list(L90, 90, t("Patrak 2 — 90 days", "પત્રક નં.૨ — ૯૦ દિવસ"))}
+      </section>
     </div>
   );
 }
@@ -20199,7 +20324,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "pr" && <CrimeProhiHub ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "io" && <CrimeIoPanel ctx={ctx} showList={showList} />}
       {tab === "flt" && <CrimeFilterPanel ctx={ctx} showList={showList} showBst={showBst} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
-      {tab === "csd" && <CrimeCsDuePanel ctx={ctx} showList={showList} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
+      {tab === "csd" && <CrimeCsDuePanel ctx={ctx} showList={showList} showToast={showToast} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "acc" && <CrimeAccusedPanel ctx={ctx} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
