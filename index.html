@@ -1604,6 +1604,19 @@ function nbSrchHay(h) {
   if (!v) { v = { hn: nbSrchNorm(h), hw: null }; if (_nbSrchHay.size > 5000) _nbSrchHay.clear(); _nbSrchHay.set(h, v); }
   return v;
 }
+// a C.R. number typed as 537, 0537, 537/26, 537/2026, 537-26, 537 / 26 or the full FIR no. 11193018260537 → { no, year? }
+function nbCrNoQuery(q) {
+  const qq = nbAsciiDigits(String(q || "")).trim();
+  const fir = qq.match(/^\d{6,8}(\d{2})(\d{4})(?:\s*\/\s*\d{2,4})?$/);
+  if (fir) return { no: Number(fir[2]), year: fir[1] };
+  const m = qq.match(/^0*(\d{1,6})(?:\s*[\/\-.]\s*(\d{2}|\d{4}))?$/);
+  return m ? { no: Number(m[1]), year: m[2] || "" } : null;
+}
+function nbCrNoMatch(e, m) {
+  if (!m || Number(e.no) !== m.no) return false;
+  if (!m.year) return true;
+  return m.year.length === 2 ? String(e.year || "").slice(-2) === m.year : String(e.year || "") === m.year;
+}
 function nbSrch(hay, q) {
   const qn = nbSrchNorm(q).trim();
   if (!qn) return true;
@@ -18265,11 +18278,10 @@ function CrimeQuickSearch({ entries, onOpen, onClose, onQuick }) {
     if (!qq) return [...entries].sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)).slice(0, 12);
     const words = qq.split(/\s+/).filter(Boolean);
     // C.R. number: 419, 0419, 419/26, 419/2026, 419-26, or the full FIR no. 11193018260419
-    let num = qq.match(/^0*(\d{1,6})(?:\s*[\/\-.]\s*(\d{2}|\d{4}))?$/);
-    const fir = qq.match(/^\d{6,8}(\d{2})(\d{4})(?:\s*\/\s*\d{2,4})?$/);
-    if (fir) num = [qq, String(Number(fir[2])), fir[1]];
-    const isNum = (e) => !!num && Number(e.no) === Number(num[1]) && (!num[2] || (num[2].length === 2 ? String(e.year).slice(-2) === num[2] : String(e.year) === num[2]));
-    const L = entries.filter((e) => { if (isNum(e)) return true; const s = nbCrSearchText(e); return words.every((w) => s.includes(w)); });
+    const crq = nbCrNoQuery(qq);
+    const isNum = (e) => nbCrNoMatch(e, crq);
+    let L = entries.filter((e) => { if (isNum(e)) return true; const s = nbCrSearchText(e); return words.every((w) => s.includes(w)); });
+    if (crq && crq.year && L.some(isNum)) L = L.filter(isNum);
     const score = (e) => (isNum(e) ? 0 : 1);
     return L.sort((a, b) => score(a) - score(b) || (b.regDate || "").localeCompare(a.regDate || "")).slice(0, 60);
   }, [q, entries]);
@@ -20902,9 +20914,11 @@ function CrimeRegisterList({ entries, reg, setReg, rng, setRng, q: typedQ, setQ,
   let list = s ? entries.slice() : entries.filter((e) => e.reg === reg);
   if (onlyPending) list = list.filter((e) => nbPendingAt(e, today));
   else if (!s) list = list.filter(inR);
-  if (s) list = list.filter((e) => nbSrch([e.no, nbFirNo(e, (ctx && ctx.settings) || {}), e.sections, e.place, e.complainant, e.accused, e.facts, e.io, e.deceased, e.missing, e.informant, e.writer, e.victim].join(" "), q));
-  const qNo = nbSrchNorm(q).trim().replace(/^0+/, "");
-  const exact = (e) => (s && String(e.no) === qNo ? 1 : 0);
+  const crq = s ? nbCrNoQuery(q) : null;
+  if (s) list = list.filter((e) => nbCrNoMatch(e, crq) || nbSrch([e.no, nbFirNo(e, (ctx && ctx.settings) || {}), e.sections, e.place, e.complainant, e.accused, e.facts, e.io, e.deceased, e.missing, e.informant, e.writer, e.victim].join(" "), q));
+  // "537/26" means that one crime: show only it when it exists
+  if (crq && crq.year && list.some((e) => nbCrNoMatch(e, crq))) list = list.filter((e) => nbCrNoMatch(e, crq));
+  const exact = (e) => (nbCrNoMatch(e, crq) ? 1 : 0);
   list = list.slice().sort((a, b) => exact(b) - exact(a) || (b.regDate || "").localeCompare(a.regDate || "") || (Number(b.no) || 0) - (Number(a.no) || 0));
   const cnt = (k) => entries.filter((e) => e.reg === k && inR(e)).length;
   const r = nbReg(reg);
