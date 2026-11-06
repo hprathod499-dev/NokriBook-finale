@@ -18180,7 +18180,8 @@ function CrimeHistoryModal({ entry, onRestore, onClose }) {
 function nbCrSearchText(e) {
   if (e.__srch) return e.__srch;
   const acc = (nbPeople(e.accList) || []).map((p) => p && p.name).filter(Boolean).join(" ");
-  const s = [nbReg(e.reg).gu, e.no, e.year, `${e.no}/${e.year}`, e.sections, e.complainant, e.informant, e.missing, e.accused, acc, e.place, e.occText, e.io, e.writer, e.facts, e.courtNo].filter(Boolean).join(" ");
+  const yy = String(e.year || "").slice(-2), nn = String(Number(e.no) || e.no || "");
+  const s = [nbReg(e.reg).gu, e.no, e.year, `${e.no}/${e.year}`, `${nn}/${e.year}`, `${nn}/${yy}`, `${nn}-${yy}`, `${nn}-${e.year}`, e.sections, e.complainant, e.informant, e.missing, e.accused, acc, e.place, e.occText, e.io, e.writer, e.facts, e.courtNo].filter(Boolean).join(" ");
   const v = nbAsciiDigits(s).toLowerCase();
   try { Object.defineProperty(e, "__srch", { value: v, enumerable: false }); } catch (x) {}
   return v;
@@ -18194,9 +18195,13 @@ function CrimeQuickSearch({ entries, onOpen, onClose, onQuick }) {
     const qq = nbAsciiDigits(q).toLowerCase().trim();
     if (!qq) return [...entries].sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)).slice(0, 12);
     const words = qq.split(/\s+/).filter(Boolean);
-    const num = qq.match(/^(\d{1,6})(?:\s*\/\s*(\d{2,4}))?$/);
-    const L = entries.filter((e) => { const s = nbCrSearchText(e); return words.every((w) => s.includes(w)); });
-    const score = (e) => (num && String(e.no) === num[1] && (!num[2] || String(e.year).endsWith(num[2])) ? 0 : 1);
+    // C.R. number: 419, 0419, 419/26, 419/2026, 419-26, or the full FIR no. 11193018260419
+    let num = qq.match(/^0*(\d{1,6})(?:\s*[\/\-.]\s*(\d{2}|\d{4}))?$/);
+    const fir = qq.match(/^\d{6,8}(\d{2})(\d{4})(?:\s*\/\s*\d{2,4})?$/);
+    if (fir) num = [qq, String(Number(fir[2])), fir[1]];
+    const isNum = (e) => !!num && Number(e.no) === Number(num[1]) && (!num[2] || (num[2].length === 2 ? String(e.year).slice(-2) === num[2] : String(e.year) === num[2]));
+    const L = entries.filter((e) => { if (isNum(e)) return true; const s = nbCrSearchText(e); return words.every((w) => s.includes(w)); });
+    const score = (e) => (isNum(e) ? 0 : 1);
     return L.sort((a, b) => score(a) - score(b) || (b.regDate || "").localeCompare(a.regDate || "")).slice(0, 60);
   }, [q, entries]);
   useEffect(() => setSel(0), [q]);
