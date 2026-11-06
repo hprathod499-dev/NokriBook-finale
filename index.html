@@ -92,6 +92,30 @@
   .nb-cr-sec { border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; background: var(--bg-surface); box-shadow: 0 1px 3px rgba(0,0,0,0.04); scroll-margin-top: 8px; }
   .nb-cr-sec-head { display: flex; align-items: center; gap: 8px; width: 100%; border: none; background: transparent; padding: 11px 12px; font-size: 14px; font-weight: 800; color: var(--accent-strong); cursor: pointer; border-radius: 12px; }
   .nb-cr-sec-head:hover { background: var(--bg-surface-2); }
+  .nb-csd-dash { --s60: #2a78d6; --s90: #eb6834; --sleft: #d6d3cc; }
+  [data-theme="dark"] .nb-csd-dash { --s60: #3987e5; --s90: #d95926; --sleft: #4b4944; }
+  .nb-csd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 10px; }
+  .nb-csd-kpis > div { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--bg-page); border: 1px solid var(--border-soft, var(--border)); }
+  .nb-csd-kpis span { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  .nb-csd-kpis b { font-size: 24px; font-weight: 800; line-height: 1.1; }
+  .nb-csd-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .nb-csd-seg-o60 { background: var(--s60); }
+  .nb-csd-seg-o90 { background: var(--s90); }
+  .nb-csd-seg-left { background: var(--sleft); }
+  .nb-csd-brow { border-radius: 10px; }
+  .nb-csd-brow.on { background: var(--bg-page); outline: 1px solid var(--border); }
+  .nb-csd-bbtn { display: grid; grid-template-columns: minmax(110px, 32%) 1fr auto; gap: 10px; align-items: center; width: 100%; background: transparent; border: none; font: inherit; color: inherit; text-align: left; cursor: pointer; padding: 8px 8px; border-radius: 10px; min-height: 40px; }
+  .nb-csd-bbtn:active { transform: scale(.99); }
+  .nb-csd-blbl { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nb-csd-track { display: flex; gap: 2px; height: 14px; min-width: 0; }
+  .nb-csd-track > span { height: 100%; min-width: 4px; }
+  .nb-csd-track > span:first-child { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+  .nb-csd-track > span:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+  .nb-csd-bnum { font-size: 13px; white-space: nowrap; }
+  .nb-csd-bnum small { font-size: 11px; color: var(--text-secondary); font-weight: 600; }
+  .nb-csd-bdet { padding: 0 10px 12px; }
+  .nb-csd-crime { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12.5px; color: inherit; cursor: pointer; white-space: nowrap; }
+  @media (max-width: 520px) { .nb-csd-bbtn { grid-template-columns: 1fr auto; } .nb-csd-track { grid-column: 1 / -1; grid-row: 2; } }
   .nb-csd-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; }
   .nb-csd-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
   .nb-csd-seg { display: inline-flex; gap: 2px; align-items: center; padding: 3px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-page); flex-wrap: wrap; }
@@ -18746,6 +18770,75 @@ function CrimeCsDueRow({ r, ctx, onOpen, onQuick, onDone, setLim }) {
     </div>
   );
 }
+// dashboard: pending charge-sheets by crime head, as stacked bars — 60-day over limit / 90-day over limit / time still left
+function CrimeCsDueDash({ ctx, R, from, parts, onOpen }) {
+  const { t } = useLang();
+  const [sel, setSel] = useState("");
+  const [open, setOpen] = useState(true);
+  const rows = nbCsDueRows(ctx, R, { from, parts, soon: 1e6 });
+  const noArr = from === "arrest" ? ctx.entries.filter((e) => parts.includes(e.reg) && e.regDate && e.regDate >= R.from && e.regDate <= R.to && !nbCsFiled(e) && !nbFirstArrest(e)).length : 0;
+  const m = new Map();
+  for (const r of rows) {
+    const k = r.e.reg === "A" ? nbBookHeadOf(r.e) : "part" + r.e.reg;
+    if (!m.has(k)) { const b = nbBookHead(k); m.set(k, { k, name: b ? b.gu : nbReg(k.slice(4)).gu, o60: [], o90: [], left: [] }); }
+    const g = m.get(k);
+    (r.over > 0 ? (r.lim === 90 ? g.o90 : g.o60) : g.left).push(r);
+  }
+  const G = [...m.values()].map((g) => ({ ...g, n: g.o60.length + g.o90.length + g.left.length, over: g.o60.length + g.o90.length }))
+    .sort((a, b) => b.over - a.over || b.n - a.n || a.name.localeCompare(b.name));
+  const max = Math.max(1, ...G.map((g) => g.n));
+  const tot = { n: rows.length, o60: G.reduce((s, g) => s + g.o60.length, 0), o90: G.reduce((s, g) => s + g.o90.length, 0) };
+  const seg = (L, cls) => L.length ? <span className={"nb-csd-seg-" + cls} style={{ width: (L.length / max) * 100 + "%" }} /> : null;
+  const crimeBtn = (r) => (
+    <button key={r.e.id} type="button" onClick={() => onOpen(r.e)} className="nb-csd-crime" data-dash-crime>
+      <b>{nbReg(r.e.reg).gu} {nbG(r.e.no)}/{nbG(r.e.year)}</b>
+      <span style={{ color: "var(--text-secondary)" }}>{r.over > 0 ? t(` · ${r.over} days over`, ` · ${nbG(String(r.over))} દિવસ વધુ`) : t(` · ${-r.over} days left`, ` · ${nbG(String(-r.over))} દિવસ બાકી`)}</span>
+    </button>
+  );
+  const group = (L, cls, title) => L.length > 0 && (
+    <div style={{ marginTop: 10 }} data-dash-group={cls}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 800 }}><span className={"nb-csd-sw nb-csd-seg-" + cls} />{title} — {nbG(String(L.length))}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>{[...L].sort((a, b) => b.over - a.over).map(crimeBtn)}</div>
+    </div>
+  );
+  return (
+    <section className="nb-csd-card nb-csd-dash" data-csdue-dash>
+      <button type="button" onClick={() => setOpen((v) => !v)} style={{ background: "transparent", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", display: "flex", width: "100%", alignItems: "center", gap: 8, textAlign: "left" }}>
+        <span style={{ fontWeight: 800, fontSize: 15, flex: 1 }}>📊 {t("Dashboard — pending charge-sheets by crime", "ડેશબોર્ડ — ગુના પ્રમાણે પેન્ડીંગ ચાર્જશીટ")}</span>
+        <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && <>
+        <div className="nb-csd-kpis">
+          <div><span>{t("Pending charge-sheet", "ચાર્જશીટ બાકી")}</span><b className="mono">{nbG(String(tot.n))}</b></div>
+          <div><span><i className="nb-csd-sw nb-csd-seg-o60" />{t("Over 60 days", "૬૦ દિવસ ઉપર")}</span><b className="mono">{nbG(String(tot.o60))}</b></div>
+          <div><span><i className="nb-csd-sw nb-csd-seg-o90" />{t("Over 90 days", "૯૦ દિવસ ઉપર")}</span><b className="mono">{nbG(String(tot.o90))}</b></div>
+          <div><span><i className="nb-csd-sw nb-csd-seg-left" />{t("Time still left", "હજુ સમય બાકી")}</span><b className="mono">{nbG(String(tot.n - tot.o60 - tot.o90))}</b></div>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", margin: "8px 0 4px" }}>{t("Tap a crime to see which crime numbers have gone over 60 / 90 days.", "ગુના પર ટેપ કરો — કયા ગુ.ર.નં. ૬૦ દિવસ / ૯૦ દિવસ ઉપર ગયા છે તે દેખાશે.")}{noArr > 0 ? t(` ${noArr} crimes with nobody arrested yet are not counted (counting from arrest).`, ` (અટક તારીખથી ગણતાં, કોઈ અટક ન થયેલ ${nbG(String(noArr))} ગુના ગણ્યા નથી.)`) : ""}</div>
+        {G.map((g) => {
+          const on = sel === g.k;
+          return (
+            <div key={g.k} className={"nb-csd-brow" + (on ? " on" : "")} data-dash-bar={g.k}>
+              <button type="button" onClick={() => setSel(on ? "" : g.k)} aria-expanded={on} className="nb-csd-bbtn" title={`${g.name}: ${t("over 60", "૬૦ ઉપર")} ${g.o60.length}, ${t("over 90", "૯૦ ઉપર")} ${g.o90.length}, ${t("time left", "સમય બાકી")} ${g.left.length}`}>
+                <span className="nb-csd-blbl">{g.name}</span>
+                <span className="nb-csd-track">{seg(g.o60, "o60")}{seg(g.o90, "o90")}{seg(g.left, "left")}</span>
+                <span className="nb-csd-bnum mono"><b>{nbG(String(g.n))}</b>{g.over > 0 && <small>{t(` (${g.over} over)`, ` (${nbG(String(g.over))} ઉપર)`)}</small>}</span>
+              </button>
+              {on && (
+                <div className="nb-csd-bdet" data-dash-detail>
+                  {group(g.o60, "o60", t("Over 60 days", "૬૦ દિવસ ઉપર ગયેલ"))}
+                  {group(g.o90, "o90", t("Over 90 days", "૯૦ દિવસ ઉપર ગયેલ"))}
+                  {group(g.left, "left", t("Time still left", "હજુ સમય બાકી"))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {!G.length && <div style={{ textAlign: "center", padding: "16px 8px", color: "var(--text-tertiary)", fontSize: 13 }}>✓ {t("No charge-sheet pending in this period.", "આ સમયગાળામાં કોઈ ચાર્જશીટ બાકી નથી.")}</div>}
+      </>}
+    </section>
+  );
+}
 function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick, showToast }) {
   const { t } = useLang();
   const today = todayStr();
@@ -18873,6 +18966,7 @@ function CrimeCsDuePanel({ ctx, showList, onOpen, onQuick, showToast }) {
         </div>
       </section>
 
+      <CrimeCsDueDash ctx={ctx} R={R} from={from} parts={parts} onOpen={onOpen} />
       {W60 && list(L60, 60, t("Patrak 1 — 60 days", "પત્રક નં.૧ — ૬૦ દિવસ"))}
       {W90 && list(L90, 90, t("Patrak 2 — 90 days", "પત્રક નં.૨ — ૯૦ દિવસ"))}
 
