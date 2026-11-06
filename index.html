@@ -170,7 +170,9 @@
   }
   input:focus, textarea:focus, select:focus { outline: 2px solid var(--focus-ring); border-color: var(--accent-strong); }
   /* date boxes never look "selected" when tapped */
-  input[data-date-input] { -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; cursor: pointer; }
+  input[data-date-input] { -webkit-tap-highlight-color: transparent; cursor: pointer; }
+  /* with a mouse, text on buttons and rows can be selected and copied (Ctrl+C) into Word */
+  @media (hover: hover) and (pointer: fine) { button, tr, td { -webkit-user-select: text; user-select: text; } [data-reorder-id], [data-hold] { -webkit-user-select: none; user-select: none; } }
   input[data-date-input]:focus { outline: none !important; box-shadow: none !important; border-color: var(--border) !important; }
   input[data-date-input]::selection { background: transparent; }
   select { font-family: inherit; }
@@ -2914,6 +2916,71 @@ if (typeof document !== "undefined" && !window.__nbPickerTap) {
 }
 // Phones and tablets: date boxes open the calendar on a tap (no keyboard popping up, nothing highlighted).
 const NB_TOUCH = typeof window !== "undefined" && !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+// Copying (Ctrl+C) from the app into Word: browsers leave out what is written inside boxes and drop-downs
+// when a selection runs over them. Put their values in, and copy a focused box / drop-down whole when nothing is selected.
+// true when the mouse moved between press and release on this element (the user was selecting text, not tapping)
+function nbDragged(e) { const d = e.currentTarget && e.currentTarget.__nbDown; if (e.currentTarget) e.currentTarget.__nbDown = null; return !!d && Math.hypot(e.clientX - d[0], e.clientY - d[1]) > 4; }
+function nbCtrlText(el) {
+  const tg = el.tagName;
+  if (tg === "SELECT") { const o = el.options[el.selectedIndex]; return o && el.value !== "" ? o.text : ""; }
+  if (tg === "TEXTAREA") return el.value;
+  if (tg === "INPUT") {
+    const ty = (el.type || "text").toLowerCase();
+    if (["hidden", "file", "button", "submit", "reset", "image", "password", "range", "color"].includes(ty)) return "";
+    if (ty === "checkbox" || ty === "radio") return el.checked ? "✓" : "";
+    return el.value;
+  }
+  return "";
+}
+if (typeof document !== "undefined" && !window.__nbCopyFix) {
+  window.__nbCopyFix = true;
+  // a drag that selects text must not also "click" (open the crime / row under it)
+  let nbDownAt = null;
+  document.addEventListener("pointerdown", (e) => { nbDownAt = e.pointerType === "mouse" ? [e.clientX, e.clientY] : null; }, true);
+  document.addEventListener("click", (e) => {
+    if (!nbDownAt) return;
+    const moved = Math.hypot(e.clientX - nbDownAt[0], e.clientY - nbDownAt[1]);
+    nbDownAt = null;
+    if (moved < 6) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  document.addEventListener("copy", (ev) => {
+    try {
+      if (!ev.clipboardData) return;
+      const ae = document.activeElement, sel = window.getSelection();
+      const isCtrl = (el) => el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+      if (isCtrl(ae) && ae.tagName !== "SELECT" && ae.selectionEnd > ae.selectionStart) return; // the browser copies the selected part itself
+      if (isCtrl(ae) && (!sel || sel.isCollapsed || !sel.toString())) {
+        const v = nbCtrlText(ae);
+        if (v) { ev.clipboardData.setData("text/plain", v); ev.preventDefault(); }
+        return;
+      }
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      let root = range.commonAncestorContainer;
+      if (root.nodeType !== 1) root = root.parentElement;
+      if (!root) return;
+      const orig = [...root.querySelectorAll("input, textarea, select")].filter((el) => range.intersectsNode(el));
+      if (!orig.length) return;
+      const frag = range.cloneContents();
+      frag.querySelectorAll('[aria-hidden="true"], [data-cal-btn]').forEach((n) => n.remove());
+      const cl = [...frag.querySelectorAll("input, textarea, select")];
+      if (cl.length !== orig.length) return;
+      cl.forEach((c, i) => { const v = nbCtrlText(orig[i]); c.replaceWith(document.createTextNode(v ? " " + v + " " : "")); });
+      const box = document.createElement("div");
+      box.style.cssText = "position:fixed;left:-99999px;top:0;white-space:pre-wrap;";
+      box.appendChild(frag);
+      document.body.appendChild(box);
+      const txt = box.innerText.replace(/^[ \t]+/gm, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      const html = box.innerHTML;
+      box.remove();
+      ev.clipboardData.setData("text/plain", txt);
+      ev.clipboardData.setData("text/html", html);
+      ev.preventDefault();
+    } catch (x) { /* normal copy */ }
+  });
+}
 function NbDateInput({ value, onChange, style, className, placeholder, defaultValue, min, max, onClick, ...rest }) {
   const { t } = useLang();
   const controlled = value !== undefined;
@@ -2965,7 +3032,9 @@ function NbDateInput({ value, onChange, style, className, placeholder, defaultVa
         {...rest} readOnly={NB_TOUCH || !!rest.readOnly} onChange={onType} onBlur={(e) => { const v = commit(); if (rest.onBlur && !open) rest.onBlur(ev2(e, v)); }}
         onKeyDown={(e) => { let v = cur; if (e.key === "Enter") { e.preventDefault(); v = commit(); } else if (e.key === "Escape" && txt != null) { e.stopPropagation(); setTxt(null); sepRef.current = false; } if (rest.onKeyDown) rest.onKeyDown(ev2(e, v)); }}
         onFocus={(e) => { freshRef.current = true; if (rest.onFocus) rest.onFocus(e); }}
-        onClick={(e) => { if (!dis && !rest.readOnly) setOpen(true); if (onClick) onClick(e); }}
+        onMouseDown={(e) => { e.currentTarget.__nbDown = [e.clientX, e.clientY]; if (rest.onMouseDown) rest.onMouseDown(e); }}
+        onClick={(e) => { if (!dis && !rest.readOnly && !nbDragged(e)) setOpen(true); if (onClick) onClick(e); }}
+        onDoubleClick={(e) => { setOpen(false); try { e.currentTarget.select(); } catch (x) {} }}
         title={rest.title || t("Type the date, e.g. 01102026 or 1/10/26, or tap 📅", "તારીખ લખો, દા.ત. 01102026 કે 1/10/26, અથવા 📅 દબાવો")}
         style={{ ...st, width: st.width ? "100%" : st.width, margin: 0, flex: undefined, gridColumn: undefined, boxSizing: "border-box", paddingRight: 34, ...(bad ? { borderColor: "var(--status-error-text, #c0392b)", boxShadow: "0 0 0 2px rgba(192,57,43,0.2)" } : {}) }} />
       <button type="button" tabIndex={-1} disabled={dis} aria-label={t("Open calendar", "કેલેન્ડર ખોલો")} data-cal-btn
@@ -22452,6 +22521,8 @@ function NbTimePicker({ value, onChange, disabled, placeholder, style }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [hour, setHour] = useState(null);
+  const tpTimer = useRef(null);
+  useEffect(() => () => clearTimeout(tpTimer.current), []);
   const ok = nbTimeOk(value);
   const close = () => { setOpen(false); setHour(null); };
   useEffect(() => {
@@ -22465,10 +22536,16 @@ function NbTimePicker({ value, onChange, disabled, placeholder, style }) {
   const p2 = (n) => String(n).padStart(2, "0");
   return (
     <React.Fragment>
-      <button type="button" disabled={disabled} data-timepicker="1" onClick={() => { setHour(null); setOpen(true); }} className="mono"
-        style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-surface)", color: ok ? "var(--text-primary)" : "var(--text-tertiary)", fontSize: 15, fontWeight: 700, cursor: disabled ? "default" : "pointer", minWidth: 96, ...(style || {}) }}>
-        🕒 {ok ? value : placeholder || "--:--"}
-      </button>
+      <span style={{ position: "relative", display: "inline-flex", alignItems: "center", verticalAlign: "middle" }}>
+        <span aria-hidden="true" style={{ position: "absolute", left: 11, fontSize: 14, pointerEvents: "none", opacity: disabled ? 0.5 : 1 }}>🕒</span>
+        <input type="text" readOnly disabled={disabled} data-timepicker="1" value={ok ? value : ""} placeholder={placeholder || "--:--"} className="mono"
+          onMouseDown={(e) => { e.currentTarget.__nbDown = [e.clientX, e.clientY]; }}
+          onClick={(e) => { if (nbDragged(e)) return; clearTimeout(tpTimer.current); tpTimer.current = setTimeout(() => { setHour(null); setOpen(true); }, 230); }}
+          onDoubleClick={(e) => { clearTimeout(tpTimer.current); try { e.currentTarget.select(); } catch (x) {} }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") { e.preventDefault(); setHour(null); setOpen(true); } }}
+          title={t("Tap to choose the time · double-click to select and copy", "સમય પસંદ કરવા ટેપ કરો · કોપી કરવા ડબલ-ક્લિક કરો")}
+          style={{  display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-surface)", color: ok ? "var(--text-primary)" : "var(--text-tertiary)", fontSize: 15, fontWeight: 700, cursor: disabled ? "default" : "pointer", minWidth: 96, ...(style || {}) , paddingLeft: 34, width: "7.6em", boxSizing: "border-box", cursor: disabled ? "default" : "pointer", outline: "none" }} />
+      </span>
       {open && ReactDOM.createPortal(
         <div role="dialog" aria-modal="true" onClick={close} className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, padding: 12 }}>
           <div onClick={(e) => e.stopPropagation()} className="modal-card gu" style={{ background: "var(--bg-surface)", color: "var(--text-primary)", borderRadius: 14, width: 380, maxWidth: "100%", padding: 16, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
