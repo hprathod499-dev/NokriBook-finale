@@ -20443,7 +20443,7 @@ function CrimeRegisterView({ profile, showToast, look }) {
     timer = setTimeout(step, 800);
     return () => { dead = true; clearTimeout(timer); };
   }, [entries]);
-  const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("nb_cr_tab") || "home"; } catch (e) { return "home"; } });
+  const [tab, setTab] = useState(() => { try { const v = sessionStorage.getItem("nb_cr_tab"); return v && v !== "fr" ? v : "home"; } catch (e) { return "home"; } });
   useEffect(() => { try { sessionStorage.setItem("nb_cr_tab", tab); } catch (e) {} }, [tab]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [quick, setQuick] = useState(null);
@@ -20490,7 +20490,6 @@ function CrimeRegisterView({ profile, showToast, look }) {
         <button onClick={() => setTab("flt")} style={tabBtn(tab === "flt")} className={tab === "flt" ? "nb-tab-on" : ""} data-tab-flt>🔎 {t("Filter / information", "ફિલ્ટર / માહિતી")}</button>
         <button onClick={() => setTab("csd")} style={tabBtn(tab === "csd")} className={tab === "csd" ? "nb-tab-on" : ""} data-tab-csd>⏰ {t("60 / 90 days", "૬૦ / ૯૦ દિવસ")}</button>
         <button onClick={() => setTab("io")} style={tabBtn(tab === "io")} className={tab === "io" ? "nb-tab-on" : ""} data-tab-io>👮 {t("Pending by officer", "ત.ક.અ. મુજબ પેન્ડીંગ")}</button>
-        <button onClick={() => setTab("fr")} style={tabBtn(tab === "fr")} className={tab === "fr" ? "nb-tab-on" : ""} data-tab-fr>🧾 {t("Cheating / IT Act", "છેતરપીંડી / IT Act")}</button>
         <button onClick={() => setTab("acc")} style={tabBtn(tab === "acc")} className={tab === "acc" ? "nb-tab-on" : ""} data-tab-acc>👤 {t("Accused search", "આરોપી શોધ")}</button>
         <button onClick={() => setTab("set")} style={tabBtn(tab === "set")} className={tab === "set" ? "nb-tab-on" : ""}>⚙️ {t("Settings", "સેટિંગ")}</button>
         <button onClick={() => setSearchOpen(true)} style={{ ...tabBtn(false), marginLeft: "auto" }} data-cr-search-btn title={t("Search (Ctrl+K)", "શોધો (Ctrl+K)")}>🔍 {t("Search", "શોધો")}</button>
@@ -20505,7 +20504,6 @@ function CrimeRegisterView({ profile, showToast, look }) {
       {tab === "io" && <CrimeIoPanel ctx={ctx} showList={showList} />}
       {tab === "flt" && <CrimeFilterPanel ctx={ctx} showList={showList} showBst={showBst} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "csd" && <CrimeCsDuePanel ctx={ctx} showList={showList} showToast={showToast} onQuick={setQuick} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
-      {tab === "fr" && <CrimeFraudPanel ctx={ctx} entries={entries} showToast={showToast} showList={showList} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "acc" && <CrimeAccusedPanel ctx={ctx} onOpen={(e) => setEditing(entries.find((x) => x.id === e.id) || e)} />}
       {tab === "set" && <CrimeRegSettings settings={settings} profile={profile} showToast={showToast} look={look} />}
       </div></NbViewBoundary>
