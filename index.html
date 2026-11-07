@@ -13893,7 +13893,14 @@ function DutyNoteModal({ record, onClose }) {
 function ReportView({ initialSort, focus, data }) {
   const { t } = useLang();
   const [month, setMonth] = useState(todayStr().slice(0, 7));
-  useEffect(() => { nbNeedHistoryFrom(month); }, [month]);
+  const [rangeMode, setRangeMode] = useState(false);
+  const [rFrom, setRFrom] = useState(() => todayStr().slice(0, 7) + "-01");
+  const [rTo, setRTo] = useState(() => todayStr());
+  const rOk = rangeMode && rFrom && rTo && rFrom <= rTo;
+  const mStart = rOk ? rFrom : month + "-01";
+  const mEnd = rOk ? rTo : (() => { const [y0, m0] = month.split("-").map(Number); return `${month}-${String(new Date(y0, m0, 0).getDate()).padStart(2, "0")}`; })();
+  const plabel = rOk ? `${formatDMY(mStart)} – ${formatDMY(mEnd)}` : nbPdfMonthLabel(month);
+  useEffect(() => { nbNeedHistoryFrom(mStart); }, [mStart]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfReady, setPdfReady] = useState(null);
   const [sortNames, setSortNames] = useState(initialSort || "name");
@@ -13915,12 +13922,12 @@ function ReportView({ initialSort, focus, data }) {
         if (!staffRec) return;
         (m.history || []).forEach((entry) => {
           const date = historyDate(entry);
-          if (date.slice(0, 7) === month) out.push({ name: staffRec.name, designation: desgLabelOf(staffRec.designation), category: c.label, date, note: historyNote(entry), night: !!(entry && entry.night) });
+          if (date >= mStart && date <= mEnd) out.push({ name: staffRec.name, designation: desgLabelOf(staffRec.designation), category: c.label, date, note: historyNote(entry), night: !!(entry && entry.night) });
         });
       });
     });
     return out.sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
-  }, [data, month, desgLabelOf]);
+  }, [data, mStart, mEnd, desgLabelOf]);
 
   const grouped = useMemo(() => {
     const g = {};
@@ -13934,7 +13941,7 @@ function ReportView({ initialSort, focus, data }) {
     return names.sort((a, b) => nbDesigRankOfLabel(data, grouped[a][0].designation) - nbDesigRankOfLabel(data, grouped[b][0].designation) || a.localeCompare(b, "gu"));
   }, [grouped, sortNames, data]);
 
-  const monthLabel = new Date(month + "-01T00:00:00").toLocaleDateString(t("en-IN", "gu-IN"), { month: "long", year: "numeric" });
+  const monthLabel = rOk ? plabel : new Date(month + "-01T00:00:00").toLocaleDateString(t("en-IN", "gu-IN"), { month: "long", year: "numeric" });
 
   const downloadPdf = async () => {
     await nbEnsureJsPDF();
@@ -13954,7 +13961,7 @@ function ReportView({ initialSort, focus, data }) {
     }
     setPdfBusy(false);
 
-    const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Monthly Duty Report", data.stationName, data.district), nbPdfMonthLabel(month));
+    const headerY = nbPdfIntro(doc, drawPdfHeader(doc, "Nokri Book — Monthly Duty Report", data.stationName, data.district), plabel);
     const summaryNames = Object.keys(grouped).sort((a, b) => grouped[b].length - grouped[a].length || a.localeCompare(b));
     doc.autoTable({
       rowPageBreak: "avoid",
@@ -14009,9 +14016,6 @@ function ReportView({ initialSort, focus, data }) {
       },
     });
     {
-      const mStart = month + "-01";
-      const [yy, mm] = month.split("-").map(Number);
-      const mEnd = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, "0")}`;
       const leaveRows = [];
       Object.values(data.staff || {}).forEach((st) => {
         const seen = new Set();
@@ -14048,10 +14052,10 @@ function ReportView({ initialSort, focus, data }) {
         const total = rows.reduce((n, r) => n + r.days, 0);
         if (si > 0) { y += 12; if (y > doc.internal.pageSize.getHeight() - 60) { doc.addPage(); y = 18; } }
         doc.setFontSize(13);
-        doc.text(`${title} — ${nbPdfMonthLabel(month)}`, 14, y);
+        doc.text(`${title} — ${plabel}`, 14, y);
         doc.setFontSize(9);
         { const word = kind === "Leave" ? (rows.length === 1 ? "leave" : "leaves") : (rows.length === 1 ? "outstation" : "outstations"), isNew = rows.filter((r) => r.from >= mStart).length, old = rows.length - isNew;
-          doc.text(`${rows.length} ${word} recorded in ${nbPdfMonthLabel(month)}` + (rows.length ? ` (${isNew} new this month` + (old ? `, ${old} continuing from earlier)` : ")") : ""), 14, y + 6); }
+          doc.text(`${rows.length} ${word} recorded in ${plabel}` + (rows.length ? ` (${isNew} new this ${rOk ? "period" : "month"}` + (old ? `, ${old} continuing from earlier)` : ")") : ""), 14, y + 6); }
         doc.autoTable({
           rowPageBreak: "avoid",
           startY: y + 10,
@@ -14088,7 +14092,7 @@ function ReportView({ initialSort, focus, data }) {
         }
       });
     }
-    setPdfReady({ doc, filename: `nokri-book-monthly-report-${month}.pdf` });
+    setPdfReady({ doc, filename: rOk ? `nokri-book-duty-report-${mStart}-to-${mEnd}.pdf` : `nokri-book-monthly-report-${month}.pdf` });
   };
 
   return (
@@ -14105,6 +14109,17 @@ function ReportView({ initialSort, focus, data }) {
       )}
 
       <div id="nb-report-exports" style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button type="button" data-report-mode="month" onClick={() => setRangeMode(false)} style={catTabBtn(!rangeMode)} className="gu">{t("Month", "મહિનો")}</button>
+          <button type="button" data-report-mode="custom" onClick={() => setRangeMode(true)} style={catTabBtn(rangeMode)} className="gu">📅 {t("Custom dates", "પોતાની તારીખો")}</button>
+        </div>
+        {rangeMode ? (
+          <div data-report-range style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <NbDateInput value={rFrom} onChange={(e) => e.target.value && setRFrom(e.target.value)} max={rTo || undefined} />
+            <span className="gu" style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("to", "થી")}</span>
+            <NbDateInput value={rTo} onChange={(e) => e.target.value && setRTo(e.target.value)} min={rFrom || undefined} />
+          </div>
+        ) : (
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button
             onClick={() => setMonth((m) => shiftMonthStr(m, -1))}
@@ -14118,6 +14133,7 @@ function ReportView({ initialSort, focus, data }) {
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, width: 30, height: 30, fontSize: 14, color: "var(--text-primary)", cursor: "pointer" }}
           >▶</button>
         </div>
+        )}
         <button onClick={downloadPdf} disabled={rows.length === 0 || pdfBusy} style={{ background: rows.length && !pdfBusy ? "var(--accent)" : "var(--border)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600 }} className="gu">{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
         <div style={{ fontSize: 12, color: "var(--text-secondary)" }} className="gu">{t(`${rows.length} duty record${rows.length === 1 ? "" : "s"} in ${monthLabel}`, `${monthLabel} માં ${rows.length} ડ્યુટી રેકોર્ડ`)}</div>
       </div>
