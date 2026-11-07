@@ -17789,6 +17789,11 @@ function nbUtaraModel(ctx) {
 }
 
 function nbPreventiveTotals(ctx) {
+  if (ctx.range) {
+    const ms = nbRangeMonths(ctx.range), out = {};
+    NB_PREVENTIVE.forEach(([k]) => { const v = ms.reduce((a, mk) => a + (Number((((ctx.monthly || {})[mk] || {}).prev || {})[k]) || 0), 0); const yr = ctx.range.to.slice(0, 4), yv = Object.keys(ctx.monthly || {}).reduce((a, mk) => a + (/^\d{4}-\d{2}$/.test(mk) && mk.slice(0, 4) === yr && mk <= ctx.range.to.slice(0, 7) ? (Number(((ctx.monthly[mk] || {}).prev || {})[k]) || 0) : 0), 0); out[k] = { m: v, y: yv }; });
+    return out;
+  }
   const m = (ctx.monthly[ctx.ym] || {}).prev || {};
   const year = ctx.ym.slice(0, 4);
   const yo = (ctx.monthly[ctx.ym] || {}).prevYear || {};
@@ -17806,7 +17811,7 @@ function nbHeadwiseModel(ctx) {
   const { ym, ps } = ctx;
   const B = [];
   const A = nbSortEntries(ctx.entries.filter((e) => e.reg === "A" && nbInCtx(e, ctx)));
-  B.push({ p: `પો.સ્ટે.નુ નામઃ- ${ps}    માહે- ${nbG(Number(ym.slice(5)) + "/" + ym.slice(0, 4))}`, b: true, sz: 24, center: true, after: 40 });
+  B.push({ p: `પો.સ્ટે.નુ નામઃ- ${ps}    ${ctx.range ? nbRangeLabel(ctx.range) : "માહે- " + nbG(Number(ym.slice(5)) + "/" + ym.slice(0, 4))}`, b: true, sz: 24, center: true, after: 40 });
   B.push({ p: "નવા કાયદા અને જુના કાયદા ઓનલાઇન અને ઓફલાઇન હેડ વાઇઝ માહીતી", b: true, sz: 22, center: true, after: 120 });
   const rows = [];
   NB_HEADS44.forEach((h) => {
@@ -17836,7 +17841,7 @@ function nbHeadwiseModel(ctx) {
   let tm = 0, ty = 0;
   const prow = pr.map(([k, l], i) => { const ks = Array.isArray(k) ? k : [k]; const m = ks.reduce((s, x) => s + P[x].m, 0), y = ks.reduce((s, x) => s + P[x].y, 0); tm += m; ty += y; return [nbCell(nbG(i + 1), { center: true }), nbCell(l), nbCell(nbCnt(m), { center: true }), nbCell(nbCnt(y), { center: true })]; });
   prow.push([nbCell(nbG(pr.length + 1), { center: true }), nbCell("કુલ", { b: true }), nbCell(nbCnt(tm), { center: true, b: true }), nbCell(nbCnt(ty), { center: true, b: true })]);
-  B.push({ table: true, sz: 18, widths: [700, 3700, 2600, 2600], headRows: [["અનુ", "હેડ", "ચાલુ માસે દાખલ થયેલ અટકાયતિ પગલા", "ચાલુ વર્ષે દાખલ થયેલ અટકાયતિ પગલા"].map((x) => nbCell(x))], rows: prow });
+  B.push({ table: true, sz: 18, widths: [700, 3700, 2600, 2600], headRows: [["અનુ", "હેડ", ctx.range ? "આ ગાળામાં દાખલ થયેલ અટકાયતિ પગલા" : "ચાલુ માસે દાખલ થયેલ અટકાયતિ પગલા", "ચાલુ વર્ષે દાખલ થયેલ અટકાયતિ પગલા"].map((x) => nbCell(x))], rows: prow });
   return B;
 }
 
@@ -20975,17 +20980,22 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
   const [pdf, setPdf] = useState(null);
   const [day, setDay] = useState(todayStr());
   const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState("month");
+  const [R, setR] = useState(() => ({ from: ym + "-01", to: nbYMEnd(ym) }));
+  const custom = mode === "custom";
+  const rctx = custom ? { ...ctx, range: R } : ctx;
+  const plabel = custom ? nbRangeLabel(R) : nbYMLabel(ym);
   const docs = [
     ["utara", "ઉતારા (ભાગ એ/બી/સી, અ.મોત, જાણવા જોગ, ગુમ)", t("Monthly register extract", "માસિક ઉતારા"), nbUtaraModel, true],
     ["head", "હેડ વાઇઝ માહીતી", t("Head-wise statement, Part B/C, preventive", "હેડ વાઇઝ, બી/સી પાર્ટ, અટકાયતી પગલા"), nbHeadwiseModel, false],
     ["bst", "B સ્ટેટમેન્ટ", t("One table per Part-A crime", "દરેક ભાગ-એ ગુનાનું પત્રક"), nbBStatementModel, false],
     ["rev", "માસિક ક્રાઈમ રિવ્યુ (Annexure 2/1–2/6)", t("Monthly crime review", "માસિક ગુના સમીક્ષા"), nbReviewModel, false],
   ];
-  const name = (k) => `${k}-${ym}`;
-  const word = (d) => { try { nbDeliverBlob(nbModelDocx(d[3](ctx), { landscape: d[4] }), name(d[0]) + ".docx", d[1]); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } };
-  const pdfDo = async (d) => { setBusy(d[0]); try { const doc = await nbModelPdf(d[3](ctx), { landscape: d[4] }); setPdf({ doc, filename: name(d[0]) + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(""); } };
+  const name = (k) => (custom ? `${k}-${R.from}-to-${R.to}` : `${k}-${ym}`);
+  const word = (d) => { try { nbDeliverBlob(nbModelDocx(d[3](rctx), { landscape: d[4] }), name(d[0]) + ".docx", d[1]); } catch (e) { console.error(e); window.alert(t("Could not make the Word file.", "Word ફાઇલ બની શકી નહીં.")); } };
+  const pdfDo = async (d) => { setBusy(d[0]); try { const doc = await nbModelPdf(d[3](rctx), { landscape: d[4] }); setPdf({ doc, filename: name(d[0]) + ".pdf" }); } catch (e) { console.error(e); window.alert(t("Could not make the PDF.", "PDF બની શક્યું નહીં.")); } finally { setBusy(""); } };
   const E = ctx.entries;
-  const inM = (k) => E.filter((e) => e.reg === k && nbYM(e.regDate) === ym);
+  const inM = (k) => E.filter((e) => e.reg === k && (custom ? nbInCtx(e, rctx) : nbYM(e.regDate) === ym));
   const end = ctx.end;
   const pendL = (k, m) => E.filter((e) => e.reg === k && e.regDate && e.regDate <= nbMonthsBefore(end, m) && nbPendingAt(e, end));
   const pend = (k, m) => pendL(k, m).length;
@@ -20995,36 +21005,47 @@ function CrimeReportsPanel({ ctx, ym, setYm, showToast, showList, showBst }) {
     <div>
       {pdf && <PdfReadyModal pdf={pdf} onClose={() => setPdf(null)} />}
       <CrimeWordImport entries={ctx.entries} profile={ctx.profile} showToast={showToast} showBst={showBst} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        {[["month", t("Month", "માસ")], ["custom", "📅 " + t("Custom dates", "પોતાની તારીખો")]].map(([k, l]) => (
+          <button key={k} type="button" data-rep-mode={k} onClick={() => { if (k === "custom" && !custom) setR({ from: ym + "-01", to: nbYMEnd(ym) }); setMode(k); }} style={{ ...btn, background: mode === k ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: mode === k ? "#fff" : "var(--text-primary)" }}>{l}</button>
+        ))}
+      </div>
+      {custom ? (
+        <div data-rep-custom style={{ marginBottom: 12 }}>
+          <NbRangePicker from={R.from} to={R.to} onChange={(a, b) => setR({ from: a, to: b })} />
+        </div>
+      ) : (
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <b>{t("Month", "માસ")}:</b>
         <button type="button" onClick={() => setYm(nbYMShift(ym, -1))} aria-label="◀" data-ym-prev style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>◀</button>
         <input type="month" value={ym} onChange={(e) => e.target.value && setYm(e.target.value)} style={{ ...nbCrDate, width: 170 }} />
         <button type="button" onClick={() => setYm(nbYMShift(ym, 1))} aria-label="▶" data-ym-next style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 38, height: 36, fontSize: 16, fontWeight: 700, cursor: "pointer" }}>▶</button>
       </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8, marginBottom: 14 }}>
         {[["A", "ભાગ-એ"], ["B", "ભાગ-બી"], ["C", "ભાગ-સી"], ["AD", "અ.મોત"], ["JJ", "જાણવા જોગ"], ["GUM", "ગુમ"]].map(([k, l]) => {
           const L = inM(k);
           return (
             <div key={k} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 10px" }}>
               <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{l}</div>
-              <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}><NbDrillNum list={L} title={`${l} — ${nbYMLabel(ym)}`} onShow={showList}>{L.length}</NbDrillNum>{["A", "B", "C"].includes(k) ? <span style={{ fontSize: 12, color: "var(--status-success-text)", fontWeight: 600 }}> · <NbDrillNum list={L.filter((e) => e.detected)} title={`${l} — ${t("detected", "ડીટેક્ટ")} — ${nbYMLabel(ym)}`} onShow={showList}>{L.filter((e) => e.detected).length}</NbDrillNum> {t("det.", "ડીટે.")}</span> : null}</div>
+              <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}><NbDrillNum list={L} title={`${l} — ${plabel}`} onShow={showList}>{L.length}</NbDrillNum>{["A", "B", "C"].includes(k) ? <span style={{ fontSize: 12, color: "var(--status-success-text)", fontWeight: 600 }}> · <NbDrillNum list={L.filter((e) => e.detected)} title={`${l} — ${t("detected", "ડીટેક્ટ")} — ${plabel}`} onShow={showList}>{L.filter((e) => e.detected).length}</NbDrillNum> {t("det.", "ડીટે.")}</span> : null}</div>
               <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{t("pending >3m", "૩ માસ ઉપર")}: <NbDrillNum list={pendL(k, 3)} title={`${l} — ${t("pending over 3 months", "૩ માસ ઉપર પેન્ડીંગ")}`} onShow={showList}>{pend(k, 3)}</NbDrillNum> · {t(">6m", "૬ માસ ઉપર")}: <NbDrillNum list={pendL(k, 6)} title={`${l} — ${t("pending over 6 months", "૬ માસ ઉપર પેન્ડીંગ")}`} onShow={showList}>{pend(k, 6)}</NbDrillNum></div>
             </div>
           );
         })}
       </div>
-      {docs.map((d) => (
+      {docs.filter((d) => !(custom && d[0] === "rev")).map((d) => (
         <div key={d[0]} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
           <div style={{ flex: "1 1 220px" }}>
             <div style={{ fontWeight: 700, fontSize: 14 }}>📄 {d[1]}</div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{d[2]} · {nbYMLabel(ym)}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{d[2]} · {plabel}</div>
           </div>
-          {d[0] === "bst" && showBst && <button onClick={() => showBst(`B સ્ટેટમેન્ટ — ${nbYMLabel(ym)}`, inM("A"))} style={btn}>👁 {t("View", "જુઓ")}</button>}
+          {d[0] === "bst" && showBst && <button onClick={() => showBst(`B સ્ટેટમેન્ટ — ${plabel}`, inM("A"))} style={btn}>👁 {t("View", "જુઓ")}</button>}
           <button onClick={() => word(d)} style={btn}><WordIcon />Word</button>
           <button onClick={() => pdfDo(d)} disabled={!!busy} style={btn}>{busy === d[0] ? "…" : <><PdfIcon />PDF</>}</button>
         </div>
       ))}
-      <CrimeRangeReports ctx={ctx} showList={showList} showBst={showBst} />
+      {custom && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>{t("The monthly crime review compares month / previous month / parallel month, so it stays month-wise only.", "માસિક ક્રાઈમ રિવ્યુ માસ / ગત માસ / સમાંતર માસની સરખામણી છે, એટલે તે માસ મુજબ જ બને છે.")}</div>}
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginTop: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}><WaIcon size={16} /> {t("Daily crime report (WhatsApp)", "દૈનિક ગુના અહેવાલ (WhatsApp)")}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
