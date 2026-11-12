@@ -17758,6 +17758,13 @@ function nbGuAutoTable2(doc, { startY, headRows, body, widths, fontPt, margin })
 
 function nbNormEntry(e) { return nbMemoRec(nbNormEntry__, e); }
 function nbNormEntry__(e) {
+  if (e.reg === "C") {
+    // Drinking (66(1)b) cases: accused is always arrested and the crime is always detected. Only an EMPTY status is filled; any value he chose stays, no date is touched.
+    if ((e.cKind || nbGuessCKind(e)) !== "drink") return e;
+    const n = { ...e, detected: true };
+    if (Array.isArray(n.accList)) n.accList = n.accList.map((p) => (p && p.name && String(p.name).trim() && !p.st ? { ...p, st: "yes" } : p));
+    return n;
+  }
   if (e.reg !== "A" && e.reg !== "B") return e;
   const n = { ...e };
   if (n.reg === "A" && !n.head44) n.head44 = nbGuessHead44(n.sections) || 43;
@@ -19491,7 +19498,7 @@ function CrimeEntryForm({ initial, entries, onSave, onDelete, onClose, settings,
     setBusy(true);
     try {
       const out = { ...e, updatedAt: Date.now() };
-      { const pr = ["A", "B", "C"].includes(out.reg) ? nbProhiReg(out.sections) : ""; if (pr && pr !== out.reg) { window.alert(pr === "C" ? t("Liquor (drinking / possession) cases go in Part C only — moved to Part C.", "દારૂ પીવાના / કબજાના ગુના ફક્ત ભાગ-સી માં જ — ભાગ-સી માં મૂક્યો.") : t("Drunk driving (M.V. 185) goes in Part B only — moved to Part B.", "દારૂ પીને વાહન (એમ.વી. ૧૮૫) ફક્ત ભાગ-બી માં જ — ભાગ-બી માં મૂક્યો.")); out.reg = pr; if (pr === "B") out.partBHead = "mv185"; out.detected = true; } }
+      { const pr = ["A", "B", "C"].includes(out.reg) ? nbProhiReg(out.sections) : ""; if (pr && pr !== out.reg) { window.alert(pr === "C" ? t("Liquor (drinking / possession) cases go in Part C only — moved to Part C.", "દારૂ પીવાના / કબજાના ગુના ફક્ત ભાગ-સી માં જ — ભાગ-સી માં મૂક્યો.") : t("Prohibition together with an M.V. Act section (e.g. drunk driving 185) goes in Part B — moved to Part B.", "પ્રોહિબિશન સાથે એમ.વી. એક્ટ (જેમ કે દારૂ પીને વાહન ૧૮૫) હોય તો ભાગ-બી — ભાગ-બી માં મૂક્યો.")); out.reg = pr; if (pr === "B") out.partBHead = nbIsDD185(out.sections) ? "mv185" : (out.partBHead || "other"); out.detected = true; } }
       if (out.reg === "A") { if (!out.head44) out.head44 = guess || 43; if (out._rhAuto !== false) out.reviewHead = (out.acts || []).includes("POCSO") ? "" : NB_HEAD_TO_REVIEW[Number(out.head44)] || ""; }
       if (out.reg === "C" && !out.cKind) out.cKind = nbGuessCKind(out);
       if (["A", "B", "C", "M"].includes(out.reg)) out.bookHead = out._bookAuto === false && nbBookHead(out.bookHead) ? out.bookHead : nbGuessBookHead(out);
@@ -19838,7 +19845,7 @@ async function nbApplyProhiRules() {
     const r = nbProhiReg(e.sections);
     if (!r || r === e.reg) return;
     const n = { ...e, reg: r };
-    if (r === "B") { n.partBHead = "mv185"; n.detected = true; }
+    if (r === "B") { n.partBHead = nbIsDD185(e.sections) ? "mv185" : (e.partBHead || "other"); n.detected = true; }
     if (r === "C") { n.detected = true; delete n.partBHead; }
     if (e.reg === "A") { delete n.head44; delete n.reviewHead; }
     fix.push(n);
@@ -22674,12 +22681,14 @@ function nbGuessCKind__(e) {
 }
 const NB_REG_AGENCIES = [["local", "સ્થાનિક પોલીસ સ્ટેશન"], ["lcb", "એલ.સી.બી."], ["sog", "એસ.ઓ.જી."], ["smc", "એસ.એમ.સી."], ["traffic", "જિલ્લા ટ્રાફિક"], ["other", "અન્ય એજન્સી"]];
 const nbIsDD185 = (s) => { const a = nbAsciiDigits(s || ""); return /(?:^|\D)185(?:\D|$)/.test(a) && /એમ\.?\s?વી|m\.?\s?v|મોટર\s*વાહન|વાહન|mvact/i.test(a); };
+const nbHasMvAct = (s) => /એમ\.?\s?વી\.?\s?(?:એક્ટ|એકટ|કલમ|ક\.)|m\.?\s?v\.?\s?act|\bmva\b|એમ\.?\s?વી\.?\s?એ\b|મોટર\s*વ્હીકલ|મોટર\s*વાહન\s*(?:અધિનિયમ|ધારા|એક્ટ)/i.test(s || "");
 const nbIsProhi = (s) => /પ્રોહી|પ્રોહિ|નશાબંધી|prohi/i.test(s || "");
 const nbHasOtherLaw = (s) => /ભારતીય\s*ન્યાય|બી\.?\s?એન\.?\s?એસ|BNS|આઇ\.?\s?પી\.?\s?સી|IPC|જી\.?\s?પી\.?\s?એ|આર્મ્સ|NDPS|એન\.?ડી\.?પી/i.test(s || "");
 function nbProhiReg(sections) {
   const s = sections || "";
   if (/લેન્ડ\s*ગ્રેબ|land\s*grab/i.test(s)) return "";
   if (nbIsDD185(s)) return "B";
+  if (nbIsProhi(s) && nbHasMvAct(s)) return "B";
   if (nbIsProhi(s) && !nbHasOtherLaw(s)) return "C";
   return "";
 }
