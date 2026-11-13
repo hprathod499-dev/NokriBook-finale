@@ -23069,7 +23069,9 @@ function NbRangePicker({ from, to, onChange, extra }) {
         <button type="button" onClick={() => move(1)} disabled={!nextOk} aria-label={t("Later", "આગળ")} data-range-next style={{ ...arrow, opacity: nextOk ? 1 : 0.4 }}>▶</button>
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
-        <NbRangeButton from={from} to={to} onChange={onChange} />
+        <NbDateInput value={from} onChange={(e) => e.target.value && onChange(e.target.value, to < e.target.value ? e.target.value : to)} style={{ ...nbCrDate, width: 140 }} data-range-from />
+        <b className="gu" style={{ fontSize: 13 }}>{t("to", "થી")}</b>
+        <NbDateInput value={to} onChange={(e) => e.target.value && onChange(from > e.target.value ? e.target.value : from, e.target.value)} style={{ ...nbCrDate, width: 140 }} data-range-to />
         {extra}
       </div>
     </div>
