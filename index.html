@@ -446,7 +446,6 @@
   @media (min-width: 701px) { .sidebar { box-shadow: 1px 0 0 rgba(255,255,255,0.05), 10px 0 34px -14px rgba(8,16,36,0.5); } }
   .sidebar > div[style*="border-bottom"] { border-bottom-color: rgba(255,255,255,0.08) !important; }
   .sidebar > div:first-child { padding: 20px 16px 16px !important; }
-  .sidebar > div:first-child > button:first-child { width: 40px !important; height: 40px !important; box-shadow: 0 0 0 2px var(--accent-strong), 0 6px 16px var(--accent-glow); }
   .sidebar [data-tour="nb-tour-logo"] .disp { font-size: 18px !important; letter-spacing: 0.2px; line-height: 1.15; }
   .sidebar [data-tour="nb-tour-logo"] .gu { color: var(--accent-strong) !important; opacity: 0.95; font-size: 11.5px !important; }
   .sidebar button[data-nb-path], .sidebar button.gu[style*="text-align: left"] {
@@ -2863,11 +2862,7 @@ function PeriodFilterSelect({ period, setPeriod }) {
         <option value="custom">{t("Custom date range", "કસ્ટમ તારીખ શ્રેણી")}</option>
       </select>
       {period.key === "custom" && (
-        <React.Fragment>
-          <NbDateInput value={period.customFrom || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customFrom: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
-          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>–</span>
-          <NbDateInput value={period.customTo || todayStr()} onChange={(e) => setPeriod((p) => ({ ...p, customTo: e.target.value }))} style={{ fontSize: 12, padding: "5px 6px" }} />
-        </React.Fragment>
+        <NbRangeButton from={period.customFrom || todayStr()} to={period.customTo || todayStr()} onChange={(a, b) => setPeriod((p) => ({ ...p, customFrom: a, customTo: b }))} style={{ height: 30, fontSize: 12, padding: "4px 10px" }} />
       )}
     </div>
   );
@@ -8659,12 +8654,8 @@ function MiscDutyView({ data, assignMiscDuty, assignMiscDutyRange }) {
         ) : dateMode === "multi" ? (
           <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
             <div>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("From date", "તારીખ થી")}</label>
-              <NbDateInput value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
-              <NbDateInput value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("From – To date", "તારીખ થી – સુધી")}</label>
+              <NbRangeButton from={dateFrom} to={dateTo} onChange={(a, b) => { setDateFrom(a); setDateTo(b); }} />
             </div>
             {dayCount > 1 && (
               <div className="gu" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 20, padding: "5px 10px" }}>
@@ -8911,12 +8902,8 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
             {mode === "range" && (
               <div style={{ marginBottom: 14, display: "flex", gap: 10 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={lbl} className="gu">{t("From", "થી")}</label>
-                  <NbDateInput value={from} onChange={(e) => { setFrom(e.target.value); if (to < e.target.value) setTo(e.target.value); }} style={{ width: "100%", boxSizing: "border-box" }} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={lbl} className="gu">{t("To", "સુધી")}</label>
-                  <NbDateInput value={to} min={from} onChange={(e) => setTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
+                  <label style={lbl} className="gu">{t("From – To", "થી – સુધી")}</label>
+                  <NbRangeButton from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b); }} style={{ width: "100%", justifyContent: "center", boxSizing: "border-box" }} />
                 </div>
               </div>
             )}
@@ -9081,14 +9068,10 @@ function GroupDutyView({ data, assignGroupDuty, initialCatId, initialPeople, inM
         <div style={{ display: "flex", gap: 10, marginBottom: 4, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{dateMode === "one" ? t("Date", "તારીખ") : (dateMode === "noend" ? t("Starts", "શરૂ થાય છે") : t("From date", "તારીખ થી"))}</label>
-            <NbDateInput value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />
+            {dateMode === "multi"
+              ? <NbRangeButton from={dateFrom} to={dateTo} onChange={(a, b) => { setDateFrom(a); setDateTo(b); }} />
+              : <NbDateInput value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); if (dateTo < e.target.value) setDateTo(e.target.value); }} />}
           </div>
-          {dateMode === "multi" && (
-            <div>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 }} className="gu">{t("To date", "તારીખ સુધી")}</label>
-              <NbDateInput value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} />
-            </div>
-          )}
           {dayCount > 1 && (
             <div className="gu" style={{ fontSize: 11.5, fontWeight: 600, color: "var(--status-info-text)", background: "var(--status-info-bg)", border: "1px solid var(--status-info-border)", borderRadius: 20, padding: "5px 10px" }}>
               {t(`${dayCount} days`, `${dayCount} દિવસ`)}
@@ -13161,13 +13144,17 @@ function CalAwayMenu({ data, a, date, onClose, editAwayPeriod, deleteUnavailable
                 {list.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
               </select>
             </label>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From", "થી")}
-              <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inp, marginTop: 4 }} data-away-from />
-            </label>
-            {indefinite ? <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("This type has no end date.", "આ પ્રકારમાં અંતિમ તારીખ નથી.")}</div> : (
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("To", "સુધી")}
-                <NbDateInput value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inp, marginTop: 4 }} data-away-to />
-              </label>
+            {indefinite ? (
+              <React.Fragment>
+                <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From", "થી")}
+                  <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inp, marginTop: 4 }} data-away-from />
+                </label>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("This type has no end date.", "આ પ્રકારમાં અંતિમ તારીખ નથી.")}</div>
+              </React.Fragment>
+            ) : (
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From – To", "થી – સુધી")}
+                <div style={{ marginTop: 4 }}><NbRangeButton from={from} to={to || from} onChange={(a, b) => { setFrom(a); setTo(b); }} data-away-from style={{ width: "100%", justifyContent: "center", boxSizing: "border-box" }} /></div>
+              </div>
             )}
             {err && <div role="alert" style={{ fontSize: 12.5, color: "var(--status-error-text)" }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
@@ -13244,13 +13231,17 @@ function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
             {list.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
           </select>
         </label>
-        <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From", "થી")}
-          <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inp, marginTop: 4 }} />
-        </label>
-        {indefinite ? <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("This type has no end date.", "આ પ્રકારમાં અંતિમ તારીખ નથી.")}</div> : (
-          <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("To", "સુધી")}
-            <NbDateInput value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inp, marginTop: 4 }} />
-          </label>
+        {indefinite ? (
+          <React.Fragment>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From", "થી")}
+              <NbDateInput value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inp, marginTop: 4 }} />
+            </label>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("This type has no end date.", "આ પ્રકારમાં અંતિમ તારીખ નથી.")}</div>
+          </React.Fragment>
+        ) : (
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("From – To", "થી – સુધી")}
+            <div style={{ marginTop: 4 }}><NbRangeButton from={from} to={to || from} onChange={(a, b) => { setFrom(a); setTo(b); }} style={{ width: "100%", justifyContent: "center", boxSizing: "border-box" }} /></div>
+          </div>
         )}
         {err && <div role="alert" style={{ fontSize: 12.5, color: "var(--status-error-text)" }}>{err}</div>}
         <button type="button" onClick={save} data-add-away-save style={{ padding: "11px", borderRadius: 9, border: "none", background: "var(--btn-dark-bg)", color: "#fff", fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>{t("Save", "સાચવો")}</button>
@@ -14161,9 +14152,7 @@ function ReportView({ initialSort, focus, data }) {
         </div>
         {rangeMode ? (
           <div data-report-range style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <NbDateInput value={rFrom} onChange={(e) => e.target.value && setRFrom(e.target.value)} max={rTo || undefined} />
-            <span className="gu" style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("to", "થી")}</span>
-            <NbDateInput value={rTo} onChange={(e) => e.target.value && setRTo(e.target.value)} min={rFrom || undefined} />
+            <NbRangeButton from={rFrom} to={rTo} onChange={(a, b) => { setRFrom(a); setRTo(b); }} />
           </div>
         ) : (
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -22984,6 +22973,83 @@ function nbRangeShift(from, to, dir) {
   const f = sh(from); if (f > today) return null;
   return [f, sh(to)];
 }
+// ---- One "choose dates" calendar for every custom date range: centred, ✕ top right, tap the start date, then the end date.
+function NbRangeModal({ from, to, min, max, title, onApply, onClose }) {
+  const { t, lang } = useLang();
+  const today = todayStr();
+  const [a, setA] = useState(from || "");
+  const [b, setB] = useState(to || "");
+  const [pick, setPick] = useState("start");
+  const base = a || today;
+  const [ym, setYm] = useState([+base.slice(0, 4), +base.slice(5, 7) - 1]);
+  useEffect(() => {
+    const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", key, true);
+    return () => document.removeEventListener("keydown", key, true);
+  }, []);
+  const [y, mo] = ym;
+  const gu = lang === "gu";
+  const months = gu ? NB_MON_GU : NB_MON_EN;
+  const wk = gu ? ["સોમ", "મંગળ", "બુધ", "ગુરુ", "શુક્ર", "શનિ", "રવિ"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const first = (new Date(y, mo, 1).getDay() + 6) % 7, days = new Date(y, mo + 1, 0).getDate();
+  const iso = (d) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const off = (d) => (min && d < min) || (max && d > max);
+  const minY = min ? +min.slice(0, 4) : 1990, maxY = max ? +max.slice(0, 4) : new Date().getFullYear() + 5;
+  const years = []; for (let k = Math.max(maxY, y); k >= Math.min(minY, y); k--) years.push(k);
+  const go = (d) => { let m2 = mo + d, y2 = y; if (m2 < 0) { m2 = 11; y2--; } if (m2 > 11) { m2 = 0; y2++; } setYm([y2, m2]); };
+  const cells = []; for (let k = 0; k < first; k++) cells.push(null); for (let d = 1; d <= days; d++) cells.push(d);
+  const tap = (v) => {
+    if (pick === "start" || !a || v < a) { setA(v); setB(""); setPick("end"); }
+    else { setB(v); setPick("start"); }
+  };
+  const lo = a, hi = b || a;
+  const nav = { background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, width: 36, height: 36, fontSize: 14, fontWeight: 700, color: "var(--text-primary)", cursor: "pointer", flexShrink: 0 };
+  const sel = { fontSize: 14, fontWeight: 700, padding: "6px 4px", borderRadius: 8, minWidth: 0 };
+  const chip = (on) => ({ flex: 1, textAlign: "left", background: on ? "var(--accent-light)" : "var(--bg-surface-2)", border: "1.5px solid " + (on ? "var(--accent-strong)" : "var(--border)"), borderRadius: 10, padding: "7px 10px", cursor: "pointer", color: "var(--text-primary)" });
+  const fmt = (v) => (v ? formatDMY(v) : "—");
+  return ReactDOM.createPortal(
+    <div data-range-modal onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 450, background: "rgba(0,0,0,0.48)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
+      <div role="dialog" aria-modal="true" aria-label={title || t("Choose dates", "તારીખો પસંદ કરો")} className="gu" style={{ position: "relative", width: "min(380px, 100%)", maxHeight: "96vh", overflowY: "auto", background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 16, boxShadow: "0 24px 60px rgba(0,0,0,0.35)", padding: "16px 16px 14px", boxSizing: "border-box" }}>
+        <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} data-range-x style={{ position: "absolute", top: 10, right: 10, width: 34, height: 34, borderRadius: "50%", border: "1px solid var(--border)", background: "var(--bg-surface-2)", color: "var(--text-primary)", fontSize: 16, fontWeight: 700, lineHeight: 1, cursor: "pointer" }}>✕</button>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, paddingRight: 40 }}>{title || t("Choose dates", "તારીખો પસંદ કરો")}</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <button type="button" data-range-chip="from" onClick={() => setPick("start")} style={chip(pick === "start")}><div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{t("From", "થી")}</div><div className="mono" style={{ fontSize: 14, fontWeight: 700 }}>{fmt(a)}</div></button>
+          <button type="button" data-range-chip="to" onClick={() => { if (a) setPick("end"); }} style={chip(pick === "end")}><div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{t("To", "સુધી")}</div><div className="mono" style={{ fontSize: 14, fontWeight: 700 }}>{fmt(b)}</div></button>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+          <button type="button" onClick={() => go(-1)} aria-label={t("Previous month", "પાછલો મહિનો")} style={nav}>◀</button>
+          <select value={mo} onChange={(e) => setYm([y, +e.target.value])} aria-label={t("Month", "મહિનો")} className="gu" style={{ ...sel, flex: 1.4 }}>{months.map((m, k) => <option key={k} value={k}>{m}</option>)}</select>
+          <select value={y} onChange={(e) => setYm([+e.target.value, mo])} aria-label={t("Year", "વર્ષ")} className="mono" style={{ ...sel, flex: 1 }}>{years.map((k) => <option key={k} value={k}>{k}</option>)}</select>
+          <button type="button" onClick={() => go(1)} aria-label={t("Next month", "આગલો મહિનો")} style={nav}>▶</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px 0", textAlign: "center" }}>
+          {wk.map((w, k) => <div key={w} style={{ fontSize: 11.5, fontWeight: 700, padding: "4px 0", color: k === 6 ? "var(--status-error-text, #c0392b)" : "var(--text-secondary)" }}>{w}</div>)}
+          {cells.map((d, k) => {
+            if (!d) return <div key={"b" + k} />;
+            const v = iso(d), dis = off(v), isEnd = v === lo || v === hi, inside = !!lo && v > lo && v < hi, isT = v === today;
+            return <button type="button" key={v} disabled={dis} onClick={() => tap(v)} data-range-day={v} className="mono"
+              style={{ height: 38, borderRadius: isEnd ? 10 : inside ? 0 : 10, fontSize: 14, cursor: dis ? "default" : "pointer", border: isT && !isEnd ? "1.5px solid var(--btn-dark-bg)" : "1px solid transparent", background: isEnd ? "var(--btn-dark-bg)" : inside ? "var(--accent-light)" : "transparent", color: isEnd ? "#fff" : dis ? "var(--text-tertiary)" : k % 7 === 6 ? "var(--status-error-text, #c0392b)" : "var(--text-primary)", fontWeight: isEnd || isT ? 700 : 500, opacity: dis ? 0.4 : 1 }}>{d}</button>;
+          })}
+        </div>
+        <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", margin: "10px 0 8px", minHeight: 16 }}>{pick === "start" ? t("Tap the first date.", "પહેલી તારીખ પર ટૅપ કરો.") : t("Now tap the last date (same day again for one day).", "હવે છેલ્લી તારીખ પર ટૅપ કરો (એક જ દિવસ માટે એ જ તારીખ ફરી).")}</div>
+        <button type="button" disabled={!a} data-range-apply onClick={() => onApply(a, b || a)} style={{ width: "100%", background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 14, fontWeight: 700, cursor: a ? "pointer" : "default", opacity: a ? 1 : 0.5 }}>{a ? t("Use ", "વાપરો: ") + fmt(a) + (b && b !== a ? " – " + fmt(b) : "") : t("Choose dates", "તારીખો પસંદ કરો")}</button>
+      </div>
+    </div>,
+    document.body
+  );
+}
+// Button that shows the chosen dates; tap it to open the calendar above.
+function NbRangeButton({ from, to, onChange, min, max, title, style, ...rest }) {
+  const { t } = useLang();
+  const [open, setOpen] = useState(false);
+  const txt = from && to ? (from === to ? formatDMY(from) : formatDMY(from) + " – " + formatDMY(to)) : t("Choose dates", "તારીખો પસંદ કરો");
+  return (
+    <React.Fragment>
+      <button type="button" onClick={() => setOpen(true)} data-range-open className="gu" style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 12px", height: 36, fontSize: 14, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, ...style }} {...rest}>📅 <span className="mono">{txt}</span></button>
+      {open && <NbRangeModal from={from} to={to} min={min} max={max} title={title} onClose={() => setOpen(false)} onApply={(a, b) => { setOpen(false); onChange(a, b); }} />}
+    </React.Fragment>
+  );
+}
 function NbRangePicker({ from, to, onChange, extra }) {
   const { t } = useLang();
   const P = nbRangePresets(t);
@@ -23003,9 +23069,7 @@ function NbRangePicker({ from, to, onChange, extra }) {
         <button type="button" onClick={() => move(1)} disabled={!nextOk} aria-label={t("Later", "આગળ")} data-range-next style={{ ...arrow, opacity: nextOk ? 1 : 0.4 }}>▶</button>
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
-        <NbDateInput value={from} onChange={(e) => e.target.value && onChange(e.target.value, to < e.target.value ? e.target.value : to)} style={{ ...nbCrDate, width: 140 }} data-range-from />
-        <b className="gu" style={{ fontSize: 13 }}>{t("to", "થી")}</b>
-        <NbDateInput value={to} onChange={(e) => e.target.value && onChange(from > e.target.value ? e.target.value : from, e.target.value)} style={{ ...nbCrDate, width: 140 }} data-range-to />
+        <NbRangeButton from={from} to={to} onChange={onChange} />
         {extra}
       </div>
     </div>
