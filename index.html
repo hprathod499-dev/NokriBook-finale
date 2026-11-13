@@ -231,17 +231,17 @@
     a[href]::after { content: ""; }
   }
   :root {
-    --bg-page: #F4EBDC;
-    --bg-surface: #FFFDF8;
-    --bg-surface-2: #F1E6D2;
-    --sidebar-bg: #1E1712;
-    --text-primary: #2B2116;
-    --text-secondary: #6E5D49;
-    --text-tertiary: #9C8B72;
-    --border: #E4D5B8;
-    --border-soft: #EFE4CD;
-    --btn-dark-bg: #2B2116;
-    --highlight-bg: #FFFBF2;
+    --bg-page: #EDF1F8;
+    --bg-surface: #FFFFFF;
+    --bg-surface-2: #E4EAF4;
+    --sidebar-bg: linear-gradient(180deg, #16295A 0%, #0F1E3D 55%, #0A1530 100%);
+    --text-primary: #0F1E3D;
+    --text-secondary: #4A5878;
+    --text-tertiary: #7E8AA6;
+    --border: #D7DFEC;
+    --border-soft: #E6ECF5;
+    --btn-dark-bg: #0F1E3D;
+    --highlight-bg: #FFF8E6;
     --highlight-border: #F3DDAE;
     --status-success-bg: #EAF3DE;
     --status-success-text: #3B6D11;
@@ -263,17 +263,15 @@
     --status-neutral-border: #D3D1C7;
     --btn-warning-solid: #8A5A16;
     --btn-danger-solid: #A32D2D;
-    --accent: #D98E2B;
-    --accent-hover: #C27D22;
+    --accent: #F2B544;
+    --accent-hover: #E0A02E;
     --accent-light: #FCEFD9;
-    --accent-text: #FFFFFF;
-    --accent-strong: #D98E2B;
-    --focus-ring: #D98E2B55;
-    --accent-glow: #D98E2B33;
+    --accent-text: #0F1E3D;
+    --accent-strong: #F2B544;
+    --focus-ring: #F2B54466;
+    --accent-glow: #F2B54433;
   }
-  [data-theme="dark"] {
-    color-scheme: dark;
-    --bg-page: #000000;
+  g-page: #000000;
     --bg-surface: #000000;
     --bg-surface-2: #000000;
     --sidebar-bg: #000000;
@@ -438,6 +436,56 @@
     background: Highlight;
     color: HighlightText;
   }
+  /* ===== Nokri Book skin: uniform-navy rail, brass marker, cool paper, layered cards ===== */
+  :root:not([data-theme="dark"]):not([data-color-theme]) body {
+    background: radial-gradient(1100px 420px at 88% -8%, rgba(242,181,68,0.13), transparent 62%), var(--bg-page);
+    background-attachment: fixed;
+  }
+  .sidebar {
+    background: var(--sidebar-bg) !important;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent;
+  }
+  @media (min-width: 701px) { .sidebar { box-shadow: 1px 0 0 rgba(255,255,255,0.05), 10px 0 34px -14px rgba(8,16,36,0.5); } }
+  .sidebar > div[style*="border-bottom"] { border-bottom-color: rgba(255,255,255,0.08) !important; }
+  .sidebar > div:first-child { padding: 20px 16px 16px !important; }
+  .sidebar > div:first-child > button:first-child { width: 40px !important; height: 40px !important; box-shadow: 0 0 0 2px #F2B544, 0 6px 16px rgba(242,181,68,0.32); }
+  .sidebar [data-tour="nb-tour-logo"] .disp { font-size: 18px !important; letter-spacing: 0.2px; line-height: 1.15; }
+  .sidebar [data-tour="nb-tour-logo"] .gu { color: #F2B544 !important; opacity: 0.9; font-size: 11.5px !important; }
+  .sidebar button[data-nb-path], .sidebar button.gu[style*="text-align: left"] {
+    position: relative; width: calc(100% - 20px) !important; margin: 1px 10px; border-radius: 10px !important;
+    border-left: 0 !important; padding: 9px 12px 9px 14px !important; font-size: 13.5px !important;
+    transition: background-color .15s ease, color .15s ease;
+  }
+  .sidebar button[data-nb-path]:hover, .sidebar button.gu[style*="text-align: left"]:hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
+  .sidebar button[data-nb-path][style*="accent-strong"] {
+    background: linear-gradient(90deg, rgba(242,181,68,0.24), rgba(242,181,68,0.07)) !important;
+    box-shadow: inset 0 0 0 1px rgba(242,181,68,0.34); color: #fff !important; font-weight: 600 !important;
+  }
+  .sidebar button[data-nb-path][style*="accent-strong"]::before {
+    content: ""; position: absolute; left: 0; top: 22%; height: 56%; width: 3px; border-radius: 0 3px 3px 0; background: #F2B544;
+  }
+  .main-panel { padding-top: 22px !important; }
+  .top-toolbar button {
+    border-radius: 10px !important; padding: 7px 13px !important; box-shadow: 0 1px 2px rgba(15,30,61,0.07);
+    transition: transform .12s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .top-toolbar button:hover { transform: translateY(-1px); box-shadow: 0 6px 16px -8px rgba(15,30,61,0.35); border-color: var(--accent-strong) !important; }
+  .main-panel div[style*="background: var(--bg-surface)"][style*="border-radius"] {
+    box-shadow: 0 1px 2px rgba(15,30,61,0.05), 0 12px 28px -18px rgba(15,30,61,0.22);
+  }
+  .main-panel button[style*="background: var(--btn-dark-bg)"] {
+    background: linear-gradient(180deg, #1B2F5A, #0F1E3D) !important; border-radius: 10px !important;
+    box-shadow: 0 6px 14px -6px rgba(15,30,61,0.6), inset 0 1px 0 rgba(255,255,255,0.12);
+  }
+  .main-panel button[style*="background: var(--bg-surface)"][style*="border-radius"] { border-radius: 10px !important; }
+  button:focus-visible, a:focus-visible, [role="button"]:focus-visible { outline: 2px solid #F2B544; outline-offset: 2px; }
+  @media (max-width: 700px) {
+    .main-panel { padding: 14px 14px 28px !important; }
+    .top-toolbar { justify-content: flex-start !important; flex-wrap: wrap; }
+    .top-toolbar button { padding: 7px 11px !important; }
+  }
+  @media (prefers-reduced-motion: reduce) { .top-toolbar button, .sidebar button[data-nb-path], .sidebar button.gu[style*="text-align: left"] { transition: none; } .top-toolbar button:hover { transform: none; } }
+
 </style>
 </head>
 <body>
