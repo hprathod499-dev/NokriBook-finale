@@ -502,6 +502,17 @@
   .main-panel select option, .main-panel select optgroup { font-size: 14px; padding: 9px 14px !important; background-color: var(--bg-surface); color: var(--text-primary); }
   .main-panel select option:checked { background: var(--accent-light) linear-gradient(0deg, var(--accent-light), var(--accent-light)); color: var(--text-primary); font-weight: 700; }
   .main-panel select option:hover, .main-panel select option:focus { background: var(--bg-surface-2) linear-gradient(0deg, var(--bg-surface-2), var(--bg-surface-2)); color: var(--text-primary); }
+
+  /* ---- Custom dropdown list (main app) ---- */
+  .nb-dd { position: fixed; z-index: 9000; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 14px 38px rgba(30,23,18,.22), 0 2px 8px rgba(30,23,18,.10); padding: 6px; overflow-y: auto; overscroll-behavior: contain; font-size: 14px; color: var(--text-primary); animation: nbddIn .12s ease-out; -webkit-overflow-scrolling: touch; }
+  @keyframes nbddIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+  .nb-dd-i { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border-radius: 9px; cursor: pointer; line-height: 1.3; user-select: none; }
+  .nb-dd-i:hover, .nb-dd-i.hl { background: var(--bg-surface-2); }
+  .nb-dd-i.sel { background: color-mix(in srgb, var(--accent-strong) 16%, var(--bg-surface)); font-weight: 700; box-shadow: inset 3px 0 0 var(--accent-strong); }
+  .nb-dd-i.sel::after { content: "✓"; color: var(--accent-strong); font-weight: 800; }
+  .nb-dd-i.dis { opacity: .45; cursor: default; }
+  .nb-dd-g { padding: 8px 12px 4px; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--text-tertiary); }
+  @media (prefers-reduced-motion: reduce) { .nb-dd { animation: none; } }
 </style>
 </head>
 <body>
@@ -24998,6 +25009,73 @@ ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><Root
       if (document.visibilityState === "visible" && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ type: "nb-check-update" });
     });
   }
+</script>
+<script>
+/* Themed dropdown list: replaces the browser's plain select popup (main app only, not the crime register). */
+(function(){
+  if (/^\/crime(\/|$)/.test(location.pathname)) return;
+  var pop = null, cur = null, hl = -1, items = [];
+  function close(){ if (pop) { pop.remove(); pop = null; } if (cur) { cur = null; } hl = -1; items = []; }
+  function setVal(sel, v){
+    var d = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+    d.set.call(sel, v);
+    sel.dispatchEvent(new Event("input", { bubbles: true }));
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function mark(){ items.forEach(function(el, k){ el.classList.toggle("hl", k === hl); }); if (items[hl]) items[hl].scrollIntoView({ block: "nearest" }); }
+  function open(sel){
+    close(); cur = sel;
+    pop = document.createElement("div"); pop.className = "nb-dd"; pop.setAttribute("role", "listbox"); pop.setAttribute("data-nb-dd", "");
+    var r = sel.getBoundingClientRect();
+    function add(o, parent){
+      var el = document.createElement("div"); el.className = "nb-dd-i" + (o.selected ? " sel" : "") + (o.disabled ? " dis" : "");
+      el.setAttribute("role", "option"); el.textContent = o.text || "\u00A0";
+      if (!o.disabled) {
+        el.addEventListener("mousedown", function(e){ e.preventDefault(); e.stopPropagation(); var s = cur; close(); setVal(s, o.value); try { s.focus(); } catch(_){} });
+        items.push(el);
+      }
+      parent.appendChild(el);
+      if (o.selected) hl = items.indexOf(el);
+    }
+    Array.prototype.forEach.call(sel.children, function(c){
+      if (c.tagName === "OPTGROUP") {
+        var g = document.createElement("div"); g.className = "nb-dd-g"; g.textContent = c.label; pop.appendChild(g);
+        Array.prototype.forEach.call(c.children, function(o){ add(o, pop); });
+      } else if (c.tagName === "OPTION") add(c, pop);
+    });
+    document.body.appendChild(pop);
+    var vh = window.innerHeight, vw = window.innerWidth, gap = 6;
+    var below = vh - r.bottom - 12, above = r.top - 12;
+    var up = below < 200 && above > below;
+    pop.style.minWidth = Math.max(r.width, 140) + "px";
+    pop.style.maxWidth = Math.min(vw - 16, 360) + "px";
+    pop.style.maxHeight = Math.max(140, Math.min(340, up ? above : below)) + "px";
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.min(Math.max(8, r.left), vw - w - 8);
+    pop.style.left = left + "px";
+    pop.style.top = (up ? Math.max(8, r.top - h - gap) : r.bottom + gap) + "px";
+    mark();
+  }
+  document.addEventListener("mousedown", function(e){
+    var t = e.target;
+    if (pop && pop.contains(t)) return;
+    if (t && t.tagName === "SELECT" && !t.multiple && !(t.size > 1) && !t.disabled && !t.hasAttribute("data-night-select") && !t.closest(".crime-review-app")) {
+      e.preventDefault();
+      if (cur === t && pop) { close(); return; }
+      open(t); return;
+    }
+    close();
+  }, true);
+  document.addEventListener("keydown", function(e){
+    if (!pop) return;
+    if (e.key === "Escape") { e.preventDefault(); close(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); hl = Math.min(items.length - 1, hl + 1); mark(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); hl = Math.max(0, hl - 1); mark(); }
+    else if (e.key === "Enter" && items[hl]) { e.preventDefault(); items[hl].dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })); }
+  }, true);
+  window.addEventListener("resize", close);
+  window.addEventListener("scroll", function(e){ if (pop && !pop.contains(e.target)) close(); }, true);
+})();
 </script>
 </body>
 </html>
