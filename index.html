@@ -481,6 +481,20 @@
   }
   @media (prefers-reduced-motion: reduce) { .top-toolbar button, .sidebar button[data-nb-path], .sidebar button.gu[style*="text-align: left"] { transition: none; } .top-toolbar button:hover { transform: none; } }
 
+
+  /* ---- Lists & tables (main app only) ---- */
+  .main-panel table { border-collapse: separate !important; border-spacing: 0 !important; }
+  .main-panel table thead tr { background: var(--bg-surface-2) !important; }
+  .main-panel table th { font-size: 11px !important; font-weight: 700 !important; letter-spacing: .04em; color: var(--text-secondary) !important; padding-top: 12px !important; padding-bottom: 12px !important; border-bottom: 1px solid var(--border) !important; }
+  .main-panel table tbody td { padding-top: 12px !important; padding-bottom: 12px !important; vertical-align: middle !important; border-top: 0 !important; border-bottom: 1px solid var(--border-soft) !important; }
+  .main-panel table tbody tr:last-child td { border-bottom: 0 !important; }
+  .main-panel table tbody tr { transition: background .12s; }
+  .main-panel table tbody tr:hover { background: color-mix(in srgb, var(--accent-strong) 6%, transparent); }
+  .main-panel table td span[style*="dashed"] { border-bottom: 0 !important; text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 4px; }
+  .main-panel table td select { border-radius: 8px !important; padding: 6px 8px !important; background-color: var(--bg-surface) !important; border: 1px solid var(--border) !important; }
+  .main-panel table td button[style*="border-radius: 6"], .main-panel table td button.gu { border-radius: 8px !important; }
+  .main-panel table td span.gu[style*="border-radius: 6px"] { border-radius: 999px !important; padding: 4px 11px !important; }
+  .sidebar button.gu[style*="justify-content: space-between"] > span.mono:not(:first-child) { font-size: 11px; background: rgba(255,255,255,.09); border-radius: 999px; padding: 1px 8px; min-width: 20px; text-align: center; }
 </style>
 </head>
 <body>
