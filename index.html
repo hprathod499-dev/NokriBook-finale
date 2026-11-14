@@ -446,17 +446,17 @@
   @media (min-width: 701px) { .sidebar { box-shadow: 1px 0 0 rgba(255,255,255,0.05), 10px 0 34px -14px rgba(8,16,36,0.5); } }
   .sidebar > div[style*="border-bottom"] { border-bottom-color: rgba(255,255,255,0.08) !important; }
   .sidebar > div:first-child { padding: 20px 16px 16px !important; }
-  .sidebar button[data-nb-path], .sidebar button.gu[style*="text-align: left"] {
+  .sidebar button[data-nb-path], .sidebar button[data-nb-admin-nav], .sidebar button.gu[style*="text-align: left"] {
     position: relative; width: calc(100% - 20px) !important; margin: 1px 10px; border-radius: 10px !important;
     border-left: 0 !important; padding: 9px 12px 9px 14px !important; font-size: 13.5px !important;
     transition: background-color .15s ease, color .15s ease;
   }
-  .sidebar button[data-nb-path]:hover, .sidebar button.gu[style*="text-align: left"]:hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
-  .sidebar button[data-nb-path][style*="accent-strong"] {
+  .sidebar button[data-nb-path]:hover, .sidebar button[data-nb-admin-nav]:hover, .sidebar button.gu[style*="text-align: left"]:hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
+  .sidebar button[data-nb-path][style*="accent-strong"], .sidebar button[data-nb-admin-nav][style*="accent-strong"] {
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent-strong) 26%, transparent), color-mix(in srgb, var(--accent-strong) 7%, transparent)) !important;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 38%, transparent); color: #fff !important; font-weight: 600 !important;
   }
-  .sidebar button[data-nb-path][style*="accent-strong"]::before {
+  .sidebar button[data-nb-path][style*="accent-strong"]::before, .sidebar button[data-nb-admin-nav][style*="accent-strong"]::before {
     content: ""; position: absolute; left: 0; top: 22%; height: 56%; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent-strong);
   }
   .main-panel { padding-top: 22px !important; }
@@ -479,7 +479,7 @@
     .top-toolbar { justify-content: flex-start !important; flex-wrap: wrap; }
     .top-toolbar button { padding: 7px 11px !important; }
   }
-  @media (prefers-reduced-motion: reduce) { .top-toolbar button, .sidebar button[data-nb-path], .sidebar button.gu[style*="text-align: left"] { transition: none; } .top-toolbar button:hover { transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .top-toolbar button, .sidebar button[data-nb-path], .sidebar button[data-nb-admin-nav], .sidebar button.gu[style*="text-align: left"] { transition: none; } .top-toolbar button:hover { transform: none; } }
 
 
   /* ---- Lists & tables (main app only) ---- */
@@ -16604,7 +16604,7 @@ function DistrictOnDutyView({ data }) {
     </React.Fragment>
   );
 }
-function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, onSignOut }) {
+function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, onSignOut, side }) {
   const { t, lang, setLang } = useLang();
   const [open, setOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
@@ -16622,10 +16622,10 @@ function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, on
     <div ref={wrapRef} style={{ position: "relative", flexShrink: 0 }}>
       <button
         onClick={() => setOpen((v) => !v)} title={email || t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-label={t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-expanded={open}
-        style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", color: "var(--accent-text)", border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
-      >{((email || "?")[0] || "?").toUpperCase()}</button>
+        style={side === "left" ? { width: 32, height: 32, borderRadius: "50%", background: "#000000", border: "none", padding: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 } : { width: 32, height: 32, borderRadius: "50%", background: "var(--accent)", color: "var(--accent-text)", border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+      >{side === "left" ? <img src="/profile-icon.png" alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : ((email || "?")[0] || "?").toUpperCase()}</button>
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, minWidth: 220, maxWidth: "calc(100vw - 16px)", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", zIndex: 500, overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: "calc(100% + 8px)", ...(side === "left" && wrapRef.current ? { position: "fixed", top: wrapRef.current.getBoundingClientRect().bottom + 8, left: Math.max(8, wrapRef.current.getBoundingClientRect().left) } : { right: 0 }), color: "var(--text-primary)", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, minWidth: 220, maxWidth: "calc(100vw - 16px)", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", zIndex: 500, overflow: "hidden" }}>
           {email && <div style={{ padding: "10px 14px", fontSize: 11.5, color: "var(--text-tertiary)", borderBottom: "1px solid var(--border-soft)", wordBreak: "break-all" }}>{email}</div>}
           <button onClick={() => setLang(lang === "gu" ? "en" : "gu")} className="gu" style={{ ...pillBtn, borderBottom: "1px solid var(--border-soft)" }}>🌐 {lang === "gu" ? "English" : "ગુજરાતી"}</button>
           <button onClick={() => setDarkMode((d) => !d)} className="gu" style={{ ...pillBtn, borderBottom: "1px solid var(--border-soft)" }}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
@@ -16672,6 +16672,46 @@ function DistrictProfileMenu({ email, darkMode, setDarkMode, theme, setTheme, on
     </div>
   );
 }
+function NbAdminShell({ subtitle, title, items, email, darkMode, setDarkMode, theme, setTheme, onSignOut, viewKey, children }) {
+  const { t } = useLang();
+  const [mOpen, setMOpen] = useState(false);
+  const swipe = useSidebarSwipe(mOpen, setMOpen);
+  return (
+    <div className="app-shell district-admin-app" style={{ display: "flex", minHeight: "100vh", background: "var(--bg-page)" }} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd}>
+      <div className={"sidebar" + (mOpen ? " mobile-sidebar-open" : "")} style={{ width: 230, background: "var(--sidebar-bg)", color: "#EAEDEB", flexShrink: 0, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
+        <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1B2733", display: "flex", alignItems: "center", gap: 10 }}>
+          <DistrictProfileMenu side="left" email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={onSignOut} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="disp" style={{ fontSize: 15, fontWeight: 700 }}>Nokri Book</div>
+            <div style={{ fontSize: 11, color: "#8FA0AC", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} className="gu">{subtitle}</div>
+          </div>
+          <button
+            onClick={() => setMOpen(false)} className="mobile-menu-btn"
+            title={t("Close menu", "મેનૂ બંધ કરો")} aria-label={t("Close menu", "મેનૂ બંધ કરો")}
+            style={{ background: "transparent", border: "1px solid #2E3742", borderRadius: 6, color: "#B7C2CA", width: 26, height: 26, flexShrink: 0, fontSize: 13, padding: 0, alignItems: "center", justifyContent: "center" }}
+          >✕</button>
+        </div>
+        <div style={{ padding: "8px 0" }}>
+          {items.map((it) => (
+            <button key={it.key} data-nb-admin-nav={it.key} onClick={() => { it.onClick(); setMOpen(false); }} style={{ ...navBtn(it.active), display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }} className="gu">
+              <span>{it.icon} {it.label}</span>
+              {it.badge != null && <span className="mono" style={{ fontSize: 11, background: "var(--accent-strong)", color: "#fff", borderRadius: 999, padding: "1px 8px", minWidth: 20, textAlign: "center" }}>{it.badge}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMOpen(false)} />}
+      <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040, minWidth: 0 }}>
+        <button
+          onClick={() => setMOpen(true)} className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
+          style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
+        >☰</button>
+        {title && <h1 className="disp gu" style={{ fontSize: 24, fontWeight: 700, margin: "0 0 18px", color: "var(--text-primary)" }}>{title}</h1>}
+        <div key={viewKey || "v"} className="view-fade-in">{children}</div>
+      </div>
+    </div>
+  );
+}
 function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack, mobileOpen, onCloseMobile }) {
   const { t } = useLang();
   const categories = (data && data.categories) || [];
@@ -16680,7 +16720,7 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
     const count = (data.membership && data.membership[c.id] ? data.membership[c.id].length : 0);
     const active = view.mode === "category" && c.id === view.catId;
     return (
-      <button key={c.id} onClick={() => setView({ mode: "category", catId: c.id })} className="gu" style={{
+      <button key={c.id} data-nb-admin-nav="cat" onClick={() => setView({ mode: "category", catId: c.id })} className="gu" style={{
         width: "100%", textAlign: "left", background: active ? "#1B2733" : "transparent",
         border: "none", borderLeft: active ? "3px solid var(--accent-strong)" : "3px solid transparent",
         color: active ? "#fff" : "#B7C2CA", padding: "9px 16px 9px 13px", fontSize: 13,
@@ -16707,10 +16747,10 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
         >✕</button>
       </div>
       <div style={{ padding: "8px 0" }}>
-        <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
-        <button onClick={() => setView({ mode: "onDuty" })} style={navBtn(view.mode === "onDuty")} className="gu">🟢 {t("On duty", "ડ્યુટી પર")}</button>
-        <button onClick={() => setView({ mode: "fairness" })} style={navBtn(view.mode === "fairness")} className="gu">⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
-        <button onClick={() => setView({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Staff", "સ્ટાફ")}</button>
+        <button onClick={() => setView({ mode: "home" })} data-nb-admin-nav="1" style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
+        <button onClick={() => setView({ mode: "onDuty" })} data-nb-admin-nav="1" style={navBtn(view.mode === "onDuty")} className="gu">🟢 {t("On duty", "ડ્યુટી પર")}</button>
+        <button onClick={() => setView({ mode: "fairness" })} data-nb-admin-nav="1" style={navBtn(view.mode === "fairness")} className="gu">⚖ {t("Duty fairness", "ડ્યુટી ન્યાયીપણું")}</button>
+        <button onClick={() => setView({ mode: "staff" })} data-nb-admin-nav="1" style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Staff", "સ્ટાફ")}</button>
       </div>
       <div style={{ padding: "8px 0", flex: 1, overflowY: "auto" }}>
         <div style={{ padding: "4px 16px", fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, color: "#6B7A85", textTransform: "uppercase" }} className="gu">{t("Work types", "કામના પ્રકારો")}</div>
@@ -16718,9 +16758,9 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
         {categories.length === 0 && <div className="gu" style={{ padding: "8px 16px", fontSize: 12, color: "#6B7A85" }}>{t("No work types yet.", "હજુ કોઈ કામનો પ્રકાર નથી.")}</div>}
       </div>
       <div style={{ borderTop: "1px solid #1B2733", padding: "8px 0" }}>
-        <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
-        <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
-        <button onClick={() => setView({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
+        <button onClick={() => setView({ mode: "calendar" })} data-nb-admin-nav="1" style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
+        <button onClick={() => setView({ mode: "report" })} data-nb-admin-nav="1" style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
+        <button onClick={() => setView({ mode: "skipHistory" })} data-nb-admin-nav="1" style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
       </div>
     </div>
   );
@@ -16824,7 +16864,7 @@ function MasterLocationsEditor() {
     : newStationsText.trim().length > 0;
 
   return (
-    <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
+    <div style={{ maxWidth: 760 }}>
       <div className="gu" style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16, lineHeight: 1.5 }}>
         {t("Districts added here become selectable for every station signing up or editing Settings, app-wide, without needing a new release.", "અહીં ઉમેરેલા જિલ્લા આખી એપમાં દરેક નવા સાઇનઅપ કે Settings માટે તરત પસંદ કરી શકાય તેવા બને છે — નવી રિલીઝ વગર.")}
       </div>
@@ -17046,26 +17086,13 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
   }, [theme]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🛡️ {t("Super Admin", "સુપર એડમિન")}</div>
-          <div style={{ display: "flex", gap: 4 }}>
-            <button
-              onClick={() => setTab("pending")} className="gu"
-              style={{ fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", background: tab === "pending" ? "var(--accent)" : "transparent", color: tab === "pending" ? "var(--accent-text)" : "var(--text-secondary)" }}
-            >{t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ")}{pending && pending.length > 0 ? ` (${pending.length})` : ""}</button>
-            <button
-              onClick={() => setTab("locations")} className="gu"
-              style={{ fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", background: tab === "locations" ? "var(--accent)" : "transparent", color: tab === "locations" ? "var(--accent-text)" : "var(--text-secondary)" }}
-            >{t("Station master list", "સ્ટેશન માસ્ટર યાદી")}</button>
-          </div>
-        </div>
-        <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
-      </div>
+    <NbAdminShell subtitle={t("Super Admin", "સુપર એડમિન")} title={tab === "pending" ? t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ") : t("Station master list", "સ્ટેશન માસ્ટર યાદી")} items={[
+      { key: "pending", icon: "⏳", label: t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ"), badge: pending && pending.length > 0 ? pending.length : null, active: tab === "pending", onClick: () => setTab("pending") },
+      { key: "locations", icon: "🗂️", label: t("Station master list", "સ્ટેશન માસ્ટર યાદી"), active: tab === "locations", onClick: () => setTab("locations") },
+    ]} email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} viewKey={tab}>
       {tab === "locations" && <MasterLocationsEditor />}
       {tab === "pending" && (
-      <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
+      <div className="nb-stagger" style={{ maxWidth: 760 }}>
         {pending === null && (
           <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
         )}
@@ -17104,7 +17131,7 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
         })}
       </div>
       )}
-    </div>
+    </NbAdminShell>
   );
 }
 
@@ -24664,12 +24691,8 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
 
   if (!selectedUid) {
     return (
-      <div className="district-admin-app" style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "16px 24px", borderBottom: "1px solid var(--border)", background: "var(--bg-surface)", flexWrap: "wrap" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }} className="gu">🏢 {districtId} — {t("District Dashboard", "જિલ્લા ડેશબોર્ડ")}</div>
-          <DistrictProfileMenu email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} />
-        </div>
-        <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
+      <NbAdminShell subtitle={(districtId || "") + " — " + t("District Dashboard", "જિલ્લા ડેશબોર્ડ")} title={t("District stations", "જિલ્લાના સ્ટેશનો")} items={[{ key: "stations", icon: "🏢", label: t("District stations", "જિલ્લાના સ્ટેશનો"), active: true, onClick: () => {} }]} email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser}>
+        <div className="nb-stagger" style={{ maxWidth: 760 }}>
           {stations === null && (
             <div style={{ textAlign: "center", color: "var(--text-secondary)", padding: 40 }} className="gu">{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
           )}
@@ -24803,7 +24826,7 @@ function DistrictAdminApp({ districtId, email, signOutUser, darkMode, setDarkMod
             </div>
           </div>
         )}
-      </div>
+      </NbAdminShell>
     );
   }
 
