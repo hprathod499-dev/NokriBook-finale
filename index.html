@@ -11808,6 +11808,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   const [search, setSearch] = useState(initialSearch || "");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
+  const [showTools, setShowTools] = useState(() => !!initialSearch);
   const [sortBy, setSortBy] = useState("designation");
   const [modalFor, setModalFor] = useState(null);
   const [modalKind, setModalKind] = useState("Leave");
@@ -11969,6 +11970,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
       <div data-tour="nb-tour-staff-content" style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20, gap: 4 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
+        <span style={{ marginLeft: 6 }}><NbStaffToolsToggle open={showTools} setOpen={setShowTools} active={!!(search || desgFilter)} /></span>
         <button
           onClick={() => setShowFullActions((v) => !v)}
           title={t("Show Edit name and Remove entirely for each person in the table below", "નીચેના કોષ્ટકમાં દરેક વ્યક્તિ માટે નામ સંપાદિત કરો અને સંપૂર્ણપણે કાઢી નાખો બતાવો")}
@@ -12007,6 +12009,8 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
         </p>
       )}
 
+      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
+      {showTools && <React.Fragment>
       <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input
           type="text"
@@ -12045,7 +12049,6 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
         />
       </div>
 
-      {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
 
       {showFairnessCompare && (
         <DutyFairnessCompare data={data} staffList={staffList} currentMonth={currentMonth} onSelectPerson={setHistoryPersonNumber} />
@@ -12058,6 +12061,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-success-text)", display: "inline-block" }} />{t("Least busy", "સૌથી ઓછું વ્યસ્ત")}</span>
         <span style={{ color: "var(--text-tertiary)" }}>{t("— relative to everyone shown, this month", "— આ મહિને બતાવેલ બધાની સાપેક્ષે")}</span>
       </div>
+      </React.Fragment>}
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
         <div style={{ overflowX: "auto" }}>
@@ -16569,6 +16573,16 @@ function PublicCategoryView({ data, catId }) {
   );
 }
 
+// "Search & filters" button next to a staff page title: the search box, filters, sort and fairness stay hidden until it is opened
+function NbStaffToolsToggle({ open, setOpen, active }) {
+  const { t } = useLang();
+  return (
+    <button type="button" data-staff-tools aria-expanded={open} onClick={() => setOpen((v) => !v)} title={t("Search, filters and duty fairness", "શોધ, ફિલ્ટર અને ડ્યુટી ન્યાયીપણું")} className="gu"
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, padding: "5px 11px", borderRadius: 999, cursor: "pointer", whiteSpace: "nowrap", border: "1px solid " + (open || active ? "var(--accent-strong)" : "var(--border)"), background: open ? "var(--accent-light)" : "var(--bg-surface)", color: "var(--text-primary)" }}>
+      🔍 {t("Search & filters", "શોધ અને ફિલ્ટર")}<span aria-hidden="true" style={{ fontSize: 9, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }}>▼</span>
+    </button>
+  );
+}
 function PublicStaffView({ data }) {
   const { t } = useLang();
   const [search, setSearch] = useState("");
@@ -16622,10 +16636,7 @@ function PublicStaffView({ data }) {
     <React.Fragment>
       <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 16px" }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Staff", "સ્ટાફ")}</h1>
-        <button type="button" data-staff-tools aria-expanded={showTools} onClick={() => setShowTools((v) => !v)} title={t("Search, filters and duty fairness", "શોધ, ફિલ્ટર અને ડ્યુટી ન્યાયીપણું")} className="gu"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, padding: "5px 11px", borderRadius: 999, cursor: "pointer", border: "1px solid " + (showTools || search || desgFilter ? "var(--accent-strong)" : "var(--border)"), background: showTools ? "var(--accent-light)" : "var(--bg-surface)", color: "var(--text-primary)" }}>
-          🔍 {t("Search & filters", "શોધ અને ફિલ્ટર")}<span aria-hidden="true" style={{ fontSize: 9, transition: "transform .15s", transform: showTools ? "rotate(180deg)" : "none" }}>▼</span>
-        </button>
+        <NbStaffToolsToggle open={showTools} setOpen={setShowTools} active={!!(search || desgFilter)} />
       </div>
       {showTools && <React.Fragment>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
@@ -16729,6 +16740,7 @@ function DistrictStaffView({ data }) {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
+  const [showTools, setShowTools] = useState(false);
   const [sortBy, setSortBy] = useState("designation");
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
 
@@ -16773,7 +16785,11 @@ function DistrictStaffView({ data }) {
 
   return (
     <React.Fragment>
-      <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 16px" }}>{t("Staff", "સ્ટાફ")}</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 16px" }}>
+      <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Staff", "સ્ટાફ")}</h1>
+        <NbStaffToolsToggle open={showTools} setOpen={setShowTools} active={!!(search || desgFilter)} />
+      </div>
+      {showTools && <React.Fragment>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <input
           type="text" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -16802,6 +16818,7 @@ function DistrictStaffView({ data }) {
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-success-text)", display: "inline-block" }} />{t("Least busy", "સૌથી ઓછું વ્યસ્ત")}</span>
         <span style={{ color: "var(--text-tertiary)" }}>{t("— relative to everyone shown, this month", "— આ મહિને બતાવેલ બધાની સાપેક્ષે")}</span>
       </div>
+      </React.Fragment>}
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
