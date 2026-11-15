@@ -238,13 +238,15 @@ service cloud.firestore {
 
 
     // ============================================================
-    // SHARE LINK CODE (4 digits, changes by itself every 48 hours)
+    // SHARE LINK CODE (6 digits, changes by itself every 48 hours)
     //   shareKeys/{token}   = { owner, key, at }  secret key, owner only
     //   shareTries/{token}  = { uid, gh, p, fails, last }  one guess at a time,
     //                         waits grow: 3 s, then 1 min, then 1 hour
     //   shareGrants/{uid_token} = { uid, token, code, num, at }  "this device may view"
     //   (num = the viewer's buckle number; it must be on the station's staff list, shareKeys.nums)
-    // The code = first 4 digits of sha256(key + '|' + period), period = 48 h.
+    //   shareSeats/{token}_{num} = { token, num, uids }  the phones (anonymous uids) signed in
+    //                         with this buckle number: at most 2. The owner can free a phone (delete).
+    // The code = first 6 digits of sha256(key + '|' + period), period = 48 h.
     // ============================================================
     function sharePeriod() {
       return int(math.floor(request.time.toMillis() / 172800000.0));
@@ -255,7 +257,7 @@ service cloud.firestore {
     function shareCodeOk(token, c) {
       let key = get(/databases/$(database)/documents/shareKeys/$(token)).data.key;
       let per = sharePeriod();
-      return c is string && c.matches('[0-9]{4}')
+      return c is string && c.matches('[0-9]{6}')
         && (shareDigits(key, per).matches(c + '.*')
             // the old code still works for 1 hour after it changes
             || (request.time.toMillis() - per * 172800000 < 3600000
@@ -308,7 +310,7 @@ service cloud.firestore {
           && resource.data.uid == request.auth.uid
           && d.fails == 0
           && d.diff(resource.data).affectedKeys().hasOnly(['fails'])
-          && existsAfter(g) && !exists(g);
+          && existsAfter(g) && getAfter(g).data.at == request.time;
       }
       allow get: if signedIn() && triesOwner() == request.auth.uid;
       allow list: if false;
@@ -339,18 +341,57 @@ service cloud.firestore {
       }
     }
 
+    // At most 2 phones per buckle number (or per mobile number for officers without one).
+    function seatPath(token, num) {
+      return /databases/$(database)/documents/shareSeats/$(token + '_' + num);
+    }
+    match /shareSeats/{sid} {
+      function seatShape(d) {
+        return d.keys().hasOnly(['token', 'num', 'uids'])
+          && d.token is string && d.num is string && d.num.matches('[0-9A-Z]{1,12}')
+          && sid == d.token + '_' + d.num
+          && d.uids is list;
+      }
+      // only together with a share grant written in the same batch (which checks the code)
+      function seatGrantOk(d) {
+        let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + d.token);
+        return existsAfter(g) && getAfter(g).data.num == d.num && getAfter(g).data.at == request.time;
+      }
+      function seatOwner(token) {
+        return get(/databases/$(database)/documents/shareKeys/$(token)).data.owner;
+      }
+      allow get: if signedIn();
+      allow list: if signedIn() && seatOwner(resource.data.token) == request.auth.uid;
+      allow create: if signedIn()
+        && seatShape(request.resource.data)
+        && request.resource.data.num in get(/databases/$(database)/documents/shareKeys/$(request.resource.data.token)).data.get('nums', {})
+        && request.resource.data.uids == [request.auth.uid]
+        && seatGrantOk(request.resource.data);
+      allow update: if signedIn()
+        && seatShape(request.resource.data)
+        && request.resource.data.token == resource.data.token
+        && request.resource.data.num == resource.data.num
+        && resource.data.uids.size() < 2
+        && !(request.auth.uid in resource.data.uids)
+        && request.resource.data.uids == resource.data.uids.concat([request.auth.uid])
+        && seatGrantOk(request.resource.data);
+      allow delete: if signedIn() && seatOwner(resource.data.token) == request.auth.uid;
+    }
+
     match /shareGrants/{gid} {
       allow get: if signedIn() && resource.data.uid == request.auth.uid;
       allow list: if false;
-      allow create: if signedIn()
+      // update = the same phone signing in again (e.g. after the owner freed it, or with a new code)
+      allow create, update: if signedIn()
         && request.resource.data.keys().hasOnly(['uid', 'token', 'code', 'num', 'at'])
         && request.resource.data.num is string && request.resource.data.num.matches('[0-9A-Z]{1,12}')
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.token is string
         && gid == request.auth.uid + '_' + request.resource.data.token
         && request.resource.data.at == request.time
-        && shareGrantCodeOk(request.resource.data.token, request.resource.data.code, request.resource.data.num);
-      allow update, delete: if false;
+        && shareGrantCodeOk(request.resource.data.token, request.resource.data.code, request.resource.data.num)
+        && request.auth.uid in getAfter(seatPath(request.resource.data.token, request.resource.data.num)).data.get('uids', []);
+      allow delete: if false;
 
       function shareGrantCodeOk(token, c, num) {
         let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
@@ -368,7 +409,7 @@ service cloud.firestore {
     // token = random 32 chars, new one every time Share is turned on
     // ============================================================
     match /sharedRosters/{token} {
-      // Only people who entered the 4-digit share code on this device (shareGrants),
+      // Only people who entered the 6-digit share code on this device (shareGrants) and hold one of the 2 phone seats,
       // or the station's own owner / editors. A link that no longer exists just shows "not available".
       // only a phone that entered a buckle number still on the staff list + the right code
       // (shareGrants), or the station's own owner / editors
@@ -376,8 +417,11 @@ service cloud.firestore {
         || (signedIn() && (shareViewerOk(token) || canEditStation(resource.data.owner)));
       function shareViewerOk(token) {
         let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token);
-        return exists(g)
-          && get(g).data.get('num', '') in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {});
+        return exists(g) && shareSeatOk(token, get(g).data.get('num', ''));
+      }
+      function shareSeatOk(token, num) {
+        return num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {})
+          && request.auth.uid in get(seatPath(token, num)).data.get('uids', []);
       }
       allow list: if false;        // nobody can enumerate links
 

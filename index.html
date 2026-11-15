@@ -513,6 +513,14 @@
   .nb-dd-i.dis { opacity: .45; cursor: default; }
   .nb-dd-g { padding: 8px 12px 4px; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--text-tertiary); }
   @media (prefers-reduced-motion: reduce) { .nb-dd { animation: none; } }
+
+  /* ---- Share-link viewer greeting & welcome ---- */
+  .nb-hero-chip { display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #EDE5DA; }
+  .nb-welcome-badge { animation: nbBadgeIn .7s cubic-bezier(.2,1.4,.4,1) .1s both; }
+  .nb-welcome-badge::after { content: ""; position: absolute; inset: -14px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--accent-strong) 38%, transparent), transparent 65%); z-index: -1; animation: nbBadgeGlow 2.4s ease-in-out .8s infinite alternate; }
+  @keyframes nbBadgeIn { from { opacity: 0; transform: scale(.4) rotate(-12deg); } to { opacity: 1; transform: none; } }
+  @keyframes nbBadgeGlow { from { opacity: .45; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .nb-welcome-badge, .nb-welcome-badge::after { animation: none; } }
 </style>
 </head>
 <body>
@@ -811,7 +819,7 @@ try { localStorage.removeItem("nb_auto_backup"); } catch (e) {}
   });
 })();
 const LEGACY_DOC_REF = db.collection("duty-roster").doc("data");
-// ---- Share-link code: 4 digits, changes by itself every 48 hours. Worked out from a secret key that only the station
+// ---- Share-link code: 6 digits, changes by itself every 48 hours. Worked out from a secret key that only the station
 // owner can read (shareKeys/{token}); Firebase checks the code itself, and wrong tries are slowed down more and more.
 const NB_SHARE_PERIOD_MS = 48 * 60 * 60 * 1000;
 function nbSharePeriod(ms) { return Math.floor((ms || Date.now()) / NB_SHARE_PERIOD_MS); }
@@ -819,7 +827,7 @@ async function nbSha256Hex(str) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(str)));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-async function nbShareCodeFor(key, period) { return (await nbSha256Hex(key + "|" + period)).replace(/[a-f]/g, "").slice(0, 4); }
+async function nbShareCodeFor(key, period) { return (await nbSha256Hex(key + "|" + period)).replace(/[a-f]/g, "").slice(0, 6); }
 async function nbEnsureShareKey(ownerUid, token) {
   if (!ownerUid || !token) return null;
   const ref = db.collection("shareKeys").doc(token);
@@ -830,6 +838,12 @@ async function nbEnsureShareKey(ownerUid, token) {
   return key;
 }
 function nbFv() { return firebase.firestore.FieldValue; }
+// At most this many phones can open a station's share link with the same buckle number (shareSeats/{token}_{num}).
+const NB_SEATS_PER_HEAD = 2;
+function nbSeatsFullMsg(t) {
+  return t("This buckle number is already signed in on 2 phones. Ask the station to free one of them (Share → Share link code → Phones signed in).",
+    "આ બકલ નંબરથી પહેલેથી 2 ફોનમાં લોગિન થયેલ છે. તેમાંથી એક ફોન છૂટો કરવા સ્ટેશનને કહો (શેર → શેર લિંક કોડ → લોગિન થયેલા ફોન).");
+}
 // buckle number as typed by a viewer / as stored: digits and letters only, upper case
 function nbShareNum(n) {
   const x = nbAsciiDigits(String(n == null ? "" : n)).toUpperCase().replace(/[^0-9A-Z]/g, "");
@@ -3505,7 +3519,7 @@ function LangToggle() {
     </div>
   );
 }
-function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView, onSettings }) {
+function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView, onSettings, who, tourId }) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
@@ -3539,7 +3553,7 @@ function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView,
     <React.Fragment>
       <button
         ref={btnRef}
-        onClick={toggleOpen} title={(user && user.email) || t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-label={t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-expanded={open}
+        onClick={toggleOpen} title={(who && who.name) || (user && user.email) || t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-label={t("Profile menu", "પ્રોફાઇલ મેનૂ")} aria-expanded={open} data-tour={tourId}
         style={{
           width: 32, height: 32, borderRadius: "50%", background: "#000000", border: "none", padding: 0, overflow: "hidden",
           display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
@@ -3552,6 +3566,12 @@ function ProfileMenu({ user, darkMode, setDarkMode, desktopView, setDesktopView,
           maxHeight: "calc(100vh - 24px)", overflowY: "auto", overflowX: "hidden",
           boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
         }}>
+          {who && (
+            <div data-profile-who style={{ padding: "12px 14px", borderBottom: "1px solid #2E241A" }}>
+              <div className="gu" style={{ fontSize: 13.5, fontWeight: 700, color: "#fff", lineHeight: 1.3 }}>{who.name}</div>
+              <div className="gu" style={{ fontSize: 11.5, color: "#9C8B72", marginTop: 3 }}>{[who.designation, nbHasBuckle(who.number) ? t("Buckle no. ", "બકલ નં. ") + who.number : ""].filter(Boolean).join(" · ")}</div>
+            </div>
+          )}
           <button onClick={() => setDarkMode((d) => !d)} className="gu" style={{ ...pillBtn, borderBottom: "1px solid #2E241A" }}>{darkMode ? "☀ " + t("Light mode", "લાઇટ મોડ") : "🌙 " + t("Dark mode", "ડાર્ક મોડ")}</button>
           {setDesktopView && (
             <button
@@ -5918,13 +5938,13 @@ useEffect(() => {
   useEffect(() => {
     if (!NB_SHARE_ON || !data || !accountUid || myRole !== "owner" || !data.shareEnabled || !data.shareToken) return;
     const tok = data.shareToken;
-    const nums = Array.from(new Set(Object.values(data.staff || {}).flatMap((st) => [nbHasBuckle(st.number) ? nbShareNum(st.number) : "", st.phone ? nbShareNum(st.phone) : ""]).filter(Boolean))).sort();
+    const nums = Array.from(new Set(Object.values(data.staff || {}).flatMap((st) => [nbHasBuckle(st.number) ? nbShareNum(st.number) : (st.phone ? nbShareNum(st.phone) : "")]).filter(Boolean))).sort();
     const sig = nbHash(nums.join(","));
-    if (nbLsGet("nb_sk_" + tok) === sig) return;
+    if (nbLsGet("nb_sk2_" + tok) === sig) return;
     const tm = setTimeout(() => {
       nbEnsureShareKey(accountUid, tok)
-        .then(() => db.collection("shareKeys").doc(tok).set({ nums: Object.fromEntries(nums.map((n) => [n, true])) }, { merge: true }))
-        .then(() => nbLsSet("nb_sk_" + tok, sig))
+        .then(() => db.collection("shareKeys").doc(tok).update({ nums: Object.fromEntries(nums.map((n) => [n, true])) }))
+        .then(() => nbLsSet("nb_sk2_" + tok, sig))
         .catch((e) => console.warn("share key", e && e.code));
     }, 2500);
     return () => clearTimeout(tm);
@@ -7931,6 +7951,7 @@ const clearCategoryHistory = (catId) => {
           getShareUrl={ensureShareUrl}
           shareToken={data.shareToken}
           ownerUid={accountUid}
+          staff={data.staff}
           stationName={data.stationName}
           onStop={null}
           onClose={() => setShowSharePanel(false)}
@@ -11688,9 +11709,9 @@ function BandobastView({ data, openId, onOpen, saveBandobast, deleteBandobast, a
                 <div style={{ padding: 18, display: "grid", gap: 14 }}>
                 <div>
                   <label className="gu" style={lab}>{t("Work type", "કામનો પ્રકાર")}</label>
-                <select value={recCat} onChange={(e) => { setRecCat(e.target.value); if (!recFrom) { const tt = draft.to || draft.from; setRecFrom(draft.from); setRecTo(tt); setRecMode(tt !== draft.from ? "multi" : "one"); } }} className="gu" style={full} data-bb-cat2>
-                  <option value="">{t("Choose work type…", "કામનો પ્રકાર પસંદ કરો…")}</option>
-                  {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                <select value={recCat} onChange={(e) => { setRecCat(e.target.value); if (!recFrom) { const tt = draft.to || draft.from; setRecFrom(draft.from); setRecTo(tt); setRecMode(tt !== draft.from ? "multi" : "one"); } }} className="gu" style={full} data-bb-cat2>
+                  <option value="">{t("Choose work type…", "કામનો પ્રકાર પસંદ કરો…")}</option>
+                  {(data.categories || []).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -14497,7 +14518,77 @@ function ReminderPanel({ reminders, onAcknowledge, onClose, onOpenEvents, notifP
   );
 }
 
-function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, stationName, onStop, onClose, showToast }) {
+// Owner side of the 2-phones-per-buckle-number limit: who is signed in through the share link, and "free a phone".
+function ShareSeatsList({ token, staff, showToast }) {
+  const { t } = useLang();
+  const [open, setOpen] = useState(false);
+  const [seats, setSeats] = useState(null);
+  const [q, setQ] = useState("");
+  const load = useCallback(async () => {
+    if (!token) return;
+    setSeats(null);
+    try {
+      const snap = await db.collection("shareSeats").where("token", "==", token).get();
+      setSeats(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => Array.isArray(x.uids) && x.uids.length));
+    } catch (e) {
+      // if the list isn't allowed, look up each staff member's seat one by one
+      try {
+        const nums = Array.from(new Set(Object.values(staff || {}).map((st) => (nbHasBuckle(st.number) ? nbShareNum(st.number) : (st.phone ? nbShareNum(st.phone) : ""))).filter(Boolean)));
+        const out = [];
+        for (let i = 0; i < nums.length; i += 25) {
+          const snaps = await Promise.all(nums.slice(i, i + 25).map((n) => db.collection("shareSeats").doc(token + "_" + n).get().catch(() => null)));
+          snaps.forEach((d) => { if (d && d.exists) out.push({ id: d.id, ...d.data() }); });
+        }
+        setSeats(out.filter((x) => Array.isArray(x.uids) && x.uids.length));
+      } catch (e2) { console.warn("seats", e && e.code); setSeats("err"); }
+    }
+  }, [token, staff]);
+  useEffect(() => { if (open) load(); }, [open, load]);
+  const whoOf = (num) => {
+    const list = Object.values(staff || {});
+    return list.find((x) => nbHasBuckle(x.number) && nbShareNum(x.number) === num) || list.find((x) => x.phone && nbShareNum(x.phone) === num) || null;
+  };
+  const free = async (seat) => {
+    const w = whoOf(seat.num);
+    if (!window.confirm(t(`Free all phones of ${w ? w.name : seat.num}? They will need the share code again to open the link.`, `${w ? w.name : seat.num} ના બધા ફોન છૂટા કરવા છે? લિંક ખોલવા તેમને ફરી શેર કોડ જોઈશે.`))) return;
+    try { await db.collection("shareSeats").doc(seat.id).delete(); showToast && showToast(t("Phones freed", "ફોન છૂટા થયા")); load(); }
+    catch (e) { showToast && showToast(t("Couldn't free — check the internet.", "છૂટા ન થયા — ઇન્ટરનેટ તપાસો.")); }
+  };
+  const rows = Array.isArray(seats) ? seats.map((x) => ({ ...x, who: whoOf(x.num) })).filter((x) => !q || nbSrch((x.who && x.who.name) || "", q) || nbSrch(x.num, q))
+    .sort((a, b) => ((a.who && a.who.name) || a.num).localeCompare((b.who && b.who.name) || b.num)) : [];
+  return (
+    <div data-share-seats style={{ marginTop: 10, borderTop: "1px solid var(--border-soft)", paddingTop: 8, textAlign: "left" }}>
+      <button type="button" onClick={() => setOpen((v) => !v)} data-share-seats-btn className="gu" style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "transparent", border: "none", padding: "4px 2px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)", cursor: "pointer" }}>
+        <span>📱 {t("Phones signed in", "લોગિન થયેલા ફોન")}</span>
+        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div style={{ fontSize: 12 }}>
+          <div style={{ color: "var(--text-secondary)", margin: "2px 2px 6px", lineHeight: 1.45 }}>{t("Each buckle number can open the link on 2 phones at most. Free a person's phones if they changed phone.", "દરેક બકલ નંબરથી વધુમાં વધુ 2 ફોનમાં લિંક ખુલે. ફોન બદલ્યો હોય તો તેમના ફોન છૂટા કરો.")}</div>
+          {seats === null ? <div style={{ color: "var(--text-secondary)", padding: 4 }}>…</div>
+            : seats === "err" ? <div style={{ color: "var(--status-error-text)", padding: 4 }}>{t("Couldn't load the list.", "યાદી લોડ ન થઈ.")}</div>
+            : seats.length === 0 ? <div style={{ color: "var(--text-tertiary)", padding: 4 }}>{t("No one has signed in through the link yet.", "હજુ સુધી લિંકથી કોઈએ લોગિન કર્યું નથી.")}</div>
+            : <React.Fragment>
+                {seats.length > 6 && <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search name / buckle no.", "નામ / બકલ નં. શોધો")} className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, padding: "6px 8px", borderRadius: 8, marginBottom: 6 }} />}
+                <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                  {rows.map((x) => (
+                    <div key={x.id} data-seat-row style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: "1px solid var(--border-soft)" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="gu" style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.who ? x.who.name : "—"}</div>
+                        <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{x.num} · {x.uids.length}/{NB_SEATS_PER_HEAD} {t("phones", "ફોન")}</div>
+                      </div>
+                      <button type="button" onClick={() => free(x)} data-seat-free className="gu" style={{ fontSize: 11.5, padding: "4px 9px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--status-error-text)", cursor: "pointer", flexShrink: 0 }}>{t("Free", "છૂટા કરો")}</button>
+                    </div>
+                  ))}
+                </div>
+              </React.Fragment>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, staff, stationName, onStop, onClose, showToast }) {
   const { t, lang } = useLang();
   useEscToClose(onClose);
   const [pos, setPos] = useState(null);
@@ -14537,8 +14628,8 @@ function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, stationName, o
   const shareWhatsApp = () => {
     const url = getShareUrl();
     const msg = t(
-      `${stationName ? stationName + " — " : ""}Nokri Book duty roster (view only):\n${url}\nAsk the station for the 4-digit share code to open it.`,
-      `${stationName ? stationName + " — " : ""}નોકરી બુક ડ્યુટી રોસ્ટર (ફક્ત જોવા માટે):\n${url}\nખોલવા માટે સ્ટેશન પાસેથી ૪ આંકડાનો શેર કોડ મેળવો.`
+      `${stationName ? stationName + " — " : ""}Nokri Book duty roster (view only):\n${url}\nAsk the station for the 6-digit share code to open it.`,
+      `${stationName ? stationName + " — " : ""}નોકરી બુક ડ્યુટી રોસ્ટર (ફક્ત જોવા માટે):\n${url}\nખોલવા માટે સ્ટેશન પાસેથી ૬ આંકડાનો શેર કોડ મેળવો.`
     );
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank", "noopener");
     onClose();
@@ -14588,6 +14679,7 @@ function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, stationName, o
                   <div className="mono" data-share-code style={{ fontSize: 34, fontWeight: 700, letterSpacing: 8, margin: "2px 0 4px" }}>{code}</div>
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{t("Changes by itself on", "આપોઆપ બદલાશે")} {formatDMY(new Date(nextChange - new Date(nextChange).getTimezoneOffset() * 60000).toISOString().slice(0, 10))} {new Date(nextChange).toTimeString().slice(0, 5)}</div>
                   <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 6, lineHeight: 1.45 }}>{t("Give this code only to people who should see the roster. A phone asks for it once; after that it opens without the code.", "આ કોડ ફક્ત રોસ્ટર જોવાના હોય તેમને જ આપો. ફોનમાં એક જ વાર પૂછાશે; પછી કોડ વગર ખુલશે.")}</div>
+                  <ShareSeatsList token={shareToken} staff={staff} showToast={showToast} />
                   {tries != null && tries > 0 && <div style={{ fontSize: 11.5, color: tries >= 5 ? "var(--status-error-text)" : "var(--text-secondary)", marginTop: 6 }}>{t(`Recent tries with a wrong code: ${tries}`, `તાજેતરમાં ખોટા કોડના પ્રયાસ: ${tries}`)}</div>}
                   <button type="button" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(code).then(() => showToast(t("Code copied", "કોડ કોપી થયો"))).catch(() => {}); }} style={{ marginTop: 8, fontSize: 12.5, borderRadius: 8, padding: "5px 12px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 600 }}>{t("Copy code", "કોડ કોપી કરો")}</button>
                 </React.Fragment>}
@@ -14603,7 +14695,7 @@ function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, stationName, o
   );
 }
 
-// Asks a viewer of a share link for the 4-digit code once per device.
+// Asks a viewer of a share link for the 6-digit code once per device (at most 2 phones per buckle number).
 function ShareCodeGate({ token, fb, onUnlocked }) {
   const { t, lang, setLang } = useLang();
   const [step, setStep] = useState("num");
@@ -14629,6 +14721,11 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
         setDbg("2:" + ((e3 && e3.code) || "x"));
         setMsg(["err", t("This number is not on this police station's staff list.", "આ નંબર આ પોલીસ સ્ટેશનની સ્ટાફ યાદીમાં નથી.")]); setBusy(false); return;
       }
+      try {
+        const seat = await vDb.collection("shareSeats").doc(token + "_" + bn).get();
+        const su = (seat.exists && Array.isArray(seat.data().uids)) ? seat.data().uids : [];
+        if (su.length >= NB_SEATS_PER_HEAD && su.indexOf(uid) === -1) { setMsg(["err", nbSeatsFullMsg(t)]); setBusy(false); return; }
+      } catch (e4) { setDbg("3:" + ((e4 && e4.code) || "x")); }
       setStep("code"); setCode("");
     } catch (e) {
       setDbg("0:" + ((e && e.code) || (e && e.message) || "x"));
@@ -14645,7 +14742,7 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
     const c = nbAsciiDigits(code).replace(/\D/g, "");
     const bn = nbShareNum(num);
     if (!bn) { setStep("num"); setMsg(["err", t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.")]); return; }
-    if (c.length !== 4) { setMsg(["err", t("Enter the 4-digit code.", "૪ આંકડાનો કોડ લખો.")]); return; }
+    if (c.length !== 6) { setMsg(["err", t("Enter the 6-digit code.", "૬ આંકડાનો કોડ લખો.")]); return; }
     setBusy(true); setMsg(null); setDbg("");
     try {
       const vAuth = (fb && fb.auth) || auth, vDb = (fb && fb.db) || db;
@@ -14659,11 +14756,17 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
         try { await ref.set({ ...base, fails: 1 }); counted = true; } catch (e2) { counted = false; errCode = "1:" + ((e2 && e2.code) || "x"); }
       }
       if (!counted) { setDbg(errCode); setMsg(["wait", t("Too many tries. Please wait a while and try again (the wait gets longer with each wrong code).", "ઘણા પ્રયાસ થયા. થોડી વાર રાહ જોઈ ફરી પ્રયાસ કરો (દરેક ખોટા કોડ પછી રાહ વધતી જાય છે).")]); setBusy(false); return; }
+      const seatRef = vDb.collection("shareSeats").doc(token + "_" + bn);
+      let su = null;
+      try { const seat = await seatRef.get(); su = (seat.exists && Array.isArray(seat.data().uids)) ? seat.data().uids : []; } catch (e5) { su = []; }
+      if (su.length >= NB_SEATS_PER_HEAD && su.indexOf(uid) === -1) { setMsg(["err", nbSeatsFullMsg(t)]); setBusy(false); return; }
       const batch = vDb.batch();
+      if (su.indexOf(uid) === -1) batch.set(seatRef, { token, num: bn, uids: su.concat([uid]) });
       batch.set(vDb.collection("shareGrants").doc(uid + "_" + token), { uid, token, code: c, num: bn, at: FV.serverTimestamp() });
       batch.update(ref, { fails: 0 });
       try { await batch.commit(); } catch (e3) { errCode = "2:" + ((e3 && e3.code) || "x"); setDbg(errCode); setMsg(["err", t("Number or code is not right. Check both and try again.", "નંબર અથવા કોડ સાચો નથી. બંને તપાસી ફરી પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
-      onUnlocked();
+      try { localStorage.setItem("nb_view_me_" + token, bn); } catch (e6) {}
+      onUnlocked(bn);
     } catch (e) {
       console.warn("share code", e); errCode = "0:" + ((e && e.code) || (e && e.message) || "x"); setDbg(errCode);
       setMsg(["err", /operation-not-allowed|admin-restricted/.test((e && e.code) || "") ? t("Viewing by code isn't switched on yet. Please tell the station.", "કોડથી જોવાનું હજુ ચાલુ થયું નથી. સ્ટેશનને જણાવો.") : t("No internet connection? Please try again.", "ઇન્ટરનેટ ચાલુ છે? ફરી પ્રયાસ કરો.")]);
@@ -14695,12 +14798,12 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
             <div className="disp" style={{ fontSize: 18, fontWeight: 700, textAlign: "center", margin: "4px 0 6px" }}>{t("Enter the share code", "શેર કોડ લખો")}</div>
             <div style={{ fontSize: 12.5, textAlign: "center", marginBottom: 8 }}>{t("Confirmed number entered", "નંબર લખાઈ ગયો")} · <button type="button" data-gate-change onClick={() => { setStep("num"); setMsg(null); }} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", font: "inherit", cursor: "pointer", fontWeight: 600 }}>{t("change", "બદલો")}</button></div>
             <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55, marginBottom: 12 }}>
-              {t("Ask the police station's main account holder for the 4-digit code. In the Nokri Book app they tap the Share button → “Share link code”. The code changes every 48 hours; on this phone you need it only once.",
-                "પોલીસ સ્ટેશનના મુખ્ય એકાઉન્ટ ધારક પાસેથી ૪ આંકડાનો કોડ મેળવો. નોકરી બુક એપમાં તેઓ શેર બટન → “શેર લિંક કોડ” દબાવે ત્યાં કોડ દેખાશે. કોડ દર ૪૮ કલાકે બદલાય છે; આ ફોનમાં ફક્ત એક જ વાર લખવો પડશે.")}
+              {t("Ask the police station's main account holder for the 6-digit code. In the Nokri Book app they tap the Share button → “Share link code”. The code changes every 48 hours; on this phone you need it only once.",
+                "પોલીસ સ્ટેશનના મુખ્ય એકાઉન્ટ ધારક પાસેથી ૬ આંકડાનો કોડ મેળવો. નોકરી બુક એપમાં તેઓ શેર બટન → “શેર લિંક કોડ” દબાવે ત્યાં કોડ દેખાશે. કોડ દર ૪૮ કલાકે બદલાય છે; આ ફોનમાં ફક્ત એક જ વાર લખવો પડશે.")}
             </div>
-            <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={code} data-gate-input autoFocus
-              onChange={(e) => setCode(nbAsciiDigits(e.target.value).replace(/\D/g, "").slice(0, 4))} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              placeholder="••••" className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 30, letterSpacing: 14, textAlign: "center", padding: "10px 8px", borderRadius: 10 }} />
+            <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} data-gate-input autoFocus
+              onChange={(e) => setCode(nbAsciiDigits(e.target.value).replace(/\D/g, "").slice(0, 6))} onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              placeholder="••••••" className="mono" style={{ width: "100%", boxSizing: "border-box", fontSize: 28, letterSpacing: 10, textAlign: "center", padding: "10px 8px", borderRadius: 10 }} />
           </React.Fragment>
         )}
         {msg && <div role="alert" data-gate-msg={msg[0]} style={{ marginTop: 8, fontSize: 12.5, color: msg[0] === "err" ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{msg[1]}</div>}
@@ -15055,7 +15158,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit, onJoin }) {
     </div>
   );
 }
-const TOUR_STEPS = [
+const NB_MAIN_TOUR_STEPS = [
   {
     selector: "nb-tour-logo",
     titleEn: "Let's look around", titleGu: "ચાલો એક નજર કરીએ",
@@ -15133,7 +15236,8 @@ const TOUR_STEPS = [
     bodyGu: "ટાઈપિંગ છોડો — Claude માટે તૈયાર prompt મેળવવા આના પર ટેપ કરો. તેને તમારી સ્ટાફ PDF/Word ફાઈલ અને આ એપની બેકઅપ મોકલો, અને તે બધા ઉમેરાયેલા સાથે અપડેટેડ બેકઅપ પાછી આપશે.",
   },
 ];
-function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSidebarOpen, compulsory, onFinish, onSkip }) {
+function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSidebarOpen, compulsory, onFinish, onSkip, steps }) {
+  const TOUR_STEPS = steps || NB_MAIN_TOUR_STEPS;
   const { t } = useLang();
   const [stepIdx, setStepIdx] = useState(0);
   const [rect, setRect] = useState(null);
@@ -15205,7 +15309,7 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
   }, [compulsory, onSkip]);
 
   const pad = 8;
-  const tooltipWidth = 320;
+  const tooltipWidth = Math.min(320, window.innerWidth - 24);
   let tooltipTop, tooltipBottom, tooltipLeft, placement;
   if (rect) {
     const spaceBelow = window.innerHeight - (rect.top + rect.height);
@@ -15239,11 +15343,11 @@ function SpotlightTour({ data, view, setView, mobileSidebarOpen, setMobileSideba
         style={rect ? {
           position: "fixed",
           ...(placement === "below" ? { top: tooltipTop } : { bottom: tooltipBottom }),
-          left: tooltipLeft, width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
+          left: tooltipLeft, width: tooltipWidth, maxWidth: "calc(100vw - 24px)", boxSizing: "border-box",
           maxHeight: "calc(100vh - 24px)", overflowY: "auto",
           background: "var(--bg-surface)", border: "1px solid var(--border-soft)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
         } : {
-          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: tooltipWidth, maxWidth: "calc(100vw - 24px)",
+          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: tooltipWidth, maxWidth: "calc(100vw - 24px)", boxSizing: "border-box",
           maxHeight: "calc(100vh - 24px)", overflowY: "auto",
           background: "var(--bg-surface)", border: "1px solid var(--border-soft)", borderRadius: 12, padding: "16px 18px", boxShadow: "0 16px 40px rgba(0,0,0,0.4)",
         }}
@@ -15872,6 +15976,131 @@ const iconBtn = { background: "transparent", border: "1px solid var(--border)", 
 const iconBtnWide = { background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "5px 9px", color: "var(--text-secondary)", fontSize: 12 };
 const dotStyle = { width: 3, height: 3, borderRadius: "50%", background: "currentColor", display: "inline-block" };
 
+// ---- Share-link viewer: who is looking, greeting, first-time welcome ----
+function nbViewerFind(staff, num) {
+  if (!num) return null;
+  const list = Object.values(staff || {});
+  return list.find((x) => nbHasBuckle(x.number) && nbShareNum(x.number) === num) || list.find((x) => x.phone && nbShareNum(x.phone) === num) || null;
+}
+function nbGreetingKey(d) {
+  const h = (d || new Date()).getHours();
+  return h >= 4 && h < 12 ? "morning" : h >= 12 && h < 17 ? "afternoon" : "evening";
+}
+function nbGreetingText(t, d) {
+  const k = nbGreetingKey(d);
+  return k === "morning" ? t("Good morning", "સુપ્રભાત") : k === "afternoon" ? t("Good afternoon", "શુભ બપોર") : t("Good evening", "શુભ સાંજ");
+}
+// contour lines drawn once, used behind the greeting and the welcome card
+function NbContours({ opacity = 0.32 }) {
+  const rings = [];
+  for (let i = 0; i < 9; i++) {
+    const r = 22 + i * 15;
+    rings.push(<path key={"a" + i} d={`M ${300 - r} 70 C ${300 - r} ${70 - r * 0.9}, ${300 + r * 1.2} ${70 - r * 0.8}, ${300 + r * 1.1} 70 S ${300 - r * 0.6} ${70 + r * 1.05}, ${300 - r} 70 Z`} />);
+  }
+  for (let i = 0; i < 7; i++) {
+    const r = 16 + i * 14;
+    rings.push(<path key={"b" + i} d={`M ${40 - r} 150 C ${40 - r} ${150 - r}, ${40 + r * 1.3} ${150 - r * 0.7}, ${40 + r} 150 S ${40 - r * 0.4} ${150 + r}, ${40 - r} 150 Z`} />);
+  }
+  return (
+    <svg aria-hidden="true" viewBox="0 0 400 180" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity, pointerEvents: "none" }}>
+      <g fill="none" stroke="var(--accent-strong)" strokeWidth="0.9">{rings}</g>
+    </svg>
+  );
+}
+// shield with the buckle number in it
+function NbBuckleShield({ num, size = 78 }) {
+  const show = nbHasBuckle(num) ? String(num) : "";
+  const fs = show.length > 4 ? 15 : 19;
+  return (
+    <svg width={size} height={size * 1.12} viewBox="0 0 80 90" aria-hidden="true" style={{ display: "block", flexShrink: 0 }}>
+      <path d="M40 4 L72 15 V42 C72 63 58 78 40 86 C22 78 8 63 8 42 V15 Z" fill="color-mix(in srgb, var(--accent-strong) 16%, transparent)" stroke="var(--accent-strong)" strokeWidth="3" strokeLinejoin="round" />
+      <path d="M40 13 L64 21.5 V42 C64 58 54 70 40 77 C26 70 16 58 16 42 V21.5 Z" fill="none" stroke="var(--accent-strong)" strokeOpacity="0.45" strokeWidth="1.2" />
+      {show
+        ? <text x="40" y="51" textAnchor="middle" fontFamily="inherit" fontWeight="800" fontSize={fs} fill="#fff">{show}</text>
+        : <path d="M40 28 l4.4 9 9.9 1.4 -7.2 7 1.7 9.8 -8.8-4.6 -8.8 4.6 1.7-9.8 -7.2-7 9.9-1.4 z" fill="var(--accent-strong)" />}
+    </svg>
+  );
+}
+function NbGreetingHero({ me, num, stationName, dutyToday }) {
+  const { t } = useLang();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const iv = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(iv); }, []);
+  const name = me ? me.name : "";
+  return (
+    <div data-greeting className="nb-hero" data-tour="nb-tour-pub-hero" style={{ position: "relative", overflow: "hidden", borderRadius: 18, background: "var(--sidebar-bg)", color: "#F4EEE6", padding: "22px 22px 30px", marginBottom: 22, boxShadow: "0 14px 34px -18px rgba(30,23,18,.55)" }}>
+      <NbContours />
+      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div data-greeting-text style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase", color: "color-mix(in srgb, #F4EEE6 70%, var(--accent-strong))" }} className="gu">{nbGreetingText(t, now)}</div>
+          <div className="disp gu" data-greeting-name style={{ fontSize: "clamp(26px, 6vw, 38px)", fontWeight: 800, lineHeight: 1.12, margin: "6px 0 10px", overflowWrap: "anywhere" }}>{name || t("Welcome", "સ્વાગત છે")}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {me && me.designation && <span className="nb-hero-chip">{me.designation}</span>}
+            {stationName && <span className="nb-hero-chip gu">{stationName}</span>}
+          </div>
+          {dutyToday && (
+            <div data-greeting-duty className="gu" style={{ marginTop: 12, fontSize: 13.5, color: "#E9E1D6" }}>
+              {dutyToday.length ? <React.Fragment>{t("Your duty today:", "આજે તમારી ડ્યુટી:")} <b style={{ color: "#fff" }}>{dutyToday.join(", ")}</b></React.Fragment> : t("No duty for you today.", "આજે તમારી કોઈ ડ્યુટી નથી.")}
+            </div>
+          )}
+        </div>
+        <NbBuckleShield num={me ? me.number : num} size={70} />
+      </div>
+      <svg aria-hidden="true" viewBox="0 0 400 24" preserveAspectRatio="none" style={{ position: "absolute", left: 0, right: 0, bottom: -1, width: "100%", height: 22 }}>
+        <path d="M0 14 C 90 2, 170 2, 240 10 S 360 22, 400 8 V24 H0 Z" fill="var(--bg-page)" />
+        <path d="M0 14 C 90 2, 170 2, 240 10 S 360 22, 400 8" fill="none" stroke="var(--accent-strong)" strokeOpacity="0.55" strokeWidth="1.4" />
+      </svg>
+    </div>
+  );
+}
+function NbWelcomeModal({ me, num, stationName, onTour, onSkip }) {
+  const { t } = useLang();
+  useEscToClose(onSkip);
+  const first = me && me.name ? me.name.split(/\s+/)[0] : "";
+  return (
+    <div className="modal-backdrop" data-welcome style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(20,15,10,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="nb-welcome-title" className="modal-card nb-welcome" style={{ width: 400, maxWidth: "100%", borderRadius: 22, overflow: "hidden", background: "var(--bg-surface)", boxShadow: "0 30px 70px -20px rgba(0,0,0,.55)" }}>
+        <div style={{ position: "relative", background: "var(--sidebar-bg)", color: "#F4EEE6", padding: "28px 22px 34px", textAlign: "center", overflow: "hidden" }}>
+          <NbContours opacity={0.4} />
+          <div className="nb-welcome-badge" style={{ position: "relative", display: "inline-block" }}><NbBuckleShield num={me ? me.number : num} size={92} /></div>
+          <div style={{ position: "relative", fontSize: 11.5, fontWeight: 700, letterSpacing: "0.24em", textTransform: "uppercase", marginTop: 12, color: "color-mix(in srgb, #F4EEE6 70%, var(--accent-strong))" }} className="gu">{t("Welcome aboard", "તમારું સ્વાગત છે")}</div>
+          <svg aria-hidden="true" viewBox="0 0 400 24" preserveAspectRatio="none" style={{ position: "absolute", left: 0, right: 0, bottom: -1, width: "100%", height: 22 }}>
+            <path d="M0 14 C 90 2, 170 2, 240 10 S 360 22, 400 8 V24 H0 Z" fill="var(--bg-surface)" />
+          </svg>
+        </div>
+        <div style={{ padding: "8px 24px 22px", textAlign: "center" }}>
+          <div id="nb-welcome-title" className="disp gu" style={{ fontSize: 23, fontWeight: 800, lineHeight: 1.25, color: "var(--text-primary)" }}>
+            {first ? t(`Thanks for choosing Nokri Book, ${first}!`, `${first}, નોકરી બુક પસંદ કરવા બદલ આભાર!`) : t("Thanks for choosing Nokri Book!", "નોકરી બુક પસંદ કરવા બદલ આભાર!")}
+          </div>
+          <div className="gu" style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.6, margin: "10px 0 20px" }}>
+            {stationName
+              ? t(`You're in ${stationName}'s duty roster. Your duties, whose turn is next and the duty calendar are all here.`, `તમે ${stationName} ના ડ્યુટી રોસ્ટરમાં છો. તમારી ડ્યુટી, હવે વારો કોનો અને ડ્યુટી કૅલેન્ડર બધું અહીં છે.`)
+              : t("Your duties, whose turn is next and the duty calendar are all here.", "તમારી ડ્યુટી, હવે વારો કોનો અને ડ્યુટી કૅલેન્ડર બધું અહીં છે.")}
+            <br />{t("Want a quick look around?", "એપની ઝડપી ઓળખ કરવી છે?")}
+          </div>
+          <button type="button" data-welcome-tour onClick={onTour} autoFocus className="gu" style={{ width: "100%", border: "none", borderRadius: 12, padding: "13px 16px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer" }}>{t("Take the tour", "ટૂર શરૂ કરો")}</button>
+          <button type="button" data-welcome-skip onClick={onSkip} className="gu" style={{ width: "100%", marginTop: 8, border: "1px solid var(--border)", borderRadius: 12, padding: "11px 16px", fontSize: 14, fontWeight: 600, background: "transparent", color: "var(--text-primary)", cursor: "pointer" }}>{t("Skip tour", "ટૂર છોડો")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+const PUBLIC_TOUR_STEPS = [
+  { selector: "nb-tour-logo", titleEn: "Your station's roster", titleGu: "તમારા સ્ટેશનનું રોસ્ટર",
+    bodyEn: "This is your police station's duty roster. Press Next to look around, step by step.", bodyGu: "આ તમારા પોલીસ સ્ટેશનનું ડ્યુટી રોસ્ટર છે. પગલું-દર-પગલું જોવા Next દબાવો." },
+  { selector: "nb-tour-pub-hero", view: { mode: "home" }, titleEn: "Your greeting", titleGu: "તમારું અભિવાદન",
+    bodyEn: "Each time you open the app you see your name, rank and whether you have a duty today.", bodyGu: "દર વખતે એપ ખોલો ત્યારે તમારું નામ, હોદ્દો અને આજે તમારી ડ્યુટી છે કે નહીં તે દેખાય છે." },
+  { selector: "nb-tour-pub-cards", view: { mode: "home" }, optional: true, titleEn: "Today's duty", titleGu: "આજની ડ્યુટી",
+    bodyEn: "Every work type at a glance: who is on duty today and whose turn is next.", bodyGu: "દરેક કામનો પ્રકાર એક નજરમાં: આજે કોણ ડ્યુટી પર છે અને હવે વારો કોનો છે." },
+  { selector: "nb-tour-nav-pub-worktypes", view: { mode: "home" }, optional: true, titleEn: "Work types", titleGu: "કામના પ્રકારો",
+    bodyEn: "Open a work type to see its full turn list and duty history.", bodyGu: "કામનો પ્રકાર ખોલીને તેની આખી વારા યાદી અને ડ્યુટી ઇતિહાસ જુઓ." },
+  { selector: "nb-tour-nav-pub-calendar", titleEn: "Duty calendar", titleGu: "ડ્યુટી કૅલેન્ડર",
+    bodyEn: "See every duty day by day.", bodyGu: "દરેક ડ્યુટી દિવસ પ્રમાણે જુઓ." },
+  { selector: "nb-tour-nav-pub-report", titleEn: "Monthly report", titleGu: "માસિક અહેવાલ",
+    bodyEn: "The month's duties in one list, which you can also save as a PDF.", bodyGu: "મહિનાની બધી ડ્યુટી એક યાદીમાં, જેને PDF તરીકે પણ સાચવી શકાય." },
+  { selector: "nb-tour-pub-profile", titleEn: "Your profile", titleGu: "તમારી પ્રોફાઇલ",
+    bodyEn: "Tap here to see your name, switch dark mode or open settings.", bodyGu: "તમારું નામ જોવા, ડાર્ક મોડ બદલવા કે સેટિંગ્સ ખોલવા અહીં ટેપ કરો." },
+];
+
 function PublicRosterView({ uid }) {
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("nb_lang") || "en"; } catch (e) { return "en"; } });
   useEffect(() => { try { localStorage.setItem("nb_lang", lang); } catch (e) {} }, [lang]);
@@ -15922,6 +16151,35 @@ function PublicRosterView({ uid }) {
   const [locked, setLocked] = useState(false);
   const viewFbRef = useRef(null);
   const [unlockN, setUnlockN] = useState(0);
+  // who is looking (the buckle / mobile number they signed in with on this phone)
+  const [meNum, setMeNum] = useState(() => { try { return localStorage.getItem("nb_view_me_" + uid) || ""; } catch (e) { return ""; } });
+  useEffect(() => {
+    if (meNum || !data) return;
+    const fb = viewFbRef.current, u = fb && fb.auth.currentUser;
+    if (!u) return;
+    fb.db.collection("shareGrants").doc(u.uid + "_" + uid).get().then((g) => {
+      const n = g.exists ? g.data().num : "";
+      if (n) { setMeNum(n); try { localStorage.setItem("nb_view_me_" + uid, n); } catch (e) {} }
+    }).catch(() => {});
+  }, [data, meNum, uid]);
+  const me = useMemo(() => (data ? nbViewerFind(data.staff, meNum) : null), [data, meNum]);
+  const myDutyToday = useMemo(() => {
+    if (!data || !me) return null;
+    try { return (data.categories || []).filter((c) => computeRoster(data, c.id).some((p) => p.number === me.number && p.onDutyToday)).map((c) => c.label); } catch (e) { return null; }
+  }, [data, me]);
+  const welcomeKey = "nb_view_welcomed_" + uid + "_" + (meNum || "x");
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  useEffect(() => {
+    if (!data || !meNum) return;
+    let seen = false; try { seen = localStorage.getItem(welcomeKey) === "1"; } catch (e) {}
+    if (!seen) setShowWelcome(true);
+  }, [!!data, meNum]);
+  const doneWelcome = (tour) => {
+    try { localStorage.setItem(welcomeKey, "1"); } catch (e) {}
+    setShowWelcome(false);
+    if (tour) { setView({ mode: "home" }); setShowTour(true); }
+  };
   useEffect(() => {
     let unsub = null, dead = false, vdb = db;
     const start = () => {
@@ -15952,7 +16210,7 @@ function PublicRosterView({ uid }) {
   return (
     <LangContext.Provider value={langCtxValue}>
       <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
-        {locked && <ShareCodeGate token={uid} fb={viewFbRef.current} onUnlocked={() => { setLocked(false); setData(undefined); setUnlockN((n) => n + 1); }} />}
+        {locked && <ShareCodeGate token={uid} fb={viewFbRef.current} onUnlocked={(bn) => { if (bn) setMeNum(bn); setLocked(false); setData(undefined); setUnlockN((n) => n + 1); }} />}
         {!locked && data === undefined && (
           <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
         )}
@@ -15970,7 +16228,7 @@ function PublicRosterView({ uid }) {
 
         {data && (
           <div className={"app-shell" + (desktopView ? " force-desktop" : "")} style={{ display: "flex", minHeight: "100vh" }} onTouchStart={sidebarSwipe.onTouchStart} onTouchEnd={sidebarSwipe.onTouchEnd}>
-            <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} />
+            <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} forceOpen={showTour} />
             {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
             <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
               <button
@@ -15990,8 +16248,9 @@ function PublicRosterView({ uid }) {
                   background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7,
                   width: 30, height: 30, boxSizing: "border-box", padding: 0, fontSize: 15, lineHeight: 1, fontWeight: 700, letterSpacing: 1, color: "var(--text-primary)",
                 }}>⋮</button>
-                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} />
+                <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} who={me} tourId="nb-tour-pub-profile" />
               </div>
+              {view.mode === "home" && <NbGreetingHero me={me} num={meNum} stationName={data.stationName} dutyToday={me ? myDutyToday : null} />}
 
               <NbViewBoundary key={view.mode + (view.catId || "")}><div className="view-fade-in">
               {view.mode === "home" && (
@@ -16009,6 +16268,11 @@ function PublicRosterView({ uid }) {
           </div>
         )}
 
+        {data && showWelcome && <NbWelcomeModal me={me} num={meNum} stationName={data.stationName} onTour={() => doneWelcome(true)} onSkip={() => doneWelcome(false)} />}
+        {data && showTour && (
+          <SpotlightTour data={data} view={view} setView={setView} mobileSidebarOpen={mobileSidebarOpen} setMobileSidebarOpen={setMobileSidebarOpen}
+            steps={PUBLIC_TOUR_STEPS} onFinish={() => setShowTour(false)} onSkip={() => setShowTour(false)} />
+        )}
         {showAboutPanel && <AboutPanel onClose={() => setShowAboutPanel(false)} />}
         {showHelpPanel && <HelpPanel onClose={() => setShowHelpPanel(false)} sections={PUBLIC_HELP_SECTIONS} />}
         {showSettingsPanel && (
@@ -16024,12 +16288,12 @@ function PublicRosterView({ uid }) {
   );
 }
 
-function PublicSidebar({ data, view, setView, mobileOpen, onCloseMobile }) {
+function PublicSidebar({ data, view, setView, mobileOpen, onCloseMobile, forceOpen }) {
   const { t } = useLang();
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("nb_public_sidebar_collapsed") === "1"; } catch (e) { return false; } });
   useEffect(() => { try { localStorage.setItem("nb_public_sidebar_collapsed", collapsed ? "1" : "0"); } catch (e) {} }, [collapsed]);
 
-  if (collapsed && !mobileOpen) {
+  if (collapsed && !mobileOpen && !forceOpen) {
     return (
       <div className="sidebar" style={{ width: 44, background: "var(--sidebar-bg)", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", paddingTop: 14 }}>
         <button
@@ -16045,7 +16309,7 @@ function PublicSidebar({ data, view, setView, mobileOpen, onCloseMobile }) {
   return (
     <div className={"sidebar" + (mobileOpen ? " mobile-sidebar-open" : "")} style={{ width: 220, background: "var(--sidebar-bg)", color: "#fff", flexShrink: 0, paddingTop: 18, position: "sticky", top: 0, alignSelf: "flex-start", height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "0 16px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-        <div className="disp" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700 }}>Nokri Book</div>
+        <div className="disp" data-tour="nb-tour-logo" style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 700 }}>Nokri Book</div>
         <button
           onClick={() => (mobileOpen ? onCloseMobile() : setCollapsed(true))}
           title={mobileOpen ? t("Close menu", "મેનૂ બંધ કરો") : t("Hide sidebar", "સાઇડબાર છુપાવો")}
@@ -16054,14 +16318,16 @@ function PublicSidebar({ data, view, setView, mobileOpen, onCloseMobile }) {
         >{mobileOpen ? "✕" : "◂"}</button>
       </div>
       <button onClick={() => setView({ mode: "home" })} style={navBtn(view.mode === "home")} className="gu">🏠 {t("Today's duty", "આજની ડ્યુટી")}</button>
+      <div data-tour="nb-tour-nav-pub-worktypes">
       <div style={{ padding: "14px 16px 6px", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "#7C8891" }} className="gu">{t("Work types", "કામના પ્રકારો")}</div>
       {(data.categories || []).map((cat) => (
         <button key={cat.id} onClick={() => setView({ mode: "category", catId: cat.id })} style={navBtn(view.mode === "category" && view.catId === cat.id)} className="gu">{cat.label}</button>
       ))}
+      </div>
       <div style={{ borderTop: "1px solid #263443", margin: "14px 0 6px" }} />
       <button onClick={() => setView({ mode: "staff" })} style={navBtn(view.mode === "staff")} className="gu">🚨 {t("Staff", "સ્ટાફ")}</button>
-      <button onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
-      <button onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
+      <button data-tour="nb-tour-nav-pub-calendar" onClick={() => setView({ mode: "calendar" })} style={navBtn(view.mode === "calendar")} className="gu">📅 {t("Duty calendar", "ડ્યુટી કૅલેન્ડર")}</button>
+      <button data-tour="nb-tour-nav-pub-report" onClick={() => setView({ mode: "report" })} style={navBtn(view.mode === "report")} className="gu">📄 {t("Monthly report", "માસિક અહેવાલ")}</button>
       <button onClick={() => setView({ mode: "skipHistory" })} style={navBtn(view.mode === "skipHistory")} className="gu">📋 {t("Skip history", "સ્કિપ ઇતિહાસ")}</button>
     </div>
   );
@@ -16089,7 +16355,7 @@ function PublicHomeView({ data, goToCategory }) {
           {new Date().toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(todayStr())} — {t("every work type at a glance.", "એક નજરમાં દરેક કામનો પ્રકાર.")}
         </p>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
+      <div data-tour="nb-tour-pub-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
         {cards.map(({ cat, doneTodayList, nextUp, total }) => (
           <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
