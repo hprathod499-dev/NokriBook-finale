@@ -12176,6 +12176,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   const [desgFilter, setDesgFilter] = useState("");
   const [showTools, setShowTools] = useState(() => !!initialSearch);
   const [showMahekam, setShowMahekam] = useState(false);
+  const [mahekamPick, setMahekamPick] = useState(null);
   const [sortBy, setSortBy] = useState("designation");
   const [modalFor, setModalFor] = useState(null);
   const [modalKind, setModalKind] = useState("Leave");
@@ -12273,16 +12274,17 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
 
   // સ્ટાફ મહેકમ (today): leave types named sick / absent are counted on their own; outstation has its own count
   const mahekam = useMemo(() => {
-    const out = { total: 0, present: 0, leave: 0, sick: 0, absent: 0, out: 0 };
+    const out = { total: 0, present: 0, leave: 0, sick: 0, absent: 0, out: 0, people: { leave: [], sick: [], absent: [], out: [] } };
     Object.values(data.staff || {}).forEach((st) => {
       out.total += 1;
       const stt = effectiveStatus(st, null);
-      if (stt === "Outstation") { out.out += 1; return; }
-      if (stt !== "Leave") { out.present += 1; return; }
       const lbl = String(unavailLabel(data, st.unavailable) || "");
-      if (/sick|medical|સિક|માંદ|બીમાર/i.test(lbl)) out.sick += 1;
-      else if (/absent|ગેરહાજર|ગે\.હા/i.test(lbl)) out.absent += 1;
-      else out.leave += 1;
+      const who = { number: st.number, name: st.name, label: lbl, from: st.unavailable && st.unavailable.from, to: st.unavailable && st.unavailable.to };
+      if (stt === "Outstation") { out.out += 1; out.people.out.push(who); return; }
+      if (stt !== "Leave") { out.present += 1; return; }
+      if (/sick|medical|સિક|માંદ|બીમાર/i.test(lbl)) { out.sick += 1; out.people.sick.push(who); }
+      else if (/absent|ગેરહાજર|ગે\.હા/i.test(lbl)) { out.absent += 1; out.people.absent.push(who); }
+      else { out.leave += 1; out.people.leave.push(who); }
     });
     return out;
   }, [data]);
@@ -12387,15 +12389,48 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               ["absent", "−", "ગેરહાજર", mahekam.absent, "var(--status-error-bg)", "var(--status-error-border)", "var(--status-error-text)"],
               ["out", "−", "બહારગામ", mahekam.out, "var(--accent-light)", "color-mix(in srgb, var(--accent-strong) 35%, transparent)", "var(--accent-strong)"],
               ["net", "=", "ચોખ્ખું મહેકમ", mahekam.total - mahekam.leave - mahekam.sick - mahekam.absent - mahekam.out, "var(--status-success-bg)", "var(--status-success-text)", "var(--status-success-text)"],
-            ].map(([k, sign, label, n, bg, bd, fg]) => (
-              <div key={k} data-mahekam-row={k} className="gu" style={{ background: bg, border: (k === "net" ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "10px 14px" }}>
+            ].map(([k, sign, label, n, bg, bd, fg]) => {
+              const tappable = k !== "total" && k !== "net";
+              const Tag = tappable ? "button" : "div";
+              return (
+              <Tag key={k} data-mahekam-row={k} className="gu" {...(tappable ? { type: "button", onClick: () => setMahekamPick({ k, label }), title: "યાદી જોવા ટેપ કરો" } : {})}
+                style={{ background: bg, border: (k === "net" ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "10px 14px", textAlign: "left", font: "inherit", color: "inherit", cursor: tappable ? "pointer" : "default" }}>
                 <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: fg, lineHeight: 1.1 }}>{sign && <span style={{ opacity: 0.6, marginRight: 4 }}>{sign}</span>}{n}</div>
-                <div style={{ fontSize: 12.5, fontWeight: k === "net" || k === "total" ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
+                <div style={{ fontSize: 12.5, fontWeight: k === "net" || k === "total" ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}{tappable ? " ▸" : ""}</div>
+              </Tag>
+              );
+            })}
           </div>
         </div>
       )}
+      {mahekamPick && (() => {
+        const list = (mahekam.people[mahekamPick.k] || []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+        return (
+          <div role="dialog" aria-modal="true" aria-label={mahekamPick.label} data-mahekam-popup className="modal-backdrop" onClick={() => setMahekamPick(null)}
+            style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
+            <div onClick={(e) => e.stopPropagation()} className="gu" style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 12, width: "100%", maxWidth: 440, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px #0004" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
+                <div className="disp" style={{ fontWeight: 700, fontSize: 16 }}>{mahekamPick.label} <span className="mono" style={{ color: "var(--text-tertiary)", fontWeight: 600 }}>({list.length})</span></div>
+                <button type="button" data-mahekam-close onClick={() => setMahekamPick(null)} aria-label="બંધ કરો" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, width: 30, height: 30, fontSize: 14, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}>✕</button>
+              </div>
+              <div style={{ overflowY: "auto", padding: "6px 0" }}>
+                {list.length === 0 && <div style={{ padding: "18px 16px", color: "var(--text-tertiary)", fontSize: 13.5 }}>આજે કોઈ નથી.</div>}
+                {list.map((p) => (
+                  <div key={p.number} data-mahekam-person style={{ padding: "10px 16px", borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                      <span className="mono" style={{ fontSize: 12.5, color: "var(--text-tertiary)", minWidth: 40 }}>{p.number}</span>
+                      <span style={{ fontWeight: 600, fontSize: 14.5 }}>{p.name}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 3, paddingLeft: 50 }}>
+                      {p.label}{p.from ? " · " + formatDMY(p.from) + " થી " + (p.to ? formatDMY(p.to) : "આગળ") : ""}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {Object.keys(data.staff || {}).length === 0 && (
         <button
           data-tour="nb-tour-import-staff"
