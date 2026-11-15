@@ -11998,13 +11998,13 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
           onClick={() => setShowFullActions((v) => !v)}
           title={t("Show Edit name and Remove entirely for each person in the table below", "નીચેના કોષ્ટકમાં દરેક વ્યક્તિ માટે નામ સંપાદિત કરો અને સંપૂર્ણપણે કાઢી નાખો બતાવો")}
           style={{
-            marginLeft: 8, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7,
+            marginLeft: 8, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, whiteSpace: "nowrap",
             background: showFullActions ? "var(--accent)" : "var(--bg-surface)",
             color: showFullActions ? "var(--accent-text)" : "var(--text-secondary)",
             border: "1px solid " + (showFullActions ? "var(--accent-strong)" : "var(--border)"),
           }} className="gu"
         >{t("Edit staff", "સ્ટાફ સંપાદિત કરો")}</button>
-        {setLeaveTypeAllowance && <button onClick={() => setShowLeaveBalance(true)} className="gu" style={{ marginLeft: 6, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>🗓️ {t("Leave record", "રજા રેકોર્ડ")}</button>}
+        {setLeaveTypeAllowance && <button onClick={() => setShowLeaveBalance(true)} className="gu" style={{ marginLeft: 6, whiteSpace: "nowrap", fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>🗓️ {t("Leave record", "રજા રેકોર્ડ")}</button>}
         {showLeaveBalance && <LeaveBalanceModal data={data} onClose={() => setShowLeaveBalance(false)} setLeaveTypeAllowance={setLeaveTypeAllowance} setStaffLeaveAllowance={setStaffLeaveAllowance} />}
       </div>
       {showMahekam && mahekam.total > 0 && (
