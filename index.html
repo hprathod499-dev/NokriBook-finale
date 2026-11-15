@@ -12655,7 +12655,7 @@ function PersonHistoryModal({ data, number, onClose }) {
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
       {leaveDetail && <LeaveDetailModal data={data} number={number} typeId={leaveDetail.typeId} year={leaveDetail.year} onClose={() => setLeaveDetail(null)} />}
       <div onClick={(e) => e.stopPropagation()} className="modal-card" style={{ background: "var(--bg-surface)", borderRadius: 12, width: 640, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ position: "relative", padding: "16px 52px 16px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div>
               <div className="disp gu" style={{ fontSize: 16, fontWeight: 700 }}>{staffRec.name}</div>
@@ -12668,18 +12668,22 @@ function PersonHistoryModal({ data, number, onClose }) {
               style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", opacity: pdfBusy ? 0.7 : 1 }} className="gu"
             >{pdfBusy ? t("Preparing…", "તૈયાર થઈ રહ્યું છે…") : <><PdfIcon />{t("Download PDF", "PDF ડાઉનલોડ કરો")}</>}</button>
           </div>
-          <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 16 }}>✕</button>
+          <button onClick={onClose} data-person-close title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")} style={{ position: "absolute", top: 12, right: 12, width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-surface-2)", border: "1px solid var(--border)", color: "var(--text-secondary)", fontSize: 15, cursor: "pointer", padding: 0 }}>✕</button>
         </div>
 
         <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border-soft)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ background: "var(--bg-surface-2)", borderRadius: 8, padding: "8px 14px" }}>
-            <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: "var(--accent-strong)" }}>{totalThisMonth}</div>
-            <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{t("This month", "આ મહિને")}</div>
-          </div>
-          <div style={{ background: "var(--bg-surface-2)", borderRadius: 8, padding: "8px 14px" }}>
-            <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{totalLast3Months}</div>
-            <div className="gu" style={{ fontSize: 10.5, color: "var(--text-tertiary)" }}>{t("Last 3 months", "છેલ્લા 3 મહિના")}</div>
-          </div>
+          {[["month", totalThisMonth, t("This month", "આ મહિને")], ["3m", totalLast3Months, t("Last 3 months", "છેલ્લા 3 મહિના")]].map(([k, n, label]) => {
+            const on = period.key === k;
+            return (
+              <button type="button" key={k} data-person-tile={k} aria-pressed={on} onClick={() => setPeriod({ ...period, key: k })} title={t("Tap to see these duties", "આ ડ્યુટી જોવા ટેપ કરો")}
+                style={{ textAlign: "left", cursor: "pointer", font: "inherit", borderRadius: 10, padding: "8px 16px", minWidth: 110,
+                  background: on ? "color-mix(in srgb, var(--accent-strong) 18%, var(--bg-surface))" : "var(--accent-light)",
+                  border: on ? "1.5px solid var(--accent-strong)" : "1.5px solid color-mix(in srgb, var(--accent-strong) 30%, transparent)" }}>
+                <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "var(--accent-strong)" }}>{n}</div>
+                <div className="gu" style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)" }}>{label} {on ? "▾" : "▸"}</div>
+              </button>
+            );
+          })}
           {(() => {
             const yr = new Date().getFullYear();
             const used = nbLeaveUsed(staffRec, yr);
@@ -16571,6 +16575,7 @@ function PublicStaffView({ data }) {
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
   const [sortBy, setSortBy] = useState("designation");
+  const [showTools, setShowTools] = useState(false);
   const [showFairnessCompare, setShowFairnessCompare] = useState(false);
   const [historyPersonNumber, setHistoryPersonNumber] = useState(null);
 
@@ -16615,7 +16620,14 @@ function PublicStaffView({ data }) {
 
   return (
     <React.Fragment>
-      <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: "0 0 16px" }}>{t("Staff", "સ્ટાફ")}</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 16px" }}>
+        <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Staff", "સ્ટાફ")}</h1>
+        <button type="button" data-staff-tools aria-expanded={showTools} onClick={() => setShowTools((v) => !v)} title={t("Search, filters and duty fairness", "શોધ, ફિલ્ટર અને ડ્યુટી ન્યાયીપણું")} className="gu"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, padding: "5px 11px", borderRadius: 999, cursor: "pointer", border: "1px solid " + (showTools || search || desgFilter ? "var(--accent-strong)" : "var(--border)"), background: showTools ? "var(--accent-light)" : "var(--bg-surface)", color: "var(--text-primary)" }}>
+          🔍 {t("Search & filters", "શોધ અને ફિલ્ટર")}<span aria-hidden="true" style={{ fontSize: 9, transition: "transform .15s", transform: showTools ? "rotate(180deg)" : "none" }}>▼</span>
+        </button>
+      </div>
+      {showTools && <React.Fragment>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
         <input
           type="text" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -16655,6 +16667,7 @@ function PublicStaffView({ data }) {
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--status-success-text)", display: "inline-block" }} />{t("Least busy", "સૌથી ઓછું વ્યસ્ત")}</span>
         <span style={{ color: "var(--text-tertiary)" }}>{t("— relative to everyone shown, this month", "— આ મહિને બતાવેલ બધાની સાપેક્ષે")}</span>
       </div>
+      </React.Fragment>}
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
