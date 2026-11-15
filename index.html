@@ -3931,6 +3931,7 @@ function nbCodeLoginErrMsg(err, t) {
   return t("Couldn't log in — check the connection and try again.", "લોગિન થઈ શક્યું નહીં — જોડાણ તપાસીને ફરી પ્રયત્ન કરો.");
 }
 function CodeLoginsManager({ uid, user, showToast }) {
+  const [showCodeInfo, setShowCodeInfo] = useState(false);
   const { t, lang } = useLang();
   const [codes, setCodes] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -3960,8 +3961,8 @@ function CodeLoginsManager({ uid, user, showToast }) {
   const share = (c) => t(`Nokri Book login\nEmail: ${email}\nLogin code: ${c.id}\nOpen https://${nbSiteHost()} → type this email, and type the login code in the password box.`, `Nokri Book લોગિન\nઇમેઇલ: ${email}\nલોગિન કોડ: ${c.id}\nhttps://${nbSiteHost()} ખોલો → આ ઇમેઇલ નાખો, અને પાસવર્ડની જગ્યાએ લોગિન કોડ નાખો.`);
   return (
     <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
-      <div style={{ fontWeight: 700, marginBottom: 4 }}>🔑 {t("Login with station email + code", "સ્ટેશન ઇમેઇલ + કોડથી લોગિન")}</div>
-      <div style={{ color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 8 }}>{t("Make a code and tick which windows it opens. Anyone who logs in with this station's email and that code sees ONLY those windows — no password needed, no own account.", "કોડ બનાવો અને તે કઈ બારીઓ ખોલે તે પસંદ કરો. આ સ્ટેશનના ઇમેઇલ અને તે કોડથી લોગિન કરનારને ફક્ત તે બારીઓ જ દેખાશે — પાસવર્ડ કે પોતાનું ખાતું જરૂરી નથી.")}</div>
+      <div style={{ fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>🔑 {t("Login with station email + code", "સ્ટેશન ઇમેઇલ + કોડથી લોગિન")}<InfoIconButton active={showCodeInfo} onClick={() => setShowCodeInfo((v) => !v)} label={t("About login codes", "લોગિન કોડ વિશે")} /></div>
+      {showCodeInfo && <div style={{ color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 8 }}>{t("Make a code and tick which windows it opens. Anyone who logs in with this station's email and that code sees ONLY those windows — no password needed, no own account.", "કોડ બનાવો અને તે કઈ બારીઓ ખોલે તે પસંદ કરો. આ સ્ટેશનના ઇમેઇલ અને તે કોડથી લોગિન કરનારને ફક્ત તે બારીઓ જ દેખાશે — પાસવર્ડ કે પોતાનું ખાતું જરૂરી નથી.")}</div>}
       {codes.map((c) => (
         <div key={c.id} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
