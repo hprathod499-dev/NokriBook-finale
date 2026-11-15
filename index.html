@@ -11904,6 +11904,21 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
     return list;
   }, [staffList, debouncedSearch, desgFilter, sortBy]);
 
+  // સ્ટાફ મહેકમ (today): leave types named sick / absent are counted on their own; outstation has its own count
+  const mahekam = useMemo(() => {
+    const out = { total: 0, present: 0, leave: 0, sick: 0, absent: 0, out: 0 };
+    Object.values(data.staff || {}).forEach((st) => {
+      out.total += 1;
+      const stt = effectiveStatus(st, null);
+      if (stt === "Outstation") { out.out += 1; return; }
+      if (stt !== "Leave") { out.present += 1; return; }
+      const lbl = String(unavailLabel(data, st.unavailable) || "");
+      if (/sick|medical|સિક|માંદ|બીમાર/i.test(lbl)) out.sick += 1;
+      else if (/absent|ગેરહાજર|ગે\.હા/i.test(lbl)) out.absent += 1;
+      else out.leave += 1;
+    });
+    return out;
+  }, [data]);
   const fairnessByDesg = useMemo(() => {
     const groups = {};
     staffList.forEach((s) => {
@@ -12206,19 +12221,24 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
         </div>
       </div>
 
-      {fairnessByDesg.length > 0 && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", marginBottom: 20 }}>
-          <div className="disp gu" style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{t("Duty fairness by designation (this month)", "હોદ્દા પ્રમાણે ડ્યુટી ન્યાયીપણું (આ મહિને)")}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
-            {fairnessByDesg.map((g) => (
-              <div key={g.label} className="gu">
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 3 }}>
-                  <span style={{ fontWeight: 600 }}>{g.label}</span>
-                  <span style={{ color: "var(--text-tertiary)" }}>{g.people} {g.people === 1 ? t("person", "વ્યક્તિ") : t("people", "વ્યક્તિઓ")}</span>
-                </div>
-                <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                  {t("avg", "સરેરાશ")} {g.avg.toFixed(1)} · {t("range", "શ્રેણી")} {g.min}–{g.max}
-                </div>
+      {mahekam.total > 0 && (
+        <div data-mahekam style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+            <div className="disp gu" style={{ fontWeight: 700, fontSize: 14 }}>સ્ટાફ મહેકમ</div>
+            <div className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{formatDMY(todayStr())}</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 10 }}>
+            {[
+              ["total", "", "કુલ મહેકમ", mahekam.total, "var(--bg-surface-2)", "var(--border)", "var(--text-primary)"],
+              ["leave", "−", "રજા ઉપર", mahekam.leave, "var(--status-warning-bg, var(--highlight-bg))", "var(--status-warning-border, var(--highlight-border))", "var(--status-warning-text)"],
+              ["sick", "−", "સિક", mahekam.sick, "var(--status-info-bg)", "var(--status-info-border)", "var(--status-info-text)"],
+              ["absent", "−", "ગેરહાજર", mahekam.absent, "var(--status-error-bg)", "var(--status-error-border)", "var(--status-error-text)"],
+              ["out", "−", "બહારગામ", mahekam.out, "var(--accent-light)", "color-mix(in srgb, var(--accent-strong) 35%, transparent)", "var(--accent-strong)"],
+              ["net", "=", "ચોખ્ખું મહેકમ", mahekam.total - mahekam.leave - mahekam.sick - mahekam.absent - mahekam.out, "var(--status-success-bg)", "var(--status-success-text)", "var(--status-success-text)"],
+            ].map(([k, sign, label, n, bg, bd, fg]) => (
+              <div key={k} data-mahekam-row={k} className="gu" style={{ background: bg, border: (k === "net" ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "10px 14px" }}>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: fg, lineHeight: 1.1 }}>{sign && <span style={{ opacity: 0.6, marginRight: 4 }}>{sign}</span>}{n}</div>
+                <div style={{ fontSize: 12.5, fontWeight: k === "net" || k === "total" ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}</div>
               </div>
             ))}
           </div>
