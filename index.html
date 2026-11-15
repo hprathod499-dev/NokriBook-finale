@@ -16710,13 +16710,14 @@ function NbPremiumDemo() {
   };
   return (
     <LangContext.Provider value={ctx}>
-      <div data-premium-demo className="gu" style={{ minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "16px 0 40px" }}>
-        <div style={{ maxWidth: 452, margin: "0 auto", padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
+      <div data-premium-demo className="gu" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-page)", color: "var(--text-primary)", padding: "16px 0", boxSizing: "border-box" }}>
+        <div style={{ width: "100%", maxWidth: 452, margin: "0 auto", padding: "0 16px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: "var(--status-warning-text)", background: "var(--status-warning-bg, var(--highlight-bg))", border: "1px solid var(--status-warning-border, var(--highlight-border))", borderRadius: 9, padding: "8px 12px" }}>
             {t("Demo — nothing is charged. Try codes DEMO50, YEAR20 or FREE100.", "ડેમો — કોઈ પૈસા કપાતા નથી. DEMO50, YEAR20 અથવા FREE100 કોડ અજમાવો.")}
           </div>
           <button type="button" onClick={() => setLang(lang === "gu" ? "en" : "gu")} style={{ border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", borderRadius: 8, padding: "7px 10px", fontWeight: 700, cursor: "pointer" }}>{lang === "gu" ? "EN" : "ગુ"}</button>
         </div>
+        <div data-demo-stage style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", width: "100%" }}>
         {step === "wall" && <NbPremiumPaywall demo num="496" busy={false} onPay={onPay} onPromo={onPromo} onRecheck={() => {}} />}
         {step === "checkout" && order && (
           <div style={{ display: "flex", justifyContent: "center", padding: 16 }}>
@@ -16737,7 +16738,7 @@ function NbPremiumDemo() {
           </div>
         )}
         {step === "done" && (
-          <div style={{ maxWidth: 452, margin: "16px auto 0", padding: "0 16px" }}>
+          <div style={{ width: "100%", maxWidth: 452, margin: "0 auto", padding: "0 16px", boxSizing: "border-box" }}>
             <div data-demo-done style={{ borderRadius: 18, background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "26px 22px", textAlign: "center" }}>
               <div style={{ width: 54, height: 54, borderRadius: "50%", margin: "0 auto 12px", background: "var(--status-success-bg)", color: "var(--status-success-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 800 }}>✓</div>
               <div className="disp" style={{ fontSize: 20, fontWeight: 800 }}>{t("You're Premium", "તમે પ્રીમિયમ છો")}</div>
@@ -16747,6 +16748,7 @@ function NbPremiumDemo() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </LangContext.Provider>
   );
