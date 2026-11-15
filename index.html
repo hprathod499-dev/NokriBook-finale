@@ -13237,7 +13237,7 @@ function CalAddAway({ data, date, presetNumber, onClose, setUnavailable }) {
   const matches = useMemo(() => {
     const qq = nbAsciiDigits(q).trim().toLowerCase();
     if (!qq) return [];
-    return Object.values(data.staff || {}).filter((s) => String(s.number).startsWith(qq) || String(s.name || "").toLowerCase().includes(qq)).sort(nbStaffRankCmp(data)).slice(0, 8);
+    return Object.values(data.staff || {}).filter((s) => String(s.number).startsWith(qq) || nbSrch(s.name || "", qq) || nbSrch(s.number, qq)).sort(nbStaffRankCmp(data)).slice(0, 8);
   }, [q, data.staff]);
   const save = () => {
     if (!number || !st) { setErr(t("Pick the person.", "વ્યક્તિ પસંદ કરો.")); return; }
@@ -14551,37 +14551,59 @@ function ShareSeatsList({ token, staff, showToast }) {
   const free = async (seat) => {
     const w = whoOf(seat.num);
     if (!window.confirm(t(`Free all phones of ${w ? w.name : seat.num}? They will need the share code again to open the link.`, `${w ? w.name : seat.num} ના બધા ફોન છૂટા કરવા છે? લિંક ખોલવા તેમને ફરી શેર કોડ જોઈશે.`))) return;
-    try { await db.collection("shareSeats").doc(seat.id).delete(); showToast && showToast(t("Phones freed", "ફોન છૂટા થયા")); load(); }
+    try {
+      // free the seat and remove everything those phones were given: their share grant and number check
+      const b = db.batch();
+      (seat.uids || []).forEach((u) => {
+        b.delete(db.collection("shareGrants").doc(u + "_" + token));
+        b.delete(db.collection("shareNumChecks").doc(u + "_" + token));
+      });
+      b.delete(db.collection("shareSeats").doc(seat.id));
+      await b.commit(); showToast && showToast(t("Phones freed", "ફોન છૂટા થયા")); load(); }
     catch (e) { showToast && showToast(t("Couldn't free — check the internet.", "છૂટા ન થયા — ઇન્ટરનેટ તપાસો.")); }
   };
-  const rows = Array.isArray(seats) ? seats.map((x) => ({ ...x, who: whoOf(x.num) })).filter((x) => !q || nbSrch((x.who && x.who.name) || "", q) || nbSrch(x.num, q))
-    .sort((a, b) => ((a.who && a.who.name) || a.num).localeCompare((b.who && b.who.name) || b.num)) : [];
+  const qq = q.trim();
+  // no search: everyone who has signed in. With a search: every matching staff member, signed in or not.
+  const rows = !Array.isArray(seats) ? [] : (!qq
+    ? seats.map((x) => ({ ...x, who: whoOf(x.num) }))
+    : Object.values(staff || {}).map((st) => {
+        const num = nbHasBuckle(st.number) ? nbShareNum(st.number) : (st.phone ? nbShareNum(st.phone) : "");
+        if (!num) return null;
+        const seat = seats.find((x) => x.num === num);
+        return seat ? { ...seat, who: st } : { id: "n_" + num, num, uids: [], who: st };
+      }).filter((x) => x && (nbSrch(x.who.name || "", qq) || nbSrch(x.num, qq) || nbSrch(x.who.number || "", qq)))
+  ).sort((a, b) => ((a.who && a.who.name) || a.num).localeCompare((b.who && b.who.name) || b.num));
   return (
     <div data-share-seats style={{ marginTop: 10, borderTop: "1px solid var(--border-soft)", paddingTop: 8, textAlign: "left" }}>
-      <button type="button" onClick={() => setOpen((v) => !v)} data-share-seats-btn className="gu" style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "transparent", border: "none", padding: "4px 2px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)", cursor: "pointer" }}>
-        <span>📱 {t("Phones signed in", "લોગિન થયેલા ફોન")}</span>
-        <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{open ? "▾" : "▸"}</span>
+      <button type="button" onClick={() => setOpen((v) => !v)} data-share-seats-btn aria-expanded={open} className="gu" style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "transparent", border: "none", padding: "4px 2px", fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)", cursor: "pointer" }}>
+        <span>📱 {t("Phones signed in", "લોગિન થયેલા ફોન")}{Array.isArray(seats) && seats.length ? <span style={{ fontWeight: 600, color: "var(--text-tertiary)" }}> · {seats.length}</span> : null}</span>
+        <span style={{ fontSize: 11, color: "var(--text-tertiary)", transition: "transform .15s", transform: open ? "rotate(90deg)" : "none" }}>▸</span>
       </button>
       {open && (
         <div style={{ fontSize: 12 }}>
-          <div style={{ color: "var(--text-secondary)", margin: "2px 2px 6px", lineHeight: 1.45 }}>{t("Each buckle number can open the link on 2 phones at most. Free a person's phones if they changed phone.", "દરેક બકલ નંબરથી વધુમાં વધુ 2 ફોનમાં લિંક ખુલે. ફોન બદલ્યો હોય તો તેમના ફોન છૂટા કરો.")}</div>
+          <div style={{ position: "relative", margin: "4px 0 6px" }}>
+            <span aria-hidden="true" style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12, opacity: 0.55 }}>🔍</span>
+            <input type="search" value={q} autoFocus data-seat-search onChange={(e) => setQ(e.target.value)}
+              placeholder={t("Search name or buckle no. (English or ગુજરાતી)", "નામ અથવા બકલ નં. શોધો (ગુજરાતી કે English)")} className="gu"
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, padding: "7px 8px 7px 28px", borderRadius: 9 }} />
+          </div>
+          {!qq && <div style={{ color: "var(--text-secondary)", margin: "0 2px 6px", lineHeight: 1.45 }}>{t("Each buckle number can open the link on 2 phones at most. Free a person's phones if they changed phone.", "દરેક બકલ નંબરથી વધુમાં વધુ 2 ફોનમાં લિંક ખુલે. ફોન બદલ્યો હોય તો તેમના ફોન છૂટા કરો.")}</div>}
           {seats === null ? <div style={{ color: "var(--text-secondary)", padding: 4 }}>…</div>
             : seats === "err" ? <div style={{ color: "var(--status-error-text)", padding: 4 }}>{t("Couldn't load the list.", "યાદી લોડ ન થઈ.")}</div>
-            : seats.length === 0 ? <div style={{ color: "var(--text-tertiary)", padding: 4 }}>{t("No one has signed in through the link yet.", "હજુ સુધી લિંકથી કોઈએ લોગિન કર્યું નથી.")}</div>
-            : <React.Fragment>
-                {seats.length > 6 && <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search name / buckle no.", "નામ / બકલ નં. શોધો")} className="gu" style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, padding: "6px 8px", borderRadius: 8, marginBottom: 6 }} />}
-                <div style={{ maxHeight: 200, overflowY: "auto" }}>
-                  {rows.map((x) => (
-                    <div key={x.id} data-seat-row style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: "1px solid var(--border-soft)" }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="gu" style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.who ? x.who.name : "—"}</div>
-                        <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{x.num} · {x.uids.length}/{NB_SEATS_PER_HEAD} {t("phones", "ફોન")}</div>
-                      </div>
-                      <button type="button" onClick={() => free(x)} data-seat-free className="gu" style={{ fontSize: 11.5, padding: "4px 9px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--status-error-text)", cursor: "pointer", flexShrink: 0 }}>{t("Free", "છૂટા કરો")}</button>
+            : rows.length === 0 ? <div style={{ color: "var(--text-tertiary)", padding: 4 }}>{qq ? t("No staff member matches.", "કોઈ સ્ટાફ મળ્યો નહીં.") : t("No one has signed in through the link yet.", "હજુ સુધી લિંકથી કોઈએ લોગિન કર્યું નથી.")}</div>
+            : <div style={{ maxHeight: 220, overflowY: "auto" }}>
+                {rows.map((x) => (
+                  <div key={x.id} data-seat-row style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: "1px solid var(--border-soft)" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="gu" style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.who ? x.who.name : "—"}</div>
+                      <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{x.num} · {x.uids.length}/{NB_SEATS_PER_HEAD} {t("phones", "ફોન")}</div>
                     </div>
-                  ))}
-                </div>
-              </React.Fragment>}
+                    {x.uids.length > 0
+                      ? <button type="button" onClick={() => free(x)} data-seat-free className="gu" style={{ fontSize: 11.5, padding: "4px 9px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--status-error-text)", cursor: "pointer", flexShrink: 0 }}>{t("Free", "છૂટા કરો")}</button>
+                      : <span className="gu" style={{ fontSize: 11, color: "var(--text-tertiary)", flexShrink: 0 }}>{t("Not signed in", "લોગિન નથી")}</span>}
+                  </div>
+                ))}
+              </div>}
         </div>
       )}
     </div>

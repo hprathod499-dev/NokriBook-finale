@@ -331,7 +331,8 @@ service cloud.firestore {
         && request.resource.data.at == request.time
         && request.resource.data.num is string && request.resource.data.num.matches('[0-9A-Z]{1,12}')
         && shareNumOk(request.resource.data.token, request.resource.data.num);
-      allow delete: if false;
+      // the station owner can remove it when freeing a phone
+      allow delete: if signedIn() && (resource == null || get(/databases/$(database)/documents/shareKeys/$(resource.data.token)).data.owner == request.auth.uid);
       function shareNumOk(token, num) {
         let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
         return tr.uid == request.auth.uid
@@ -391,7 +392,8 @@ service cloud.firestore {
         && request.resource.data.at == request.time
         && shareGrantCodeOk(request.resource.data.token, request.resource.data.code, request.resource.data.num)
         && request.auth.uid in getAfter(seatPath(request.resource.data.token, request.resource.data.num)).data.get('uids', []);
-      allow delete: if false;
+      // the station owner removes it when freeing a phone
+      allow delete: if signedIn() && (resource == null || get(/databases/$(database)/documents/shareKeys/$(resource.data.token)).data.owner == request.auth.uid);
 
       function shareGrantCodeOk(token, c, num) {
         let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
