@@ -12841,7 +12841,6 @@ function DutyFairnessCompare({ data, staffList, onSelectPerson }) {
           <PeriodFilterSelect period={period} setPeriod={setPeriod} />
           <button onClick={() => setView("person")} style={catTabBtn(view === "person")} className="gu">{t("By person", "વ્યક્તિ પ્રમાણે")}</button>
           <button onClick={() => setView("designation")} style={catTabBtn(view === "designation")} className="gu">{t("By designation", "હોદ્દા પ્રમાણે")}</button>
-          <button onClick={() => setView("worktype")} style={catTabBtn(view === "worktype")} className="gu">{t("By work type", "કામના પ્રકાર પ્રમાણે")}</button>
         </div>
       </div>
       {showInfo && (
