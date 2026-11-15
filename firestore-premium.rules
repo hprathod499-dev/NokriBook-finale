@@ -357,25 +357,39 @@ service cloud.firestore {
       return exists(g)
         && (get(g).data.get('s2', false) == true || shareSeatOk(token, get(g).data.get('num', '')));
     }
-    // PREMIUM: a view-link phone reads the roster only while its buckle number is in its 3 free days
-    // or paid up. premium/{owner}_{num} is written only by the payment server (Cloud Function).
+    // PREMIUM: a view-link phone reads the roster only while its buckle number is paid up (no free days).
+    // premium/{owner}_{num} is written only by the payment server (Cloud Function).
     function premiumOk(owner, token) {
       let g = get(/databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token)).data;
       let p = /databases/$(database)/documents/premium/$(owner + '_' + g.get('num', ''));
-      return exists(p)
-        && (get(p).data.get('paidUntil', timestamp.value(0)) > request.time
-            || get(p).data.trialStart + duration.value(3, 'd') > request.time);
+      return exists(p) && get(p).data.get('paidUntil', timestamp.value(0)) > request.time;
     }
     function shareSeatOk(token, num) {
       return num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {})
         && request.auth.uid in get(seatPath(token, num)).data.get('uids', []);
     }
+    // Premium promo codes: only the super admin makes and changes them; the payment server reads them
+    // with its own access (and counts "used").
     match /premium/{pid} {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
     }
     match /premiumPayments/{oid} {
       allow read, write: if false;
+    }
+    match /premiumPromos/{code} {
+      function promoShape(d) {
+        return d.keys().hasOnly(['code', 'percent', 'plans', 'maxUses', 'used', 'active', 'note', 'at'])
+          && d.code == code && code.matches('[A-Z0-9]{3,20}')
+          && d.percent is int && d.percent >= 1 && d.percent <= 100
+          && d.plans in ['both', 'year', 'month']
+          && d.maxUses is int && d.maxUses >= 0
+          && d.used is int && d.used >= 0
+          && d.active is bool;
+      }
+      allow read: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() && promoShape(request.resource.data);
+      allow delete: if isSuperAdmin();
     }
     match /shareSeats/{sid} {
       function seatShape(d) {

@@ -861,7 +861,7 @@ function nbBuckleShow(n) { return nbHasBuckle(n) ? n : "—"; }
 // Share-link viewers who aren't signed in to Nokri Book get their own separate (anonymous) Firebase session,
 // so it never mixes with a station login on the same phone.
 let NB_VIEW_FB = null;
-// ---- View-only premium (₹299 a year / ₹30 a month, 3 free days from the first open) ----
+// ---- View-only premium (₹299 a year / ₹30 a month; promo codes from the super admin) ----
 // Off until the payment server (functions/) is deployed with the Razorpay keys. A phone can turn it on
 // for testing with localStorage nb_premium_on = "1".
 const NB_PREMIUM_ON = false;
@@ -878,7 +878,16 @@ function nbPremSet(token, s) {
   try { localStorage.setItem("nb_prem_" + token, JSON.stringify({ trialEnd: +s.trialEnd || 0, paidUntil: +s.paidUntil || 0, at: Date.now() })); } catch (e) {}
 }
 function nbPremClear(token) { try { localStorage.removeItem("nb_prem_" + token); } catch (e) {} }
-const nbPremActive = (s, now) => !!s && ((s.paidUntil || 0) > now || (s.trialEnd || 0) > now);
+// promo code check -> { code, percent, plans }, or throws with a message to show
+async function nbPremiumPromo(fb, code, t) {
+  try { return await nbPremCall(fb, "/promo", { code }); }
+  catch (e) {
+    if (e.status === 404) throw new Error(t("This code doesn't work.", "આ કોડ ચાલતો નથી."));
+    if (e.status === 410) throw new Error(t("This code has been used up.", "આ કોડ વપરાઈ ગયો છે."));
+    throw new Error(t("Could not check the code. Try again.", "કોડ તપાસી શકાયો નહીં. ફરી પ્રયાસ કરો."));
+  }
+}
+const nbPremActive = (s, now) => !!s && (s.paidUntil || 0) > now;
 async function nbPremCall(fb, path, body) {
   const u = fb && fb.auth.currentUser;
   if (!u) throw Object.assign(new Error("no session"), { status: 401 });
@@ -908,9 +917,10 @@ function nbLoadRazorpay() {
 }
 // Opens Razorpay. Resolves with the new state once the server has checked the payment,
 // or null if the person closed the payment window.
-async function nbPremiumPay(fb, token, plan, t) {
+async function nbPremiumPay(fb, token, plan, t, promo) {
+  const o = await nbPremCall(fb, "/order", { token, plan, promo: promo || "" });
+  if (o.free) return o;              // a 100% promo code: no payment window at all
   await nbLoadRazorpay();
-  const o = await nbPremCall(fb, "/order", { token, plan });
   return new Promise((resolve, reject) => {
     const rz = new window.Razorpay({
       key: o.keyId, order_id: o.orderId, amount: o.amount, currency: "INR",
@@ -16543,33 +16553,94 @@ function nbFmtDate(ms) {
   const d = new Date(ms);
   return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
 }
-function NbPremiumPlans({ busy, onPay }) {
+const NB_PLAN_RUPEES = { year: 299, month: 30 };
+// price after a promo: same sum the payment server uses (Razorpay's smallest payment is ₹1)
+function nbPromoPrice(plan, promo) {
+  const full = NB_PLAN_RUPEES[plan];
+  if (!promo || !nbPromoFits(promo, plan)) return full;
+  if (promo.percent >= 100) return 0;
+  return Math.max(1, Math.round(full * (100 - promo.percent)) / 100);
+}
+const nbPromoFits = (promo, plan) => !!promo && (!promo.plans || promo.plans === "both" || promo.plans === plan);
+const nbRupees = (n) => "₹" + (Number.isInteger(n) ? n : n.toFixed(2));
+// onPromo(code) -> Promise<{ code, percent, plans }> (throws with a message); onPay(plan, promoCode)
+function NbPremiumPlans({ busy, onPay, onPromo }) {
   const { t } = useLang();
   const [plan, setPlan] = useState("year");
+  const [showCode, setShowCode] = useState(false);
+  const [code, setCode] = useState("");
+  const [promo, setPromo] = useState(null);
+  const [promoErr, setPromoErr] = useState("");
+  const [checking, setChecking] = useState(false);
   const plans = [
-    ["year", "₹299", t("per year", "પ્રતિ વર્ષ"), t("₹25 a month · save ₹61", "મહિને ₹25 · ₹61 બચત")],
-    ["month", "₹30", t("per month", "પ્રતિ મહિનો"), t("Pay month by month", "દર મહિને ભરો")],
+    ["year", t("per year", "પ્રતિ વર્ષ"), t("₹25 a month · save ₹61", "મહિને ₹25 · ₹61 બચત")],
+    ["month", t("per month", "પ્રતિ મહિનો"), t("Pay month by month", "દર મહિને ભરો")],
   ];
+  const apply = async () => {
+    const c = code.trim().toUpperCase();
+    if (!c) return;
+    setPromoErr(""); setChecking(true);
+    try { setPromo(await onPromo(c)); }
+    catch (e) { setPromo(null); setPromoErr(e && e.message ? e.message : t("This code doesn't work.", "આ કોડ ચાલતો નથી.")); }
+    finally { setChecking(false); }
+  };
+  const price = nbPromoPrice(plan, promo);
+  const usable = promo && nbPromoFits(promo, plan);
   return (
     <div>
       <div role="radiogroup" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {plans.map(([k, price, per, note]) => {
+        {plans.map(([k, per, note]) => {
           const on = plan === k;
+          const full = NB_PLAN_RUPEES[k], now = nbPromoPrice(k, promo);
           return (
             <button key={k} type="button" role="radio" aria-checked={on} data-plan={k} onClick={() => setPlan(k)} className="gu"
               style={{ textAlign: "left", font: "inherit", color: "var(--text-primary)", cursor: "pointer", borderRadius: 12, padding: "12px 14px",
                 background: on ? "var(--accent-light)" : "var(--bg-surface)",
                 border: on ? "2px solid var(--accent-strong)" : "1px solid var(--border)" }}>
-              <div className="disp" style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.1 }}>{price}</div>
+              <div className="disp" style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.1 }}>
+                {now !== full && <s style={{ fontSize: 15, fontWeight: 600, color: "var(--text-tertiary)", marginRight: 6 }}>₹{full}</s>}
+                {now === 0 ? t("Free", "મફત") : nbRupees(now)}
+              </div>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-secondary)" }}>{per}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>{note}</div>
+              {now === full && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>{note}</div>}
             </button>
           );
         })}
       </div>
-      <button type="button" data-pay disabled={busy} onClick={() => onPay(plan)} className="gu"
+
+      <div style={{ marginTop: 12 }}>
+        {!showCode && !promo && (
+          <button type="button" data-promo-open onClick={() => setShowCode(true)} className="gu"
+            style={{ background: "transparent", border: "none", padding: 2, color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}>
+            {t("Have a promo code?", "પ્રોમો કોડ છે?")}
+          </button>
+        )}
+        {showCode && !promo && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <input data-promo-input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20))}
+              onKeyDown={(e) => { if (e.key === "Enter") apply(); }} placeholder={t("Promo code", "પ્રોમો કોડ")} autoFocus
+              style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 9, border: "1px solid var(--border)", background: "var(--bg-page)", color: "var(--text-primary)", fontSize: 14, letterSpacing: "0.08em", fontWeight: 700 }} />
+            <button type="button" data-promo-apply onClick={apply} disabled={checking || !code.trim()} className="gu"
+              style={{ padding: "0 16px", borderRadius: 9, border: "1px solid var(--accent-strong)", background: "var(--bg-surface)", color: "var(--accent-strong)", fontWeight: 700, fontSize: 13.5, cursor: "pointer", opacity: checking || !code.trim() ? 0.6 : 1 }}>
+              {checking ? "…" : t("Apply", "લાગુ કરો")}
+            </button>
+          </div>
+        )}
+        {promoErr && <div role="alert" className="gu" style={{ marginTop: 6, fontSize: 12.5, color: "var(--status-error-text)" }}>{promoErr}</div>}
+        {promo && (
+          <div data-promo-on className="gu" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 9, background: "var(--status-success-bg)", color: "var(--status-success-text)", fontSize: 13 }}>
+            <span style={{ flex: 1 }}>
+              <b>{promo.code}</b> · {promo.percent >= 100 ? t("free", "મફત") : t(`${promo.percent}% off`, `${promo.percent}% છૂટ`)}
+              {promo.plans && promo.plans !== "both" && " · " + (promo.plans === "year" ? t("yearly plan only", "ફક્ત વાર્ષિક પ્લાન") : t("monthly plan only", "ફક્ત માસિક પ્લાન"))}
+            </span>
+            <button type="button" onClick={() => { setPromo(null); setCode(""); }} aria-label={t("Remove code", "કોડ દૂર કરો")} style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", fontSize: 14 }}>✕</button>
+          </div>
+        )}
+      </div>
+
+      <button type="button" data-pay disabled={busy} onClick={() => onPay(plan, usable ? promo.code : "")} className="gu"
         style={{ width: "100%", marginTop: 12, padding: "12px 16px", borderRadius: 10, border: "none", background: "var(--accent-strong)", color: "#fff", fontWeight: 800, fontSize: 15, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
-        {busy ? t("Please wait…", "રાહ જુઓ…") : (plan === "year" ? t("Pay ₹299", "₹299 ભરો") : t("Pay ₹30", "₹30 ભરો"))}
+        {busy ? t("Please wait…", "રાહ જુઓ…") : price === 0 ? t("Get it free", "મફત મેળવો") : t(`Pay ${nbRupees(price)}`, `${nbRupees(price)} ભરો`)}
       </button>
       <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8, textAlign: "center" }}>
         {t("UPI, card or net banking through Razorpay. One payment covers your buckle number on both of your phones.", "Razorpay દ્વારા UPI, કાર્ડ કે નેટ બેંકિંગ. એક ચુકવણી તમારા બક્કલ નંબરના બંને ફોન માટે ચાલે છે.")}
@@ -16577,22 +16648,22 @@ function NbPremiumPlans({ busy, onPay }) {
     </div>
   );
 }
-// Full screen after the 3 free days, until a payment goes through.
-function NbPremiumPaywall({ num, onPay, onRecheck, busy, err }) {
+// Shown in place of the roster until a payment (or a free promo code) goes through.
+function NbPremiumPaywall({ num, onPay, onPromo, onRecheck, busy, err, demo }) {
   const { t } = useLang();
   return (
-    <div data-paywall style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--bg-page)" }}>
+    <div data-paywall style={{ minHeight: demo ? 0 : "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--bg-page)" }}>
       <div className="gu" style={{ width: 420, maxWidth: "100%", borderRadius: 20, overflow: "hidden", background: "var(--bg-surface)", border: "1px solid var(--border)", boxShadow: "0 24px 60px -24px rgba(0,0,0,.45)" }}>
         <div style={{ position: "relative", background: "var(--sidebar-bg)", color: "#F4EEE6", padding: "24px 22px 26px", overflow: "hidden", display: "flex", gap: 14, alignItems: "center" }}>
           <NbContours opacity={0.35} />
           <div style={{ position: "relative", flex: 1 }}>
-            <div className="disp" style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{t("Your 3 free days are over", "તમારા 3 મફત દિવસ પૂરા થયા")}</div>
-            <div style={{ fontSize: 13.5, color: "#E9E1D6", marginTop: 6 }}>{t("Pay to keep seeing the duty roster on this link.", "આ લિંક પર ડ્યુટી રોસ્ટર જોતા રહેવા ચુકવણી કરો.")}</div>
+            <div className="disp" style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{t("Nokri Book Premium", "નોકરી બુક પ્રીમિયમ")}</div>
+            <div style={{ fontSize: 13.5, color: "#E9E1D6", marginTop: 6 }}>{t("See your station's duty roster on this link: today's duty, the calendar and your own history.", "આ લિંક પર તમારા સ્ટેશનનું ડ્યુટી રોસ્ટર જુઓ: આજની ડ્યુટી, કૅલેન્ડર અને તમારો પોતાનો ઇતિહાસ.")}</div>
           </div>
           {num && <div style={{ position: "relative" }}><NbBuckleShield num={num} size={62} /></div>}
         </div>
         <div style={{ padding: "18px 20px 20px" }}>
-          <NbPremiumPlans busy={busy} onPay={onPay} />
+          <NbPremiumPlans busy={busy} onPay={onPay} onPromo={onPromo} />
           {err && <div role="alert" style={{ marginTop: 10, fontSize: 13, color: "var(--status-error-text)" }}>{err}</div>}
           <button type="button" data-recheck onClick={onRecheck} disabled={busy} className="gu"
             style={{ display: "block", margin: "14px auto 0", background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer", padding: 4 }}>
@@ -16603,37 +16674,81 @@ function NbPremiumPaywall({ num, onPay, onRecheck, busy, err }) {
     </div>
   );
 }
-// Small strip on Today's duty while the free days run; opens the plans.
-function NbTrialStrip({ prem, onPay, busy, err }) {
+// "Premium till dd/mm/yyyy" under the greeting on Today's duty
+function NbPremiumTill({ prem }) {
   const { t } = useLang();
-  const [open, setOpen] = useState(false);
-  const now = Date.now();
-  if (!prem) return null;
-  if ((prem.paidUntil || 0) > now) {
-    return (
-      <div data-premium-ok className="gu" style={{ fontSize: 12.5, color: "var(--text-tertiary)", margin: "-10px 0 16px" }}>
-        {t("Premium till ", "પ્રીમિયમ ")}{nbFmtDate(prem.paidUntil)}{t("", " સુધી")}
-      </div>
-    );
-  }
-  const left = Math.max(0, prem.trialEnd - now);
-  const days = Math.ceil(left / 86400000), hours = Math.ceil(left / 3600000);
-  const leftTxt = left > 86400000
-    ? t(`${days} days left`, `${days} દિવસ બાકી`)
-    : t(`${hours} hours left`, `${hours} કલાક બાકી`);
+  if (!prem || !((prem.paidUntil || 0) > Date.now())) return null;
   return (
-    <div data-trial className="gu" style={{ background: "var(--accent-light)", border: "1px solid color-mix(in srgb, var(--accent-strong) 35%, transparent)", borderRadius: 12, padding: "12px 14px", marginBottom: 18 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ fontWeight: 800, fontSize: 14 }}>{t("Free trial", "મફત ટ્રાયલ")} · {leftTxt}</div>
-          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>{t("After that: ₹299 a year or ₹30 a month.", "પછી: વર્ષના ₹299 અથવા મહિનાના ₹30.")}</div>
-        </div>
-        {!open && <button type="button" data-trial-pay onClick={() => setOpen(true)} style={{ background: "var(--accent-strong)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{t("Pay now", "હમણાં ભરો")}</button>}
-        {open && <button type="button" onClick={() => setOpen(false)} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, width: 30, height: 30, color: "var(--text-secondary)", cursor: "pointer" }}>✕</button>}
-      </div>
-      {open && <div style={{ marginTop: 12 }}><NbPremiumPlans busy={busy} onPay={onPay} /></div>}
-      {open && err && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: "var(--status-error-text)" }}>{err}</div>}
+    <div data-premium-ok className="gu" style={{ fontSize: 12.5, color: "var(--text-tertiary)", margin: "-10px 0 16px" }}>
+      ★ {t("Premium till ", "પ્રીમિયમ ")}{nbFmtDate(prem.paidUntil)}{t("", " સુધી")}
     </div>
+  );
+}
+// nokribook.in/demo/premium — the payment screens with nothing real behind them: no server, no Razorpay, no money.
+const NB_DEMO_PROMOS = { DEMO50: { percent: 50, plans: "both" }, YEAR20: { percent: 20, plans: "year" }, FREE100: { percent: 100, plans: "both" } };
+function NbPremiumDemo() {
+  const [lang, setLang] = useState(() => { try { return localStorage.getItem("nb_lang") || "en"; } catch (e) { return "en"; } });
+  const t = useCallback((en, gu) => (lang === "gu" && gu ? gu : en), [lang]);
+  const ctx = useMemo(() => ({ lang, setLang, t }), [lang, t]);
+  const [step, setStep] = useState("wall");      // wall -> checkout -> done
+  const [order, setOrder] = useState(null);
+  const [paidUntil, setPaidUntil] = useState(0);
+  useEffect(() => { document.title = "Nokri Book — Premium demo"; }, []);
+  const onPromo = async (c) => {
+    await new Promise((w) => setTimeout(w, 400));
+    const p = NB_DEMO_PROMOS[c];
+    if (!p) throw new Error(t("This code doesn't work.", "આ કોડ ચાલતો નથી."));
+    return { code: c, ...p };
+  };
+  const onPay = (plan, code) => {
+    const promo = code ? { code, ...NB_DEMO_PROMOS[code] } : null;
+    const price = nbPromoPrice(plan, promo);
+    const finish = () => { setPaidUntil(Date.now() + (plan === "year" ? 365 : 30) * 86400000); setStep("done"); };
+    if (price === 0) return finish();
+    setOrder({ plan, price, finish });
+    setStep("checkout");
+  };
+  return (
+    <LangContext.Provider value={ctx}>
+      <div data-premium-demo className="gu" style={{ minHeight: "100vh", background: "var(--bg-page)", color: "var(--text-primary)", padding: "16px 0 40px" }}>
+        <div style={{ maxWidth: 452, margin: "0 auto", padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: "var(--status-warning-text)", background: "var(--status-warning-bg, var(--highlight-bg))", border: "1px solid var(--status-warning-border, var(--highlight-border))", borderRadius: 9, padding: "8px 12px" }}>
+            {t("Demo — nothing is charged. Try codes DEMO50, YEAR20 or FREE100.", "ડેમો — કોઈ પૈસા કપાતા નથી. DEMO50, YEAR20 અથવા FREE100 કોડ અજમાવો.")}
+          </div>
+          <button type="button" onClick={() => setLang(lang === "gu" ? "en" : "gu")} style={{ border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", borderRadius: 8, padding: "7px 10px", fontWeight: 700, cursor: "pointer" }}>{lang === "gu" ? "EN" : "ગુ"}</button>
+        </div>
+        {step === "wall" && <NbPremiumPaywall demo num="496" busy={false} onPay={onPay} onPromo={onPromo} onRecheck={() => {}} />}
+        {step === "checkout" && order && (
+          <div style={{ display: "flex", justifyContent: "center", padding: 16 }}>
+            <div data-demo-checkout style={{ width: 380, maxWidth: "100%", borderRadius: 16, background: "var(--bg-surface)", border: "1px solid var(--border)", overflow: "hidden", boxShadow: "0 24px 60px -24px rgba(0,0,0,.45)" }}>
+              <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ fontWeight: 800 }}>{t("Payment (demo)", "ચુકવણી (ડેમો)")}</div>
+                <div className="disp" style={{ fontSize: 20, fontWeight: 800 }}>{nbRupees(order.price)}</div>
+              </div>
+              <div style={{ padding: "8px 0" }}>
+                {[["UPI", t("GPay, PhonePe, Paytm…", "GPay, PhonePe, Paytm…")], [t("Card", "કાર્ડ"), "Visa, RuPay, Mastercard"], [t("Net banking", "નેટ બેંકિંગ"), t("All Indian banks", "બધી ભારતીય બેંકો")]].map(([a, b]) => (
+                  <button key={a} type="button" data-demo-method onClick={order.finish} style={{ display: "flex", width: "100%", textAlign: "left", gap: 10, padding: "12px 18px", border: "none", borderBottom: "1px solid var(--border)", background: "transparent", color: "var(--text-primary)", font: "inherit", cursor: "pointer" }}>
+                    <span style={{ flex: 1 }}><b>{a}</b><br /><span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{b}</span></span><span style={{ color: "var(--text-tertiary)" }}>›</span>
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => setStep("wall")} style={{ display: "block", margin: "10px auto 14px", background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", font: "inherit", fontSize: 13 }}>{t("Cancel", "રદ કરો")}</button>
+            </div>
+          </div>
+        )}
+        {step === "done" && (
+          <div style={{ maxWidth: 452, margin: "16px auto 0", padding: "0 16px" }}>
+            <div data-demo-done style={{ borderRadius: 18, background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "26px 22px", textAlign: "center" }}>
+              <div style={{ width: 54, height: 54, borderRadius: "50%", margin: "0 auto 12px", background: "var(--status-success-bg)", color: "var(--status-success-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 800 }}>✓</div>
+              <div className="disp" style={{ fontSize: 20, fontWeight: 800 }}>{t("You're Premium", "તમે પ્રીમિયમ છો")}</div>
+              <div style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 6 }}>{t("Till ", "")}{nbFmtDate(paidUntil)}{t("", " સુધી")}</div>
+              <div style={{ fontSize: 13, color: "var(--text-tertiary)", marginTop: 10 }}>{t("The duty roster opens now. Today's duty shows \"★ Premium till …\" under the greeting.", "હવે ડ્યુટી રોસ્ટર ખૂલે છે. આજની ડ્યુટીમાં શુભેચ્છા નીચે \"★ પ્રીમિયમ … સુધી\" દેખાય છે.")}</div>
+              <button type="button" data-demo-again onClick={() => setStep("wall")} style={{ marginTop: 16, border: "1px solid var(--border)", background: "var(--bg-page)", color: "var(--text-primary)", borderRadius: 9, padding: "9px 16px", fontWeight: 700, cursor: "pointer", font: "inherit" }}>{t("Start the demo again", "ડેમો ફરી શરૂ કરો")}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </LangContext.Provider>
   );
 }
 function NbGreetingHero({ me, num, stationName, dutyToday }) {
@@ -16819,16 +16934,17 @@ function PublicRosterView({ uid }) {
   const [paywall, setPaywall] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState("");
-  // the free days ran out while the app was open: check again (shows the payment screen)
+  // the paid time ran out while the app was open: check again (shows the payment screen)
   useEffect(() => {
     if (!premOn || !prem || paywall) return;
     const iv = setInterval(() => { if (!nbPremActive(prem, Date.now())) setUnlockN((n) => n + 1); }, 60000);
     return () => clearInterval(iv);
   }, [premOn, prem, paywall]);
-  const doPay = async (plan) => {
+  const doPromo = (code) => nbPremiumPromo(viewFbRef.current, code, t);
+  const doPay = async (plan, promo) => {
     setPayErr(""); setPayBusy(true);
     try {
-      const s = await nbPremiumPay(viewFbRef.current, uid, plan, t);
+      const s = await nbPremiumPay(viewFbRef.current, uid, plan, t, promo);
       if (s) {
         nbPremSet(uid, s); setPrem(nbPremGet(uid));
         if (paywall) { setPaywall(false); setData(undefined); setUnlockN((n) => n + 1); }
@@ -16882,7 +16998,7 @@ function PublicRosterView({ uid }) {
     const lockOut = () => { nbVcClear(uid); setLocked(true); setData(undefined); };
     const stopAll = () => { if (unsubHead) { unsubHead(); unsubHead = null; } if (unsubCore) { unsubCore(); unsubCore = null; } };
     const showPay = () => { stopAll(); setLocked(false); setData(undefined); setPaywall(true); };
-    // "go" = may see the roster, "pay" = free days over and not paid, "code" = this phone has no grant any more
+    // "go" = may see the roster, "pay" = not paid (or paid time over), "code" = this phone has no grant any more
     const premCheck = async (force) => {
       const now = Date.now();
       const c = nbPremGet(uid);
@@ -16990,7 +17106,7 @@ function PublicRosterView({ uid }) {
     <LangContext.Provider value={langCtxValue}>
       <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
         {locked && <ShareCodeGate token={uid} fb={viewFbRef.current} onUnlocked={(bn) => { if (bn) setMeNum(bn); setLocked(false); setData(undefined); setUnlockN((n) => n + 1); }} />}
-        {paywall && <NbPremiumPaywall num={meNum} busy={payBusy} err={payErr} onPay={doPay} onRecheck={premRecheck} />}
+        {paywall && <NbPremiumPaywall num={meNum} busy={payBusy} err={payErr} onPay={doPay} onPromo={doPromo} onRecheck={premRecheck} />}
         {!locked && !paywall && data === undefined && (
           <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
         )}
@@ -17012,7 +17128,7 @@ function PublicRosterView({ uid }) {
             {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
             <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
               {view.mode === "home" && <NbGreetingHero me={me} num={meNum} stationName={data.stationName} dutyToday={me ? myDutyToday : null} />}
-              {premOn && view.mode === "home" && <NbTrialStrip prem={prem} busy={payBusy} err={payErr} onPay={doPay} />}
+              {premOn && view.mode === "home" && <NbPremiumTill prem={prem} />}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
                 <button
                   onClick={() => setMobileSidebarOpen(true)}
@@ -17834,6 +17950,95 @@ function DistrictSidebar({ data, view, setView, stationName, stationUid, onBack,
     </div>
   );
 }
+// Super admin: promo codes for view-only Premium (premiumPromos/{CODE}). The payment server reads them;
+// "used" goes up by one with every payment or free unlock that used the code.
+function PremiumPromosEditor() {
+  const { t } = useLang();
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState("");
+  const [code, setCode] = useState("");
+  const [percent, setPercent] = useState("50");
+  const [plans, setPlans] = useState("both");
+  const [maxUses, setMaxUses] = useState("0");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => db.collection("premiumPromos").onSnapshot(
+    (q) => setList(q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0))),
+    () => { setList([]); setErr(t("Couldn't load promo codes. Publish the latest Firestore rules first.", "પ્રોમો કોડ લોડ થયા નહીં. પહેલાં નવા Firestore rules પબ્લિશ કરો.")); }
+  ), []);
+  const pct = Math.round(Number(percent));
+  const mx = Math.max(0, Math.round(Number(maxUses) || 0));
+  const codeOk = /^[A-Z0-9]{3,20}$/.test(code);
+  const canAdd = codeOk && pct >= 1 && pct <= 100 && !busy && !(list || []).some((p) => p.id === code);
+  const add = () => {
+    if (!canAdd) return;
+    setBusy(true); setErr("");
+    db.collection("premiumPromos").doc(code).set({ code, percent: pct, plans, maxUses: mx, used: 0, active: true, note: note.trim().slice(0, 120), at: Date.now() })
+      .then(() => { setCode(""); setNote(""); })
+      .catch(() => setErr(t("Could not save — check the rules are published and try again.", "સેવ થયું નહીં — rules પબ્લિશ છે કે નહીં તે તપાસી ફરી પ્રયાસ કરો.")))
+      .finally(() => setBusy(false));
+  };
+  const toggle = (p) => db.collection("premiumPromos").doc(p.id).update({ active: p.active === false }).catch(() => setErr(t("Could not change it.", "બદલી શકાયું નહીં.")));
+  const remove = (p) => { if (window.confirm(t(`Delete code ${p.id}?`, `${p.id} કોડ કાઢી નાખવો છે?`))) db.collection("premiumPromos").doc(p.id).delete().catch(() => setErr(t("Could not delete it.", "કાઢી શકાયું નહીં."))); };
+  const field = { padding: "9px 11px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-page)", color: "var(--text-primary)", fontSize: 14, width: "100%", boxSizing: "border-box" };
+  const lbl = { fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4, display: "block" };
+  const planTxt = (k) => k === "year" ? t("Yearly only", "ફક્ત વાર્ષિક") : k === "month" ? t("Monthly only", "ફક્ત માસિક") : t("Both plans", "બંને પ્લાન");
+  return (
+    <div data-promos className="gu" style={{ maxWidth: 760 }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px", marginBottom: 18 }}>
+        <div className="disp" style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>{t("New promo code", "નવો પ્રોમો કોડ")}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+          <label><span style={lbl}>{t("Code", "કોડ")}</span>
+            <input data-promo-code value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20))} placeholder="DHARI50" style={{ ...field, fontWeight: 800, letterSpacing: "0.06em" }} /></label>
+          <label><span style={lbl}>{t("Discount %", "છૂટ %")} <span style={{ fontWeight: 500 }}>{t("(100 = free)", "(100 = મફત)")}</span></span>
+            <input data-promo-pct type="number" min="1" max="100" value={percent} onChange={(e) => setPercent(e.target.value)} style={field} /></label>
+          <label><span style={lbl}>{t("Works on", "કયા પ્લાન પર")}</span>
+            <select value={plans} onChange={(e) => setPlans(e.target.value)} style={field}>
+              <option value="both">{planTxt("both")}</option>
+              <option value="year">{planTxt("year")}</option>
+              <option value="month">{planTxt("month")}</option>
+            </select></label>
+          <label><span style={lbl}>{t("Max uses", "વધુમાં વધુ ઉપયોગ")} <span style={{ fontWeight: 500 }}>{t("(0 = no limit)", "(0 = મર્યાદા નહીં)")}</span></span>
+            <input data-promo-max type="number" min="0" value={maxUses} onChange={(e) => setMaxUses(e.target.value)} style={field} /></label>
+        </div>
+        <label style={{ display: "block", marginTop: 12 }}><span style={lbl}>{t("Note (only you see it)", "નોંધ (ફક્ત તમે જુઓ)")}</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("e.g. Dhari staff", "દા.ત. ધારી સ્ટાફ")} style={field} /></label>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+          <button type="button" data-promo-add onClick={add} disabled={!canAdd} style={{ background: "var(--accent)", color: "var(--accent-text)", border: "none", borderRadius: 8, padding: "9px 18px", fontWeight: 700, fontSize: 13.5, cursor: canAdd ? "pointer" : "default", opacity: canAdd ? 1 : 0.5 }}>{busy ? t("Saving…", "સેવ થઈ રહ્યું છે…") : t("Add code", "કોડ ઉમેરો")}</button>
+          {codeOk && pct >= 1 && pct <= 100 && (
+            <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+              {t("Year", "વર્ષ")} ₹299 → {nbRupees(nbPromoPrice("year", { percent: pct, plans }))} · {t("Month", "મહિનો")} ₹30 → {nbRupees(nbPromoPrice("month", { percent: pct, plans }))}
+            </span>
+          )}
+        </div>
+        {err && <div role="alert" style={{ marginTop: 10, fontSize: 13, color: "var(--status-error-text)" }}>{err}</div>}
+      </div>
+      {list === null && <div style={{ color: "var(--text-secondary)", padding: 20, textAlign: "center" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>}
+      {list && list.length === 0 && !err && <div style={{ color: "var(--text-secondary)", padding: 20, textAlign: "center" }}>{t("No promo codes yet.", "હજુ કોઈ પ્રોમો કોડ નથી.")}</div>}
+      {(list || []).map((p) => {
+        const off = p.active === false;
+        const full = p.maxUses > 0 && (p.used || 0) >= p.maxUses;
+        return (
+          <div key={p.id} data-promo-row={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", marginBottom: 10, opacity: off ? 0.6 : 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <span className="mono" style={{ fontWeight: 800, fontSize: 15, letterSpacing: "0.05em" }}>{p.id}</span>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{p.percent >= 100 ? t("Free", "મફત") : t(`${p.percent}% off`, `${p.percent}% છૂટ`)}</span>
+                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{planTxt(p.plans)}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginTop: 3 }}>
+                {t("Used", "વપરાયો")} {p.used || 0}{p.maxUses > 0 ? " / " + p.maxUses : ""}
+                {full ? " · " + t("used up", "પૂરો થયો") : ""}{off ? " · " + t("switched off", "બંધ") : ""}{p.note ? " · " + p.note : ""}
+              </div>
+            </div>
+            <button type="button" data-promo-toggle onClick={() => toggle(p)} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-primary)", borderRadius: 7, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{off ? t("Switch on", "ચાલુ કરો") : t("Switch off", "બંધ કરો")}</button>
+            <button type="button" onClick={() => remove(p)} aria-label={t("Delete", "કાઢી નાખો")} style={{ background: "transparent", border: "1px solid var(--status-error-border)", color: "var(--status-error-text)", borderRadius: 7, width: 32, height: 30, cursor: "pointer" }}>✕</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 function MasterLocationsEditor() {
   const { t } = useLang();
   const [raw, setRaw] = useState(null);
@@ -18097,8 +18302,8 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
   const nbPath = useNbPath();
   const superSegs = nbSegsAfter(nbPath, "/app/super");
   useEffect(() => { if (superSegs === null) nbNavigate("/app/super/pending", { replace: true }); }, [superSegs === null]);
-  const tab = superSegs && superSegs[0] === "locations" ? "locations" : "pending";
-  const setTab = (v) => nbNavigate("/app/super/" + (v === "locations" ? "locations" : "pending"));
+  const tab = superSegs && (superSegs[0] === "locations" || superSegs[0] === "promos") ? superSegs[0] : "pending";
+  const setTab = (v) => nbNavigate("/app/super/" + (v === "locations" || v === "promos" ? v : "pending"));
   const [pending, setPending] = useState(null);
   const [approvingUid, setApprovingUid] = useState(null);
 
@@ -18155,11 +18360,13 @@ function SuperAdminApp({ email, signOutUser, darkMode, setDarkMode, theme, setTh
   }, [theme]);
 
   return (
-    <NbAdminShell subtitle={t("Super Admin", "સુપર એડમિન")} title={tab === "pending" ? t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ") : t("Station master list", "સ્ટેશન માસ્ટર યાદી")} items={[
+    <NbAdminShell subtitle={t("Super Admin", "સુપર એડમિન")} title={tab === "pending" ? t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ") : tab === "promos" ? t("Premium promo codes", "પ્રીમિયમ પ્રોમો કોડ") : t("Station master list", "સ્ટેશન માસ્ટર યાદી")} items={[
       { key: "pending", icon: "⏳", label: t("Pending station requests", "બાકી સ્ટેશન વિનંતીઓ"), badge: pending && pending.length > 0 ? pending.length : null, active: tab === "pending", onClick: () => setTab("pending") },
       { key: "locations", icon: "🗂️", label: t("Station master list", "સ્ટેશન માસ્ટર યાદી"), active: tab === "locations", onClick: () => setTab("locations") },
+      { key: "promos", icon: "🎟️", label: t("Premium promo codes", "પ્રીમિયમ પ્રોમો કોડ"), active: tab === "promos", onClick: () => setTab("promos") },
     ]} email={email} darkMode={darkMode} setDarkMode={setDarkMode} theme={theme} setTheme={setTheme} onSignOut={signOutUser} viewKey={tab}>
       {tab === "locations" && <MasterLocationsEditor />}
+      {tab === "promos" && <PremiumPromosEditor />}
       {tab === "pending" && (
       <div className="nb-stagger" style={{ maxWidth: 760 }}>
         {pending === null && (
@@ -26045,6 +26252,7 @@ function RootApp() {
   }
   document.documentElement.classList.toggle("nb-noanim", nbIsCrimePath(nbPath));
   if (nbIsCrimePath(nbPath)) return <CrimeOfflineApp tab={nbPath === "/crime/report" ? "report" : "cases"} />;
+  if (nbPath === "/demo/premium") return <NbPremiumDemo />;
   const nbOnAppPath = nbIsAppPath(nbPath);
   const params = new URLSearchParams(window.location.search);
   const viewPathMatch = nbPath.match(/^\/view\/([A-Za-z0-9]{10,64})(\/|$)/);

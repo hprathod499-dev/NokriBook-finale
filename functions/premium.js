@@ -2,7 +2,6 @@
 const crypto = require("crypto");
 
 const DAY = 24 * 60 * 60 * 1000;
-const TRIAL_DAYS = 3;
 const PLANS = {
   year: { paise: 29900, days: 365 },
   month: { paise: 3000, days: 30 },
@@ -35,10 +34,30 @@ function extendUntil(paidUntilMs, now, days) {
   return Math.max(paidUntilMs || 0, now) + days * DAY;
 }
 
+// no free days: only paid time counts
 function stateOf(d, now) {
-  const trialEnd = ms(d && d.trialStart) + TRIAL_DAYS * DAY;
   const paidUntil = ms(d && d.paidUntil);
-  return { trialEnd, paidUntil, active: paidUntil > now || trialEnd > now, paid: paidUntil > now };
+  return { trialEnd: 0, paidUntil, active: paidUntil > now, paid: paidUntil > now };
 }
 
-module.exports = { DAY, TRIAL_DAYS, PLANS, okToken, premiumId, paymentSigOk, webhookOk, extendUntil, stateOf };
+// ---- promo codes (premiumPromos/{CODE}, made by the super admin) ----
+const okPromoCode = (c) => typeof c === "string" && /^[A-Z0-9]{3,20}$/.test(c);
+// { code, percent 1-100, plans "both"|"year"|"month", maxUses (0 = no limit), used, active }
+function promoProblem(p, plan) {
+  if (!p || p.active === false) return "missing";
+  const pct = Number(p.percent);
+  if (!(pct >= 1 && pct <= 100)) return "missing";
+  if (p.maxUses > 0 && (p.used || 0) >= p.maxUses) return "usedup";
+  if (plan && p.plans && p.plans !== "both" && p.plans !== plan) return "plan";
+  return null;
+}
+// price in paise after the promo; Razorpay's smallest payment is ₹1 (100 paise); 100% = 0
+function pricePaise(plan, percent) {
+  const full = PLANS[plan].paise;
+  const pct = Number(percent) || 0;
+  if (pct >= 100) return 0;
+  if (pct <= 0) return full;
+  return Math.max(100, Math.round(full * (100 - pct) / 100));
+}
+
+module.exports = { DAY, PLANS, okPromoCode, promoProblem, pricePaise, okToken, premiumId, paymentSigOk, webhookOk, extendUntil, stateOf };

@@ -359,6 +359,22 @@ service cloud.firestore {
       return num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {})
         && request.auth.uid in get(seatPath(token, num)).data.get('uids', []);
     }
+    // Premium promo codes: only the super admin makes and changes them; the payment server reads them
+    // with its own access (and counts "used").
+    match /premiumPromos/{code} {
+      function promoShape(d) {
+        return d.keys().hasOnly(['code', 'percent', 'plans', 'maxUses', 'used', 'active', 'note', 'at'])
+          && d.code == code && code.matches('[A-Z0-9]{3,20}')
+          && d.percent is int && d.percent >= 1 && d.percent <= 100
+          && d.plans in ['both', 'year', 'month']
+          && d.maxUses is int && d.maxUses >= 0
+          && d.used is int && d.used >= 0
+          && d.active is bool;
+      }
+      allow read: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() && promoShape(request.resource.data);
+      allow delete: if isSuperAdmin();
+    }
     match /shareSeats/{sid} {
       function seatShape(d) {
         return d.keys().hasOnly(['token', 'num', 'uids'])

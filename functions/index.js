@@ -1,8 +1,10 @@
 // Nokri Book — view-only premium (Razorpay).
 //
 // One HTTPS function, nbPremium, region asia-south1:
-//   POST /status   {token}                          -> trial / paid state of this phone's buckle number (starts the 3-day trial the first time)
-//   POST /order    {token, plan:"year"|"month"}     -> a Razorpay order for ₹299 / ₹30
+//   POST /status   {token}                          -> paid state of this phone's buckle number
+//   POST /promo    {code}                           -> is this promo code usable, and how much off
+//   POST /order    {token, plan, promo?}            -> a Razorpay order for ₹299 / ₹30 (less the promo);
+//                                                      a 100% promo is applied straight away ({free:true})
 //   POST /verify   {orderId, paymentId, signature}  -> checks Razorpay's signature and adds the days
 //   POST /webhook  (Razorpay calls this)            -> same as /verify, in case the phone closed before /verify ran
 //
@@ -60,17 +62,42 @@ async function whoIs(uid, token) {
 async function status(uid, token) {
   const w = await whoIs(uid, token);
   if (!w) return { grant: false };
-  const ref = db.doc("premium/" + P.premiumId(w.owner, w.num));
+  const s = await db.doc("premium/" + P.premiumId(w.owner, w.num)).get();
   const now = Date.now();
-  const d = await db.runTransaction(async (tx) => {
-    const s = await tx.get(ref);
-    if (s.exists) return s.data();
-    // first time this buckle number opens the link: the 3-day free trial starts now
-    const fresh = { owner: w.owner, num: w.num, trialStart: admin.firestore.Timestamp.fromMillis(now) };
-    tx.set(ref, fresh);
-    return fresh;
+  return { grant: true, owner: w.owner, num: w.num, now, ...P.stateOf(s.exists ? s.data() : null, now) };
+}
+
+async function readPromo(code) {
+  if (!P.okPromoCode(code)) return null;
+  const s = await db.doc("premiumPromos/" + code).get();
+  return s.exists ? { code, ...s.data() } : null;
+}
+
+// adds the plan's days to premium/{owner}_{num} and records it under premiumPayments/{key}; runs once per key
+async function grantDays(key, w, plan, extra) {
+  const ref = db.doc("premium/" + P.premiumId(w.owner, w.num));
+  const payRef = db.doc("premiumPayments/" + key);
+  const promoRef = extra.promo ? db.doc("premiumPromos/" + extra.promo) : null;
+  const now = Date.now();
+  return db.runTransaction(async (tx) => {
+    const [s, pay, pr] = await Promise.all([tx.get(ref), tx.get(payRef), promoRef ? tx.get(promoRef) : Promise.resolve(null)]);
+    const cur = s.exists ? s.data() : { owner: w.owner, num: w.num };
+    if (pay.exists) return P.stateOf(cur, now);            // already counted (verify + webhook both arrive)
+    if (extra.free) {
+      // a free code must still have uses left at this moment
+      const why = P.promoProblem(pr && pr.exists ? pr.data() : null, plan);
+      if (why) throw Object.assign(new Error(why === "usedup" ? "promo used up" : "promo not valid"), { http: why === "usedup" ? 410 : 404 });
+    }
+    const until = P.extendUntil(cur.paidUntil ? cur.paidUntil.toMillis() : 0, now, P.PLANS[plan].days);
+    const next = { ...cur, paidUntil: admin.firestore.Timestamp.fromMillis(until), plan };
+    tx.set(ref, next);
+    tx.set(payRef, {
+      owner: w.owner, num: w.num, plan, amount: extra.amount, paymentId: extra.paymentId || null,
+      promo: extra.promo || null, uid: extra.uid || null, at: admin.firestore.Timestamp.fromMillis(now),
+    });
+    if (promoRef && pr && pr.exists) tx.update(promoRef, { used: admin.firestore.FieldValue.increment(1) });
+    return P.stateOf(next, now);
   });
-  return { grant: true, owner: w.owner, num: w.num, now, ...P.stateOf(d, now) };
 }
 
 async function applyOrder(orderId, paymentId) {
@@ -79,24 +106,11 @@ async function applyOrder(orderId, paymentId) {
     throw Object.assign(new Error("order not paid yet"), { http: 409 });
   }
   const n = order.notes || {};
-  const plan = P.PLANS[n.plan];
-  if (!plan || order.amount !== plan.paise || !n.owner || !n.num) throw Object.assign(new Error("order does not match a plan"), { http: 400 });
-  const ref = db.doc("premium/" + P.premiumId(n.owner, n.num));
-  const payRef = db.doc("premiumPayments/" + orderId);
-  const now = Date.now();
-  return db.runTransaction(async (tx) => {
-    const [s, pay] = await Promise.all([tx.get(ref), tx.get(payRef)]);
-    const cur = s.exists ? s.data() : { owner: n.owner, num: n.num, trialStart: admin.firestore.Timestamp.fromMillis(now) };
-    if (pay.exists) return P.stateOf(cur, now);            // already counted (verify + webhook both arrive)
-    const until = P.extendUntil(cur.paidUntil ? cur.paidUntil.toMillis() : 0, now, plan.days);
-    const next = { ...cur, paidUntil: admin.firestore.Timestamp.fromMillis(until), plan: n.plan };
-    tx.set(ref, next);
-    tx.set(payRef, {
-      owner: n.owner, num: n.num, plan: n.plan, amount: order.amount, paymentId: paymentId || null,
-      uid: n.uid || null, at: admin.firestore.Timestamp.fromMillis(now),
-    });
-    return P.stateOf(next, now);
-  });
+  // the notes were written by /order itself, so the amount must match the plan less that promo exactly
+  if (!P.PLANS[n.plan] || !n.owner || !n.num || order.amount !== P.pricePaise(n.plan, n.pct || 0)) {
+    throw Object.assign(new Error("order does not match a plan"), { http: 400 });
+  }
+  return grantDays(orderId, { owner: n.owner, num: n.num }, n.plan, { amount: order.amount, paymentId, promo: n.promo || "", uid: n.uid });
 }
 
 exports.nbPremium = onRequest({ region: "asia-south1", cors: true, maxInstances: 20, memory: "256MiB" }, async (req, res) => {
@@ -122,15 +136,34 @@ exports.nbPremium = onRequest({ region: "asia-south1", cors: true, maxInstances:
 
     if (path === "/status") return res.json(await status(uid, b.token));
 
+    if (path === "/promo") {
+      const p = await readPromo(String(b.code || "").toUpperCase());
+      const why = P.promoProblem(p, null);
+      if (why) return res.status(why === "usedup" ? 410 : 404).json({ error: why });
+      return res.json({ code: p.code, percent: Number(p.percent), plans: p.plans || "both" });
+    }
+
     if (path === "/order") {
-      const plan = P.PLANS[b.plan];
-      if (!plan) return res.status(400).json({ error: "bad plan" });
+      if (!P.PLANS[b.plan]) return res.status(400).json({ error: "bad plan" });
       const w = await whoIs(uid, b.token);
       if (!w) return res.status(403).json({ error: "no grant" });
+      let pct = 0, promo = "";
+      if (b.promo) {
+        const p = await readPromo(String(b.promo).toUpperCase());
+        const why = P.promoProblem(p, b.plan);
+        if (why) return res.status(why === "usedup" ? 410 : 404).json({ error: why });
+        pct = Number(p.percent); promo = p.code;
+      }
+      const amount = P.pricePaise(b.plan, pct);
+      if (amount === 0) {
+        // 100% code: no payment; one free use per buckle number per code
+        const st = await grantDays("free_" + promo + "_" + P.premiumId(w.owner, w.num), w, b.plan, { amount: 0, promo, uid, free: true });
+        return res.json({ free: true, ok: true, ...st });
+      }
       const order = await razorpay("POST", "/orders", {
-        amount: plan.paise, currency: "INR",
+        amount, currency: "INR",
         receipt: ("nb" + w.num + "_" + Date.now()).slice(0, 40),
-        notes: { owner: w.owner, num: w.num, plan: b.plan, uid },
+        notes: { owner: w.owner, num: w.num, plan: b.plan, uid, promo, pct: String(pct) },
       });
       return res.json({ orderId: order.id, amount: order.amount, currency: "INR", keyId: cfg().keyId, num: w.num });
     }
