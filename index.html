@@ -1293,6 +1293,7 @@ const NB_RING_MAX = 20;          // change notes kept in the head
 const NB_RING_BYTES = 12000;     // and at most this much of them
 const NB_OPS_MAX_BYTES = 6000;   // a bigger change is not sent as a note: phones download the whole copy
 const NB_FULL_EVERY_MS = 24 * 60 * 60 * 1000;
+const NB_RECHECK_MS = 5 * 60 * 1000;   // a phone that checked within this time shows its copy without asking the server
 function nbShareHistCutoff() { return todayStr().slice(0, 7) + "-01"; }
 function nbSplitShareHistory(pub, cutoff) {
   const months = {};
@@ -1424,6 +1425,22 @@ function nbShareBodyOf(u) {
   return body;
 }
 // owner side: one transaction writes the copy and the head together, so they never disagree
+// staff taken off the list lose the share link on their phones: their seat and grants are removed
+async function nbFreeRemovedShareNums(token, gone) {
+  for (const num of gone || []) {
+    try {
+      const seat = await db.collection("shareSeats").doc(token + "_" + num).get();
+      if (!seat.exists) continue;
+      const b = db.batch();
+      (seat.data().uids || []).forEach((u) => {
+        b.delete(db.collection("shareGrants").doc(u + "_" + token));
+        b.delete(db.collection("shareNumChecks").doc(u + "_" + token));
+      });
+      b.delete(db.collection("shareSeats").doc(token + "_" + num));
+      await b.commit();
+    } catch (e) { console.warn("free removed staff phones", e && e.code); }
+  }
+}
 async function nbPublishShared(token, body, owner) {
   const coreRef = db.collection("sharedRosters").doc(token);
   const headRef = db.collection("sharedRosterHead").doc(token);
@@ -6282,8 +6299,11 @@ useEffect(() => {
     const sig = nbHash(nums.join(","));
     if (nbLsGet("nb_sk2_" + tok) === sig) return;
     const tm = setTimeout(() => {
+      let oldNums = [];
       nbEnsureShareKey(accountUid, tok)
+        .then(() => db.collection("shareKeys").doc(tok).get().then((d) => { oldNums = Object.keys((d.exists && d.data().nums) || {}); }).catch(() => {}))
         .then(() => db.collection("shareKeys").doc(tok).update({ nums: Object.fromEntries(nums.map((n) => [n, true])) }))
+        .then(() => nbFreeRemovedShareNums(tok, oldNums.filter((n) => nums.indexOf(n) === -1)))
         .then(() => nbLsSet("nb_sk2_" + tok, sig))
         .catch((e) => console.warn("share key", e && e.code));
     }, 2500);
@@ -15155,7 +15175,7 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
       if (su.length >= NB_SEATS_PER_HEAD && su.indexOf(uid) === -1) { setMsg(["err", nbSeatsFullMsg(t)]); setBusy(false); return; }
       const batch = vDb.batch();
       if (su.indexOf(uid) === -1) batch.set(seatRef, { token, num: bn, uids: su.concat([uid]) });
-      batch.set(vDb.collection("shareGrants").doc(uid + "_" + token), { uid, token, code: c, num: bn, at: FV.serverTimestamp() });
+      batch.set(vDb.collection("shareGrants").doc(uid + "_" + token), { uid, token, code: c, num: bn, s2: true, at: FV.serverTimestamp() });
       batch.update(ref, { fails: 0 });
       try { await batch.commit(); } catch (e3) { errCode = "2:" + ((e3 && e3.code) || "x"); setDbg(errCode); setMsg(["err", t("Number or code is not right. Check both and try again.", "નંબર અથવા કોડ સાચો નથી. બંને તપાસી ફરી પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
       try { localStorage.setItem("nb_view_me_" + token, bn); } catch (e6) {}
@@ -16507,6 +16527,10 @@ function PublicRosterView({ uid }) {
   const langCtxValue = useMemo(() => ({ lang, setLang, t }), [lang, t]);
 
   const [core, setData] = useState(undefined);
+  const [checkedAt, setCheckedAt] = useState(0);
+  const [refreshN, setRefreshN] = useState(0);
+  const [, setTick] = useState(0);
+  useEffect(() => { const iv = setInterval(() => setTick((n) => n + 1), 30000); return () => clearInterval(iv); }, []);
   const nbPath = useNbPath();
   const viewBase = "/view/" + uid;
   const viewSegs = nbSegsAfter(nbPath, viewBase);
@@ -16666,9 +16690,26 @@ function PublicRosterView({ uid }) {
         else setData(null);
       }
     };
+    const startHead = () => {
+      if (dead || unsubHead || coreMode) return;
+      unsubHead = vdb.collection("sharedRosterHead").doc(uid).onSnapshot((snap) => {
+        if (snap.exists) { try { localStorage.setItem("nb_vc_chk_" + uid, String(Date.now())); } catch (e) {} setCheckedAt(Date.now()); }
+        return onHead(snap);
+      }, () => { if (!dead) startCore(); });
+    };
+    let recheckTimer = null;
     const start = () => {
       if (dead) return;
-      unsubHead = vdb.collection("sharedRosterHead").doc(uid).onSnapshot(onHead, () => { if (!dead) startCore(); });
+      // opened again within 5 minutes: show the copy on this phone and check the server when the 5 minutes are up
+      let chk = 0; try { chk = +localStorage.getItem("nb_vc_chk_" + uid) || 0; } catch (e) {}
+      const age = Date.now() - chk;
+      const cache = age >= 0 && age < NB_RECHECK_MS && refreshN === 0 ? nbVcGet(uid) : null;
+      if (cache && Date.now() - cache.at <= NB_FULL_EVERY_MS) {
+        showBody(cache.body); setCheckedAt(chk);
+        recheckTimer = setTimeout(startHead, NB_RECHECK_MS - age);
+        return;
+      }
+      startHead();
     };
     // The link always opens through its own separate session, even on a phone that is signed in to the
     // station, so every device has to enter the share code once.
@@ -16681,8 +16722,8 @@ function PublicRosterView({ uid }) {
       // An anonymous session is made only when someone actually enters a code.
       else start();
     });
-    return () => { dead = true; if (unsubHead) unsubHead(); if (unsubCore) unsubCore(); };
-  }, [uid, unlockN]);
+    return () => { dead = true; clearTimeout(recheckTimer); if (unsubHead) unsubHead(); if (unsubCore) unsubCore(); };
+  }, [uid, unlockN, refreshN]);
 
   return (
     <LangContext.Provider value={langCtxValue}>
@@ -16715,6 +16756,16 @@ function PublicRosterView({ uid }) {
                   className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
                   style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 0, marginRight: "auto", color: "var(--text-primary)" }}
                 >☰</button>
+                {checkedAt > 0 && (() => {
+                  const mins = Math.max(0, Math.floor((Date.now() - checkedAt) / 60000));
+                  return (
+                    <button type="button" data-refresh onClick={() => { try { localStorage.removeItem("nb_vc_chk_" + uid); } catch (e) {} setRefreshN((n) => n + 1); }}
+                      title={t("Check for changes now", "હમણાં ફેરફાર તપાસો")} className="gu"
+                      style={{ marginRight: "auto", background: "transparent", border: "none", padding: "4px 2px", fontSize: 12, color: "var(--text-tertiary)", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      {mins < 1 ? t("Updated just now", "હમણાં અપડેટ થયું") : t(`Updated ${mins} min ago`, `${mins} મિનિટ પહેલાં અપડેટ`)} ↻
+                    </button>
+                  );
+                })()}
                 <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
                   ...undoRedoBtn(true),
                   background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",

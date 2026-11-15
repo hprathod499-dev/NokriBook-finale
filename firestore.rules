@@ -347,9 +347,13 @@ service cloud.firestore {
       return /databases/$(database)/documents/shareSeats/$(token + '_' + num);
     }
     // a phone that entered the right code for this link and holds one of the 2 phone seats
+    // A grant made together with its phone seat (s2) is enough on its own: freeing a phone and taking
+    // someone off the staff list both delete their grants. That is 1 read per check instead of 3.
+    // Older grants (no s2) are still checked against the staff list and the seat.
     function shareViewerOk(token) {
       let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token);
-      return exists(g) && shareSeatOk(token, get(g).data.get('num', ''));
+      return exists(g)
+        && (get(g).data.get('s2', false) == true || shareSeatOk(token, get(g).data.get('num', '')));
     }
     function shareSeatOk(token, num) {
       return num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {})
@@ -393,7 +397,8 @@ service cloud.firestore {
       allow list: if false;
       // update = the same phone signing in again (e.g. after the owner freed it, or with a new code)
       allow create, update: if signedIn()
-        && request.resource.data.keys().hasOnly(['uid', 'token', 'code', 'num', 'at'])
+        && request.resource.data.keys().hasOnly(['uid', 'token', 'code', 'num', 'at', 's2'])
+        && request.resource.data.get('s2', true) == true
         && request.resource.data.num is string && request.resource.data.num.matches('[0-9A-Z]{1,12}')
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.token is string
