@@ -521,6 +521,10 @@
   @keyframes nbBadgeIn { from { opacity: 0; transform: scale(.4) rotate(-12deg); } to { opacity: 1; transform: none; } }
   @keyframes nbBadgeGlow { from { opacity: .45; } to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .nb-welcome-badge, .nb-welcome-badge::after { animation: none; } }
+
+  /* phones-signed-in search: one even border all round, accent when typing */
+  input[data-seat-search]:focus { border-color: var(--accent-strong) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-strong) 22%, transparent); outline: none !important; }
+  input[data-seat-search]::-webkit-search-decoration { -webkit-appearance: none; }
 </style>
 </head>
 <body>
@@ -14585,7 +14589,7 @@ function ShareSeatsList({ token, staff, showToast }) {
             <span aria-hidden="true" style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12, opacity: 0.55 }}>🔍</span>
             <input type="search" value={q} autoFocus data-seat-search onChange={(e) => setQ(e.target.value)}
               placeholder={t("Search name or buckle no.", "નામ અથવા બકલ નં. શોધો")} className="gu"
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, padding: "7px 8px 7px 28px", borderRadius: 9 }} />
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, padding: "7px 8px 7px 28px", borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", outline: "none", WebkitAppearance: "none", appearance: "none" }} />
           </div>
           {!qq ? null : seats === null ? <div style={{ color: "var(--text-secondary)", padding: 4 }}>…</div>
             : seats === "err" ? <div style={{ color: "var(--status-error-text)", padding: 4 }}>{t("Couldn't load the list.", "યાદી લોડ ન થઈ.")}</div>
