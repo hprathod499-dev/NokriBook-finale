@@ -436,10 +436,13 @@ service cloud.firestore {
           && d.keys().hasOnly([
                'v', 'stationName', 'categories', 'membership', 'staff',
                'leaveTypes', 'outstationTypes', 'designations', 'skipLog',
-               'owner', 'z', 'zv'
+               'owner', 'z', 'zv', 'ver', 'sum'
              ])
           && a.get('shareEnabled', false) == true
-          && a.get('shareToken', null) == token;
+          && a.get('shareToken', null) == token
+          // written together with its head (same version), so phones that apply change notes never go stale
+          && d.get('ver', 0) is int && d.get('ver', 0) >= 1
+          && getAfter(/databases/$(database)/documents/sharedRosterHead/$(token)).data.ver == d.ver;
       }
 
       allow create: if shareWriteOk();
@@ -448,6 +451,37 @@ service cloud.firestore {
         && (resource == null || canEditStation(resource.data.owner));
     }
 
+
+    // ============================================================
+    // SHARE LINK HEAD  —  sharedRosterHead/{token}
+    // Tiny: version number, checksum and the last few changes (packed in z).
+    // Phones read this and apply the changes to the copy they keep, instead
+    // of downloading the whole copy. Written in the same transaction as
+    // sharedRosters; the version only ever goes up by one.
+    // ============================================================
+    match /sharedRosterHead/{token} {
+      allow get: if resource == null
+        || (signedIn() && (shareViewerOk(token) || canEditStation(resource.data.owner)));
+      allow list: if false;
+      function headWriteOk() {
+        let d = request.resource.data;
+        let a = accountOf(d.owner);
+        return signedIn()
+          && canEditStation(d.owner)
+          && d.keys().hasOnly(['v', 'owner', 'token', 'ver', 'sum', 'at', 'z', 'zv'])
+          && d.token == token
+          && d.ver is int && d.ver >= 1
+          && d.sum is string
+          && a.get('shareEnabled', false) == true
+          && a.get('shareToken', null) == token;
+      }
+      allow create: if headWriteOk();
+      allow update: if headWriteOk()
+        && resource.data.owner == request.resource.data.owner
+        && request.resource.data.ver == resource.data.ver + 1;
+      allow delete: if signedIn()
+        && (resource == null || canEditStation(resource.data.owner));
+    }
 
     // ============================================================
     // OLDER MONTHS OF A SHARE LINK  —  sharedRosterMonths/{token}_{YYYY-MM}
