@@ -861,6 +861,81 @@ function nbBuckleShow(n) { return nbHasBuckle(n) ? n : "—"; }
 // Share-link viewers who aren't signed in to Nokri Book get their own separate (anonymous) Firebase session,
 // so it never mixes with a station login on the same phone.
 let NB_VIEW_FB = null;
+// ---- View-only premium (₹299 a year / ₹30 a month, 3 free days from the first open) ----
+// Off until the payment server (functions/) is deployed with the Razorpay keys. A phone can turn it on
+// for testing with localStorage nb_premium_on = "1".
+const NB_PREMIUM_ON = false;
+const NB_PREMIUM_URL = "https://asia-south1-duty-roaster-944b9.cloudfunctions.net/nbPremium";
+const NB_PREMIUM_RECHECK_MS = 12 * 60 * 60 * 1000;
+function nbPremiumOn() {
+  if (NB_PREMIUM_ON) return true;
+  try { return localStorage.getItem("nb_premium_on") === "1"; } catch (e) { return false; }
+}
+function nbPremGet(token) {
+  try { const v = JSON.parse(localStorage.getItem("nb_prem_" + token) || "null"); return v && typeof v.trialEnd === "number" ? v : null; } catch (e) { return null; }
+}
+function nbPremSet(token, s) {
+  try { localStorage.setItem("nb_prem_" + token, JSON.stringify({ trialEnd: +s.trialEnd || 0, paidUntil: +s.paidUntil || 0, at: Date.now() })); } catch (e) {}
+}
+function nbPremClear(token) { try { localStorage.removeItem("nb_prem_" + token); } catch (e) {} }
+const nbPremActive = (s, now) => !!s && ((s.paidUntil || 0) > now || (s.trialEnd || 0) > now);
+async function nbPremCall(fb, path, body) {
+  const u = fb && fb.auth.currentUser;
+  if (!u) throw Object.assign(new Error("no session"), { status: 401 });
+  const idt = await u.getIdToken();
+  const res = await fetch(NB_PREMIUM_URL + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idt },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(j.error || ("HTTP " + res.status)), { status: res.status });
+  return j;
+}
+let NB_RZP_LOADING = null;
+function nbLoadRazorpay() {
+  if (window.Razorpay) return Promise.resolve();
+  if (!NB_RZP_LOADING) {
+    NB_RZP_LOADING = new Promise((ok, bad) => {
+      const s = document.createElement("script");
+      s.src = "https://checkout.razorpay.com/v1/checkout.js";
+      s.onload = () => ok();
+      s.onerror = () => { NB_RZP_LOADING = null; bad(new Error("Razorpay did not load")); };
+      document.head.appendChild(s);
+    });
+  }
+  return NB_RZP_LOADING;
+}
+// Opens Razorpay. Resolves with the new state once the server has checked the payment,
+// or null if the person closed the payment window.
+async function nbPremiumPay(fb, token, plan, t) {
+  await nbLoadRazorpay();
+  const o = await nbPremCall(fb, "/order", { token, plan });
+  return new Promise((resolve, reject) => {
+    const rz = new window.Razorpay({
+      key: o.keyId, order_id: o.orderId, amount: o.amount, currency: "INR",
+      name: "Nokri Book",
+      description: plan === "year" ? t("Premium — 1 year", "પ્રીમિયમ — 1 વર્ષ") : t("Premium — 1 month", "પ્રીમિયમ — 1 મહિનો"),
+      notes: { num: o.num },
+      theme: { color: "#B5651D" },
+      modal: { ondismiss: () => resolve(null) },
+      handler: async (r) => {
+        // the server checks Razorpay's signature; "not paid yet" can take a few seconds to clear
+        for (let i = 0; i < 6; i++) {
+          try {
+            const s = await nbPremCall(fb, "/verify", { orderId: r.razorpay_order_id, paymentId: r.razorpay_payment_id, signature: r.razorpay_signature });
+            return resolve(s);
+          } catch (e) {
+            if (e.status !== 409 || i === 5) return reject(e);
+            await new Promise((w) => setTimeout(w, 2500));
+          }
+        }
+      },
+    });
+    rz.on("payment.failed", () => {});   // Razorpay shows its own message and lets them retry
+    rz.open();
+  });
+}
 function nbViewFb() {
   if (!NB_VIEW_FB) {
     let app = (firebase.apps || []).find((a) => a.name === "nbview");
@@ -16464,6 +16539,103 @@ function NbBuckleShield({ num, size = 78 }) {
     </svg>
   );
 }
+function nbFmtDate(ms) {
+  const d = new Date(ms);
+  return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+}
+function NbPremiumPlans({ busy, onPay }) {
+  const { t } = useLang();
+  const [plan, setPlan] = useState("year");
+  const plans = [
+    ["year", "₹299", t("per year", "પ્રતિ વર્ષ"), t("₹25 a month · save ₹61", "મહિને ₹25 · ₹61 બચત")],
+    ["month", "₹30", t("per month", "પ્રતિ મહિનો"), t("Pay month by month", "દર મહિને ભરો")],
+  ];
+  return (
+    <div>
+      <div role="radiogroup" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {plans.map(([k, price, per, note]) => {
+          const on = plan === k;
+          return (
+            <button key={k} type="button" role="radio" aria-checked={on} data-plan={k} onClick={() => setPlan(k)} className="gu"
+              style={{ textAlign: "left", font: "inherit", color: "var(--text-primary)", cursor: "pointer", borderRadius: 12, padding: "12px 14px",
+                background: on ? "var(--accent-light)" : "var(--bg-surface)",
+                border: on ? "2px solid var(--accent-strong)" : "1px solid var(--border)" }}>
+              <div className="disp" style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.1 }}>{price}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-secondary)" }}>{per}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>{note}</div>
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" data-pay disabled={busy} onClick={() => onPay(plan)} className="gu"
+        style={{ width: "100%", marginTop: 12, padding: "12px 16px", borderRadius: 10, border: "none", background: "var(--accent-strong)", color: "#fff", fontWeight: 800, fontSize: 15, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        {busy ? t("Please wait…", "રાહ જુઓ…") : (plan === "year" ? t("Pay ₹299", "₹299 ભરો") : t("Pay ₹30", "₹30 ભરો"))}
+      </button>
+      <div className="gu" style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8, textAlign: "center" }}>
+        {t("UPI, card or net banking through Razorpay. One payment covers your buckle number on both of your phones.", "Razorpay દ્વારા UPI, કાર્ડ કે નેટ બેંકિંગ. એક ચુકવણી તમારા બક્કલ નંબરના બંને ફોન માટે ચાલે છે.")}
+      </div>
+    </div>
+  );
+}
+// Full screen after the 3 free days, until a payment goes through.
+function NbPremiumPaywall({ num, onPay, onRecheck, busy, err }) {
+  const { t } = useLang();
+  return (
+    <div data-paywall style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--bg-page)" }}>
+      <div className="gu" style={{ width: 420, maxWidth: "100%", borderRadius: 20, overflow: "hidden", background: "var(--bg-surface)", border: "1px solid var(--border)", boxShadow: "0 24px 60px -24px rgba(0,0,0,.45)" }}>
+        <div style={{ position: "relative", background: "var(--sidebar-bg)", color: "#F4EEE6", padding: "24px 22px 26px", overflow: "hidden", display: "flex", gap: 14, alignItems: "center" }}>
+          <NbContours opacity={0.35} />
+          <div style={{ position: "relative", flex: 1 }}>
+            <div className="disp" style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{t("Your 3 free days are over", "તમારા 3 મફત દિવસ પૂરા થયા")}</div>
+            <div style={{ fontSize: 13.5, color: "#E9E1D6", marginTop: 6 }}>{t("Pay to keep seeing the duty roster on this link.", "આ લિંક પર ડ્યુટી રોસ્ટર જોતા રહેવા ચુકવણી કરો.")}</div>
+          </div>
+          {num && <div style={{ position: "relative" }}><NbBuckleShield num={num} size={62} /></div>}
+        </div>
+        <div style={{ padding: "18px 20px 20px" }}>
+          <NbPremiumPlans busy={busy} onPay={onPay} />
+          {err && <div role="alert" style={{ marginTop: 10, fontSize: 13, color: "var(--status-error-text)" }}>{err}</div>}
+          <button type="button" data-recheck onClick={onRecheck} disabled={busy} className="gu"
+            style={{ display: "block", margin: "14px auto 0", background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer", padding: 4 }}>
+            {t("Already paid? Check again", "ચુકવણી કરી દીધી છે? ફરી તપાસો")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// Small strip on Today's duty while the free days run; opens the plans.
+function NbTrialStrip({ prem, onPay, busy, err }) {
+  const { t } = useLang();
+  const [open, setOpen] = useState(false);
+  const now = Date.now();
+  if (!prem) return null;
+  if ((prem.paidUntil || 0) > now) {
+    return (
+      <div data-premium-ok className="gu" style={{ fontSize: 12.5, color: "var(--text-tertiary)", margin: "-10px 0 16px" }}>
+        {t("Premium till ", "પ્રીમિયમ ")}{nbFmtDate(prem.paidUntil)}{t("", " સુધી")}
+      </div>
+    );
+  }
+  const left = Math.max(0, prem.trialEnd - now);
+  const days = Math.ceil(left / 86400000), hours = Math.ceil(left / 3600000);
+  const leftTxt = left > 86400000
+    ? t(`${days} days left`, `${days} દિવસ બાકી`)
+    : t(`${hours} hours left`, `${hours} કલાક બાકી`);
+  return (
+    <div data-trial className="gu" style={{ background: "var(--accent-light)", border: "1px solid color-mix(in srgb, var(--accent-strong) 35%, transparent)", borderRadius: 12, padding: "12px 14px", marginBottom: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>{t("Free trial", "મફત ટ્રાયલ")} · {leftTxt}</div>
+          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>{t("After that: ₹299 a year or ₹30 a month.", "પછી: વર્ષના ₹299 અથવા મહિનાના ₹30.")}</div>
+        </div>
+        {!open && <button type="button" data-trial-pay onClick={() => setOpen(true)} style={{ background: "var(--accent-strong)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{t("Pay now", "હમણાં ભરો")}</button>}
+        {open && <button type="button" onClick={() => setOpen(false)} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, width: 30, height: 30, color: "var(--text-secondary)", cursor: "pointer" }}>✕</button>}
+      </div>
+      {open && <div style={{ marginTop: 12 }}><NbPremiumPlans busy={busy} onPay={onPay} /></div>}
+      {open && err && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: "var(--status-error-text)" }}>{err}</div>}
+    </div>
+  );
+}
 function NbGreetingHero({ me, num, stationName, dutyToday }) {
   const { t } = useLang();
   const [now, setNow] = useState(() => new Date());
@@ -16641,6 +16813,31 @@ function PublicRosterView({ uid }) {
   const [locked, setLocked] = useState(false);
   const viewFbRef = useRef(null);
   const [unlockN, setUnlockN] = useState(0);
+  // premium: trial / paid state of this phone's buckle number (kept on the phone, checked with the server)
+  const premOn = nbPremiumOn();
+  const [prem, setPrem] = useState(() => (premOn ? nbPremGet(uid) : null));
+  const [paywall, setPaywall] = useState(false);
+  const [payBusy, setPayBusy] = useState(false);
+  const [payErr, setPayErr] = useState("");
+  // the free days ran out while the app was open: check again (shows the payment screen)
+  useEffect(() => {
+    if (!premOn || !prem || paywall) return;
+    const iv = setInterval(() => { if (!nbPremActive(prem, Date.now())) setUnlockN((n) => n + 1); }, 60000);
+    return () => clearInterval(iv);
+  }, [premOn, prem, paywall]);
+  const doPay = async (plan) => {
+    setPayErr(""); setPayBusy(true);
+    try {
+      const s = await nbPremiumPay(viewFbRef.current, uid, plan, t);
+      if (s) {
+        nbPremSet(uid, s); setPrem(nbPremGet(uid));
+        if (paywall) { setPaywall(false); setData(undefined); setUnlockN((n) => n + 1); }
+      }
+    } catch (e) {
+      setPayErr(t("The payment could not be completed. If money was taken, tap \"Already paid? Check again\" in a few minutes.", "ચુકવણી પૂરી થઈ શકી નહીં. જો પૈસા કપાયા હોય તો થોડી મિનિટ પછી \"ચુકવણી કરી દીધી છે? ફરી તપાસો\" દબાવો."));
+    } finally { setPayBusy(false); }
+  };
+  const premRecheck = () => { setPayErr(""); setPaywall(false); setData(undefined); setUnlockN((n) => n + 1); };
   // who is looking (the buckle / mobile number they signed in with on this phone)
   const [meNum, setMeNum] = useState(() => { try { return localStorage.getItem("nb_view_me_" + uid) || ""; } catch (e) { return ""; } });
   useEffect(() => {
@@ -16683,6 +16880,36 @@ function PublicRosterView({ uid }) {
       else setData(null);
     };
     const lockOut = () => { nbVcClear(uid); setLocked(true); setData(undefined); };
+    const stopAll = () => { if (unsubHead) { unsubHead(); unsubHead = null; } if (unsubCore) { unsubCore(); unsubCore = null; } };
+    const showPay = () => { stopAll(); setLocked(false); setData(undefined); setPaywall(true); };
+    // "go" = may see the roster, "pay" = free days over and not paid, "code" = this phone has no grant any more
+    const premCheck = async (force) => {
+      const now = Date.now();
+      const c = nbPremGet(uid);
+      if (!force && nbPremActive(c, now)) {
+        setPrem(c);
+        if (now - (c.at || 0) > NB_PREMIUM_RECHECK_MS) {
+          premCheck(true).then((r) => { if (!dead && r === "pay") showPay(); }).catch(() => {});
+        }
+        return "go";
+      }
+      try {
+        const st = await nbPremCall(fb, "/status", { token: uid });
+        if (!st.grant) { nbPremClear(uid); return "code"; }
+        nbPremSet(uid, st);
+        const k = nbPremGet(uid); setPrem(k);
+        return nbPremActive(k, Date.now()) ? "go" : "pay";
+      } catch (e) {
+        // payment server not reachable: the Firestore rules still decide who can read
+        return c && !nbPremActive(c, now) ? "pay" : "go";
+      }
+    };
+    const denied = async () => {
+      if (!premOn || !fb.auth.currentUser) return lockOut();
+      const r = await premCheck(true);
+      if (dead) return;
+      if (r === "pay") showPay(); else lockOut();
+    };
     // the old way, listening to the whole copy: used until the station has published a head
     const startCore = () => {
       if (dead || coreMode) return;
@@ -16693,7 +16920,7 @@ function PublicRosterView({ uid }) {
           if (snap.exists && snap.data().v === 2) showBody(nbShareBodyOf(nbUnpack(snap.data(), NB_PLAIN_SHARED_KEYS)));
           else { setLocked(false); setData(null); }
         },
-        (e) => { if (e && e.code === "permission-denied") lockOut(); else setData(null); }
+        (e) => { if (e && e.code === "permission-denied") denied(); else setData(null); }
       );
     };
     const fullFetch = async (my) => {
@@ -16720,7 +16947,7 @@ function PublicRosterView({ uid }) {
         await fullFetch(my);
       } catch (e) {
         if (dead || my !== seq) return;
-        if (e && e.code === "permission-denied") lockOut();
+        if (e && e.code === "permission-denied") denied();
         else if (cache) showBody(cache.body);
         else setData(null);
       }
@@ -16734,7 +16961,17 @@ function PublicRosterView({ uid }) {
     };
     let recheckTimer = null;
     // every open checks the server straight away (no waiting time)
-    const start = () => { if (!dead) startHead(); };
+    const start = async () => {
+      if (dead) return;
+      if (premOn && fb.auth.currentUser) {
+        const r = await premCheck(false);
+        if (dead) return;
+        if (r === "code") { lockOut(); return; }
+        if (r === "pay") { showPay(); return; }
+      }
+      setPaywall(false);
+      startHead();
+    };
     // The link always opens through its own separate session, even on a phone that is signed in to the
     // station, so every device has to enter the share code once.
     const fb = nbViewFb(); viewFbRef.current = fb; vdb = fb.db;
@@ -16753,7 +16990,8 @@ function PublicRosterView({ uid }) {
     <LangContext.Provider value={langCtxValue}>
       <div style={{ minHeight: "100vh", background: "var(--bg-page)" }}>
         {locked && <ShareCodeGate token={uid} fb={viewFbRef.current} onUnlocked={(bn) => { if (bn) setMeNum(bn); setLocked(false); setData(undefined); setUnlockN((n) => n + 1); }} />}
-        {!locked && data === undefined && (
+        {paywall && <NbPremiumPaywall num={meNum} busy={payBusy} err={payErr} onPay={doPay} onRecheck={premRecheck} />}
+        {!locked && !paywall && data === undefined && (
           <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-secondary)" }}>{t("Loading…", "લોડ થઈ રહ્યું છે…")}</div>
         )}
 
@@ -16774,6 +17012,7 @@ function PublicRosterView({ uid }) {
             {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
             <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
               {view.mode === "home" && <NbGreetingHero me={me} num={meNum} stationName={data.stationName} dutyToday={me ? myDutyToday : null} />}
+              {premOn && view.mode === "home" && <NbTrialStrip prem={prem} busy={payBusy} err={payErr} onPay={doPay} />}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
                 <button
                   onClick={() => setMobileSidebarOpen(true)}

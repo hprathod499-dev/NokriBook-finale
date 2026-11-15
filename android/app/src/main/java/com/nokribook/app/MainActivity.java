@@ -2,6 +2,8 @@ package com.nokribook.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -65,6 +67,28 @@ public class MainActivity extends Activity {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+
+            // Razorpay's UPI option opens a payment app (GPay, PhonePe, Paytm…) through upi:// or intent:// links,
+            // which a WebView cannot open by itself.
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                if (url.startsWith("upi:") || url.startsWith("intent:") || url.startsWith("tez:")
+                        || url.startsWith("phonepe:") || url.startsWith("paytmmp:") || url.startsWith("credpay:")) {
+                    try {
+                        Intent i = url.startsWith("intent:")
+                                ? Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+                                : new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        i.addCategory(Intent.CATEGORY_BROWSABLE);
+                        i.setComponent(null);
+                        startActivity(i);
+                    } catch (Exception e) {
+                        // no app for it: stay on the payment page so another method can be picked
+                    }
+                    return true;
+                }
+                return false;
             }
         });
         // Lets JS alert()/confirm() (used for a few destructive-action

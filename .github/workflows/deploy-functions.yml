@@ -1,0 +1,70 @@
+name: Deploy payment server (Firebase Functions)
+
+# Runs when functions/ changes, or by hand (Actions -> this workflow -> Run workflow).
+# Needs these repo secrets (Settings -> Secrets and variables -> Actions):
+#   FIREBASE_SERVICE_ACCOUNT  - JSON key of a Google Cloud service account that can deploy functions
+#   RAZORPAY_KEY_ID           - from Razorpay Dashboard -> Account & Settings -> API keys
+#   RAZORPAY_KEY_SECRET
+#   RAZORPAY_WEBHOOK_SECRET   - the secret you type when adding the webhook in Razorpay
+# Until FIREBASE_SERVICE_ACCOUNT is added, this workflow just skips (nothing breaks).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "firebase.json"
+      - ".github/workflows/deploy-functions.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: functions
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    env:
+      HAS_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+    steps:
+      - name: Skip (no service account secret yet)
+        if: env.HAS_SA != 'true'
+        run: echo "FIREBASE_SERVICE_ACCOUNT secret not set - skipping the payment server deploy."
+
+      - uses: actions/checkout@v4
+        if: env.HAS_SA == 'true'
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_SA == 'true'
+        with:
+          node-version: 22
+
+      - name: Install
+        if: env.HAS_SA == 'true'
+        working-directory: functions
+        run: npm ci
+
+      - name: Test the payment checks
+        if: env.HAS_SA == 'true'
+        working-directory: functions
+        run: node test/premium.test.js
+
+      - name: Write Razorpay settings
+        if: env.HAS_SA == 'true'
+        working-directory: functions
+        env:
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+          RAZORPAY_WEBHOOK_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+        run: |
+          test -n "$RAZORPAY_KEY_ID" && test -n "$RAZORPAY_KEY_SECRET" && test -n "$RAZORPAY_WEBHOOK_SECRET" || { echo "Razorpay secrets missing"; exit 1; }
+          printf 'RAZORPAY_KEY_ID=%s\nRAZORPAY_KEY_SECRET=%s\nRAZORPAY_WEBHOOK_SECRET=%s\n' "$RAZORPAY_KEY_ID" "$RAZORPAY_KEY_SECRET" "$RAZORPAY_WEBHOOK_SECRET" > .env
+
+      - uses: google-github-actions/auth@v2
+        if: env.HAS_SA == 'true'
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy
+        if: env.HAS_SA == 'true'
+        run: npx --yes firebase-tools@13 deploy --only functions --project duty-roaster-944b9 --non-interactive --force

@@ -1,0 +1,805 @@
+// PUBLISH THIS ONLY AFTER the payment server is deployed and premium is switched on in the app.
+// It is firestore.rules plus the premium checks (premiumOk, premium/*, premiumPayments/*).
+rules_version = '2';
+
+// Nokri Book — Firestore Security Rules (v3)
+// Deploy together with the matching index.html (share tokens,
+// stationRegistry, stationIndex, stationRequestedAtMs).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/superAdmins/$(request.auth.uid));
+    }
+
+    // Signed-in user is the District Admin of district `d`
+    // (accepts old "district" and new "districtId" field names).
+    function isDistrictAdminFor(d) {
+      let path = /databases/$(database)/documents/districtAdmins/$(request.auth.uid);
+      return signedIn()
+        && d != null && d != ""
+        && exists(path)
+        && (get(path).data.get('districtId', null) == d
+            || get(path).data.get('district', null) == d);
+    }
+
+    function isAdminOf(acct) {
+      return isSuperAdmin()
+        || isDistrictAdminFor(acct.get('district', null))
+        || isDistrictAdminFor(acct.get('districtId', null));
+    }
+
+    function accountOf(u) {
+      return get(/databases/$(database)/documents/accounts/$(u)).data;
+    }
+
+    // STATION USERS: stationMembers/{memberUid} = { owner, role } is
+    // created only by the station owner, after the person asked to join
+    // with the owner's join code. Editors can change the roster; viewers
+    // can only read it.
+    function memberPath() {
+      return /databases/$(database)/documents/stationMembers/$(request.auth.uid);
+    }
+    // LOGIN CODES: codeLogins/{code} = { owner, emailHash, role, sections,
+    // label }. Someone who types the station's email + this code signs in
+    // anonymously and gets stationMembers/{uid} = { owner, via: 'code',
+    // code }. Their access lives only while the code exists, and their
+    // role always comes from the code (so the owner can change or delete
+    // it and every such login follows immediately).
+    function codePath(c) {
+      return /databases/$(database)/documents/codeLogins/$(c);
+    }
+    function viaCode(m) {
+      return m.get('via', '') == 'code';
+    }
+    function memberActive(m) {
+      return !viaCode(m)
+        || (m.get('code', '') is string && m.get('code', '') != ''
+            && exists(codePath(m.get('code', '')))
+            && get(codePath(m.get('code', ''))).data.owner == m.owner);
+    }
+    function isMemberOf(owner) {
+      return signedIn() && exists(memberPath())
+        && get(memberPath()).data.owner == owner
+        && memberActive(get(memberPath()).data);
+    }
+    function memberIsEditor(m) {
+      return (!viaCode(m) && m.get('role', '') == 'editor')
+        || (viaCode(m) && get(codePath(m.get('code', ''))).data.role == 'editor');
+    }
+    function isEditorOf(owner) {
+      return isMemberOf(owner) && memberIsEditor(get(memberPath()).data);
+    }
+    // The owner, or an editor of that station.
+    function canEditStation(owner) {
+      return signedIn() && (request.auth.uid == owner || isEditorOf(owner));
+    }
+
+    function strOr(v) {
+      return v is string ? v : '';
+    }
+
+    // One registered name per state|district|station.
+    // MUST match nbStationKey() in index.html.
+    // Names containing "/" can't be a document id, so they are simply
+    // not registered (index.html makes exactly the same check).
+    function hasStation(a) {
+      let st = strOr(a.get('state', null));
+      let di = strOr(a.get('district', null));
+      let nm = strOr(a.get('stationName', null));
+      return di != '' && nm != ''
+        && !(st + di + nm).matches('.*/.*');
+    }
+    function stationKey(a) {
+      return strOr(a.get('state', null)) + '|'
+           + strOr(a.get('district', null)) + '|'
+           + strOr(a.get('stationName', null));
+    }
+
+    function nowMs() {
+      return request.time.toMillis();
+    }
+    // Client "request time" must be within 10 min of the server clock.
+    function freshMs(v) {
+      return v is int && math.abs(v - nowMs()) < 10 * 60 * 1000;
+    }
+    function approvalWindowMs() {
+      return 5 * 24 * 60 * 60 * 1000;   // 5 days
+    }
+
+    function publicRosterKeysOk(d) {
+      return d.keys().hasOnly([
+        'v', 'stationName', 'categories', 'membership', 'staff',
+        'leaveTypes', 'outstationTypes', 'designations', 'skipLog',
+        'z', 'zv'
+      ]);
+    }
+
+
+    // ============================================================
+    // ACCOUNTS  —  accounts/{uid}   (full private roster)
+    // ============================================================
+    match /accounts/{uid} {
+
+      function isOwner()        { return signedIn() && request.auth.uid == uid; }
+      function approvalOf(d)    { return d.get('stationApprovalStatus', null); }
+      function isBlockedDoc(d)  { return d.get('blocked', false) == true; }
+      function requestedAt(d)   { return d.get('stationRequestedAt', null); }
+      function requestedMs(d)   { return d.get('stationRequestedAtMs', null); }
+
+      // Owner may change approval fields ONLY by:
+      //  (a) leaving them untouched (every normal save),
+      //  (b) submitting a NEW request (not already pending) with a
+      //      server-checked timestamp, or
+      //  (c) approved -> null (approved station moving to a listed one).
+      function ownerApprovalChangeOk() {
+        let oldStatus = approvalOf(resource.data);
+        let newStatus = approvalOf(request.resource.data);
+        return (newStatus == oldStatus
+                  && requestedAt(request.resource.data) == requestedAt(resource.data)
+                  && requestedMs(request.resource.data) == requestedMs(resource.data))
+          || (newStatus == "pending" && oldStatus != "pending"
+                  && requestedAt(request.resource.data) is string
+                  && freshMs(requestedMs(request.resource.data)))
+          || (newStatus == null && oldStatus == "approved");
+      }
+
+      // After 5 days pending, nothing can be saved except the
+      // auto-block itself.
+      function pendingWindowOk() {
+        let ms = requestedMs(resource.data);
+        return approvalOf(resource.data) != "pending"
+          || ms == null                         // request older than this field
+          || nowMs() < ms + approvalWindowMs()
+          || isBlockedDoc(request.resource.data);
+      }
+
+      // ANY NUMBER OF ACCOUNTS PER STATION: every police station stays
+      // in the list for everyone; stationRegistry only remembers the
+      // first account of each station and no longer blocks others.
+      function stationClaimOk() {
+        return true;
+      }
+
+      allow read: if isOwner() || isMemberOf(uid);
+
+      // SIGN-UPS CLOSED: no new station accounts can be made. Everyone who already
+      // has an account keeps signing in as before (station users / login codes are
+      // members of an existing station, not new accounts).
+      allow create: if false && isOwner()
+        && stationClaimOk()
+        && request.resource.data.get('blocked', false) == false
+        && (approvalOf(request.resource.data) == null
+            || (approvalOf(request.resource.data) == "pending"
+                && requestedAt(request.resource.data) is string
+                && freshMs(requestedMs(request.resource.data))));
+
+      // Blocked accounts are read-only for their owner.
+      allow update: if isOwner()
+        && !isBlockedDoc(resource.data)
+        && ownerApprovalChangeOk()
+        && pendingWindowOk()
+        && stationClaimOk();
+
+      // Station editor: the roster (compressed in z) only — never the
+      // station name/district, approval, block, sharing or format fields.
+      allow update: if isEditorOf(uid)
+        && !isBlockedDoc(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['z', 'zv', '_rev', 'lastModifiedAt', 'v']);
+
+      // Admin: approve / block only.
+      allow update: if isAdminOf(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['stationApprovalStatus', 'blocked'])
+        && approvalOf(request.resource.data) in [null, "pending", "approved"]
+        && request.resource.data.get('blocked', false) is bool;
+
+      allow delete: if isOwner()
+        || (approvalOf(resource.data) == "pending" && isAdminOf(resource.data));
+
+      // HISTORY ARCHIVE  —  accounts/{uid}/archive/{y2026, y2025, ...}
+      // Duty history older than ~3 months, one file per year, kept apart
+      // so each save sends less data. "history" is the older single file.
+      // Same people as the roster itself.
+      match /archive/{docId} {
+        function archDocOk() { return docId == "history" || docId.matches('y[0-9]{4}'); }
+        allow read: if archDocOk() && (isOwner() || isMemberOf(uid));
+        allow create, update: if archDocOk()
+          && (isOwner() || isEditorOf(uid))
+          && !isBlockedDoc(get(/databases/$(database)/documents/accounts/$(uid)).data)
+          && request.resource.data.keys().hasOnly(['v', 'z', 'zv']);
+        allow delete: if archDocOk() && isOwner();
+      }
+    }
+
+
+    // ============================================================
+    // ADMIN VIEW OF A STATION  —  publicRosters/{uid}
+    // (no phone numbers; only exists while the station has Share on)
+    // ============================================================
+    match /publicRosters/{uid} {
+      allow get: if signedIn()
+        && (request.auth.uid == uid || isMemberOf(uid) || isAdminOf(accountOf(uid)));
+      allow list: if false;
+
+      allow create, update: if canEditStation(uid)
+        && publicRosterKeysOk(request.resource.data);
+
+      allow delete: if canEditStation(uid);
+    }
+
+
+    // ============================================================
+    // SHARE LINK CODE (6 digits, changes by itself every 48 hours)
+    //   shareKeys/{token}   = { owner, key, at }  secret key, owner only
+    //   shareTries/{token}  = { uid, gh, p, fails, last }  one guess at a time,
+    //                         waits grow: 3 s, then 1 min, then 1 hour
+    //   shareGrants/{uid_token} = { uid, token, code, num, at }  "this device may view"
+    //   (num = the viewer's buckle number; it must be on the station's staff list, shareKeys.nums)
+    //   shareSeats/{token}_{num} = { token, num, uids }  the phones (anonymous uids) signed in
+    //                         with this buckle number: at most 2. The owner can free a phone (delete).
+    // The code = first 6 digits of sha256(key + '|' + period), period = 48 h.
+    // ============================================================
+    function sharePeriod() {
+      return int(math.floor(request.time.toMillis() / 172800000.0));
+    }
+    function shareDigits(key, per) {
+      return hashing.sha256(key + '|' + string(per)).toHexString().lower().replace('[a-f]', '');
+    }
+    function shareCodeOk(token, c) {
+      let key = get(/databases/$(database)/documents/shareKeys/$(token)).data.key;
+      let per = sharePeriod();
+      return c is string && c.matches('[0-9]{6}')
+        && (shareDigits(key, per).matches(c + '.*')
+            // the old code still works for 1 hour after it changes
+            || (request.time.toMillis() - per * 172800000 < 3600000
+                && shareDigits(key, per - 1).matches(c + '.*')));
+    }
+
+    match /shareKeys/{token} {
+      // a key that isn't made yet reads as "missing" (the owner's app then makes it)
+      allow get: if signedIn() && (resource == null || resource.data.owner == request.auth.uid);
+      allow list: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['owner', 'key', 'at', 'nums'])
+        && (!('nums' in request.resource.data) || (request.resource.data.nums is map && request.resource.data.nums.size() <= 3000))
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.key is string
+        && request.resource.data.key.size() >= 32
+        && accountOf(request.auth.uid).get('shareToken', null) == token
+        && (resource == null || resource.data.owner == request.auth.uid);
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    match /shareTries/{token} {
+      function triesOwner() {
+        return get(/databases/$(database)/documents/shareKeys/$(token)).data.owner;
+      }
+      function waitOk(prev) {
+        return request.time > prev.last + duration.value(
+          prev.fails < 4 ? 1 : (prev.fails < 10 ? 5 : (prev.fails < 20 ? 60 : 3600)), 's');
+      }
+      function guessOk() {
+        let d = request.resource.data;
+        return signedIn()
+          && exists(/databases/$(database)/documents/shareKeys/$(token))
+          && d.keys().hasOnly(['last', 'uid', 'gh', 'p', 'fails'])
+          && d.uid == request.auth.uid
+          && d.last == request.time
+          && d.gh is string && d.gh.size() == 64
+          && d.p == sharePeriod()
+          && (resource == null
+                ? d.fails == 1
+                : (d.p != resource.data.p
+                     ? d.fails == 1
+                     : (d.fails == resource.data.fails + 1 && waitOk(resource.data))));
+      }
+      // after the right code: counter back to 0 in the same write that creates the grant
+      function resetOk() {
+        let d = request.resource.data;
+        let g = /databases/$(database)/documents/shareGrants/$(resource.data.uid + '_' + token);
+        return signedIn() && resource != null
+          && resource.data.uid == request.auth.uid
+          && d.fails == 0
+          && d.diff(resource.data).affectedKeys().hasOnly(['fails'])
+          && existsAfter(g) && getAfter(g).data.at == request.time;
+      }
+      allow get: if signedIn() && triesOwner() == request.auth.uid;
+      allow list: if false;
+      allow create: if guessOk();
+      allow update: if guessOk() || resetOk();
+      allow delete: if signedIn() && triesOwner() == request.auth.uid;
+    }
+
+    // Step 1 of the share link: the viewer's buckle / mobile number must be on the
+    // station's staff list. Each check is counted in shareTries like a code try.
+    match /shareNumChecks/{cid} {
+      allow read: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'token', 'num', 'at'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.token is string
+        && cid == request.auth.uid + '_' + request.resource.data.token
+        && request.resource.data.at == request.time
+        && request.resource.data.num is string && request.resource.data.num.matches('[0-9A-Z]{1,12}')
+        && shareNumOk(request.resource.data.token, request.resource.data.num);
+      // the station owner can remove it when freeing a phone
+      allow delete: if signedIn() && (resource == null || get(/databases/$(database)/documents/shareKeys/$(resource.data.token)).data.owner == request.auth.uid);
+      function shareNumOk(token, num) {
+        let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
+        return tr.uid == request.auth.uid
+          && tr.gh == hashing.sha256('N|' + num + '|' + request.auth.uid).toHexString().lower()
+          && request.time < tr.last + duration.value(120, 's')
+          && num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {});
+      }
+    }
+
+    // At most 2 phones per buckle number (or per mobile number for officers without one).
+    function seatPath(token, num) {
+      return /databases/$(database)/documents/shareSeats/$(token + '_' + num);
+    }
+    // a phone that entered the right code for this link and holds one of the 2 phone seats
+    // A grant made together with its phone seat (s2) is enough on its own: freeing a phone and taking
+    // someone off the staff list both delete their grants. That is 1 read per check instead of 3.
+    // Older grants (no s2) are still checked against the staff list and the seat.
+    function shareViewerOk(token) {
+      let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token);
+      return exists(g)
+        && (get(g).data.get('s2', false) == true || shareSeatOk(token, get(g).data.get('num', '')));
+    }
+    // PREMIUM: a view-link phone reads the roster only while its buckle number is in its 3 free days
+    // or paid up. premium/{owner}_{num} is written only by the payment server (Cloud Function).
+    function premiumOk(owner, token) {
+      let g = get(/databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token)).data;
+      let p = /databases/$(database)/documents/premium/$(owner + '_' + g.get('num', ''));
+      return exists(p)
+        && (get(p).data.get('paidUntil', timestamp.value(0)) > request.time
+            || get(p).data.trialStart + duration.value(3, 'd') > request.time);
+    }
+    function shareSeatOk(token, num) {
+      return num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {})
+        && request.auth.uid in get(seatPath(token, num)).data.get('uids', []);
+    }
+    match /premium/{pid} {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    match /premiumPayments/{oid} {
+      allow read, write: if false;
+    }
+    match /shareSeats/{sid} {
+      function seatShape(d) {
+        return d.keys().hasOnly(['token', 'num', 'uids'])
+          && d.token is string && d.num is string && d.num.matches('[0-9A-Z]{1,12}')
+          && sid == d.token + '_' + d.num
+          && d.uids is list;
+      }
+      // only together with a share grant written in the same batch (which checks the code)
+      function seatGrantOk(d) {
+        let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + d.token);
+        return existsAfter(g) && getAfter(g).data.num == d.num && getAfter(g).data.at == request.time;
+      }
+      function seatOwner(token) {
+        return get(/databases/$(database)/documents/shareKeys/$(token)).data.owner;
+      }
+      allow get: if signedIn();
+      allow list: if signedIn() && seatOwner(resource.data.token) == request.auth.uid;
+      allow create: if signedIn()
+        && seatShape(request.resource.data)
+        && request.resource.data.num in get(/databases/$(database)/documents/shareKeys/$(request.resource.data.token)).data.get('nums', {})
+        && request.resource.data.uids == [request.auth.uid]
+        && seatGrantOk(request.resource.data);
+      allow update: if signedIn()
+        && seatShape(request.resource.data)
+        && request.resource.data.token == resource.data.token
+        && request.resource.data.num == resource.data.num
+        && resource.data.uids.size() < 2
+        && !(request.auth.uid in resource.data.uids)
+        && request.resource.data.uids == resource.data.uids.concat([request.auth.uid])
+        && seatGrantOk(request.resource.data);
+      allow delete: if signedIn() && seatOwner(resource.data.token) == request.auth.uid;
+    }
+
+    match /shareGrants/{gid} {
+      allow get: if signedIn() && resource.data.uid == request.auth.uid;
+      allow list: if false;
+      // update = the same phone signing in again (e.g. after the owner freed it, or with a new code)
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'token', 'code', 'num', 'at', 's2'])
+        && request.resource.data.get('s2', true) == true
+        && request.resource.data.num is string && request.resource.data.num.matches('[0-9A-Z]{1,12}')
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.token is string
+        && gid == request.auth.uid + '_' + request.resource.data.token
+        && request.resource.data.at == request.time
+        && shareGrantCodeOk(request.resource.data.token, request.resource.data.code, request.resource.data.num)
+        && request.auth.uid in getAfter(seatPath(request.resource.data.token, request.resource.data.num)).data.get('uids', []);
+      // the station owner removes it when freeing a phone
+      allow delete: if signedIn() && (resource == null || get(/databases/$(database)/documents/shareKeys/$(resource.data.token)).data.owner == request.auth.uid);
+
+      function shareGrantCodeOk(token, c, num) {
+        let tr = get(/databases/$(database)/documents/shareTries/$(token)).data;
+        let staffNums = get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {});
+        return num in staffNums
+          && tr.uid == request.auth.uid
+          && tr.gh == hashing.sha256(c + '|' + num + '|' + request.auth.uid).toHexString().lower()
+          && request.time < tr.last + duration.value(120, 's')
+          && shareCodeOk(token, c);
+      }
+    }
+
+    // ============================================================
+    // PUBLIC SHARE LINK  —  sharedRosters/{token}
+    // token = random 32 chars, new one every time Share is turned on
+    // ============================================================
+    match /sharedRosters/{token} {
+      // Only people who entered the 6-digit share code on this device (shareGrants) and hold one of the 2 phone seats,
+      // or the station's own owner / editors. A link that no longer exists just shows "not available".
+      // only a phone that entered a buckle number still on the staff list + the right code
+      // (shareGrants), or the station's own owner / editors
+      allow get: if resource == null
+        || (signedIn() && ((shareViewerOk(token) && premiumOk(resource.data.owner, token)) || canEditStation(resource.data.owner)));
+      allow list: if false;        // nobody can enumerate links
+
+      function shareWriteOk() {
+        let d = request.resource.data;
+        let a = accountOf(d.owner);
+        return signedIn()
+          && canEditStation(d.owner)
+          && d.keys().hasOnly([
+               'v', 'stationName', 'categories', 'membership', 'staff',
+               'leaveTypes', 'outstationTypes', 'designations', 'skipLog',
+               'owner', 'z', 'zv', 'ver', 'sum'
+             ])
+          && a.get('shareEnabled', false) == true
+          && a.get('shareToken', null) == token
+          // written together with its head (same version), so phones that apply change notes never go stale
+          && d.get('ver', 0) is int && d.get('ver', 0) >= 1
+          && getAfter(/databases/$(database)/documents/sharedRosterHead/$(token)).data.ver == d.ver;
+      }
+
+      allow create: if shareWriteOk();
+      allow update: if resource.data.owner == request.resource.data.owner && shareWriteOk();
+      allow delete: if signedIn()
+        && (resource == null || canEditStation(resource.data.owner));
+    }
+
+
+    // ============================================================
+    // SHARE LINK HEAD  —  sharedRosterHead/{token}
+    // Tiny: version number, checksum and the last few changes (packed in z).
+    // Phones read this and apply the changes to the copy they keep, instead
+    // of downloading the whole copy. Written in the same transaction as
+    // sharedRosters; the version only ever goes up by one.
+    // ============================================================
+    match /sharedRosterHead/{token} {
+      allow get: if resource == null
+        || (signedIn() && ((shareViewerOk(token) && premiumOk(resource.data.owner, token)) || canEditStation(resource.data.owner)));
+      allow list: if false;
+      function headWriteOk() {
+        let d = request.resource.data;
+        let a = accountOf(d.owner);
+        return signedIn()
+          && canEditStation(d.owner)
+          && d.keys().hasOnly(['v', 'owner', 'token', 'ver', 'sum', 'at', 'z', 'zv'])
+          && d.token == token
+          && d.ver is int && d.ver >= 1
+          && d.sum is string
+          && a.get('shareEnabled', false) == true
+          && a.get('shareToken', null) == token;
+      }
+      allow create: if headWriteOk();
+      allow update: if headWriteOk()
+        && resource.data.owner == request.resource.data.owner
+        && request.resource.data.ver == resource.data.ver + 1;
+      allow delete: if signedIn()
+        && (resource == null || canEditStation(resource.data.owner));
+    }
+
+    // ============================================================
+    // OLDER MONTHS OF A SHARE LINK  —  sharedRosterMonths/{token}_{YYYY-MM}
+    // The share link's main copy (sharedRosters) keeps only this month and
+    // last month, so every open downloads little. Older duty history sits
+    // here, one document per month, and is fetched only when someone opens
+    // the calendar, report or a staff member's history. Same readers and
+    // writers as sharedRosters.
+    // ============================================================
+    match /sharedRosterMonths/{mid} {
+      allow get: if resource == null
+        || (signedIn() && ((shareViewerOk(resource.data.token) && premiumOk(resource.data.owner, resource.data.token)) || canEditStation(resource.data.owner)));
+      allow list: if false;
+      function monthWriteOk() {
+        let d = request.resource.data;
+        let a = accountOf(d.owner);
+        return signedIn()
+          && canEditStation(d.owner)
+          && d.keys().hasOnly(['v', 'owner', 'token', 'ym', 'z', 'zv'])
+          && d.token is string && d.ym is string && d.ym.matches('[0-9]{4}-[0-9]{2}')
+          && mid == d.token + '_' + d.ym
+          && a.get('shareEnabled', false) == true
+          && a.get('shareToken', null) == d.token;
+      }
+      allow create: if monthWriteOk();
+      allow update: if resource.data.owner == request.resource.data.owner && monthWriteOk();
+      allow delete: if signedIn()
+        && (resource == null || canEditStation(resource.data.owner));
+    }
+
+    // ============================================================
+    // STATION NAME REGISTRY  —  stationRegistry/{state|district|station}
+    // One owner per station. Once registered, nobody else can create or
+    // take over the same station (create fails because the doc exists;
+    // update is owner-only). Unlisted names need a pending/approved
+    // request. Freed only by its owner (rename / delete account) or an
+    // admin (deny / cleanup).
+    // ============================================================
+    match /stationRegistry/{key} {
+
+      function claimOk() {
+        let a = getAfter(/databases/$(database)/documents/accounts/$(request.auth.uid)).data;
+        let d = request.resource.data;
+        let idx = /databases/$(database)/documents/masterData/stationIndex;
+        return signedIn()
+          && d.keys().hasOnly(['uid', 'state', 'district', 'stationName', 'updatedAt'])
+          && d.uid == request.auth.uid
+          && hasStation(a)
+          && stationKey(a) == key
+          && d.district == a.get('district', null)
+          && d.stationName == a.get('stationName', null)
+          && (a.get('stationApprovalStatus', null) in ["pending", "approved"]
+              || !exists(idx)
+              || key in get(idx).data.names);
+      }
+
+      allow read: if signedIn();   // lets the picker hide taken names
+      allow create: if claimOk();
+
+      // Admins register stations that existed before this rule (from the
+      // district summaries they can see). Create only — they can never
+      // take over a name that is already registered.
+      allow create: if signedIn()
+        && (isSuperAdmin() || isDistrictAdminFor(request.resource.data.get('district', null)))
+        && request.resource.data.keys().hasOnly(['uid', 'state', 'district', 'stationName', 'updatedAt'])
+        && request.resource.data.uid is string
+        && request.resource.data.stationName is string
+        && key == strOr(request.resource.data.get('state', null)) + '|'
+                + strOr(request.resource.data.get('district', null)) + '|'
+                + strOr(request.resource.data.get('stationName', null));
+      allow update: if resource.data.uid == request.auth.uid && claimOk();
+      allow delete: if signedIn()
+        && (resource == null
+            || resource.data.uid == request.auth.uid
+            || isSuperAdmin()
+            || isDistrictAdminFor(resource.data.get('district', null)));
+    }
+
+
+    // ============================================================
+    // LEGACY SHARED DATA
+    // ============================================================
+    match /duty-roster/data {
+      allow read: if signedIn()
+        && request.auth.uid == "o7YqtShT5if0JMFnFFtP6gp3N532";
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // ADMIN ROLE DOCS (Firebase Console only)
+    // ============================================================
+    match /districtAdmins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /superAdmins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+
+    // ============================================================
+    // MASTER DATA  —  policeLocations, stationIndex
+    // ============================================================
+    match /masterData/{docId} {
+      allow read: if signedIn();
+      allow write: if isSuperAdmin();
+    }
+
+
+    // ============================================================
+    // DISTRICT DIGEST  —  districts/{d}/stations/{uid}
+    // (summary numbers only)
+    // ============================================================
+    match /districts/{districtId}/stations/{stationUid} {
+
+      function isAdminHere() {
+        return isSuperAdmin() || isDistrictAdminFor(districtId);
+      }
+
+      // Own digest, own district, same approval state + name as the
+      // real account. Its name must be registered to this station —
+      // EXCEPT while the request is pending, so a pending request is
+      // always visible to the admin who has to decide on it.
+      function ownerDigestOk() {
+        let a = accountOf(stationUid);
+        let d = request.resource.data;
+        return canEditStation(stationUid)
+          && (a.get('district', null) == districtId
+              || a.get('districtId', null) == districtId)
+          && d.keys().hasOnly([
+               'stationName', 'state', 'district', 'staffCount',
+               'presentCount', 'onDutyToday', 'monthlyDutyCount',
+               'stationApprovalStatus', 'stationRequestedAt',
+               'blocked', 'updatedAt', 'lastFormat'
+             ])
+          && d.get('lastFormat', null) == a.get('lastFormat', null)
+          && d.get('stationApprovalStatus', null) == a.get('stationApprovalStatus', null)
+          && d.get('blocked', false) == a.get('blocked', false)
+          && d.get('stationRequestedAt', null) == a.get('stationRequestedAt', null)
+          && (d.get('stationName', null) == null
+              || (d.get('stationName', null) == a.get('stationName', null)
+                  && (a.get('stationApprovalStatus', null) == "pending"
+                      || !hasStation(a)
+                      || true)));
+      }
+
+      allow read: if (signedIn() && request.auth.uid == stationUid)
+        || isMemberOf(stationUid)
+        || isAdminHere();
+
+      allow create, update: if ownerDigestOk();
+
+      // Admin approve: status -> "approved" and (if it was) unblocked,
+      // in the same batch as the account, so both always match.
+      allow update: if isAdminHere()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['stationApprovalStatus', 'blocked'])
+        && request.resource.data.stationApprovalStatus == "approved"
+        && request.resource.data.get('blocked', false) == false;
+
+      allow delete: if (signedIn() && request.auth.uid == stationUid)
+        || (resource.data.get('stationApprovalStatus', null) == "pending"
+            && isAdminHere());
+    }
+
+    // ============================================================
+    // STATION USERS  —  joinCodes / joinRequests / stationMembers
+    // ============================================================
+    // joinCodes/{code} = { owner }: anyone signed in can look up one exact
+    // code (to send a request); nobody can list them.
+    // Login codes (station email + code). Readable by exact code before
+    // sign-in, so the login screen can check the email first.
+    match /codeLogins/{code} {
+      allow get: if true;
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create: if signedIn()
+        && code.size() >= 8
+        && request.resource.data.keys().hasOnly(['owner', 'emailHash', 'role', 'sections', 'label', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid
+        && exists(/databases/$(database)/documents/accounts/$(request.auth.uid))
+        && request.resource.data.emailHash is string
+        && request.resource.data.role in ['editor', 'viewer']
+        && request.resource.data.sections is list
+        && request.resource.data.sections.size() <= 20;
+      allow update: if signedIn()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'sections', 'label'])
+        && request.resource.data.role in ['editor', 'viewer']
+        && request.resource.data.sections is list
+        && request.resource.data.sections.size() <= 20;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+    match /joinCodes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      // Join codes are retired (only station email + login code now).
+      allow create: if false
+        && signedIn()
+        && code.size() >= 8
+        && request.resource.data.keys().hasOnly(['owner', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    // joinRequests/{uid}: a signed-in person asks to join, proving the code.
+    match /joinRequests/{reqUid} {
+      allow get: if signedIn()
+        && (request.auth.uid == reqUid || resource.data.owner == request.auth.uid);
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+      // Join requests are retired too.
+      allow create, update: if false
+        && signedIn()
+        && request.auth.uid == reqUid
+        // only people who already have an account (sign-ups are paused)
+        && exists(/databases/$(database)/documents/accounts/$(request.auth.uid))
+        && request.resource.data.keys().hasOnly(['owner', 'code', 'name', 'email', 'at'])
+        && request.resource.data.owner is string
+        && request.resource.data.owner != request.auth.uid
+        && request.resource.data.code is string
+        && exists(/databases/$(database)/documents/joinCodes/$(request.resource.data.code))
+        && get(/databases/$(database)/documents/joinCodes/$(request.resource.data.code)).data.owner == request.resource.data.owner;
+      allow delete: if signedIn()
+        && (request.auth.uid == reqUid || resource.data.owner == request.auth.uid);
+    }
+
+    // stationMembers/{uid}: only the owner adds (from a real request),
+    // changes the role, or removes; the member can leave.
+    match /stationMembers/{memberUid} {
+      allow get: if signedIn()
+        && (request.auth.uid == memberUid || resource.data.owner == request.auth.uid);
+      allow list: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create: if signedIn()
+        && memberUid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['owner', 'role', 'name', 'email', 'joinedAt'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.role in ['editor', 'viewer']
+        && exists(/databases/$(database)/documents/joinRequests/$(memberUid))
+        && get(/databases/$(database)/documents/joinRequests/$(memberUid)).data.owner == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role'])
+        && request.resource.data.role in ['editor', 'viewer'];
+      // Login with the station's email + a login code: the person adds
+      // THEMSELVES, and only by proving a code the owner made for that
+      // email.
+      allow create, update: if signedIn()
+        && memberUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['owner', 'via', 'code', 'emailHash', 'name', 'joinedAt'])
+        && request.resource.data.via == 'code'
+        && request.resource.data.code is string
+        && request.resource.data.code.size() >= 8
+        && exists(codePath(request.resource.data.code))
+        && get(codePath(request.resource.data.code)).data.owner == request.resource.data.owner
+        && get(codePath(request.resource.data.code)).data.emailHash == request.resource.data.emailHash;
+      allow delete: if signedIn()
+        && (request.auth.uid == memberUid || resource.data.owner == request.auth.uid);
+    }
+
+
+    // Super Admin's "all pending requests" (collectionGroup query).
+    match /{path=**}/stations/{stationUid} {
+      allow read: if isSuperAdmin();
+    }
+
+    // ---- Security code + one device per account (test site) ----
+    function isAnyDistrictAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/districtAdmins/$(request.auth.uid));
+    }
+    // gate/{code}: today's code. Anyone signed in can check a code they
+    // know (by exact name only — no listing) while it hasn't expired.
+    // Super admin and district admins create or remove codes.
+    match /gate/{code} {
+      allow get: if signedIn() && resource.data.expiresAt > request.time.toMillis();
+      allow list: if false;
+      allow create, delete: if isSuperAdmin() || isAnyDistrictAdmin();
+    }
+    // gateAdmin/current: the readable current code — admins only.
+    match /gateAdmin/{doc} {
+      allow read, write: if isSuperAdmin() || isAnyDistrictAdmin();
+    }
+    // deviceLocks/{uid}: the one device an account may use. The account
+    // claims it once; only an admin can free it for a new device.
+    match /deviceLocks/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isSuperAdmin() || isAnyDistrictAdmin());
+      allow list: if isSuperAdmin() || isAnyDistrictAdmin();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['device', 'at', 'email'])
+        && request.resource.data.device is string;
+      allow update: if false;
+      allow delete: if isSuperAdmin() || isAnyDistrictAdmin();
+    }
+
+    // Everything else: denied (Firestore default).
+  }
+}
