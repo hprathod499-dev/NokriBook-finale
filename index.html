@@ -4239,7 +4239,7 @@ function SettingsPanel({ initialSection, user, signOutUser, formatAllData, stora
                   )}
                   {(districtDraft || !onSaveDistrict) ? (<React.Fragment>
                   <label style={{ display: "block", fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, marginBottom: 3 }} className="gu">{t("Station name", "સ્ટેશનનું નામ")}</label>
-                  {onRequestNewStation && districtDraft && (
+                  {onRequestNewStation && districtDraft && (requestingStation || !stationDraft) && (
                     <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
                       <button
                         onClick={() => setRequestingStation((v) => { if (!v) setRequestStationName("પોલીસ સ્ટેશન"); return !v; })} className="gu"
@@ -15288,7 +15288,7 @@ function OrgSetupGateModal({ initialStationName, onSubmit, onJoin }) {
               <StationSearchSelect options={stationOptions} value={selStation} onChange={setSelStation} />
             )}
           </div>
-          {selDistrict && (
+          {selDistrict && (manualStation || !selStation) && (
             <button
               type="button"
               onClick={() => setManualStation((v) => { const next = !v; if (next) setManualStationName("પોલીસ સ્ટેશન"); return next; })}
