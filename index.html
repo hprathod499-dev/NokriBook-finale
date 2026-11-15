@@ -11809,6 +11809,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
   const debouncedSearch = useDebouncedValue(search);
   const [desgFilter, setDesgFilter] = useState("");
   const [showTools, setShowTools] = useState(() => !!initialSearch);
+  const [showMahekam, setShowMahekam] = useState(false);
   const [sortBy, setSortBy] = useState("designation");
   const [modalFor, setModalFor] = useState(null);
   const [modalKind, setModalKind] = useState("Leave");
@@ -11982,8 +11983,15 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
 
   return (
     <React.Fragment>
-      <div data-tour="nb-tour-staff-content" style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20, gap: 4 }}>
+      <div data-tour="nb-tour-staff-content" style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 20, gap: 4, flexWrap: "wrap", rowGap: 8 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Manage staff", "સ્ટાફ સંચાલિત કરો")}</h1>
+        {mahekam.total > 0 && (
+          <button type="button" data-mahekam-btn aria-expanded={showMahekam} onClick={() => setShowMahekam((v) => !v)} title="સ્ટાફ મહેકમ જોવા ટેપ કરો" className="gu"
+            style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 999, cursor: "pointer", whiteSpace: "nowrap", color: "inherit", background: showMahekam ? "var(--bg-surface-2)" : "var(--bg-surface)", border: "1px solid var(--border)" }}>
+            હાજર મહેકમ <b className="mono">{mahekam.total - mahekam.leave - mahekam.sick - mahekam.absent - mahekam.out}/{mahekam.total}</b>
+            <span aria-hidden="true" style={{ fontSize: 9, transition: "transform .15s", transform: showMahekam ? "rotate(180deg)" : "none" }}>▼</span>
+          </button>
+        )}
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
         <span style={{ marginLeft: 6 }}><NbStaffToolsToggle open={showTools} setOpen={setShowTools} active={!!(search || desgFilter)} /></span>
         <button
@@ -11999,6 +12007,29 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
         {setLeaveTypeAllowance && <button onClick={() => setShowLeaveBalance(true)} className="gu" style={{ marginLeft: 6, fontSize: 12.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>🗓️ {t("Leave record", "રજા રેકોર્ડ")}</button>}
         {showLeaveBalance && <LeaveBalanceModal data={data} onClose={() => setShowLeaveBalance(false)} setLeaveTypeAllowance={setLeaveTypeAllowance} setStaffLeaveAllowance={setStaffLeaveAllowance} />}
       </div>
+      {showMahekam && mahekam.total > 0 && (
+        <div data-mahekam style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+            <div className="disp gu" style={{ fontWeight: 700, fontSize: 14 }}>સ્ટાફ મહેકમ</div>
+            <div className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{formatDMY(todayStr())}</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 10 }}>
+            {[
+              ["total", "", "કુલ મહેકમ", mahekam.total, "var(--bg-surface-2)", "var(--border)", "var(--text-primary)"],
+              ["leave", "−", "રજા ઉપર", mahekam.leave, "var(--status-warning-bg, var(--highlight-bg))", "var(--status-warning-border, var(--highlight-border))", "var(--status-warning-text)"],
+              ["sick", "−", "સિક", mahekam.sick, "var(--status-info-bg)", "var(--status-info-border)", "var(--status-info-text)"],
+              ["absent", "−", "ગેરહાજર", mahekam.absent, "var(--status-error-bg)", "var(--status-error-border)", "var(--status-error-text)"],
+              ["out", "−", "બહારગામ", mahekam.out, "var(--accent-light)", "color-mix(in srgb, var(--accent-strong) 35%, transparent)", "var(--accent-strong)"],
+              ["net", "=", "ચોખ્ખું મહેકમ", mahekam.total - mahekam.leave - mahekam.sick - mahekam.absent - mahekam.out, "var(--status-success-bg)", "var(--status-success-text)", "var(--status-success-text)"],
+            ].map(([k, sign, label, n, bg, bd, fg]) => (
+              <div key={k} data-mahekam-row={k} className="gu" style={{ background: bg, border: (k === "net" ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "10px 14px" }}>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: fg, lineHeight: 1.1 }}>{sign && <span style={{ opacity: 0.6, marginRight: 4 }}>{sign}</span>}{n}</div>
+                <div style={{ fontSize: 12.5, fontWeight: k === "net" || k === "total" ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {Object.keys(data.staff || {}).length === 0 && (
         <button
           data-tour="nb-tour-import-staff"
@@ -12221,29 +12252,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
         </div>
       </div>
 
-      {mahekam.total > 0 && (
-        <div data-mahekam style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 18px", marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
-            <div className="disp gu" style={{ fontWeight: 700, fontSize: 14 }}>સ્ટાફ મહેકમ</div>
-            <div className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{formatDMY(todayStr())}</div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 10 }}>
-            {[
-              ["total", "", "કુલ મહેકમ", mahekam.total, "var(--bg-surface-2)", "var(--border)", "var(--text-primary)"],
-              ["leave", "−", "રજા ઉપર", mahekam.leave, "var(--status-warning-bg, var(--highlight-bg))", "var(--status-warning-border, var(--highlight-border))", "var(--status-warning-text)"],
-              ["sick", "−", "સિક", mahekam.sick, "var(--status-info-bg)", "var(--status-info-border)", "var(--status-info-text)"],
-              ["absent", "−", "ગેરહાજર", mahekam.absent, "var(--status-error-bg)", "var(--status-error-border)", "var(--status-error-text)"],
-              ["out", "−", "બહારગામ", mahekam.out, "var(--accent-light)", "color-mix(in srgb, var(--accent-strong) 35%, transparent)", "var(--accent-strong)"],
-              ["net", "=", "ચોખ્ખું મહેકમ", mahekam.total - mahekam.leave - mahekam.sick - mahekam.absent - mahekam.out, "var(--status-success-bg)", "var(--status-success-text)", "var(--status-success-text)"],
-            ].map(([k, sign, label, n, bg, bd, fg]) => (
-              <div key={k} data-mahekam-row={k} className="gu" style={{ background: bg, border: (k === "net" ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "10px 14px" }}>
-                <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: fg, lineHeight: 1.1 }}>{sign && <span style={{ opacity: 0.6, marginRight: 4 }}>{sign}</span>}{n}</div>
-                <div style={{ fontSize: 12.5, fontWeight: k === "net" || k === "total" ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+
 
       <form
         onSubmit={(e) => { e.preventDefault(); createStaff(num, name, phone, newStaffDesg); setNum(""); setName(""); setPhone("+91 "); setNewStaffDesg(""); }}
