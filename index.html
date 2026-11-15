@@ -12182,7 +12182,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-              <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
+              <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Mobile", "મોબાઇલ")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "right" }}>{t("Actions", "ક્રિયાઓ")}</th>
             </tr>
           </thead>
           <tbody>
@@ -12234,18 +12234,6 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
                             : `${t("from", "થી")} ${formatDMY(s.unavailable.from)} · ${t("no end date", "કોઈ અંતિમ તારીખ નથી")}`}
                       </div>
                     )}
-                  </td>
-                  <td style={{ ...td, textAlign: "center" }} title={t("Duty count for the current month", "ચાલુ મહિનાની ડ્યુટીની ગણતરી")}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>{s.dutiesThisMonth}</span>
-                      <div style={{ width: 46, height: 4, borderRadius: 2, background: "var(--border-soft)", overflow: "hidden" }}>
-                        <div style={{
-                          width: maxDuties > 0 ? `${Math.max(6, (s.dutiesThisMonth / maxDuties) * 100)}%` : "0%",
-                          height: "100%", borderRadius: 2,
-                          background: maxDuties > 0 && s.dutiesThisMonth === 0 ? "var(--border)" : "var(--accent)",
-                        }} />
-                      </div>
-                    </div>
                   </td>
                   <td style={{ ...td, textAlign: "left", whiteSpace: "nowrap", position: "relative" }}>
                     {s.unavailable ? (
@@ -12313,7 +12301,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               );
             })}
             {filteredStaffList.length === 0 && (
-              <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{staffList.length === 0 ? t("No staff yet — add someone below with their buckle number.", "હજુ કોઈ સ્ટાફ નથી — નીચે તેમના બકલ નંબર સાથે કોઈને ઉમેરો.") : t("No match for that search.", "તે શોધ માટે કોઈ મેળ મળ્યો નથી.")}</td></tr>
+              <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{staffList.length === 0 ? t("No staff yet — add someone below with their buckle number.", "હજુ કોઈ સ્ટાફ નથી — નીચે તેમના બકલ નંબર સાથે કોઈને ઉમેરો.") : t("No match for that search.", "તે શોધ માટે કોઈ મેળ મળ્યો નથી.")}</td></tr>
             )}
           </tbody>
         </table>
@@ -16805,7 +16793,7 @@ function PublicStaffView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
+                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th>
               </tr>
             </thead>
             <tbody>
@@ -16836,12 +16824,11 @@ function PublicStaffView({ data }) {
                         </div>
                       )}
                     </td>
-                    <td style={{ ...td, textAlign: "center", fontSize: 12, color: "var(--text-secondary)" }} className="mono">{s.dutiesThisMonth}</td>
                   </tr>
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff found.", "કોઈ સ્ટાફ મળ્યો નથી.")}</td></tr>
+                <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff found.", "કોઈ સ્ટાફ મળ્યો નથી.")}</td></tr>
               )}
             </tbody>
           </table>
@@ -16945,7 +16932,7 @@ function DistrictStaffView({ data }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "var(--bg-surface-2)", textAlign: "left" }} className="gu">
-                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Phone", "ફોન")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th><th style={{ ...th, textAlign: "center" }}>{t("Duties (mo.)", "ડ્યુટીઓ (મહિનો)")}</th>
+                <th style={th}>{t("Number", "નંબર")}</th><th style={th}>{t("Name", "નામ")}</th><th style={th}>{t("Phone", "ફોન")}</th><th style={th}>{t("Designation", "હોદ્દો")}</th><th style={th}>{t("Status", "સ્થિતિ")}</th>
               </tr>
             </thead>
             <tbody>
@@ -16977,12 +16964,11 @@ function DistrictStaffView({ data }) {
                         </div>
                       )}
                     </td>
-                    <td style={{ ...td, textAlign: "center", fontSize: 12, color: "var(--text-secondary)" }} className="mono">{s.dutiesThisMonth}</td>
                   </tr>
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff found.", "કોઈ સ્ટાફ મળ્યો નથી.")}</td></tr>
+                <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: "var(--text-tertiary)", padding: "26px 0" }} className="gu">{t("No staff found.", "કોઈ સ્ટાફ મળ્યો નથી.")}</td></tr>
               )}
             </tbody>
           </table>
