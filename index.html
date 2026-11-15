@@ -3549,6 +3549,48 @@ function idbOpenHandles() {
     req.onerror = () => reject(req.error);
   });
 }
+// ---- Copy kept on this device whenever something is deleted ----
+// counts of everything a delete can remove; if any of them goes down, the data from just before is saved
+function nbDelCounts(d) {
+  let hist = 0, mem = 0;
+  Object.values((d && d.membership) || {}).forEach((l) => (l || []).forEach((m) => { mem += 1; hist += (m.history || []).length; }));
+  return {
+    staff: Object.keys((d && d.staff) || {}).length, cats: ((d && d.categories) || []).length, mem, hist,
+    events: ((d && d.events) || []).length, bin: ((d && d.recycleBin) || []).length,
+    desig: ((d && d.designations) || []).length, lt: ((d && d.leaveTypes) || []).length, ot: ((d && d.outstationTypes) || []).length,
+  };
+}
+function nbIsDelete(prev, next) {
+  if (!prev || !next) return false;
+  const a = nbDelCounts(prev), b = nbDelCounts(next);
+  return Object.keys(a).some((k) => b[k] < a[k]);
+}
+// saves into the backup folder chosen on this device (Data → choose folder); if there is none, the file is downloaded
+async function nbSaveDeviceCopy(jsonStr, filename) {
+  if (window.showDirectoryPicker) {
+    try {
+      const handle = await idbGetHandle("backupDir");
+      if (handle) {
+        let perm = await handle.queryPermission({ mode: "readwrite" });
+        if (perm !== "granted") { try { perm = await handle.requestPermission({ mode: "readwrite" }); } catch (e) {} }
+        if (perm === "granted") {
+          const fh = await handle.getFileHandle(filename, { create: true });
+          const w = await fh.createWritable();
+          await w.write(jsonStr);
+          await w.close();
+          return "folder";
+        }
+      }
+    } catch (e) { console.warn("Folder copy failed, downloading instead", e); }
+  }
+  const url = URL.createObjectURL(new Blob([jsonStr], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  return "download";
+}
+
 async function idbGetHandle(key) {
   const db = await idbOpenHandles();
   return new Promise((resolve, reject) => {
@@ -5859,7 +5901,28 @@ function DutyRoster() {
       return stack.length > MAX_HISTORY_STATES ? stack.slice(stack.length - MAX_HISTORY_STATES) : stack;
     });
     setRedoStack([]);
+    const before = dataRef.current;
     writeToFirestore(nbWithActivity(dataRef.current, next, nbActor(user, myRole, memberRef.current)));
+    if (nbIsDelete(before, next)) nbBackupOnDelete(before);
+  };
+  // Something was deleted: keep a copy of the data from just before on this device, then refresh the Drive backup.
+  // Several deletes close together make one copy (the first one already holds everything that was there).
+  const delCopyAtRef = useRef(0);
+  const backupToDriveRef = useRef(null);
+  const delDriveTimerRef = useRef(null);
+  const nbBackupOnDelete = (before) => {
+    const now = Date.now();
+    if (now - delCopyAtRef.current > 30000) {
+      delCopyAtRef.current = now;
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      nbSaveDeviceCopy(JSON.stringify(before, null, 2), `nokri-book-before-delete-${stamp}.json`)
+        .then((where) => { recordBackupNow(); showToast(where === "folder" ? t("A copy from before the delete was saved in your backup folder", "ડિલીટ પહેલાંની કોપી તમારા બેકઅપ ફોલ્ડરમાં સચવાઈ") : t("A copy from before the delete was downloaded to this device", "ડિલીટ પહેલાંની કોપી આ ડિવાઇસ પર ડાઉનલોડ થઈ")); })
+        .catch((e) => console.warn("copy before delete failed", e));
+    }
+    if (nbLsGet("nb_drive_connected") === "1") {
+      clearTimeout(delDriveTimerRef.current);
+      delDriveTimerRef.current = setTimeout(() => { if (backupToDriveRef.current) backupToDriveRef.current({ interactive: false }); }, 5000);
+    }
   };
 
   useEffect(() => {
@@ -6200,6 +6263,7 @@ useEffect(() => {
       setDriveBusy(false);
     }
   }, [data, driveConfigured]);
+  backupToDriveRef.current = backupToDrive;
 
   const disconnectDrive = () => {
     nbLsDel("nb_drive_connected");
