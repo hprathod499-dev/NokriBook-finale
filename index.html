@@ -16266,13 +16266,13 @@ function PublicRosterView({ uid }) {
             <PublicSidebar data={data} view={view} setView={setView} mobileOpen={mobileSidebarOpen} onCloseMobile={() => setMobileSidebarOpen(false)} forceOpen={showTour} />
             {mobileSidebarOpen && <div className="mobile-sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} />}
             <div className="main-panel" style={{ flex: 1, padding: "28px 36px", maxWidth: 1040 }}>
-              <button
-                onClick={() => setMobileSidebarOpen(true)}
-                className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
-                style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12, color: "var(--text-primary)" }}
-              >☰</button>
+              {view.mode === "home" && <NbGreetingHero me={me} num={meNum} stationName={data.stationName} dutyToday={me ? myDutyToday : null} />}
               <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 16, fontSize: 12, color: "var(--text-secondary)" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", height: 30, boxSizing: "border-box", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600 }} className="gu">{t("View only", "ફક્ત જોવા માટે")}</span>
+                <button
+                  onClick={() => setMobileSidebarOpen(true)}
+                  className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
+                  style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 0, marginRight: "auto", color: "var(--text-primary)" }}
+                >☰</button>
                 <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
                   ...undoRedoBtn(true),
                   background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
@@ -16285,7 +16285,6 @@ function PublicRosterView({ uid }) {
                 }}>⋮</button>
                 <ProfileMenu darkMode={darkMode} setDarkMode={setDarkMode} desktopView={desktopView} setDesktopView={setDesktopView} onSettings={() => setShowSettingsPanel(true)} who={me} tourId="nb-tour-pub-profile" />
               </div>
-              {view.mode === "home" && <NbGreetingHero me={me} num={meNum} stationName={data.stationName} dutyToday={me ? myDutyToday : null} />}
 
               <NbViewBoundary key={view.mode + (view.catId || "")}><div className="view-fade-in">
               {view.mode === "home" && (
@@ -16372,6 +16371,7 @@ function PublicHomeView({ data, goToCategory }) {
   const { t } = useLang();
   const today = todayStr();
   const [showInfo, setShowInfo] = useState(false);
+  const [openCats, setOpenCats] = useState({});
   const cards = useMemo(() => (data.categories || []).map((c) => {
     const roster = computeRoster(data, c.id);
     const doneTodayList = roster.filter((p) => p.onDutyToday);
@@ -16393,15 +16393,18 @@ function PublicHomeView({ data, goToCategory }) {
       <div data-tour="nb-tour-pub-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14, alignItems: "start" }}>
         {cards.filter((c) => c.doneTodayList.length > 0).map(({ cat, doneTodayList, nextUp, total }) => (
           <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
-              <div className="gu" data-on-duty-count style={{ fontSize: 11.5, fontWeight: 600, color: "var(--status-success-text)", whiteSpace: "nowrap" }}>{doneTodayList.length} {t("on duty", "ડ્યુટી પર")}</div>
+              <button type="button" data-on-duty-count aria-expanded={!!openCats[cat.id]} onClick={() => setOpenCats((o) => ({ ...o, [cat.id]: !o[cat.id] }))} className="gu" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--status-success-text)", background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 999, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                {doneTodayList.length} {t("on duty", "ડ્યુટી પર")}
+                <span aria-hidden="true" style={{ fontSize: 9, transition: "transform .15s", transform: openCats[cat.id] ? "rotate(180deg)" : "none" }}>▼</span>
+              </button>
             </div>
 
             {total === 0 ? (
               <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</div>
             ) : doneTodayList.length > 0 ? (
-              doneTodayList.map((doneToday) => (
+              !openCats[cat.id] ? null : doneTodayList.map((doneToday) => (
                 <div key={doneToday.number} style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
                   <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
                   <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
