@@ -13066,7 +13066,7 @@ function PersonHistoryModal({ data, number, onClose }) {
                 style={{ textAlign: "left", cursor: "pointer", font: "inherit", borderRadius: 10, padding: "8px 16px", minWidth: 110,
                   background: on ? "color-mix(in srgb, var(--accent-strong) 18%, var(--bg-surface))" : "var(--accent-light)",
                   border: on ? "1.5px solid var(--accent-strong)" : "1.5px solid color-mix(in srgb, var(--accent-strong) 30%, transparent)" }}>
-                <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "var(--accent-strong)" }}>{n}</div>
+                <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{n}</div>
                 <div className="gu" style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)" }}>{label} {on ? "▾" : "▸"}</div>
               </button>
             );
@@ -16698,19 +16698,8 @@ function PublicRosterView({ uid }) {
       }, () => { if (!dead) startCore(); });
     };
     let recheckTimer = null;
-    const start = () => {
-      if (dead) return;
-      // opened again within 5 minutes: show the copy on this phone and check the server when the 5 minutes are up
-      let chk = 0; try { chk = +localStorage.getItem("nb_vc_chk_" + uid) || 0; } catch (e) {}
-      const age = Date.now() - chk;
-      const cache = age >= 0 && age < NB_RECHECK_MS && refreshN === 0 ? nbVcGet(uid) : null;
-      if (cache && Date.now() - cache.at <= NB_FULL_EVERY_MS) {
-        showBody(cache.body); setCheckedAt(chk);
-        recheckTimer = setTimeout(startHead, NB_RECHECK_MS - age);
-        return;
-      }
-      startHead();
-    };
+    // every open checks the server straight away (no waiting time)
+    const start = () => { if (!dead) startHead(); };
     // The link always opens through its own separate session, even on a phone that is signed in to the
     // station, so every device has to enter the share code once.
     const fb = nbViewFb(); viewFbRef.current = fb; vdb = fb.db;
@@ -16756,16 +16745,6 @@ function PublicRosterView({ uid }) {
                   className="mobile-menu-btn" title={t("Menu", "મેનૂ")} aria-label={t("Menu", "મેનૂ")}
                   style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 7, width: 36, height: 36, alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 0, marginRight: "auto", color: "var(--text-primary)" }}
                 >☰</button>
-                {checkedAt > 0 && (() => {
-                  const mins = Math.max(0, Math.floor((Date.now() - checkedAt) / 60000));
-                  return (
-                    <button type="button" data-refresh onClick={() => { try { localStorage.removeItem("nb_vc_chk_" + uid); } catch (e) {} setRefreshN((n) => n + 1); }}
-                      title={t("Check for changes now", "હમણાં ફેરફાર તપાસો")} className="gu"
-                      style={{ marginRight: "auto", background: "transparent", border: "none", padding: "4px 2px", fontSize: 12, color: "var(--text-tertiary)", cursor: "pointer", whiteSpace: "nowrap" }}>
-                      {mins < 1 ? t("Updated just now", "હમણાં અપડેટ થયું") : t(`Updated ${mins} min ago`, `${mins} મિનિટ પહેલાં અપડેટ`)} ↻
-                    </button>
-                  );
-                })()}
                 <button onClick={() => setView({ mode: "calendar" })} title={t("Duty calendar", "ડ્યુટી કૅલેન્ડર")} style={{
                   ...undoRedoBtn(true),
                   background: view.mode === "calendar" ? "var(--accent-light)" : "var(--bg-surface)",
