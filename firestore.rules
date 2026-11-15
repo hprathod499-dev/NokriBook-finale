@@ -346,6 +346,15 @@ service cloud.firestore {
     function seatPath(token, num) {
       return /databases/$(database)/documents/shareSeats/$(token + '_' + num);
     }
+    // a phone that entered the right code for this link and holds one of the 2 phone seats
+    function shareViewerOk(token) {
+      let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token);
+      return exists(g) && shareSeatOk(token, get(g).data.get('num', ''));
+    }
+    function shareSeatOk(token, num) {
+      return num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {})
+        && request.auth.uid in get(seatPath(token, num)).data.get('uids', []);
+    }
     match /shareSeats/{sid} {
       function seatShape(d) {
         return d.keys().hasOnly(['token', 'num', 'uids'])
@@ -417,14 +426,6 @@ service cloud.firestore {
       // (shareGrants), or the station's own owner / editors
       allow get: if resource == null
         || (signedIn() && (shareViewerOk(token) || canEditStation(resource.data.owner)));
-      function shareViewerOk(token) {
-        let g = /databases/$(database)/documents/shareGrants/$(request.auth.uid + '_' + token);
-        return exists(g) && shareSeatOk(token, get(g).data.get('num', ''));
-      }
-      function shareSeatOk(token, num) {
-        return num in get(/databases/$(database)/documents/shareKeys/$(token)).data.get('nums', {})
-          && request.auth.uid in get(seatPath(token, num)).data.get('uids', []);
-      }
       allow list: if false;        // nobody can enumerate links
 
       function shareWriteOk() {
@@ -447,6 +448,35 @@ service cloud.firestore {
         && (resource == null || canEditStation(resource.data.owner));
     }
 
+
+    // ============================================================
+    // OLDER MONTHS OF A SHARE LINK  —  sharedRosterMonths/{token}_{YYYY-MM}
+    // The share link's main copy (sharedRosters) keeps only this month and
+    // last month, so every open downloads little. Older duty history sits
+    // here, one document per month, and is fetched only when someone opens
+    // the calendar, report or a staff member's history. Same readers and
+    // writers as sharedRosters.
+    // ============================================================
+    match /sharedRosterMonths/{mid} {
+      allow get: if resource == null
+        || (signedIn() && (shareViewerOk(resource.data.token) || canEditStation(resource.data.owner)));
+      allow list: if false;
+      function monthWriteOk() {
+        let d = request.resource.data;
+        let a = accountOf(d.owner);
+        return signedIn()
+          && canEditStation(d.owner)
+          && d.keys().hasOnly(['v', 'owner', 'token', 'ym', 'z', 'zv'])
+          && d.token is string && d.ym is string && d.ym.matches('[0-9]{4}-[0-9]{2}')
+          && mid == d.token + '_' + d.ym
+          && a.get('shareEnabled', false) == true
+          && a.get('shareToken', null) == d.token;
+      }
+      allow create: if monthWriteOk();
+      allow update: if resource.data.owner == request.resource.data.owner && monthWriteOk();
+      allow delete: if signedIn()
+        && (resource == null || canEditStation(resource.data.owner));
+    }
 
     // ============================================================
     // STATION NAME REGISTRY  —  stationRegistry/{state|district|station}
