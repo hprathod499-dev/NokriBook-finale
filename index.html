@@ -16123,6 +16123,17 @@ const PUBLIC_TOUR_STEPS = [
     bodyEn: "Tap here to see your name, switch dark mode or open settings.", bodyGu: "તમારું નામ જોવા, ડાર્ક મોડ બદલવા કે સેટિંગ્સ ખોલવા અહીં ટેપ કરો." },
 ];
 
+// view-only link: designations always in CAPITALS (apc → APC); Gujarati text is unchanged
+function nbUpperDesignations(d) {
+  if (!d) return d;
+  const up = (v) => (typeof v === "string" ? v.toUpperCase() : v);
+  const staff = {};
+  const designations = Array.isArray(d.designations) ? d.designations.map((x) => (x && typeof x === "object" ? { ...x, label: up(x.label) } : up(x))) : d.designations;
+  const ids = new Set((designations || []).map((x) => x && x.id).filter(Boolean));
+  // staff keep the designation id; only a typed-in designation (not an id) is made capital
+  Object.keys(d.staff || {}).forEach((k) => { const st = d.staff[k]; staff[k] = st && st.designation && !ids.has(st.designation) ? { ...st, designation: up(st.designation) } : st; });
+  return { ...d, staff, designations };
+}
 function PublicRosterView({ uid }) {
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("nb_lang") || "en"; } catch (e) { return "en"; } });
   useEffect(() => { try { localStorage.setItem("nb_lang", lang); } catch (e) {} }, [lang]);
@@ -16184,7 +16195,12 @@ function PublicRosterView({ uid }) {
       if (n) { setMeNum(n); try { localStorage.setItem("nb_view_me_" + uid, n); } catch (e) {} }
     }).catch(() => {});
   }, [data, meNum, uid]);
-  const me = useMemo(() => (data ? nbViewerFind(data.staff, meNum) : null), [data, meNum]);
+  const me = useMemo(() => {
+    const st = data ? nbViewerFind(data.staff, meNum) : null;
+    if (!st) return null;
+    const dg = st.designation && (data.designations || []).find((x) => x.id === st.designation);
+    return { ...st, designation: dg ? dg.label : st.designation };
+  }, [data, meNum]);
   const myDutyToday = useMemo(() => {
     if (!data || !me) return null;
     try { return (data.categories || []).filter((c) => computeRoster(data, c.id).some((p) => p.number === me.number && p.onDutyToday)).map((c) => c.label); } catch (e) { return null; }
@@ -16209,7 +16225,7 @@ function PublicRosterView({ uid }) {
       unsub = vdb.collection("sharedRosters").doc(uid).onSnapshot(
         (snap) => {
           setLocked(false);
-          if (snap.exists && snap.data().v === 2) setData(normalizeData(nbUnpackPublic(snap.data())));
+          if (snap.exists && snap.data().v === 2) setData(nbUpperDesignations(normalizeData(nbUnpackPublic(snap.data()))));
           else setData(null);
         },
         (e) => { if (e && e.code === "permission-denied") { setLocked(true); setData(undefined); } else setData(null); }
