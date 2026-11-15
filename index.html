@@ -16395,16 +16395,16 @@ function PublicHomeView({ data, goToCategory }) {
           <div key={cat.id} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <div className="disp" style={{ fontWeight: 700, fontSize: 14.5 }}>{cat.label}</div>
-              <button type="button" data-on-duty-count aria-expanded={!!openCats[cat.id]} onClick={() => setOpenCats((o) => ({ ...o, [cat.id]: !o[cat.id] }))} className="gu" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--status-success-text)", background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 999, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
+              {doneTodayList.length > 1 && <button type="button" data-on-duty-count aria-expanded={!!openCats[cat.id]} onClick={() => setOpenCats((o) => ({ ...o, [cat.id]: !o[cat.id] }))} className="gu" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--status-success-text)", background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 999, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>
                 {doneTodayList.length} {t("on duty", "ડ્યુટી પર")}
                 <span aria-hidden="true" style={{ fontSize: 9, transition: "transform .15s", transform: openCats[cat.id] ? "rotate(180deg)" : "none" }}>▼</span>
-              </button>
+              </button>}
             </div>
 
             {total === 0 ? (
               <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }} className="gu">{t("No staff added yet.", "હજુ કોઈ સ્ટાફ ઉમેર્યો નથી.")}</div>
             ) : doneTodayList.length > 0 ? (
-              !openCats[cat.id] ? null : doneTodayList.map((doneToday) => (
+              (doneTodayList.length > 1 && !openCats[cat.id]) ? null : doneTodayList.map((doneToday) => (
                 <div key={doneToday.number} style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", borderRadius: 8, padding: "9px 12px" }}>
                   <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: "var(--status-success-text)", fontWeight: 700 }} className="gu">{t("On duty today", "આજે ડ્યુટી પર")}</div>
                   <div className="gu" style={{ fontSize: 14.5, fontWeight: 600, marginTop: 2 }}>{doneToday.name}</div>
