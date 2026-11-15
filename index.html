@@ -14584,13 +14584,12 @@ function ShareSeatsList({ token, staff, showToast }) {
           <div style={{ position: "relative", margin: "4px 0 6px" }}>
             <span aria-hidden="true" style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12, opacity: 0.55 }}>🔍</span>
             <input type="search" value={q} autoFocus data-seat-search onChange={(e) => setQ(e.target.value)}
-              placeholder={t("Search name or buckle no. (English or ગુજરાતી)", "નામ અથવા બકલ નં. શોધો (ગુજરાતી કે English)")} className="gu"
+              placeholder={t("Search name or buckle no.", "નામ અથવા બકલ નં. શોધો")} className="gu"
               style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, padding: "7px 8px 7px 28px", borderRadius: 9 }} />
           </div>
-          {!qq && <div style={{ color: "var(--text-secondary)", margin: "0 2px 6px", lineHeight: 1.45 }}>{t("Each buckle number can open the link on 2 phones at most. Free a person's phones if they changed phone.", "દરેક બકલ નંબરથી વધુમાં વધુ 2 ફોનમાં લિંક ખુલે. ફોન બદલ્યો હોય તો તેમના ફોન છૂટા કરો.")}</div>}
-          {seats === null ? <div style={{ color: "var(--text-secondary)", padding: 4 }}>…</div>
+          {!qq ? null : seats === null ? <div style={{ color: "var(--text-secondary)", padding: 4 }}>…</div>
             : seats === "err" ? <div style={{ color: "var(--status-error-text)", padding: 4 }}>{t("Couldn't load the list.", "યાદી લોડ ન થઈ.")}</div>
-            : rows.length === 0 ? <div style={{ color: "var(--text-tertiary)", padding: 4 }}>{qq ? t("No staff member matches.", "કોઈ સ્ટાફ મળ્યો નહીં.") : t("No one has signed in through the link yet.", "હજુ સુધી લિંકથી કોઈએ લોગિન કર્યું નથી.")}</div>
+            : rows.length === 0 ? <div style={{ color: "var(--text-tertiary)", padding: 4 }}>{t("No staff member matches.", "કોઈ સ્ટાફ મળ્યો નહીં.")}</div>
             : <div style={{ maxHeight: 220, overflowY: "auto" }}>
                 {rows.map((x) => (
                   <div key={x.id} data-seat-row style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: "1px solid var(--border-soft)" }}>
