@@ -5901,28 +5901,7 @@ function DutyRoster() {
       return stack.length > MAX_HISTORY_STATES ? stack.slice(stack.length - MAX_HISTORY_STATES) : stack;
     });
     setRedoStack([]);
-    const before = dataRef.current;
     writeToFirestore(nbWithActivity(dataRef.current, next, nbActor(user, myRole, memberRef.current)));
-    if (nbIsDelete(before, next)) nbBackupOnDelete(before);
-  };
-  // Something was deleted: keep a copy of the data from just before on this device, then refresh the Drive backup.
-  // Several deletes close together make one copy (the first one already holds everything that was there).
-  const delCopyAtRef = useRef(0);
-  const backupToDriveRef = useRef(null);
-  const delDriveTimerRef = useRef(null);
-  const nbBackupOnDelete = (before) => {
-    const now = Date.now();
-    if (now - delCopyAtRef.current > 30000) {
-      delCopyAtRef.current = now;
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      nbSaveDeviceCopy(JSON.stringify(before, null, 2), `nokri-book-before-delete-${stamp}.json`)
-        .then((where) => { recordBackupNow(); showToast(where === "folder" ? t("A copy from before the delete was saved in your backup folder", "ડિલીટ પહેલાંની કોપી તમારા બેકઅપ ફોલ્ડરમાં સચવાઈ") : t("A copy from before the delete was downloaded to this device", "ડિલીટ પહેલાંની કોપી આ ડિવાઇસ પર ડાઉનલોડ થઈ")); })
-        .catch((e) => console.warn("copy before delete failed", e));
-    }
-    if (nbLsGet("nb_drive_connected") === "1") {
-      clearTimeout(delDriveTimerRef.current);
-      delDriveTimerRef.current = setTimeout(() => { if (backupToDriveRef.current) backupToDriveRef.current({ interactive: false }); }, 5000);
-    }
   };
 
   useEffect(() => {
@@ -6263,7 +6242,6 @@ useEffect(() => {
       setDriveBusy(false);
     }
   }, [data, driveConfigured]);
-  backupToDriveRef.current = backupToDrive;
 
   const disconnectDrive = () => {
     nbLsDel("nb_drive_connected");
@@ -6579,15 +6557,10 @@ useEffect(() => {
       })();
     }
     try {
-      const blob = new Blob([preFormatJson], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = preFormatFilename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // into the backup folder chosen on this device (Data → choose folder), otherwise downloaded
+      nbSaveDeviceCopy(preFormatJson, preFormatFilename)
+        .then((where) => { if (where === "folder") showToastRaw(t("Safety backup saved in your backup folder.", "સુરક્ષા બેકઅપ તમારા બેકઅપ ફોલ્ડરમાં સચવાયો.")); })
+        .catch((e) => console.warn("Pre-format device copy failed", e));
       recordBackupNow();
     } catch (e) {
       console.error("Pre-format safety backup failed — proceeding with format anyway", e);
