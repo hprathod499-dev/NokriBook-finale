@@ -8106,7 +8106,7 @@ const clearCategoryHistory = (catId) => {
       )}
       {returnNotices.map((n, i) => (
         <div key={i} style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", padding: "9px 16px", fontSize: 13, textAlign: "center", display: "flex", justifyContent: "center", gap: 10, alignItems: "center" }}>
-          <span className="gu">{n.name}'s {n.type.toLowerCase()} period has ended — back on duty.</span>
+          <span className="gu">{n.name}'s {n.type ? String(n.type).toLowerCase() + " " : ""}period has ended — back on duty.</span>
           <button onClick={() => setReturnNotices((prev) => prev.filter((_, idx) => idx !== i))} title={t("Dismiss", "બંધ કરો")} aria-label={t("Dismiss", "બંધ કરો")} style={{ background: "transparent", border: "none", color: "var(--status-info-text)", fontWeight: 700 }}>✕</button>
         </div>
       ))}
@@ -8834,6 +8834,165 @@ function DutyOrderModal({ data, onClose }) {
   );
 }
 
+// ---- "View tomorrow": who is left at the station on a day that has a group duty (bandobast etc.) ----
+// A group duty = the same duty given to several people together (one batch), or one made from the Group duty form.
+function nbGroupDutiesOn(data, date) {
+  const out = {};
+  const cats = data.categories || [];
+  Object.entries(data.membership || {}).forEach(([catId, list]) => {
+    (list || []).forEach((m) => {
+      (m.history || []).forEach((e) => {
+        if (!e || typeof e === "string" || historyDate(e) !== date || !e.batch) return;
+        const k = catId + "|" + e.batch;
+        if (!out[k]) {
+          const cat = cats.find((c) => c.id === catId);
+          out[k] = { key: k, catId, label: cat ? cat.label : (catId === MISC_CATEGORY_ID ? "Miscellaneous duty" : catId), note: e.note || null, viaGroup: false, numbers: new Set() };
+        }
+        out[k].numbers.add(m.number);
+        if (e.viaGroupDuty) out[k].viaGroup = true;
+        if (!out[k].note && e.note) out[k].note = e.note;
+      });
+    });
+  });
+  return Object.values(out)
+    .filter((g) => g.numbers.size >= 2 || g.viaGroup)
+    .map((g) => ({ ...g, numbers: [...g.numbers] }))
+    .sort((a, b) => b.numbers.length - a.numbers.length);
+}
+// everybody's state on that date: in a group duty, outstation, on leave / sick / absent, or present
+function nbDayPicture(data, date) {
+  const groups = nbGroupDutiesOn(data, date);
+  const inGroup = {};
+  groups.forEach((g) => g.numbers.forEach((n) => { if (!inGroup[n]) inGroup[n] = g; }));
+  const pic = { total: 0, present: [], groups, groupCount: 0, out: [], leave: [], sick: [], absent: [] };
+  Object.values(data.staff || {}).forEach((st) => {
+    if (!st || !st.number) return;
+    pic.total += 1;
+    const who = { number: st.number, name: st.name, designation: st.designation || "", phone: st.phone || null };
+    if (inGroup[st.number]) { pic.groupCount += 1; return; }
+    const u = unavailableOnDate(st, date);
+    if (u) {
+      const kind = unavailKind(u);
+      const lbl = String(unavailLabel(data, u) || "");
+      const row = { ...who, label: lbl, from: u.from, to: u.to || null };
+      if (kind === "Outstation") { pic.out.push(row); return; }
+      if (kind === "Leave") {
+        if (/sick|medical|સિક|માંદ|બીમાર/i.test(lbl)) pic.sick.push(row);
+        else if (/absent|ગેરહાજર|ગે\.હા/i.test(lbl)) pic.absent.push(row);
+        else pic.leave.push(row);
+        return;
+      }
+    }
+    pic.present.push(who);
+  });
+  const cmp = nbStaffRankCmp(data);
+  ["present", "out", "leave", "sick", "absent"].forEach((k) => pic[k].sort(cmp));
+  return pic;
+}
+function NbDayPictureModal({ data, date, onClose }) {
+  const { t } = useLang();
+  const pic = useMemo(() => nbDayPicture(data, date), [data, date]);
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+  const isTomorrow = date === addDaysStr(todayStr(), 1);
+  const staffOf = (n) => (data.staff || {})[n] || { number: n, name: n };
+  const qq = q.trim().toLowerCase();
+  const presentShown = qq ? pic.present.filter((p) => String(p.name || "").toLowerCase().includes(qq) || String(p.number).toLowerCase().includes(qq) || String(p.designation || "").toLowerCase().includes(qq)) : pic.present;
+  const awayRows = [
+    ["group", "−", t("Group duty", "જૂથ ડ્યુટી"), pic.groupCount, "var(--status-info-bg, #E3EEFB)", "var(--status-info-border, #A9C7EE)"],
+    ["out", "−", t("Outstation", "બહારગામ"), pic.out.length, "var(--accent-light)", "color-mix(in srgb, var(--accent-strong) 35%, transparent)"],
+    ["leave", "−", t("On leave", "રજા ઉપર"), pic.leave.length, "var(--status-warning-bg, #FFF6E5)", "var(--status-warning-border, #F1D9A8)"],
+    ["sick", "−", t("Sick", "સિક"), pic.sick.length, "var(--status-info-bg, #E3EEFB)", "var(--status-info-border, #A9C7EE)"],
+    ["absent", "−", t("Absent", "ગેરહાજર"), pic.absent.length, "var(--status-error-bg)", "var(--status-error-border)"],
+  ].filter((r) => r[3] > 0);
+  const tile = (k, sign, label, n, bg, bd, strong) => (
+    <button key={k} type="button" data-day-tile={k} onClick={() => setOpen(open === k ? null : k)} disabled={k === "total" || k === "present"} className="gu"
+      style={{ background: bg, border: (strong ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "9px 12px", textAlign: "left", font: "inherit", color: "inherit", cursor: k === "total" || k === "present" ? "default" : "pointer", outline: open === k ? "2px solid var(--text-primary)" : "none", outlineOffset: 1 }}>
+      <div className="mono" style={{ fontSize: 20, fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.1 }}>{sign && <span style={{ opacity: 0.55, marginRight: 3 }}>{sign}</span>}{n}</div>
+      <div style={{ fontSize: 12, fontWeight: strong ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}{k !== "total" && k !== "present" ? " ▸" : ""}</div>
+    </button>
+  );
+  const personRow = (p, sub) => (
+    <div key={p.number} data-day-person style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "9px 16px", borderBottom: "1px solid var(--border)" }}>
+      <span className="mono" style={{ fontSize: 12.5, color: "var(--text-tertiary)", minWidth: 40 }}>{p.number}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ fontWeight: 600, fontSize: 14.5 }}>{p.name}</span>
+        {(p.designation || sub) && <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginTop: 1 }}>{[p.designation, sub].filter(Boolean).join(" · ")}</span>}
+      </span>
+    </div>
+  );
+  const away = (rows) => rows.map((p) => personRow(p, p.label + (p.from ? " · " + formatDMY(p.from) + (p.to ? " – " + formatDMY(p.to) : "") : "")));
+  const section = (title, count, body) => (
+    <div>
+      <div className="gu" style={{ position: "sticky", top: 0, zIndex: 1, background: "var(--bg-page)", padding: "8px 16px", fontSize: 12.5, fontWeight: 800, color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}>{title} ({count})</div>
+      {body}
+    </div>
+  );
+  return (
+    <div role="dialog" aria-modal="true" aria-label={t("Who is at the station", "સ્ટેશન પર કોણ હાજર")} data-day-picture className="modal-backdrop" onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 12 }}>
+      <div onClick={(e) => e.stopPropagation()} className="gu" style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 14, width: "100%", maxWidth: 560, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 50px #0005", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, padding: "14px 16px 10px" }}>
+          <div>
+            <div className="disp" style={{ fontWeight: 800, fontSize: 17 }}>{isTomorrow ? t("Tomorrow at the station", "આવતીકાલે સ્ટેશન પર") : t("At the station", "સ્ટેશન પર")}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>{new Date(date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long" })}, {formatDMY(date)}</div>
+          </div>
+          <button type="button" data-day-close onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, width: 30, height: 30, fontSize: 14, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}>✕</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(98px, 1fr))", gap: 8, padding: "0 16px 12px" }}>
+          {tile("total", "", t("Total staff", "કુલ મહેકમ"), pic.total, "var(--bg-page)", "var(--border)")}
+          {awayRows.map((r) => tile(...r))}
+          {tile("present", "=", t("Present", "હાજર"), pic.present.length, "var(--status-success-bg)", "var(--status-success-text)", true)}
+        </div>
+        <div style={{ overflowY: "auto", borderTop: "1px solid var(--border)" }}>
+          {open === "group" && section(t("In group duty", "જૂથ ડ્યુટીમાં"), pic.groupCount, pic.groups.map((g) => (
+            <div key={g.key}>
+              <div style={{ padding: "8px 16px 4px", fontSize: 13, fontWeight: 700 }}>{g.label}{g.note ? " · " + g.note : ""} <span className="mono" style={{ color: "var(--text-tertiary)", fontWeight: 600 }}>({g.numbers.length})</span></div>
+              {g.numbers.map(staffOf).sort(nbStaffRankCmp(data)).map((p) => personRow(p, ""))}
+            </div>
+          )))}
+          {open === "out" && section(t("Outstation", "બહારગામ"), pic.out.length, away(pic.out))}
+          {open === "leave" && section(t("On leave", "રજા ઉપર"), pic.leave.length, away(pic.leave))}
+          {open === "sick" && section(t("Sick", "સિક"), pic.sick.length, away(pic.sick))}
+          {open === "absent" && section(t("Absent", "ગેરહાજર"), pic.absent.length, away(pic.absent))}
+          {!open && (
+            <div>
+              <div style={{ padding: "10px 16px", position: "sticky", top: 0, zIndex: 1, background: "var(--bg-surface)", borderBottom: "1px solid var(--border)" }}>
+                <input data-day-search value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search the present staff…", "હાજર સ્ટાફમાં શોધો…")} className="gu" style={{ width: "100%", boxSizing: "border-box" }} />
+              </div>
+              {section(t("Present", "હાજર"), presentShown.length, presentShown.length ? presentShown.map((p) => personRow(p, "")) : <div style={{ padding: "16px", color: "var(--text-tertiary)", fontSize: 13.5 }}>{t("Nobody matches.", "કોઈ મળ્યું નહીં.")}</div>)}
+            </div>
+          )}
+          {open && <button type="button" data-day-back onClick={() => setOpen(null)} className="gu" style={{ display: "block", margin: "10px auto 14px", background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 14px", color: "var(--text-primary)", fontWeight: 600, cursor: "pointer" }}>{t("Back to who is present", "હાજર યાદી પર પાછા")}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+// shown only when tomorrow has a group duty
+function NbTomorrowButton({ data, style }) {
+  const { t } = useLang();
+  const [show, setShow] = useState(false);
+  const date = addDaysStr(todayStr(), 1);
+  const groups = useMemo(() => nbGroupDutiesOn(data, date), [data, date]);
+  if (!groups.length) return null;
+  const n = groups.reduce((s, g) => s + g.numbers.length, 0);
+  return (
+    <React.Fragment>
+      <button type="button" data-view-tomorrow onClick={() => setShow(true)} className="gu"
+        title={t(`${n} people are in a group duty tomorrow`, `આવતીકાલે ${n} લોકો જૂથ ડ્યુટીમાં છે`)}
+        style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", ...(style || {}) }}>
+        👀 {t("View tomorrow", "આવતીકાલ જુઓ")}
+      </button>
+      {show && <NbDayPictureModal data={data} date={date} onClose={() => setShow(false)} />}
+    </React.Fragment>
+  );
+}
 function HomeView({ data, goToCategory }) {
   const { t, lang } = useLang();
   const today = todayStr();
@@ -8851,6 +9010,7 @@ function HomeView({ data, goToCategory }) {
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Today's duty", "આજની ડ્યુટી")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
         <div style={{ flex: 1 }} />
+        <NbTomorrowButton data={data} style={{ marginRight: 8 }} />
         <button onClick={() => setShowOrder(true)} className="gu" style={{ background: "var(--btn-dark-bg)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>📋 {t("Duty order", "ડ્યુટી ઓર્ડર")}</button>
       </div>
       {showOrder && <DutyOrderModal data={data} onClose={() => setShowOrder(false)} />}
@@ -8917,6 +9077,8 @@ function AssignDutyView({ initialSubTab, onSubTabChange, data, assignDuty, assig
       <div style={{ display: "flex", alignItems: "center", marginBottom: showInfo ? 4 : 16 }}>
         <h1 className="disp gu" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{t("Assign duty", "ડ્યુટી સોંપો")}</h1>
         <InfoIconButton active={showInfo} onClick={() => setShowInfo((v) => !v)} label={t("About this screen", "આ સ્ક્રીન વિશે")} />
+        <div style={{ flex: 1 }} />
+        <NbTomorrowButton data={data} />
       </div>
       {showInfo && (
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 16px" }} className="gu">
@@ -10064,7 +10226,8 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
           placeholder={t("Search by name or number…", "નામ અથવા નંબર દ્વારા શોધો…")} className="gu"
           id="app-search-input" style={{ width: 220 }}
         />
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <NbTomorrowButton data={data} />
           <button
             onClick={() => { setShowImportMenu(true); setImportSelected(new Set()); setImportSearch(""); }}
             style={catTabBtn(false)} className="gu"
