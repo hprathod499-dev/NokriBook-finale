@@ -3629,6 +3629,7 @@ const STATUS_STYLE = {
   Skip: { bg: "var(--status-neutral-bg)", fg: "var(--status-neutral-text)", border: "var(--status-neutral-border)" },
   Leave: { bg: "var(--status-info-bg)", fg: "var(--status-info-text)", border: "var(--status-info-border)" },
   Outstation: { bg: "var(--status-purple-bg)", fg: "var(--status-purple-text)", border: "var(--status-purple-border)" },
+  GroupDuty: { bg: "var(--status-warning-bg)", fg: "var(--status-warning-text)", border: "var(--status-warning-border, var(--highlight-border))" },
 };
 
 function dutyHeatTier(count, min, max) {
@@ -3742,16 +3743,35 @@ function nbAwayFromThisDuty(m, staffRec, date) {
     return ds[0] === per.from && ds[ds.length - 1] === per.to;
   });
 }
-function computeRoster(data, catId) {
+// onDate (optional, e.g. tomorrow): the roster as it will stand that day — leave / outstation on that day,
+// and people already in a group duty of another work type that day are out of the rotation.
+function computeRoster(data, catId, onDate) {
   const membership = (data.membership && data.membership[catId]) || [];
-  const today = todayStr();
+  const today = onDate || todayStr();
+  let groupOf = null;
+  if (onDate) {
+    groupOf = {};
+    nbGroupDutiesOn(data, onDate).forEach((g) => { if (g.catId !== catId) g.numbers.forEach((n) => { if (!groupOf[n]) groupOf[n] = g; }); });
+  }
   const withInfo = membership.map((m) => {
     const staffRec = data.staff[m.number] || { number: m.number, name: "(unknown)", unavailable: null };
-    const status = effectiveStatus(staffRec, m);
-    const statusLabel = (status === "Leave" || status === "Outstation") ? unavailLabel(data, staffRec.unavailable) : status;
-    const waiting = m.lastDuty ? daysBetween(m.lastDuty, today) : 99999;
+    let status, statusLabel, period = null;
+    if (onDate) {
+      const u = unavailableOnDate(staffRec, onDate);
+      const kind = u ? unavailKind(u) : null;
+      if (kind === "Leave" || kind === "Outstation") { status = kind; period = u; statusLabel = unavailLabel(data, u) || kind; }
+      else if (groupOf[m.number]) { const g = groupOf[m.number]; status = "GroupDuty"; statusLabel = g.label + (g.note ? " · " + g.note : ""); }
+      else if (staffRec.skip || m.skip) { status = "Skip"; statusLabel = "Skip"; }
+      else { status = "Present"; statusLabel = "Present"; }
+    } else {
+      status = effectiveStatus(staffRec, m);
+      statusLabel = (status === "Leave" || status === "Outstation") ? unavailLabel(data, staffRec.unavailable) : status;
+      if (status === "Leave" || status === "Outstation") period = staffRec.unavailable;
+    }
+    const lastBefore = onDate ? (m.history || []).map(historyDate).filter((d) => d && d < onDate).sort().pop() || (m.lastDuty && m.lastDuty < onDate ? m.lastDuty : null) : m.lastDuty;
+    const waiting = lastBefore ? daysBetween(lastBefore, today) : 99999;
     const onDutyToday = isOnDutyOn(m, today);
-    return { ...m, name: staffRec.name, staffRec, waiting, onDutyToday, status, statusLabel, awayForThisDuty: onDutyToday && nbAwayFromThisDuty(m, staffRec, today) };
+    return { ...m, name: staffRec.name, staffRec, waiting, onDutyToday, status, statusLabel, period, awayForThisDuty: onDutyToday && nbAwayFromThisDuty(m, staffRec, today) };
   });
   const eligible = withInfo.filter((p) => p.status === "Present").sort((a, b) => {
     if (a.onDutyToday !== b.onDutyToday) return a.onDutyToday ? 1 : -1;
@@ -8975,19 +8995,20 @@ function NbDayPictureModal({ data, date, onClose }) {
   );
 }
 // shown only when tomorrow has a group duty
-function NbTomorrowButton({ data, style }) {
+// with onToggle (a work-type roster): switches that roster to tomorrow instead of opening the popup
+function NbTomorrowButton({ data, style, active, onToggle }) {
   const { t } = useLang();
   const [show, setShow] = useState(false);
   const date = addDaysStr(todayStr(), 1);
   const groups = useMemo(() => nbGroupDutiesOn(data, date), [data, date]);
-  if (!groups.length) return null;
+  if (!groups.length && !active) return null;
   const n = groups.reduce((s, g) => s + g.numbers.length, 0);
   return (
     <React.Fragment>
-      <button type="button" data-view-tomorrow onClick={() => setShow(true)} className="gu"
+      <button type="button" data-view-tomorrow aria-pressed={onToggle ? !!active : undefined} onClick={() => (onToggle ? onToggle() : setShow(true))} className="gu"
         title={t(`${n} people are in a group duty tomorrow`, `આવતીકાલે ${n} લોકો જૂથ ડ્યુટીમાં છે`)}
-        style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", ...(style || {}) }}>
-        👀 {t("View tomorrow", "આવતીકાલ જુઓ")}
+        style={{ background: active ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: active ? "#fff" : "var(--text-primary)", border: "1px solid " + (active ? "var(--btn-dark-bg)" : "var(--border)"), borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", ...(style || {}) }}>
+        👀 {active ? t("Viewing tomorrow", "આવતીકાલ જોઈ રહ્યા છો") : t("View tomorrow", "આવતીકાલ જુઓ")}
       </button>
       {show && <NbDayPictureModal data={data} date={date} onClose={() => setShow(false)} />}
     </React.Fragment>
@@ -10045,7 +10066,17 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
   const cat = data.categories.find((c) => c.id === catId);
   const membership = data.membership[catId] || [];
 
-  const roster = useMemo(() => computeRoster(data, catId), [data, catId]);
+  // "View tomorrow": the roster as it stands tomorrow (group duty, leave and outstation of tomorrow taken out)
+  const [forTomorrow, setForTomorrow] = useState(false);
+  const tomorrow = addDaysStr(todayStr(), 1);
+  useEffect(() => { setForTomorrow(false); }, [catId]);
+  const roster = useMemo(() => computeRoster(data, catId, forTomorrow ? tomorrow : null), [data, catId, forTomorrow, tomorrow]);
+  const tomorrowAway = useMemo(() => {
+    if (!forTomorrow) return null;
+    const c = { GroupDuty: 0, Outstation: 0, Leave: 0, Skip: 0, Present: 0 };
+    roster.forEach((p) => { c[p.status] = (c[p.status] || 0) + 1; });
+    return c;
+  }, [forTomorrow, roster]);
 
   const importCandidates = useMemo(() => {
     const already = new Set(membership.map((m) => m.number));
@@ -10170,6 +10201,21 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
         <CategoryFairnessTable key={catId} roster={roster} catLabel={cat ? cat.label : ""} onSelectPerson={setHistoryPersonNumber} period={pdfPeriod} />
       ) : (
       <React.Fragment>
+      {forTomorrow && tomorrowAway && (
+        <div data-tomorrow-banner className="gu" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--status-warning-bg)", border: "1px solid var(--status-warning-border, var(--highlight-border))", borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>📅 {t("Tomorrow's roster", "આવતીકાલનું રોસ્ટર")} · {new Date(tomorrow + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short" })} {formatDMY(tomorrow)}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>
+              {t("Free tomorrow", "આવતીકાલે ઉપલબ્ધ")}: <b>{tomorrowAway.Present}</b>
+              {tomorrowAway.GroupDuty > 0 && <React.Fragment> · {t("group duty", "જૂથ ડ્યુટી")} {tomorrowAway.GroupDuty}</React.Fragment>}
+              {tomorrowAway.Outstation > 0 && <React.Fragment> · {t("outstation", "બહારગામ")} {tomorrowAway.Outstation}</React.Fragment>}
+              {tomorrowAway.Leave > 0 && <React.Fragment> · {t("leave", "રજા")} {tomorrowAway.Leave}</React.Fragment>}
+              {tomorrowAway.Skip > 0 && <React.Fragment> · {t("skip", "સ્કિપ")} {tomorrowAway.Skip}</React.Fragment>}
+            </div>
+          </div>
+          <button type="button" data-tomorrow-off onClick={() => setForTomorrow(false)} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 12px", fontWeight: 700, fontSize: 12.5, color: "var(--text-primary)", cursor: "pointer" }}>✕ {t("Back to today", "આજ પર પાછા")}</button>
+        </div>
+      )}
       <div data-tour="nb-tour-roster-nextup" style={{
         background: "var(--bg-surface)", border: "1px solid var(--border)", borderLeft: nextUp ? "4px solid var(--accent-strong)" : "4px solid var(--border)",
         borderRadius: 10, padding: "16px 20px", marginBottom: 22, display: "flex", alignItems: "center",
@@ -10180,7 +10226,7 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div className="disp" style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--status-warning-bg)", color: "var(--status-warning-text)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15 }}>1</div>
               <div>
-                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--status-warning-text)", fontWeight: 600, marginBottom: 2 }} className="gu">{t("Next up", "આગળ")}</div>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--status-warning-text)", fontWeight: 600, marginBottom: 2 }} className="gu">{forTomorrow ? t("Next up for tomorrow", "આવતીકાલ માટે આગળ") : t("Next up", "આગળ")}</div>
                 <div className="gu" onClick={() => setAssignTarget({ number: nextUp.number, name: nextUp.name })} title={t("Tap to assign duty", "ડ્યુટી સોંપવા ટેપ કરો")} style={{ fontSize: 16, fontWeight: 600, cursor: "pointer" }}>{nextUp.name}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }} className="gu">
                   {nextUp.lastDuty
@@ -10227,7 +10273,7 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
           id="app-search-input" style={{ width: 220 }}
         />
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <NbTomorrowButton data={data} />
+          <NbTomorrowButton data={data} active={forTomorrow} onToggle={() => setForTomorrow((v) => !v)} />
           <button
             onClick={() => { setShowImportMenu(true); setImportSelected(new Set()); setImportSearch(""); }}
             style={catTabBtn(false)} className="gu"
@@ -10398,8 +10444,8 @@ function CategoryView({ data, catId, bulkCategory, openStaffEdit, assignGroupDut
                   <td style={td} className="mono">{p.lastDuty ? `${p.waiting}d` : "—"}</td>
                   <td className="mono" style={{ ...td, fontWeight: sortMode === "duties" ? 700 : 500, color: sortMode === "duties" ? "var(--status-warning-text)" : "var(--text-primary)" }}>{p.dutyCount}</td>
                   <td style={td}>
-                    {p.status === "Leave" || p.status === "Outstation" ? (
-                      <span title={`${formatDMY(p.staffRec.unavailable.from)} → ${p.staffRec.unavailable.to ? formatDMY(p.staffRec.unavailable.to) : t("ongoing", "ચાલુ")}`} style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{p.statusLabel}</span>
+                    {p.status === "Leave" || p.status === "Outstation" || p.status === "GroupDuty" ? (
+                      <span data-row-status={p.status} title={p.period ? `${formatDMY(p.period.from)} → ${p.period.to ? formatDMY(p.period.to) : t("ongoing", "ચાલુ")}` : (p.status === "GroupDuty" ? t("Group duty tomorrow", "આવતીકાલે જૂથ ડ્યુટી") : "")} style={{ fontSize: 12, fontWeight: 600, padding: "5px 8px", borderRadius: 6, border: "1px solid " + sty.border, background: sty.bg, color: sty.fg }} className="gu">{p.statusLabel}</span>
                     ) : (
                       <select value={p.status} onChange={(e) => {
                         if (e.target.value === "Skip") { setSkipTarget({ number: p.number, name: p.name }); }
