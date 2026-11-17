@@ -12619,14 +12619,14 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
 
   // સ્ટાફ મહેકમ (today): leave types named sick / absent are counted on their own; outstation has its own count
   const mahekam = useMemo(() => {
-    const out = { total: 0, present: 0, leave: 0, sick: 0, absent: 0, out: 0, people: { leave: [], sick: [], absent: [], out: [] } };
+    const out = { total: 0, present: 0, leave: 0, sick: 0, absent: 0, out: 0, people: { leave: [], sick: [], absent: [], out: [], net: [] } };
     Object.values(data.staff || {}).forEach((st) => {
       out.total += 1;
       const stt = effectiveStatus(st, null);
       const lbl = String(unavailLabel(data, st.unavailable) || "");
       const who = { number: st.number, name: st.name, label: lbl, from: st.unavailable && st.unavailable.from, to: st.unavailable && st.unavailable.to };
       if (stt === "Outstation") { out.out += 1; out.people.out.push(who); return; }
-      if (stt !== "Leave") { out.present += 1; return; }
+      if (stt !== "Leave") { out.present += 1; out.people.net.push({ ...who, label: nbDesgName(data, st.designation), from: null, to: null }); return; }
       if (/sick|medical|સિક|માંદ|બીમાર/i.test(lbl)) { out.sick += 1; out.people.sick.push(who); }
       else if (/absent|ગેરહાજર|ગે\.હા/i.test(lbl)) { out.absent += 1; out.people.absent.push(who); }
       else { out.leave += 1; out.people.leave.push(who); }
@@ -12735,7 +12735,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               ["out", "−", "બહારગામ", mahekam.out, "var(--accent-light)", "color-mix(in srgb, var(--accent-strong) 35%, transparent)", "var(--accent-strong)"],
               ["net", "=", "ચોખ્ખું મહેકમ", mahekam.total - mahekam.leave - mahekam.sick - mahekam.absent - mahekam.out, "var(--status-success-bg)", "var(--status-success-text)", "var(--status-success-text)"],
             ].map(([k, sign, label, n, bg, bd, fg]) => {
-              const tappable = k !== "total" && k !== "net";
+              const tappable = k !== "total";
               const Tag = tappable ? "button" : "div";
               return (
               <Tag key={k} data-mahekam-row={k} className="gu" {...(tappable ? { type: "button", onClick: () => setMahekamPick({ k, label }), title: "યાદી જોવા ટેપ કરો" } : {})}
