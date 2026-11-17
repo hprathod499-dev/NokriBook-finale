@@ -7513,6 +7513,57 @@ const clearCategoryHistory = (catId) => {
     return true;
   };
 
+  // add people to a group duty that was already given (same work type, same dates, note, night and
+  // outstation as the rest of the group)
+  const addToGroupDuty = (catId, batch, people) => {
+    if (!data || !batch || !people || !people.length) return false;
+    const cat = (data.categories || []).find((c) => c.id === catId) || { label: catId === MISC_CATEGORY_ID ? t("Miscellaneous duty", "અન્ય ડ્યુટી") : catId };
+    const list = data.membership[catId] || [];
+    const sample = list.find((m) => (m.history || []).some((e) => historyBatch(e) === batch));
+    if (!sample) { showToast(t("That group duty was not found", "તે જૂથ ડ્યુટી મળી નહીં")); return false; }
+    const proto = {};
+    (sample.history || []).forEach((e) => { if (historyBatch(e) === batch && !proto[e.date]) proto[e.date] = e; });
+    const dates = Object.keys(proto).sort();
+    const lastDate = dates[dates.length - 1];
+    const conflicts = [];
+    people.forEach((p) => dates.forEach((d) => { const c = findDutyConflict(data, p.number, d, catId); if (c) conflicts.push(`${p.name} → ${formatDMY(d)} → "${c.label}"`); }));
+    if (conflicts.length && !window.confirm(t(
+      `These people already have a duty elsewhere on these days:\n${conflicts.join("\n")}\n\nAdd them to this group duty anyway?`,
+      `આ લોકોને આ દિવસોમાં પહેલેથી જ બીજે ડ્યુટી છે:\n${conflicts.join("\n")}\n\nતેમ છતાં આ જૂથ ડ્યુટીમાં ઉમેરવા છે?`
+    ))) return false;
+    // the group's outstation period, if it was marked with one
+    let away = null;
+    Object.values(data.staff || {}).some((st) => {
+      const all = [...(st.unavailableHistory || []), ...(st.unavailable ? [st.unavailable] : [])];
+      away = all.find((u) => u && u.batch === batch && u.kind === "Outstation") || null;
+      return !!away;
+    });
+    const baseTs = Date.now();
+    const entriesFor = (num, wasSkip) => dates.map((d, i) => {
+      const e = proto[d];
+      return { date: d, ts: baseTs + i, note: e.note || null, batch, ...(e.viaGroupDuty ? { viaGroupDuty: true } : {}), ...(e.night ? { night: true } : {}), ...(e.extraNote ? { extraNote: e.extraNote } : {}), pskip: !!wasSkip, pss: !!((data.staff[num] || {}).skip) };
+    });
+    const adding = new Set(people.map((p) => p.number));
+    const existing = new Set(list.map((m) => m.number));
+    const updated = list.map((m) => adding.has(m.number)
+      ? { ...m, skip: false, lastDuty: !m.lastDuty || m.lastDuty < lastDate ? lastDate : m.lastDuty, history: [...(m.history || []), ...entriesFor(m.number, m.skip)] }
+      : m);
+    const added = people.filter((p) => !existing.has(p.number)).map((p) => ({ number: p.number, lastDuty: lastDate, history: entriesFor(p.number, false), skip: false }));
+    const nextStaff = { ...data.staff };
+    people.forEach((p) => {
+      let rec = nextStaff[p.number] || { number: p.number, name: p.name, phone: null, unavailable: null, designation: null, skip: false };
+      if (rec.skip) rec = { ...rec, skip: false };
+      if (away) rec = { ...rec, ...unavailablePeriodUpdate(rec, "Outstation", away.typeId, away.from, away.to, { batch, viaCat: away.viaCat || catId }) };
+      nextStaff[p.number] = rec;
+    });
+    persist({ ...dataRef.current, staff: nextStaff, membership: { ...data.membership, [catId]: [...updated, ...added] } });
+    showToast(t(
+      `Added ${people.length} ${people.length === 1 ? "person" : "people"} to ${cat.label}${away ? " — also marked Outstation" : ""}`,
+      `${cat.label} માં ${people.length} લોકો ઉમેર્યા${away ? " — બહારગામ તરીકે પણ માર્ક કર્યા" : ""}`
+    ));
+    return true;
+  };
+
   const createStaff = (number, name, phone, designation) => {
     const num = (number || "").trim();
     const cleanName = (name || "").trim();
@@ -8349,7 +8400,7 @@ const clearCategoryHistory = (catId) => {
               exportBackup={exportBackup}
             />
           )}
-          {vm === "calendar" && <CalendarView swapDuty={swapDuty} editDutyNote={editDutyNote} initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} editAwayPeriod={canEdit ? editAwayPeriod : null} />}
+          {vm === "calendar" && <CalendarView swapDuty={swapDuty} addToGroupDuty={canEdit ? addToGroupDuty : null} editDutyNote={editDutyNote} initialDate={view.date || (view.batchId ? nbGroupBatchDate(data, view.batchId) : undefined)} onDateChange={(d) => { if (!view.batchId) setView({ mode: "calendar", date: d }, { replace: true }); }} data={data} deleteHistoryEntries={deleteHistoryEntries} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} editAwayPeriod={canEdit ? editAwayPeriod : null} />}
           {vm === "report" && <ReportView data={data} initialSort={view.sort} focus={view.focus} />}
           {vm === "events" && (
             <EventsView
@@ -8888,7 +8939,7 @@ function nbDayPicture(data, date) {
   Object.values(data.staff || {}).forEach((st) => {
     if (!st || !st.number) return;
     pic.total += 1;
-    const who = { number: st.number, name: st.name, designation: st.designation || "", phone: st.phone || null };
+    const who = { number: st.number, name: st.name, designation: nbDesgName(data, st.designation), phone: st.phone || null };
     if (inGroup[st.number]) { pic.groupCount += 1; return; }
     const u = unavailableOnDate(st, date);
     if (u) {
@@ -8973,7 +9024,7 @@ function NbDayPictureModal({ data, date, onClose }) {
           {open === "group" && section(t("In group duty", "જૂથ ડ્યુટીમાં"), pic.groupCount, pic.groups.map((g) => (
             <div key={g.key}>
               <div style={{ padding: "8px 16px 4px", fontSize: 13, fontWeight: 700 }}>{g.label}{g.note ? " · " + g.note : ""} <span className="mono" style={{ color: "var(--text-tertiary)", fontWeight: 600 }}>({g.numbers.length})</span></div>
-              {g.numbers.map(staffOf).sort(nbStaffRankCmp(data)).map((p) => personRow(p, ""))}
+              {g.numbers.map(staffOf).sort(nbStaffRankCmp(data)).map((p) => personRow({ ...p, designation: nbDesgName(data, p.designation) }, ""))}
             </div>
           )))}
           {open === "out" && section(t("Outstation", "બહારગામ"), pic.out.length, away(pic.out))}
@@ -14038,8 +14089,82 @@ function nbDutyBlocks(rows) {
   });
   return plain.rows.length ? [plain, ...blocks] : blocks;
 }
-function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty, editAwayPeriod, setUnavailable, editDutyNote }) {
+// designation id -> its label (older records may hold the label itself)
+function nbDesgName(data, v) {
+  if (!v) return "";
+  const d = (data.designations || []).find((x) => x.id === v);
+  return d ? d.label : v;
+}
+// pick people to add to an existing group duty
+function NbGroupAddPeople({ data, date, info, onClose, onAdd }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState(() => new Set());
+  const inGroup = useMemo(() => {
+    const n = new Set();
+    (data.membership[info.catId] || []).forEach((m) => { if ((m.history || []).some((e) => historyBatch(e) === info.batch)) n.add(m.number); });
+    return n;
+  }, [data, info]);
+  const elsewhere = useMemo(() => {
+    const busy = {};
+    (data.categories || []).concat([{ id: MISC_CATEGORY_ID, label: t("Miscellaneous duty", "અન્ય ડ્યુટી") }]).forEach((c) => {
+      if (c.id === info.catId) return;
+      (data.membership[c.id] || []).forEach((m) => { if (isOnDutyOn(m, date) && !busy[m.number]) busy[m.number] = c.label; });
+    });
+    return busy;
+  }, [data, date, info]);
+  const all = useMemo(() => Object.values(data.staff || {}).filter((s) => s && s.number && !inGroup.has(s.number)).sort(nbStaffRankCmp(data)), [data, inGroup]);
+  const qq = q.trim().toLowerCase();
+  const shown = qq ? all.filter((s) => nbSrch(s.name, qq) || nbSrch(s.number, qq) || nbSrch(nbDesgName(data, s.designation), qq)) : all;
+  const toggle = (n) => setPicked((prev) => { const x = new Set(prev); if (x.has(n)) x.delete(n); else x.add(n); return x; });
+  const people = all.filter((s) => picked.has(s.number)).map((s) => ({ number: s.number, name: s.name }));
+  return ReactDOM.createPortal(
+    <div role="dialog" aria-modal="true" aria-label={t("Add people to this duty", "આ ડ્યુટીમાં લોકો ઉમેરો")} data-group-add className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70, padding: 12 }}>
+      <div className="gu" style={{ background: "var(--bg-surface)", color: "var(--text-primary)", borderRadius: 14, width: 460, maxWidth: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px 8px" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="disp" style={{ fontWeight: 800, fontSize: 16 }}>➕ {t("Add people", "લોકો ઉમેરો")}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>{info.catLabel} · {formatDMY(date)} · {t(`${inGroup.size} already in it`, `${inGroup.size} પહેલેથી છે`)}</div>
+            {info.note && <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginTop: 2, whiteSpace: "pre-wrap" }}>{info.note}</div>}
+          </div>
+          <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, width: 30, height: 30, fontSize: 14, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}>✕</button>
+        </div>
+        <div style={{ padding: "4px 16px 10px" }}>
+          <input data-group-add-search value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Search name, buckle no. or designation…", "નામ, બક્કલ નંબર કે હોદ્દો શોધો…")} autoFocus style={{ width: "100%", boxSizing: "border-box" }} />
+        </div>
+        <div style={{ overflowY: "auto", borderTop: "1px solid var(--border)" }}>
+          {shown.length === 0 && <div style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 13.5 }}>{t("Nobody matches.", "કોઈ મળ્યું નહીં.")}</div>}
+          {shown.map((s) => {
+            const on = picked.has(s.number);
+            const u = unavailableOnDate(s, date);
+            const tag = u ? (unavailLabel(data, u) || unavailKind(u)) : elsewhere[s.number] ? t("On duty: ", "ડ્યુટી: ") + elsewhere[s.number] : "";
+            return (
+              <button key={s.number} type="button" data-group-add-person={s.number} onClick={() => toggle(s.number)}
+                style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "9px 16px", border: "none", borderBottom: "1px solid var(--border)", background: on ? "var(--status-info-bg)" : "transparent", color: "inherit", font: "inherit", cursor: "pointer" }}>
+                <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: 5, flexShrink: 0, border: "1.5px solid " + (on ? "var(--status-info-text)" : "var(--text-tertiary)"), background: on ? "var(--status-info-text)" : "transparent", color: "#fff", fontSize: 13, fontWeight: 700 }}>{on ? "✓" : ""}</span>
+                <span className="mono" style={{ fontSize: 12.5, color: "var(--text-tertiary)", minWidth: 40 }}>{s.number}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, fontSize: 14.5 }}>{s.name}</span>
+                  {(s.designation || tag) && <span style={{ display: "block", fontSize: 12, color: tag ? "var(--status-warning-text)" : "var(--text-secondary)", marginTop: 1 }}>{[nbDesgName(data, s.designation), tag].filter(Boolean).join(" · ")}</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
+          <button type="button" data-group-add-go disabled={!people.length} onClick={() => onAdd(people)}
+            style={{ width: "100%", padding: "11px 16px", borderRadius: 9, border: "none", background: "var(--accent)", color: "var(--accent-text)", fontWeight: 800, fontSize: 14.5, cursor: people.length ? "pointer" : "default", opacity: people.length ? 1 : 0.5 }}>
+            {people.length ? t(`Add ${people.length} ${people.length === 1 ? "person" : "people"}`, `${people.length} લોકો ઉમેરો`) : t("Pick people to add", "ઉમેરવા લોકો પસંદ કરો")}
+          </button>
+        </div>
+      </div>
+    </div>, document.body);
+}
+function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty, addToGroupDuty, editAwayPeriod, setUnavailable, editDutyNote }) {
   const [awayMenu, setAwayMenu] = useState(null);
+  const [groupAdd, setGroupAdd] = useState(null);
   // hold a person's duty → menu: Add / Edit note · Swap duty · Remove this duty
   const [holdFor, setHoldFor] = useState(null);
   const [noteAsk, setNoteAsk] = useState(null);
@@ -14327,10 +14452,12 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
   return (
     <React.Fragment>
       {pdfReady && <PdfReadyModal pdf={pdfReady} onClose={() => setPdfReady(null)} />}
+      {groupAdd && <NbGroupAddPeople data={data} date={selectedDate} info={groupAdd} onClose={() => setGroupAdd(null)} onAdd={(people) => { if (addToGroupDuty(groupAdd.catId, groupAdd.batch, people)) setGroupAdd(null); }} />}
       {holdFor && sheetWrap(<React.Fragment>
         <div style={{ fontWeight: 700, fontSize: 15 }}>{holdFor.name} <span className="mono" style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500 }}>{nbBuckleTag(holdFor.number)}</span></div>
         <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 4 }}>{holdFor.catLabel} · {formatDMY(selectedDate)}{batchSize(holdFor) > 1 ? " · " + t(`group of ${batchSize(holdFor)}`, `${batchSize(holdFor)} નું જૂથ`) : ""}</div>
         {editDutyNote && <button type="button" data-hold-act="note" style={{ ...sheetBtn, flexWrap: "wrap" }} onClick={() => startNote(holdFor)}>📝 {holdFor.note ? t("Edit note", "નોંધ સુધારો") : t("Add note", "નોંધ ઉમેરો")}{nbDutyNoteText(holdFor) && <span style={{ flexBasis: "100%", fontSize: 12.5, fontWeight: 400, color: "var(--text-secondary)", whiteSpace: "pre-wrap", wordBreak: "break-word", paddingLeft: 26 }}>{nbDutyNoteText(holdFor)}</span>}</button>}
+        {addToGroupDuty && holdFor.batch && <button type="button" data-hold-act="add" style={sheetBtn} onClick={() => { const r = holdFor; setHoldFor(null); setGroupAdd({ catId: r.catId, batch: r.batch, catLabel: r.catLabel, note: r.note || "" }); }}>➕ {t("Add people to this duty", "આ ડ્યુટીમાં લોકો ઉમેરો")}</button>}
         {swapDuty && <button type="button" data-hold-act="swap" style={sheetBtn} onClick={() => { const r = holdFor; setHoldFor(null); setSwapFor({ catId: r.catId, number: r.number, name: r.name }); }}>⇄ {t("Swap duty", "ડ્યુટી અદલાબદલી")}</button>}
         {deleteHistoryEntries && <button type="button" data-hold-act="remove" style={{ ...sheetBtn, color: "var(--status-error-text)", borderColor: "var(--status-error-border)" }} onClick={() => removeDuty(holdFor)}>🗑 {t("Remove this duty", "આ ડ્યુટી કાઢી નાખો")}</button>}
         <button type="button" onClick={() => setHoldFor(null)} style={{ ...sheetBtn, justifyContent: "center", fontWeight: 500, color: "var(--text-secondary)" }}>{t("Cancel", "રદ કરો")}</button>
