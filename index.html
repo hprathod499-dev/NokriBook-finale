@@ -14099,6 +14099,48 @@ function nbDesgName(data, v) {
   const d = (data.designations || []).find((x) => x.id === v);
   return d ? d.label : v;
 }
+// tap a leave / outstation label: every type is listed, tapping one changes the record's type (dates stay as they are)
+function NbAwayTypePicker({ data, a, onClose, onPick }) {
+  const { t } = useLang();
+  useEscToClose(onClose);
+  const groups = [
+    ["Leave", t("Leave", "રજા"), data.leaveTypes || DEFAULT_LEAVE_TYPES],
+    ["Outstation", t("Outstation", "બહારગામ"), data.outstationTypes || DEFAULT_OUTSTATION_TYPES],
+  ];
+  const rng = a.to ? (a.to !== a.from ? formatDMY(a.from) + " – " + formatDMY(a.to) : formatDMY(a.from)) : formatDMY(a.from) + t(" onwards", " થી");
+  return ReactDOM.createPortal(
+    <div role="dialog" aria-modal="true" aria-label={t("Change the type", "પ્રકાર બદલો")} data-away-type-picker className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: "#00000066", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70, padding: 12 }}>
+      <div className="gu" style={{ background: "var(--bg-surface)", color: "var(--text-primary)", borderRadius: 14, width: 400, maxWidth: "100%", maxHeight: "86vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px 10px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="disp" style={{ fontWeight: 800, fontSize: 16 }}>{t("Change the type", "પ્રકાર બદલો")}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 2 }}>{a.name}{a.number ? " " + nbBuckleTag(a.number) : ""} · {rng}</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, width: 30, height: 30, fontSize: 14, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}>✕</button>
+        </div>
+        <div style={{ overflowY: "auto", padding: "4px 0 10px" }}>
+          {groups.map(([kind, title, list]) => (
+            <div key={kind}>
+              <div style={{ padding: "10px 16px 4px", fontSize: 11.5, fontWeight: 800, color: "var(--text-secondary)" }}>{title}</div>
+              {list.map((x) => {
+                const on = kind === a.type && x.id === a.typeId;
+                const st = EVENT_TYPE_STYLE[kind] || STATUS_STYLE[kind] || {};
+                return (
+                  <button key={x.id} type="button" data-away-type-opt={x.id} onClick={() => onPick(kind, x.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "10px 16px", border: "none", background: on ? "var(--bg-surface-2)" : "transparent", color: "inherit", font: "inherit", cursor: "pointer" }}>
+                    <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: "50%", background: st.fg || "var(--text-tertiary)", flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 14.5, fontWeight: on ? 800 : 500 }}>{x.label}</span>
+                    {on && <span style={{ fontSize: 13, fontWeight: 800 }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>, document.body);
+}
 // pick people to add to an existing group duty
 function NbGroupAddPeople({ data, date, info, onClose, onAdd }) {
   const { t } = useLang();
@@ -14168,6 +14210,7 @@ function NbGroupAddPeople({ data, date, info, onClose, onAdd }) {
 }
 function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, deleteUnavailableHistoryEntry, swapDuty, addToGroupDuty, editAwayPeriod, setUnavailable, editDutyNote }) {
   const [awayMenu, setAwayMenu] = useState(null);
+  const [typePick, setTypePick] = useState(null);
   const [groupAdd, setGroupAdd] = useState(null);
   // hold a person's duty → menu: Add / Edit note · Swap duty · Remove this duty
   const [holdFor, setHoldFor] = useState(null);
@@ -14754,7 +14797,12 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                             {remaining === 0 ? t("returns tomorrow", "આવતીકાલે પાછા ફરશે") : t(`${remaining} day${remaining === 1 ? "" : "s"} until return`, `${remaining} દિવસમાં પાછા ફરશે`)}
                           </span>
                         )}
-                        <span style={{ fontSize: 10.5, fontWeight: 700, background: style.bg, color: style.fg, border: "1px solid " + style.border, borderRadius: 10, padding: "2px 8px" }}>{a.label}</span>
+                        {editAwayPeriod && a.source === "unavailable" && !deleteMode ? (
+                          <button type="button" data-away-type={a.number} onClick={() => setTypePick(a)} title={t("Change the type", "પ્રકાર બદલો")}
+                            style={{ fontSize: 10.5, fontWeight: 700, background: style.bg, color: style.fg, border: "1px solid " + style.border, borderRadius: 10, padding: "2px 8px", font: "inherit", cursor: "pointer" }}>{a.label} ▾</button>
+                        ) : (
+                          <span style={{ fontSize: 10.5, fontWeight: 700, background: style.bg, color: style.fg, border: "1px solid " + style.border, borderRadius: 10, padding: "2px 8px" }}>{a.label}</span>
+                        )}
                         {deleteMode && deleteUnavailableHistoryEntry && a.source === "unavailable" && (
                           <button
                             onClick={() => {
@@ -14778,6 +14826,11 @@ function CalendarView({ onDateChange, initialDate, data, deleteHistoryEntries, d
                 <button type="button" data-cal-add-away-btn onClick={() => setAddAway({ number: "" })} className="gu" style={{ fontSize: 12.5, fontWeight: 600, borderRadius: 8, padding: "6px 12px", border: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer" }}>＋ {t("Leave / outstation on this day", "આ દિવસે રજા / બહારગામ")}</button>
               </div>
             )}
+            {typePick && <NbAwayTypePicker data={data} a={typePick} onClose={() => setTypePick(null)} onPick={(kind, typeId) => {
+              const a = typePick; setTypePick(null);
+              if (kind === a.type && typeId === (a.typeId || null)) return;
+              editAwayPeriod(a.number, { kind: a.type, typeId: a.typeId, from: a.from, to: a.to }, { kind, typeId, from: a.from, to: a.to });
+            }} />}
             {awayMenu && <CalAwayMenu data={data} a={awayMenu} date={selectedDate} onClose={() => setAwayMenu(null)} editAwayPeriod={editAwayPeriod} deleteUnavailableHistoryEntry={deleteUnavailableHistoryEntry} onAddMore={(n) => setAddAway({ number: n })} onHistory={(n) => setHistNum(n)} />}
             {addAway && <CalAddAway data={data} date={selectedDate} presetNumber={addAway.number} onClose={() => setAddAway(null)} setUnavailable={setUnavailable} />}
             {histNum && data.staff[histNum] && <PersonHistoryModal data={data} number={histNum} onClose={() => setHistNum(null)} />}
