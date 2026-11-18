@@ -8982,10 +8982,12 @@ function NbDayPictureModal({ data, date, onClose }) {
     ["absent", "−", t("Absent", "ગેરહાજર"), pic.absent.length, "var(--status-error-bg)", "var(--status-error-border)"],
   ].filter((r) => r[3] > 0);
   const tile = (k, sign, label, n, bg, bd, strong) => (
-    <button key={k} type="button" data-day-tile={k} onClick={() => setOpen(open === k ? null : k)} disabled={k === "total" || k === "present"} className="gu"
-      style={{ background: bg, border: (strong ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "9px 12px", textAlign: "left", font: "inherit", color: "inherit", cursor: k === "total" || k === "present" ? "default" : "pointer", outline: open === k ? "2px solid var(--text-primary)" : "none", outlineOffset: 1 }}>
-      <div className="mono" style={{ fontSize: 20, fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.1 }}>{sign && <span style={{ opacity: 0.55, marginRight: 3 }}>{sign}</span>}{n}</div>
-      <div style={{ fontSize: 12, fontWeight: strong ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}{k !== "total" && k !== "present" ? " ▸" : ""}</div>
+    <button key={k} type="button" data-day-tile={k} onClick={() => setOpen(open === k ? null : k)} disabled={k === "total" || k === "present"} className="gu nb-count-circle"
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "2px 0", font: "inherit", color: "inherit", cursor: k === "total" || k === "present" ? "default" : "pointer" }}>
+      <span style={{ width: 62, height: 62, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: bg, border: (strong ? "2.5px solid " : "1.5px solid ") + bd, boxShadow: open === k ? "0 0 0 3px var(--bg-surface), 0 0 0 5px var(--text-primary)" : "none", transition: "box-shadow .15s" }}>
+        <span className="mono" style={{ fontSize: 19, fontWeight: 800, color: "var(--text-primary)", lineHeight: 1 }}>{sign && <span style={{ opacity: 0.55, fontSize: 14, marginRight: 1 }}>{sign}</span>}{n}</span>
+      </span>
+      <span style={{ fontSize: 11.5, fontWeight: strong ? 800 : 600, color: "var(--text-primary)", textAlign: "center", lineHeight: 1.25 }}>{label}{k !== "total" && k !== "present" ? " ▸" : ""}</span>
     </button>
   );
   const personRow = (p, sub) => (
@@ -9015,7 +9017,7 @@ function NbDayPictureModal({ data, date, onClose }) {
           </div>
           <button type="button" data-day-close onClick={onClose} aria-label={t("Close", "બંધ કરો")} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 7, width: 30, height: 30, fontSize: 14, color: "var(--text-secondary)", cursor: "pointer", flexShrink: 0 }}>✕</button>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(98px, 1fr))", gap: 8, padding: "0 16px 12px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(76px, 1fr))", gap: "12px 6px", padding: "4px 16px 14px" }}>
           {tile("total", "", t("Total staff", "કુલ મહેકમ"), pic.total, "var(--bg-page)", "var(--border)")}
           {awayRows.map((r) => tile(...r))}
           {tile("present", "=", t("Present", "હાજર"), pic.present.length, "var(--status-success-bg)", "var(--status-success-text)", true)}
@@ -12726,7 +12728,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
             <div className="disp gu" style={{ fontWeight: 700, fontSize: 14 }}>સ્ટાફ મહેકમ</div>
             <div className="mono" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{formatDMY(todayStr())}</div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(86px, 1fr))", gap: "14px 6px" }}>
             {[
               ["total", "", "કુલ મહેકમ", mahekam.total, "var(--bg-surface-2)", "var(--border)", "var(--text-primary)"],
               ["leave", "−", "રજા ઉપર", mahekam.leave, "var(--status-warning-bg, var(--highlight-bg))", "var(--status-warning-border, var(--highlight-border))", "var(--status-warning-text)"],
@@ -12739,9 +12741,11 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
               const Tag = tappable ? "button" : "div";
               return (
               <Tag key={k} data-mahekam-row={k} className="gu" {...(tappable ? { type: "button", onClick: () => setMahekamPick({ k, label }), title: "યાદી જોવા ટેપ કરો" } : {})}
-                style={{ background: bg, border: (k === "net" ? "2px solid " : "1px solid ") + bd, borderRadius: 9, padding: "10px 14px", textAlign: "left", font: "inherit", color: "inherit", cursor: tappable ? "pointer" : "default" }}>
-                <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: fg, lineHeight: 1.1 }}>{sign && <span style={{ opacity: 0.6, marginRight: 4 }}>{sign}</span>}{n}</div>
-                <div style={{ fontSize: 12.5, fontWeight: k === "net" || k === "total" ? 800 : 600, color: "var(--text-primary)", marginTop: 2 }}>{label}{tappable ? " ▸" : ""}</div>
+                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, background: "transparent", border: "none", padding: "2px 0", font: "inherit", color: "inherit", cursor: tappable ? "pointer" : "default" }}>
+                <span style={{ width: 70, height: 70, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: bg, border: (k === "net" ? "2.5px solid " : "1.5px solid ") + bd }}>
+                  <span className="mono" style={{ fontSize: 21, fontWeight: 800, color: fg, lineHeight: 1 }}>{sign && <span style={{ opacity: 0.6, fontSize: 15, marginRight: 1 }}>{sign}</span>}{n}</span>
+                </span>
+                <span style={{ fontSize: 12, fontWeight: k === "net" || k === "total" ? 800 : 600, color: "var(--text-primary)", textAlign: "center", lineHeight: 1.25 }}>{label}{tappable ? " ▸" : ""}</span>
               </Tag>
               );
             })}
