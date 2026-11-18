@@ -9054,12 +9054,12 @@ function NbTomorrowButton({ data, style, active, onToggle }) {
   const [show, setShow] = useState(false);
   const date = addDaysStr(todayStr(), 1);
   const groups = useMemo(() => nbGroupDutiesOn(data, date), [data, date]);
-  if (!groups.length && !active) return null;
+  // always shown (tomorrow's picture is useful even without a group duty)
   const n = groups.reduce((s, g) => s + g.numbers.length, 0);
   return (
     <React.Fragment>
       <button type="button" data-view-tomorrow aria-pressed={onToggle ? !!active : undefined} onClick={() => (onToggle ? onToggle() : setShow(true))} className="gu"
-        title={t(`${n} people are in a group duty tomorrow`, `આવતીકાલે ${n} લોકો જૂથ ડ્યુટીમાં છે`)}
+        title={n ? t(`${n} people are in a group duty tomorrow`, `આવતીકાલે ${n} લોકો જૂથ ડ્યુટીમાં છે`) : t("See who is free tomorrow", "આવતીકાલે કોણ ઉપલબ્ધ છે તે જુઓ")}
         style={{ background: active ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: active ? "#fff" : "var(--text-primary)", border: "1px solid " + (active ? "var(--btn-dark-bg)" : "var(--border)"), borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", ...(style || {}) }}>
         👀 {active ? t("Viewing tomorrow", "આવતીકાલ જોઈ રહ્યા છો") : t("View tomorrow", "આવતીકાલ જુઓ")}
       </button>
