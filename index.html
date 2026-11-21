@@ -2203,7 +2203,6 @@ const DEFAULT_LEAVE_TYPES = [
   { id: "leave1", label: "Casual Leave", indefinite: false },
   { id: "leave2", label: "Sick Leave", indefinite: false },
   { id: "leave3", label: "Earned Leave", indefinite: false },
-  { id: "leave4", label: "Emergency Leave", indefinite: false },
 ];
 const DEFAULT_OUTSTATION_TYPES = [
   { id: "out1", label: "Training", indefinite: false },
@@ -7807,6 +7806,17 @@ const clearCategoryHistory = (catId) => {
     persist({ ...dataRef.current, leaveTypes: [...(data.leaveTypes || DEFAULT_LEAVE_TYPES), { id, label: clean, indefinite: !!indefinite }] });
     showToast(t(`Added leave type "${clean}"`, `રજાનો પ્રકાર "${clean}" ઉમેરાયો`));
   };
+  const emergencyCleanRef = useRef(false);
+  useEffect(() => {
+    if (!data || !canEdit || emergencyCleanRef.current) return;
+    const em = (data.leaveTypes || []).filter(nbIsEmergencyLeave);
+    if (!em.length) return;
+    emergencyCleanRef.current = true;
+    const ids = new Set(em.map((x) => x.id));
+    const used = Object.values(data.staff || {}).some((st) => st && [st.unavailable, ...(st.unavailableHistory || [])].some((u) => u && u.kind === "Leave" && ids.has(u.typeId)));
+    if (used) return;   // old records keep their label; it is still never offered as a choice
+    persist({ ...dataRef.current, leaveTypes: (dataRef.current.leaveTypes || []).filter((x) => !ids.has(x.id)) });
+  }, [data, canEdit]);
   const deleteLeaveType = (id) => {
     const list = data.leaveTypes || DEFAULT_LEAVE_TYPES;
     const cur = list.find((t) => t.id === id);
@@ -9480,7 +9490,7 @@ function nbRunsText(runs, t) {
 }
 function RecordLeaveView({ data, setUnavailable, showToast }) {
   const { t } = useLang();
-  const leaveTypes = data.leaveTypes || [];
+  const leaveTypes = nbPickableLeaveTypes(data.leaveTypes || []);
   const outstationTypes = data.outstationTypes || DEFAULT_OUTSTATION_TYPES;
   const [kind, setKind] = useState("Leave");
   const typeList = kind === "Leave" ? leaveTypes : outstationTypes;
@@ -9533,16 +9543,23 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
 
   const addToQueue = () => {
     if (!canAdd) return;
+    const label = selectedType ? selectedType.label : "";
+    // Casual Leave: Sundays and 2nd / 4th Saturdays inside the dates go to Public Holiday
+    const phType = kind === "Leave" && nbIsCasualLeave(selectedType) ? (data.leaveTypes || []).find(nbIsPublicHoliday) : null;
+    const split = phType ? nbSplitCasualRuns(runs) : { cl: runs, ph: [] };
+    const parts = [{ typeId, label, runs: split.cl }, ...(phType ? [{ typeId: phType.id, label: phType.label, runs: split.ph }] : [])].filter((x) => x.runs.length);
     if (kind === "Leave") {
       const queued = [];
       queue.filter((q) => q.number === num && q.kind === "Leave").forEach((q) => q.runs.forEach((r) => queued.push({ kind: "Leave", typeId: q.typeId, from: r.from, to: r.to })));
       let over = null;
-      for (const r of runs) { over = nbLeaveOverLimit(data, num, typeId, r.from, r.to, queued, t); if (over) break; queued.push({ kind: "Leave", typeId, from: r.from, to: r.to }); }
+      for (const part of parts) {
+        for (const r of part.runs) { over = nbLeaveOverLimit(data, num, part.typeId, r.from, r.to, queued, t); if (over) break; queued.push({ kind: "Leave", typeId: part.typeId, from: r.from, to: r.to }); }
+        if (over) break;
+      }
       if (over && !window.confirm(over + "\n\n" + t("Add this leave anyway?", "છતાં આ રજા ઉમેરવી છે?"))) return;
     }
-    const label = selectedType ? selectedType.label : "";
-    setQueue((q) => [...q, { number: num, name: lookupName, kind, typeId, typeLabel: label, runs }]);
-    setJustAdded(`${label} · ${nbRunsText(runs, t)}`);
+    setQueue((q) => [...q, ...parts.map((part) => ({ number: num, name: lookupName, kind, typeId: part.typeId, typeLabel: part.label, runs: part.runs }))]);
+    setJustAdded(parts.map((part) => `${part.label} · ${nbRunsText(part.runs, t)}`).join("  |  "));
     // keep the person; start a fresh type + dates for them
     setTypeId(""); setPicked([]);
     openTypePicker();
@@ -9562,6 +9579,20 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
   const chip = (on) => ({ flex: 1, padding: "7px 0", borderRadius: 20, border: "1px solid " + (on ? "var(--accent-strong)" : "var(--border)"), background: on ? "var(--accent)" : "transparent", color: on ? "var(--accent-text)" : "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" });
   const lbl = { display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 5 };
   const pickedRuns = nbDateRuns(picked);
+  // shown under the dates: which days will go to Public Holiday
+  const casualHolidayNote = (() => {
+    if (kind !== "Leave" || !nbIsCasualLeave(selectedType)) return null;
+    const ph = (data.leaveTypes || []).find(nbIsPublicHoliday);
+    const days = runs.filter((r) => r.to !== null).flatMap((r) => dateRangeStrs(r.from, r.to)).filter(nbIsPublicHolidayDate);
+    if (!days.length) return null;
+    return (
+      <span data-rl-ph-note style={{ display: "block", marginTop: 4, color: "var(--text-secondary)" }}>
+        {ph
+          ? t(`${days.map(formatDMY).join(", ")} will be recorded as ${ph.label} (Sunday / 2nd or 4th Saturday).`, `${days.map(formatDMY).join(", ")} ${ph.label} તરીકે નોંધાશે (રવિવાર / બીજો કે ચોથો શનિવાર).`)
+          : t(`Add a "Public Holiday" leave type in Settings to record ${days.map(formatDMY).join(", ")} as a public holiday.`, `${days.map(formatDMY).join(", ")} ને જાહેર રજા તરીકે નોંધવા સેટિંગ્સમાં "Public Holiday" રજાનો પ્રકાર ઉમેરો.`)}
+      </span>
+    );
+  })();
 
   return (
     <React.Fragment>
@@ -9634,7 +9665,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
                 <div data-rl-picked style={{ fontSize: 12, marginTop: 6, color: picked.length ? "var(--text-primary)" : "var(--text-tertiary)", display: "flex", gap: 8, alignItems: "flex-start" }} className="gu">
                   <span style={{ flex: 1 }}>
                     {picked.length
-                      ? <React.Fragment><b>{t(`${picked.length} ${picked.length === 1 ? "day" : "days"}`, `${picked.length} દિવસ`)}</b>: {nbRunsText(pickedRuns, t)}</React.Fragment>
+                      ? <React.Fragment><b>{t(`${picked.length} ${picked.length === 1 ? "day" : "days"}`, `${picked.length} દિવસ`)}</b>: {nbRunsText(pickedRuns, t)}{casualHolidayNote}</React.Fragment>
                       : t("Tap the dates of the leave — tap again to unselect.", "રજાની તારીખો પર ટૅપ કરો — ફરી ટૅપ કરવાથી નીકળી જશે.")}
                   </span>
                   {picked.length > 0 && <button type="button" onClick={() => setPicked([])} style={{ background: "transparent", border: "none", color: "inherit", fontSize: 12, cursor: "pointer", padding: 0, textDecoration: "none" }} className="gu">{t("Clear", "ખાલી કરો")}</button>}
@@ -9646,6 +9677,7 @@ function RecordLeaveView({ data, setUnavailable, showToast }) {
                 <div style={{ flex: 1 }}>
                   <label style={lbl} className="gu">{t("From – To", "થી – સુધી")}</label>
                   <NbRangeButton from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b); }} style={{ width: "100%", justifyContent: "center", boxSizing: "border-box" }} />
+                  {casualHolidayNote && <div style={{ fontSize: 12, marginTop: 6 }} className="gu">{casualHolidayNote}</div>}
                 </div>
               </div>
             )}
@@ -11238,6 +11270,24 @@ const NB_CL_DAYS = 12;
 function nbIsCasualLeave(lt) {
   return !!lt && (lt.id === "leave1" || /casual|કેઝ્યુઅલ|આકસ્મિક|^\s*c\.?\s*l\.?\s*$/i.test(lt.label || ""));
 }
+// Emergency Leave is not used: never offered as a choice (old records keep their label)
+function nbIsEmergencyLeave(lt) {
+  return !!lt && /emergency|ઇમરજન્સી|ઈમરજન્સી|કટોકટી/i.test(lt.label || "");
+}
+const nbPickableLeaveTypes = (list) => (list || []).filter((lt) => !nbIsEmergencyLeave(lt));
+// Sundays and the 2nd and 4th Saturday of every month are public holidays
+function nbIsPublicHolidayDate(d) {
+  const dt = new Date(d + "T00:00:00");
+  const dow = dt.getDay(), day = dt.getDate();
+  return dow === 0 || (dow === 6 && ((day >= 8 && day <= 14) || (day >= 22 && day <= 28)));
+}
+// Casual Leave dates that fall on a public holiday are recorded as Public Holiday instead.
+// Leave with no end date is left as it is.
+function nbSplitCasualRuns(runs) {
+  const open = runs.filter((r) => r.to === null), cl = [], ph = [];
+  runs.forEach((r) => { if (r.to !== null) dateRangeStrs(r.from, r.to).forEach((d) => (nbIsPublicHolidayDate(d) ? ph : cl).push(d)); });
+  return { cl: [...nbDateRuns(cl), ...open], ph: nbDateRuns(ph) };
+}
 function nbIsPublicHoliday(lt) {
   return !!lt && /public\s*holiday|જાહેર\s*રજા|^\s*p\.?\s*h\.?\s*$/i.test(lt.label || "");
 }
@@ -12692,7 +12742,7 @@ function StaffView({ focusStaffId, editMode, addMode, initialShowImport, onImpor
     }
   };
 
-  const modalTypeList = modalKind === "Leave" ? leaveTypes : outstationTypes;
+  const modalTypeList = modalKind === "Leave" ? nbPickableLeaveTypes(leaveTypes) : outstationTypes;
   const selectedType = modalTypeList.find((mt) => mt.id === modalTypeId);
   const modalIsIndefinite = !!(selectedType && selectedType.indefinite);
 
@@ -14104,7 +14154,7 @@ function NbAwayTypePicker({ data, a, onClose, onPick }) {
   const { t } = useLang();
   useEscToClose(onClose);
   const groups = [
-    ["Leave", t("Leave", "રજા"), data.leaveTypes || DEFAULT_LEAVE_TYPES],
+    ["Leave", t("Leave", "રજા"), nbPickableLeaveTypes(data.leaveTypes || DEFAULT_LEAVE_TYPES)],
     ["Outstation", t("Outstation", "બહારગામ"), data.outstationTypes || DEFAULT_OUTSTATION_TYPES],
   ];
   const rng = a.to ? (a.to !== a.from ? formatDMY(a.from) + " – " + formatDMY(a.to) : formatDMY(a.from)) : formatDMY(a.from) + t(" onwards", " થી");
