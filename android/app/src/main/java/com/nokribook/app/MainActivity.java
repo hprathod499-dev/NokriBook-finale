@@ -74,6 +74,15 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
+                // the developer's site opens in the phone's browser, not inside the app
+                if ("developer.nokribook.in".equalsIgnoreCase(request.getUrl().getHost())) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, request.getUrl()));
+                    } catch (Exception e) {
+                        // no browser: stay in the app
+                    }
+                    return true;
+                }
                 if (url.startsWith("upi:") || url.startsWith("intent:") || url.startsWith("tez:")
                         || url.startsWith("phonepe:") || url.startsWith("paytmmp:") || url.startsWith("credpay:")) {
                     try {
