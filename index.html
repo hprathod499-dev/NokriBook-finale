@@ -11523,7 +11523,7 @@ async function downloadBandobastPdf(data, b) {
   const doc = new jsPDF();
   const FONT_PT = NB_PDF_FONT_PT;
   const L = nbBandobastLayout(data, b);
-  let y = drawPdfHeader(doc, "Nokri Book — Bandobast", data.stationName, data.district);
+  let y = drawPdfHeader(doc, "બંદોબસ્ત", data.stationName, data.district);
   doc.setTextColor(0, 0, 0);
   const line = (txt, size) => {
     if (!txt) return;
@@ -11534,7 +11534,7 @@ async function downloadBandobastPdf(data, b) {
   if (b.title) line(b.title, 12);
   line(nbBandobastWhen(b), 9.5);
   line(b.place, 9.5);
-  line(`${L.usePoint ? L.pointCount + " points · " : ""}${L.total} staff · Generated ${nbPdfStamp()}`, 8.5);
+  line(`${L.usePoint ? "કુલ પોઇન્ટ: " + L.pointCount + " · " : ""}કુલ સ્ટાફ: ${L.total} · તૈયાર કર્યા તા. ${nbPdfStamp()}`, 8.5);
   y += 2;
   const idx = (k) => L.cols.findIndex((c) => c.k === k);
   const pointIdx = idx("point");
@@ -11558,7 +11558,7 @@ async function downloadBandobastPdf(data, b) {
   const raw = (c) => (c && typeof c === "object" ? c.content : c);
   doc.autoTable({
     rowPageBreak: "avoid", startY: y,
-    head: [L.cols.map((c) => c.en)],
+    head: [L.cols.map((c) => c.gu)],
     body: body.length ? body : [L.cols.map((c) => (c.k === "name" ? "—" : ""))],
     theme: "grid",
     styles: { fontSize: FONT_PT, valign: "middle", textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.2, fillColor: [255, 255, 255] },
@@ -11567,10 +11567,19 @@ async function downloadBandobastPdf(data, b) {
     columnStyles: colStyles,
     margin: { left: 14, right: 14, bottom: 16 },
     didParseCell: (h) => {
+      if (h.section === "head") { if (needsImageRender(raw(h.cell.raw))) h.cell.text = [""]; return; }
       if (h.section !== "body" || !needsImageRender(raw(h.cell.raw))) return;
       h.cell.text = h.column.index === pointIdx ? new Array(renderWrappedTextToImage(String(raw(h.cell.raw)), FONT_PT, POINT_W - 2).lineCount).fill(" ") : [];
     },
     didDrawCell: (h) => {
+      if (h.section === "head") {
+        const v = raw(h.cell.raw);
+        if (v == null || v === "" || !needsImageRender(v)) return;
+        const im = renderTextToImage(String(v), FONT_PT);
+        const sc = Math.min((h.cell.height - 1.5) / im.height, (h.cell.width - 2) / im.width, (FONT_PT * 0.3528 * 1.8) / im.height);
+        doc.addImage(im.dataUrl, "PNG", h.cell.x + (h.cell.width - im.width * sc) / 2, h.cell.y + (h.cell.height - im.height * sc) / 2, im.width * sc, im.height * sc);
+        return;
+      }
       if (h.section !== "body") return;
       const v = raw(h.cell.raw);
       if (v == null || v === "" || !needsImageRender(v)) return;
@@ -11634,7 +11643,7 @@ function downloadBandobastDocx(data, b) {
   const blocks = [];
   if (data.stationName) blocks.push({ text: data.stationName, b: true, sz: 30, center: true, after: 0 });
   if (data.district) blocks.push({ text: data.district, center: true, sz: 22 });
-  blocks.push({ text: "બંદોબસ્ત / Bandobast" + (b.title ? ": " + b.title : ""), b: true, sz: 26, center: true });
+  blocks.push({ text: "બંદોબસ્ત" + (b.title ? ": " + b.title : ""), b: true, sz: 26, center: true });
   blocks.push({ text: nbBandobastWhen(b) + (b.place ? " · " + b.place : ""), center: true, sz: 22, after: 200 });
   const W = { sr: 600, point: 2900, desg: 1600, number: 1300, phone: 1500 };
   const fixed = L.cols.filter((c) => c.k !== "name").reduce((n, c) => n + (W[c.k] || 0), 0);
@@ -11646,10 +11655,10 @@ function downloadBandobastDocx(data, b) {
     }
     return { t: r[c.k] == null ? "" : r[c.k], center: c.k === "sr" || c.k === "number" || c.k === "phone" };
   }));
-  blocks.push({ table: true, widths, head: L.cols.map((c) => (c.k === "sr" ? c.gu : `${c.gu} / ${c.en}`)), rows });
+  blocks.push({ table: true, widths, head: L.cols.map((c) => c.gu), rows });
   blocks.push({ text: "", after: 120 });
-  blocks.push({ text: (L.usePoint ? `કુલ પોઇન્ટ / Points: ${L.pointCount}    ` : "") + `કુલ સ્ટાફ / Total staff: ${L.total}`, b: true });
-  nbDeliverBlob(nbDocxFromBlocks(blocks), `nokri-book-bandobast-${b.from || todayStr()}.docx`, "Bandobast" + (b.title ? ": " + b.title : ""));
+  blocks.push({ text: (L.usePoint ? `કુલ પોઇન્ટ: ${L.pointCount}    ` : "") + `કુલ સ્ટાફ: ${L.total}`, b: true });
+  nbDeliverBlob(nbDocxFromBlocks(blocks), `nokri-book-bandobast-${b.from || todayStr()}.docx`, "બંદોબસ્ત" + (b.title ? ": " + b.title : ""));
 }
 const NB_GU_DAYS = ["રવિવાર", "સોમવાર", "મંગળવાર", "બુધવાર", "ગુરુવાર", "શુક્રવાર", "શનિવાર"];
 const NB_EN_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
