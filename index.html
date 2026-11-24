@@ -23755,8 +23755,8 @@ function nbParseUtaraBlocks(blocks) {
   return { entries, month, pending: pendRegs.size ? { ym: pendYM || month, regs: Array.from(pendRegs), keys: Array.from(pendKeys) } : null };
 }
 const NB_FIR_LIB = {
-  pdf: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
-  pdfWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+  pdf: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.min.mjs",
+  pdfWorker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.min.mjs",
   tess: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js",
   tessWorker: "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
   tessCore: "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1",
@@ -23766,8 +23766,7 @@ function nbFirLibs() {
   if (_nbFirLibP) return _nbFirLibP;
   const load = (src) => new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.crossOrigin = "anonymous"; s.onload = res; s.onerror = () => rej(new Error("Could not load " + src)); document.head.appendChild(s); });
   _nbFirLibP = (async () => {
-    if (!window.pdfjsLib) await load(NB_FIR_LIB.pdf);
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = NB_FIR_LIB.pdfWorker;
+    await nbPdfJs();
     if (!window.Tesseract) await load(NB_FIR_LIB.tess);
   })().catch((e) => { _nbFirLibP = null; throw e; });
   return _nbFirLibP;
@@ -23784,7 +23783,7 @@ async function nbFirPdfCells(buf, onStep) {
   if (window.__nbFirCellsForTest) return window.__nbFirCellsForTest;
   await nbFirLibs();
   const pdfjsLib = window.pdfjsLib, OPS = pdfjsLib.OPS;
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+  const pdf = await pdfjsLib.getDocument({ isEvalSupported: false, data: new Uint8Array(buf) }).promise;
   const worker = await nbFirOcrWorker((m) => { if (m && m.status && /load|init/.test(m.status) && onStep) onStep({ stage: "load", p: m.progress || 0 }); });
   const out = [];
   const N = Math.min(pdf.numPages, 8);
@@ -25843,15 +25842,33 @@ function nbCourtRec(c) {
 }
 let _nbPdfJsP = null;
 function nbPdfJs() {
-  if (window.pdfjsLib) { window.pdfjsLib.GlobalWorkerOptions.workerSrc = NB_FIR_LIB.pdfWorker; return Promise.resolve(window.pdfjsLib); }
   if (_nbPdfJsP) return _nbPdfJsP;
-  _nbPdfJsP = new Promise((res, rej) => { const s = document.createElement("script"); s.src = NB_FIR_LIB.pdf; s.crossOrigin = "anonymous"; s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = NB_FIR_LIB.pdfWorker; res(window.pdfjsLib); }; s.onerror = () => { _nbPdfJsP = null; rej(new Error("Could not load " + NB_FIR_LIB.pdf)); }; document.head.appendChild(s); });
+  _nbPdfJsP = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.type = "module";
+    script.crossOrigin = "anonymous";
+    script.src = NB_FIR_LIB.pdf;
+    script.onload = () => {
+      const lib = window.pdfjsLib;
+      if (!lib || lib.version !== "4.10.38") {
+        reject(new Error("Could not initialize the PDF reader"));
+        return;
+      }
+      lib.GlobalWorkerOptions.workerSrc = NB_FIR_LIB.pdfWorker;
+      resolve(lib);
+    };
+    script.onerror = () => reject(new Error("Could not load " + NB_FIR_LIB.pdf));
+    document.head.appendChild(script);
+  }).catch((error) => {
+    _nbPdfJsP = null;
+    throw error;
+  });
   return _nbPdfJsP;
 }
 // Reads an eCourts "disposed cases" PDF (text PDF). Returns null when the PDF is not such a list.
 async function nbCourtFromPdf(buf, onStep) {
   const lib = await nbPdfJs();
-  const pdf = await lib.getDocument({ data: new Uint8Array(buf.slice ? buf.slice(0) : buf) }).promise;
+  const pdf = await lib.getDocument({ isEvalSupported: false, data: new Uint8Array(buf.slice ? buf.slice(0) : buf) }).promise;
   const rows = [];
   for (let pn = 1; pn <= pdf.numPages; pn++) {
     if (onStep) onStep(pn, pdf.numPages);
