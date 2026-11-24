@@ -841,7 +841,6 @@ async function nbEnsureShareKey(ownerUid, token) {
   await ref.set({ owner: ownerUid, key, at: Date.now() });
   return key;
 }
-function nbFv() { return firebase.firestore.FieldValue; }
 // At most this many phones can open a station's share link with the same buckle number (shareSeats/{token}_{num}).
 const NB_SEATS_PER_HEAD = 2;
 function nbSeatsFullMsg(t) {
@@ -860,7 +859,6 @@ function nbBuckleTag(n) { return nbHasBuckle(n) ? "#" + n : ""; }
 function nbBuckleShow(n) { return nbHasBuckle(n) ? n : "—"; }
 // Share-link viewers who aren't signed in to Nokri Book get their own separate (anonymous) Firebase session,
 // so it never mixes with a station login on the same phone.
-let NB_VIEW_FB = null;
 // ---- View-only premium (₹299 a year / ₹30 a month; promo codes from the super admin) ----
 // Off until the payment server (functions/) is deployed with the Razorpay keys. A phone can turn it on
 // for testing with localStorage nb_premium_on = "1".
@@ -946,17 +944,33 @@ async function nbPremiumPay(fb, token, plan, t, promo) {
     rz.open();
   });
 }
-function nbViewFb() {
-  if (!NB_VIEW_FB) {
-    let app = (firebase.apps || []).find((a) => a.name === "nbview");
-    if (!app) {
-      app = firebase.initializeApp(window.FIREBASE_CONFIG, "nbview");
-      // this separate session needs its own App Check too, or Firebase turns every request down
-      try { (app.appCheck ? app.appCheck() : firebase.appCheck(app)).activate("6LdkZn4tAAAAAC3uwWyQCKEKpGCUvy3T73bys-l2", true); } catch (e) { console.warn("view appcheck", e); }
-    }
-    NB_VIEW_FB = { auth: app.auth(), db: app.firestore() };
+function nbViewFb(name = "nbview") {
+  let app = firebase.apps.find(a => a.name === name);
+  if (!app) {
+    app = firebase.initializeApp(window.FIREBASE_CONFIG, name);
+    app.appCheck().activate("6LdkZn4tAAAAAC3uwWyQCKEKpGCUvy3T73bys-l2", true);
   }
-  return NB_VIEW_FB;
+  return { auth: app.auth(), db: app.firestore() };
+}
+async function nbVerifyCode(fb, payload) {
+  const current = await new Promise((resolve, reject) => {
+    const off = fb.auth.onAuthStateChanged(u => { off(); resolve(u); }, reject);
+  });
+  const user = current || (await fb.auth.signInAnonymously()).user;
+  const [id, check] = await Promise.all([user.getIdToken(), fb.auth.app.appCheck().getToken()]);
+  const url = "https://asia-south1-" + window.FIREBASE_CONFIG.projectId + ".cloudfunctions.net/nbVerifyCode";
+  const res = await fetch(url, { method: "POST", headers: {
+    "Content-Type": "application/json", Authorization: "Bearer " + id, "X-Firebase-AppCheck": check.token
+  }, body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw Object.assign(new Error("Code verification failed"), { nb: detail.reason || "net", retryMs: detail.retryMs || 0 });
+  }
+  return user;
+}
+function nbRetryText(ms, t) {
+  const minutes = Math.max(1, Math.ceil(ms / 60000));
+  return t(`Too many incorrect entries. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`, `ઘણા ખોટા પ્રયાસ થયા. ${minutes} મિનિટ પછી ફરી પ્રયાસ કરો.`);
 }
 function nbNewShareToken() {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -4224,28 +4238,13 @@ async function nbEmailHash(email) {
 }
 function nbCleanCode(raw) { return String(raw || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, ""); }
 async function nbLoginWithCode(email, rawCode) {
-  const fail = (k) => { const e = new Error(k); e.nb = k; return e; };
-  const code = nbCleanCode(rawCode);
-  if (!String(email || "").trim()) throw fail("nomatch");
-  if (code.length < 8) throw fail("short");
-  let snap;
-  try { snap = await db.collection("codeLogins").doc(code).get(); } catch (e) { console.warn("code lookup:", e && e.code); throw fail("net"); }
-  if (!snap.exists) throw fail("nomatch");
-  const d = snap.data();
-  const h = await nbEmailHash(email);
-  if (d.emailHash !== h) throw fail("nomatch");
-  let cred;
-  try { cred = await auth.signInAnonymously(); }
-  catch (e) { console.error(e); throw fail(e && /operation-not-allowed|admin-restricted/.test(e.code || "") ? "disabled" : "net"); }
-  try {
-    await db.collection("stationMembers").doc(cred.user.uid).set({ owner: d.owner, via: "code", code, emailHash: h, name: String(d.label || "").slice(0, 80), joinedAt: Date.now() });
-  } catch (e) {
-    console.error(e);
-    try { await cred.user.delete(); } catch (e2) { try { await auth.signOut(); } catch (e3) {} }
-    throw fail("net");
-  }
+  const fb = nbViewFb("nbstationlogin");
+  const user = await nbVerifyCode(fb, { kind: "station", code: nbCleanCode(rawCode), emailHash: await nbEmailHash(email) });
+  await auth.updateCurrentUser(user);
+  await fb.auth.signOut().catch(e => console.warn("Code session cleanup", e.code));
 }
 function nbCodeLoginErrMsg(err, t) {
+  if (err && err.retryMs) return nbRetryText(err.retryMs, t);
   const k = err && err.nb;
   if (k === "short") return t("Enter the full 8-character login code.", "પૂરો ૮ અક્ષરનો લોગિન કોડ નાખો.");
   if (k === "nomatch") return t("Email and login code don't match. Check both, or ask your station for the current code.", "ઇમેઇલ અને લોગિન કોડ મેળ ખાતા નથી. બંને તપાસો, અથવા સ્ટેશન પાસેથી હાલનો કોડ મેળવો.");
@@ -5061,14 +5060,15 @@ function SignInScreen() {
     if (authAction === "signup" && NB_SIGNUPS_CLOSED) { setError(nbSignupsClosedMsg(t)); return; }
     if (authAction === "signin" && /^[A-Za-z0-9]{8}$/.test(password.trim())) {
       setBusy(true);
-      nbLoginWithCode(email, password)
-        .then(() => setBusy(false))
-        .catch((err) => {
-          if (err && err.nb === "disabled") { setError(nbCodeLoginErrMsg(err, t)); setBusy(false); return; }
-          auth.signInWithEmailAndPassword(email.trim(), password)
-            .catch((e2) => { console.error(e2); setError(mapAuthError(e2, t)); })
-            .finally(() => setBusy(false));
-        });
+      // A real eight-character account password should never consume a station-code attempt.
+      auth.signInWithEmailAndPassword(email.trim(), password)
+        .catch(err => {
+          const tryCode = ["auth/user-not-found", "auth/wrong-password", "auth/invalid-credential", "auth/too-many-requests", "auth/operation-not-allowed"];
+          if (!tryCode.includes(err.code)) throw err;
+          return nbLoginWithCode(email, password);
+        })
+        .catch(err => setError(err.nb || err.retryMs ? nbCodeLoginErrMsg(err, t) : mapAuthError(err, t)))
+        .finally(() => setBusy(false));
       return;
     }
     setBusy(true);
@@ -6254,9 +6254,9 @@ function DutyRoster() {
   useEffect(() => {
     if (!data || !accountUid || memberRef.current) return;
     if (data.stationApprovalStatus !== "pending" || data.blocked) return;
-    const requestedAt = data.stationRequestedAt ? new Date(data.stationRequestedAt).getTime() : null;
-    if (requestedAt && (Date.now() - requestedAt) > 5 * 24 * 60 * 60 * 1000) {
-      writeToFirestore({ ...dataRef.current, blocked: true });
+    const requestedAt = data.stationRequestedAtMs || (data.stationRequestedAt ? new Date(data.stationRequestedAt).getTime() : null);
+    if (requestedAt && (Date.now() - requestedAt) >= 5 * 24 * 60 * 60 * 1000) {
+      accountDocRef(accountUid).update({ blocked: true }).catch(e => console.warn("Approval deadline", e.code));
     }
   }, [data, accountUid]);
 
@@ -15604,7 +15604,7 @@ function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, staff, station
         const c = await nbShareCodeFor(key, nbSharePeriod());
         if (alive) { setCode(c); setNow(Date.now()); }
       } catch (e) { console.warn("share code", e); if (alive) setCode(""); }
-      try { const ts = await db.collection("shareTries").doc(shareToken).get(); if (alive) setTries(ts.exists && ts.data().p === nbSharePeriod() ? ts.data().fails || 0 : 0); } catch (e) { if (alive) setTries(null); }
+      try { const ts = await db.collection("shareTries").doc(shareToken).get(); if (alive) setTries(ts.exists ? ts.data()["p" + nbSharePeriod()] || 0 : 0); } catch (e) { if (alive) setTries(null); }
     };
     load();
     const iv = setInterval(load, 60000);
@@ -15684,80 +15684,39 @@ function SharePanel({ enabled, getShareUrl, shareToken, ownerUid, staff, station
 function ShareCodeGate({ token, fb, onUnlocked }) {
   const { t, lang, setLang } = useLang();
   const [step, setStep] = useState("num");
-  // counted like a code try (so numbers can't be guessed quickly), then Firebase checks it is on this station's staff list
-  const checkNum = async () => {
-    const bn = nbShareNum(num);
-    if (!bn) { setMsg(["err", t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.")]); return; }
-    setBusy(true); setMsg(null); setDbg("");
-    try {
-      const vAuth = (fb && fb.auth) || auth, vDb = (fb && fb.db) || db;
-      let u = vAuth.currentUser;
-      if (!u) u = (await vAuth.signInAnonymously()).user;
-      const uid = u.uid, FV = nbFv(), ref = vDb.collection("shareTries").doc(token);
-      const base = { last: FV.serverTimestamp(), uid, gh: await nbSha256Hex("N|" + bn + "|" + uid), p: nbSharePeriod() };
-      let counted = false;
-      try { await ref.update({ ...base, fails: FV.increment(1) }); counted = true; } catch (e1) {
-        try { await ref.set({ ...base, fails: 1 }); counted = true; } catch (e2) { setDbg("1:" + ((e2 && e2.code) || "x")); }
-      }
-      if (!counted) { setMsg(["wait", t("Too many tries. Please wait a while and try again.", "ઘણા પ્રયાસ થયા. થોડી વાર રાહ જોઈ ફરી પ્રયાસ કરો.")]); setBusy(false); return; }
-      try {
-        await vDb.collection("shareNumChecks").doc(uid + "_" + token).set({ uid, token, num: bn, at: FV.serverTimestamp() });
-      } catch (e3) {
-        setDbg("2:" + ((e3 && e3.code) || "x"));
-        setMsg(["err", t("This number is not on this police station's staff list.", "આ નંબર આ પોલીસ સ્ટેશનની સ્ટાફ યાદીમાં નથી.")]); setBusy(false); return;
-      }
-      try {
-        const seat = await vDb.collection("shareSeats").doc(token + "_" + bn).get();
-        const su = (seat.exists && Array.isArray(seat.data().uids)) ? seat.data().uids : [];
-        if (su.length >= NB_SEATS_PER_HEAD && su.indexOf(uid) === -1) { setMsg(["err", nbSeatsFullMsg(t)]); setBusy(false); return; }
-      } catch (e4) { setDbg("3:" + ((e4 && e4.code) || "x")); }
-      setStep("code"); setCode("");
-    } catch (e) {
-      setDbg("0:" + ((e && e.code) || (e && e.message) || "x"));
-      setMsg(["err", t("No internet connection? Please try again.", "ઇન્ટરનેટ ચાલુ છે? ફરી પ્રયાસ કરો.")]);
-    }
-    setBusy(false);
-  };
   const [num, setNum] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const [msg, setMsg] = useState(null);
-  const [dbg, setDbg] = useState("");
-  const submit = async () => {
-    const c = nbAsciiDigits(code).replace(/\D/g, "");
+  const send = async (kind) => {
+    if (inFlight.current) return;
     const bn = nbShareNum(num);
-    if (!bn) { setStep("num"); setMsg(["err", t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.")]); return; }
-    if (c.length !== 6) { setMsg(["err", t("Enter the 6-digit code.", "૬ આંકડાનો કોડ લખો.")]); return; }
-    setBusy(true); setMsg(null); setDbg("");
-    try {
-      const vAuth = (fb && fb.auth) || auth, vDb = (fb && fb.db) || db;
-      let u = vAuth.currentUser;
-      if (!u) u = (await vAuth.signInAnonymously()).user;
-      const uid = u.uid, gh = await nbSha256Hex(c + "|" + bn + "|" + uid), p = nbSharePeriod();
-      const ref = vDb.collection("shareTries").doc(token), FV = nbFv();
-      const base = { last: FV.serverTimestamp(), uid, gh, p };
-      let counted = false, errCode = "";
-      try { await ref.update({ ...base, fails: FV.increment(1) }); counted = true; } catch (e1) {
-        try { await ref.set({ ...base, fails: 1 }); counted = true; } catch (e2) { counted = false; errCode = "1:" + ((e2 && e2.code) || "x"); }
-      }
-      if (!counted) { setDbg(errCode); setMsg(["wait", t("Too many tries. Please wait a while and try again (the wait gets longer with each wrong code).", "ઘણા પ્રયાસ થયા. થોડી વાર રાહ જોઈ ફરી પ્રયાસ કરો (દરેક ખોટા કોડ પછી રાહ વધતી જાય છે).")]); setBusy(false); return; }
-      const seatRef = vDb.collection("shareSeats").doc(token + "_" + bn);
-      let su = null;
-      try { const seat = await seatRef.get(); su = (seat.exists && Array.isArray(seat.data().uids)) ? seat.data().uids : []; } catch (e5) { su = []; }
-      if (su.length >= NB_SEATS_PER_HEAD && su.indexOf(uid) === -1) { setMsg(["err", nbSeatsFullMsg(t)]); setBusy(false); return; }
-      const batch = vDb.batch();
-      if (su.indexOf(uid) === -1) batch.set(seatRef, { token, num: bn, uids: su.concat([uid]) });
-      batch.set(vDb.collection("shareGrants").doc(uid + "_" + token), { uid, token, code: c, num: bn, s2: true, at: FV.serverTimestamp() });
-      batch.update(ref, { fails: 0 });
-      try { await batch.commit(); } catch (e3) { errCode = "2:" + ((e3 && e3.code) || "x"); setDbg(errCode); setMsg(["err", t("Number or code is not right. Check both and try again.", "નંબર અથવા કોડ સાચો નથી. બંને તપાસી ફરી પ્રયાસ કરો.")]); setCode(""); setBusy(false); return; }
-      try { localStorage.setItem("nb_view_me_" + token, bn); } catch (e6) {}
-      onUnlocked(bn);
-    } catch (e) {
-      console.warn("share code", e); errCode = "0:" + ((e && e.code) || (e && e.message) || "x"); setDbg(errCode);
-      setMsg(["err", /operation-not-allowed|admin-restricted/.test((e && e.code) || "") ? t("Viewing by code isn't switched on yet. Please tell the station.", "કોડથી જોવાનું હજુ ચાલુ થયું નથી. સ્ટેશનને જણાવો.") : t("No internet connection? Please try again.", "ઇન્ટરનેટ ચાલુ છે? ફરી પ્રયાસ કરો.")]);
+    const c = nbAsciiDigits(code);
+    if (!bn || (kind === "share" && !/^[0-9]{6}$/.test(c))) {
+      setMsg(["err", !bn ? t("Enter your buckle number or mobile number.", "તમારો બકલ નંબર અથવા મોબાઈલ નંબર લખો.") : t("Enter the 6-digit code.", "૬ આંકડાનો કોડ લખો.")]);
+      return;
     }
-    setBusy(false);
+    inFlight.current = true; setBusy(true); setMsg(null);
+    try {
+      await nbVerifyCode(fb || nbViewFb(), { kind, token, num: bn, ...(kind === "share" ? { code: c } : {}) });
+      if (kind === "number") { setStep("code"); setCode(""); }
+      else {
+        try { localStorage.setItem("nb_view_me_" + token, bn); } catch {}
+        onUnlocked(bn);
+      }
+    } catch (err) {
+      let message = t("Could not verify. Check your connection and try again.", "ચકાસણી થઈ શકી નથી. જોડાણ તપાસી ફરી પ્રયાસ કરો.");
+      if (err.retryMs) message = nbRetryText(err.retryMs, t);
+      else if (err.nb === "seats") message = nbSeatsFullMsg(t);
+      else if (err.nb === "inactive") message = t("This share link is no longer active.", "આ શેર લિંક હવે ચાલુ નથી.");
+      else if (err.nb === "nomatch") message = kind === "number" ? t("This number is not on the staff list.", "આ નંબર સ્ટાફ યાદીમાં નથી.") : t("Incorrect share code. Try again.", "શેર કોડ ખોટો છે. ફરી પ્રયાસ કરો.");
+      setMsg([err.retryMs ? "wait" : "err", message]);
+      if (kind === "share" && err.nb === "nomatch") setCode("");
+    } finally { inFlight.current = false; setBusy(false); }
   };
+  const checkNum = () => send("number");
+  const submit = () => send("share");
   const tog = (on) => ({ border: "1px solid var(--border)", borderRadius: 8, padding: "5px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", background: on ? "var(--btn-dark-bg)" : "var(--bg-surface)", color: on ? "#fff" : "var(--text-primary)" });
   return (
     <div data-share-gate style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, boxSizing: "border-box", background: "var(--bg-page)" }}>
@@ -15792,7 +15751,6 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
           </React.Fragment>
         )}
         {msg && <div role="alert" data-gate-msg={msg[0]} style={{ marginTop: 8, fontSize: 12.5, color: msg[0] === "err" ? "var(--status-error-text)" : "var(--status-warning-text, #b7791f)" }}>{msg[1]}</div>}
-        {msg && dbg && <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-secondary)", opacity: 0.7 }} className="mono">{dbg}</div>}
         <button type="button" onClick={() => { if (step === "num") checkNum(); else submit(); }} disabled={busy} data-gate-submit style={{ marginTop: 12, width: "100%", border: "none", borderRadius: 10, padding: "11px 14px", fontSize: 15, fontWeight: 700, background: "var(--btn-dark-bg)", color: "#fff", cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "…" : step === "num" ? t("Next →", "આગળ →") : t("Open the roster", "રોસ્ટર ખોલો")}</button>
       </div>
     </div>

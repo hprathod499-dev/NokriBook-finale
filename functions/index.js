@@ -179,3 +179,25 @@ exports.nbPremium = onRequest({ region: "asia-south1", cors: true, maxInstances:
     return res.status(e.http || 500).json({ error: e.http ? e.message : "server error" });
   }
 });
+
+const { verifyCode } = require("./codes");
+exports.nbVerifyCode = onRequest({ region: "asia-south1", cors: true }, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (req.method !== "POST") return res.sendStatus(405);
+  const bearer = (req.get("authorization") || "").match(/^Bearer (.+)$/);
+  if (!bearer || !req.get("X-Firebase-AppCheck")) return res.sendStatus(401);
+  let user;
+  try {
+    [user] = await Promise.all([
+      admin.auth().verifyIdToken(bearer[1]),
+      admin.appCheck().verifyToken(req.get("X-Firebase-AppCheck")),
+    ]);
+  } catch { return res.sendStatus(401); }
+  if (user.firebase?.sign_in_provider !== "anonymous") return res.sendStatus(403);
+  try {
+    const result = await verifyCode(db, user.uid, req.body || {});
+    return res.status(result.status).json(result);
+  } catch {
+    return res.status(503).json({ reason: "unavailable" });
+  }
+});
