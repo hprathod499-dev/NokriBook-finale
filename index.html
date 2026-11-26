@@ -16595,6 +16595,8 @@ function AboutPanel({ onClose }) {
         <button onClick={onClose} title={t("Close", "બંધ કરો")} aria-label={t("Close", "બંધ કરો")}
           style={{ position: "absolute", top: 10, right: 12, background: "transparent", border: "none", color: "var(--text-tertiary)", fontSize: 15 }}>✕</button>
 
+        <a href="https://developer.nokribook.in" target="_blank" rel="noopener" data-dev-credit title={t("Open developer.nokribook.in", "developer.nokribook.in ખોલો")}
+          style={{ display: "block", color: "inherit", textDecoration: "none", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
         <div style={{
           width: 64, height: 64, margin: "0 auto 14px", borderRadius: 16,
           overflow: "hidden", boxShadow: "0 6px 16px rgba(0,0,0,0.3)",
@@ -16622,7 +16624,7 @@ function AboutPanel({ onClose }) {
 
         <div className="disp gu" style={{ fontSize: 14.5, fontWeight: 700, lineHeight: 1.5, color: "var(--text-primary)", letterSpacing: 0.2 }}>
           {t("TESTED AND DEVELOPED BY", "પરીક્ષણ અને વિકાસ કરનાર")}<br />
-          <a href="https://developer.nokribook.in" target="_blank" rel="noopener" data-dev-credit title={t("Open developer.nokribook.in", "developer.nokribook.in ખોલો")} style={{ color: "inherit", textDecoration: "none" }}><span style={{ color: "var(--accent-strong)", fontSize: 16 }} className="gu">{t("HARSHVARDHAN RATHOD P.", "હર્ષવર્ધન રાઠોડ પી.")}</span></a>
+          <span style={{ color: "var(--accent-strong)", fontSize: 16 }} className="gu">{t("HARSHVARDHAN RATHOD P.", "હર્ષવર્ધન રાઠોડ પી.")}</span>
         </div>
         <div className="gu" style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 6, fontWeight: 600 }}>
           {t("(CLASS-10 STUDENT)", "(ધોરણ-૧૦ નો વિદ્યાર્થી)")}
@@ -16633,6 +16635,7 @@ function AboutPanel({ onClose }) {
         <div className="mono" style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 10, letterSpacing: 0.5 }}>
           YEAR : AUGUST 2026
         </div>
+        </a>
       </div>
     </div>
   );
