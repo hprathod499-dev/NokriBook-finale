@@ -15765,6 +15765,8 @@ function ShareCodeGate({ token, fb, onUnlocked }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 6 }} role="group" aria-label="Language / ભાષા">
           <button type="button" onClick={() => setLang("en")} style={tog(lang !== "gu")} data-gate-en>EN</button>
           <button type="button" onClick={() => setLang("gu")} style={tog(lang === "gu")} data-gate-gu>ગુ</button>
+          <button type="button" data-gate-signin onClick={() => { try { window.location.assign(window.location.origin + "/"); } catch (e) { window.location.href = "/"; } }}
+            title={t("Back to sign in", "સાઇન ઇન પર પાછા જાઓ")} style={{ ...tog(false), marginLeft: 4 }}>{t("← Sign in", "← સાઇન ઇન")}</button>
         </div>
         <div style={{ fontSize: 30, textAlign: "center" }} aria-hidden="true">🔐</div>
         {step === "num" ? (
